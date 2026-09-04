@@ -17,6 +17,9 @@
 import { getStore } from '@netlify/blobs';
 import { keySafe, normalizeEmail } from './auth.mjs';
 import { createHash } from 'node:crypto';
+// The staff roster comes from Postgres, not the profiles blob store —
+// see listRepsPublic for why.
+import { db } from './supabase-db.mjs';
 
 /**
  * A genuinely opaque id for a staff member. Deploy 236.874.
@@ -90,49 +93,63 @@ export async function getRep(email) {
  * contact sheet, and this endpoint is reachable by anyone mid-signup.
  */
 export async function listRepsPublic() {
+  // Deploy 236.876 — get the ROSTER from Postgres, then read only those
+  // profiles by key.
+  //
+  // Walking the profiles store is not survivable here, parallel or not:
+  // that store holds a blob for every account that has ever signed in
+  // (borrowers included), and listing + reading it takes ~40 SECONDS on
+  // live data. /api/users-directory has the same problem and the same
+  // timing — this is not a regression I introduced, it's why this
+  // function can't be built that way. The signup page hung on it.
+  //
+  // public.sla_user_roles is the authoritative roster (the access-token
+  // hook reads it, and every role write syncs it since 236.826). It has
+  // tens of rows, not thousands, so: one small query, then ~20 keyed
+  // reads instead of an unbounded scan.
   const out = [];
   try {
+    const rows = await db.select('sla_user_roles', { select: 'email,roles', limit: 500 });
+    const staff = (rows || []).filter((r) => {
+      const roles = (Array.isArray(r.roles) ? r.roles : []).map((x) => String(x).toLowerCase());
+      // A broker is never somebody's rep.
+      if (roles.includes('broker')) return false;
+      return !roles.length || roles.some((x) => REP_ROLES.includes(x));
+    });
     const store = _profiles();
-    const { blobs } = await store.list();
-    // Deploy 236.875 — READ IN PARALLEL. The sequential version took 41s
-    // against the live profiles store (one network round-trip per blob,
-    // and that store holds every account that has ever signed in, not
-    // just staff), which made the signup page look broken. Mirrors the
-    // Promise.all in users-directory.mjs.
-    const profiles = await Promise.all(
-      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
-    );
+    const profiles = await Promise.all(staff.map((r) =>
+      store.get(keySafe(normalizeEmail(r.email)), { type: 'json' })
+        .catch(() => null)
+        .then((p) => p || { email: r.email })));
     for (const p of profiles) {
       if (!p || !p.email) continue;
-      const roles = rolesOf(p).map((r) => String(r).toLowerCase());
-      // A profile with no roles at all is a legacy/seeded record; treat it
-      // as staff, since every real SLA login lands in this store.
-      const eligible = !roles.length || roles.some((r) => REP_ROLES.includes(r));
-      if (!eligible) continue;
       const name = nameOf(p);
       if (!name) continue; // don't offer a nameless option
       out.push({ id: repId(p.email), name });
     }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
   } catch (err) {
-    console.warn('[sla-rep] list failed:', err && err.message);
+    console.warn('[sla-rep] roster query failed:', err && err.message);
+    return out; // empty — the caller falls back to the admin-set rep
   }
-  out.sort((a, b) => a.name.localeCompare(b.name));
-  return out;
 }
 
-/** Resolve an opaque rep id from listRepsPublic back to an email. */
+/**
+ * Resolve an opaque rep id from listRepsPublic back to an email.
+ *
+ * Built from the SAME roster the picker was, so an id that appeared in the
+ * dropdown always resolves — and this never walks the profiles store
+ * either (see the note in listRepsPublic).
+ */
 export async function repEmailFromId(id) {
   const want = String(id || '').trim();
   if (!want) return '';
   try {
-    const store = _profiles();
-    const { blobs } = await store.list();
-    const profiles = await Promise.all(
-      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
-    );
-    for (const p of profiles) {
-      if (!p || !p.email) continue;
-      if (repId(p.email) === want) return normalizeEmail(p.email);
+    const rows = await db.select('sla_user_roles', { select: 'email', limit: 500 });
+    for (const r of rows || []) {
+      const e = normalizeEmail(r.email);
+      if (e && repId(e) === want) return e;
     }
   } catch (err) {
     console.warn('[sla-rep] id resolve failed:', err && err.message);
