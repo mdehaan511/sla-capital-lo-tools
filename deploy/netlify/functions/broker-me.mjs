@@ -22,6 +22,9 @@ import {
 } from './_shared/auth.mjs';
 import { isBrokerRole } from './_shared/access.mjs';
 import { getPartner, checkPartnerAccess, ALL_PROGRAMS } from './_shared/broker-partners.mjs';
+// Deploy 236.870 — "Your Sir Lends A Lot Rep". Resolved server-side so a
+// broker only ever learns about THEIR OWN rep, never the staff roster.
+import { getRep } from './_shared/sla-rep.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -31,8 +34,11 @@ export default async (req, context) => {
   }
 };
 
-function shape(mode, email, p) {
+async function shape(mode, email, p) {
+  // The rep is the LO who owns the relationship — partner.ownerKey.
+  const rep = (p && p.ownerKey) ? await getRep(p.ownerKey) : null;
   return {
+    rep,
     ok: true,
     mode,
     email,
@@ -62,9 +68,9 @@ async function handle(req, context) {
     if (as) {
       const p = await getPartner(as);
       if (!p) return json(404, { error: 'No partner record for ' + as });
-      return json(200, Object.assign(shape('admin-preview', as, p), { previewOf: as }));
+      return json(200, Object.assign(await shape('admin-preview', as, p), { previewOf: as }));
     }
-    return json(200, shape('admin-preview', me, null));
+    return json(200, await shape('admin-preview', me, null));
   }
 
   if (!isBrokerRole(user)) {
@@ -73,5 +79,5 @@ async function handle(req, context) {
   const access = await checkPartnerAccess(me);
   if (!access.ok) return json(403, { error: access.reason, code: 'partner_not_approved' });
 
-  return json(200, shape('partner', me, access.partner));
+  return json(200, await shape('partner', me, access.partner));
 }

@@ -44,6 +44,8 @@ import { recordPricing } from './_shared/broker-activity.mjs';
 // pre-check; checkPartnerAccess is the authority.
 import { isBrokerRole } from './_shared/access.mjs';
 import { checkPartnerAccess } from './_shared/broker-partners.mjs';
+// Deploy 236.870 — every Get Pricing is saved to the broker's history.
+import { saveQuote, trimHistory } from './_shared/broker-quotes.mjs';
 
 // Anti-enumeration layer 3. A broker genuinely working deals prices
 // 10-30 scenarios a day; sustained traffic above this is a signal, not a
@@ -186,6 +188,30 @@ async function handle(req, context) {
   if (!priced.ok) return json(422, { error: priced.error });
 
   const quoteId = genQuoteId();
+
+  // ── History (Deploy 236.870, Mike: every Get Pricing is saved) ────
+  // Saved for the broker AND for us, declines included — "I priced this
+  // and it didn't fit" is history both sides want. Stores the exact
+  // inputs and the effective date so the quote can be reproduced rather
+  // than re-derived from today's sheet. Awaited, because a broker
+  // clicking straight into their history must find it there; the
+  // retention trim is not.
+  await saveQuote({
+    quoteId,
+    brokerEmail:   asBroker,
+    ownerKey:      (effectivePartner && effectivePartner.ownerKey) || '',
+    program,
+    programLabel:  priced.programLabel,
+    address:       body.address || '',
+    effectiveDate: priced.effectiveDate,
+    declined:      !!priced.declined,
+    reason:        priced.reason || '',
+    inputs,
+    result:        priced.result,
+    fee:           priced.fee,
+    allIn:         priced.allIn,
+  });
+  trimHistory(asBroker).catch(function () {});
 
   // ── Activity ────────────────────────────────────────────────────
   // Best-effort: a broker gets their quote even if the write blips.

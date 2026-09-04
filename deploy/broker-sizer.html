@@ -102,6 +102,27 @@
 
     .foot { margin-top:14px; font-size:11.5px; color:var(--muted); line-height:1.6; }
     .foot code { font-family:'DM Mono',monospace; font-size:11px; }
+
+    /* Right column stack: rep, pricing, history. */
+    .rightcol { display:flex; flex-direction:column; gap:16px; }
+    .repcard .card-body { padding:14px 18px; }
+    .rep-name { font-family:'Lora',serif; font-size:18px; font-weight:600; color:var(--dark); }
+    .rep-line { font-size:13px; color:var(--muted); margin-top:3px; }
+    .rep-line a { color:var(--gold-mid); text-decoration:none; }
+    .rep-line a:hover { text-decoration:underline; }
+
+    /* History — grouped by property so twelve scenarios on one address
+       read as one deal you worked, not twelve unrelated rows. */
+    .hgroup { border-bottom:1px solid var(--border); }
+    .hgroup:last-child { border-bottom:none; }
+    .hgroup-h { padding:10px 18px 4px; font-size:12.5px; font-weight:600; color:var(--dark); }
+    .hrow { display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+      padding:7px 18px; font-size:12.5px; cursor:pointer; border-left:3px solid transparent; }
+    .hrow:hover { background:#faf8f3; border-left-color:var(--gold); }
+    .hrow .hl { color:var(--muted); }
+    .hrow .hr { font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap; }
+    .hrow.dec .hr { color:var(--warn); font-weight:400; font-style:italic; }
+    .hist-scroll { max-height:340px; overflow-y:auto; }
   </style>
 </head>
 <body>
@@ -136,9 +157,25 @@
           </div>
         </div>
 
-        <div class="card" id="resCard">
-          <div class="card-head"><h2>Pricing</h2></div>
-          <div class="res-empty" id="resBody">Fill in the scenario and choose <strong>Get Pricing</strong>.<br>Every quote is indicative until your loan officer confirms it.</div>
+        <div class="rightcol">
+          <!-- Deploy 236.870 (Mike) — the broker's named contact at SLA.
+               Resolved server-side from their partner record's ownerKey,
+               so a broker only ever sees THEIR rep. -->
+          <div class="card repcard" id="repCard" style="display:none">
+            <div class="card-head"><h2>Your Sir Lends A Lot Rep</h2></div>
+            <div class="card-body" id="repBody"></div>
+          </div>
+
+          <div class="card" id="resCard">
+            <div class="card-head"><h2>Pricing</h2></div>
+            <div class="res-empty" id="resBody">Fill in the scenario and choose <strong>Get Pricing</strong>.<br>Every quote is indicative until your loan officer confirms it.</div>
+          </div>
+
+          <!-- Every Get Pricing is saved here automatically. -->
+          <div class="card" id="histCard">
+            <div class="card-head"><h2>Your Quote History</h2><span class="eff" id="histCount"></span></div>
+            <div id="histBody"><div class="res-empty" style="padding:22px">Loading…</div></div>
+          </div>
         </div>
       </div>
       <div class="foot" id="foot"></div>
@@ -227,8 +264,10 @@ var PROGRAMS = {
       document.getElementById('auth-gate').style.display='none';
       document.getElementById('app').style.display='block';
       renderWho();
+      renderRep();
       renderTabs();
       selectProgram(ME.programs[0]);
+      loadHistory();
     });
   }).catch(function(e){
     document.getElementById('auth-gate').innerHTML =
@@ -252,6 +291,93 @@ function renderWho(){
     document.getElementById('feeHint').textContent =
       'Added on top of SLA’s pricing — our rate and points don’t change. Your account is capped at ' + cap + ' points.';
   }
+}
+
+// ── Your Sir Lends A Lot Rep ─────────────────────────────────────
+function renderRep(){
+  var r = ME.rep;
+  var card = document.getElementById('repCard');
+  if (!r || (!r.name && !r.email)) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  var html = '<div class="rep-name">' + escH(r.name || r.email) + '</div>';
+  if (r.email) html += '<div class="rep-line"><a href="mailto:'+escH(r.email)+'">'+escH(r.email)+'</a></div>';
+  if (r.phone) html += '<div class="rep-line"><a href="tel:'+escH(r.phone.replace(/[^0-9+]/g,''))+'">'+escH(r.phone)+'</a></div>';
+  html += '<div class="rep-line" style="margin-top:8px">They confirm your quotes and take your deals from here.</div>';
+  document.getElementById('repBody').innerHTML = html;
+}
+
+// ── Quote history ────────────────────────────────────────────────
+// Saved automatically on every Get Pricing. Grouped by property, because
+// a broker works a DEAL, not a list of calculations.
+function loadHistory(){
+  var q = ME.previewOf ? '?broker=' + encodeURIComponent(ME.previewOf) : '';
+  SLA.api('GET', '/api/broker-quotes' + q).then(function(r){
+    renderHistory((r && r.quotes) || []);
+  }).catch(function(){
+    document.getElementById('histBody').innerHTML =
+      '<div class="res-empty" style="padding:22px">Could not load your history.</div>';
+  });
+}
+
+function renderHistory(quotes){
+  document.getElementById('histCount').textContent =
+    quotes.length ? quotes.length + (quotes.length === 1 ? ' quote' : ' quotes') : '';
+  if (!quotes.length) {
+    document.getElementById('histBody').innerHTML =
+      '<div class="res-empty" style="padding:22px">Nothing yet. Every quote you run is saved here automatically.</div>';
+    return;
+  }
+  var byAddr = {}, order = [];
+  quotes.forEach(function(q){
+    var a = q.address || '(no property)';
+    if (!byAddr[a]) { byAddr[a] = []; order.push(a); }
+    byAddr[a].push(q);
+  });
+  var html = '<div class="hist-scroll">';
+  order.forEach(function(a){
+    html += '<div class="hgroup"><div class="hgroup-h">' + escH(a) + '</div>';
+    byAddr[a].forEach(function(q){
+      var right = q.declined ? 'didn’t fit'
+        : pct(q.fee && q.fee.slaRate) + ' · ' + ((q.allIn && q.allIn.points) || 0).toFixed(2) + ' pts';
+      html += '<div class="hrow' + (q.declined ? ' dec' : '') + '" onclick="reloadQuote(\'' + escH(q.quoteId) + '\')" title="Load this scenario back into the form">' +
+        '<span class="hl">' + escH(q.programLabel || q.program) + ' · ' + escH(shortWhen(q.createdAt)) + '</span>' +
+        '<span class="hr">' + right + '</span></div>';
+    });
+    html += '</div>';
+  });
+  document.getElementById('histBody').innerHTML = html + '</div>';
+}
+
+function shortWhen(iso){
+  if (!iso) return '';
+  var d = new Date(iso); if (isNaN(d)) return '';
+  var today = new Date();
+  var sameDay = d.toDateString() === today.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})
+    : d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+}
+
+// Put a saved scenario back in the form, exactly as it was priced. Does
+// NOT re-price — the broker sees what they ran, then chooses to run it
+// again if they want today's number.
+function reloadQuote(id){
+  var q = ME.previewOf ? '?broker=' + encodeURIComponent(ME.previewOf) + '&id=' : '?id=';
+  SLA.api('GET','/api/broker-quotes' + q + encodeURIComponent(id)).then(function(r){
+    var quote = r && r.quote; if (!quote) return;
+    if (quote.program && PROGRAMS[quote.program] && quote.program !== PROGRAM) selectProgram(quote.program);
+    setTimeout(function(){
+      var a = document.getElementById('fld_address'); if (a) a.value = quote.address || '';
+      Object.keys(quote.inputs || {}).forEach(function(k){
+        var el = document.getElementById('fld_'+k); if (el) el.value = quote.inputs[k];
+      });
+      var f = document.getElementById('brokerFee');
+      if (f && quote.fee) f.value = quote.fee.brokerPoints || 0;
+      renderResult(quote);
+      LAST = quote;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 60);
+  }).catch(function(){});
 }
 
 function renderTabs(){
@@ -347,6 +473,7 @@ function price(){
     btn.disabled = false; btn.textContent = 'Get Pricing';
     LAST = r;
     renderResult(r);
+    loadHistory();  // every Get Pricing lands in the history immediately
   }).catch(function(e){
     btn.disabled = false; btn.textContent = 'Get Pricing';
     showErr((e && e.message) || 'Could not get pricing. Try again, or call your loan officer.');

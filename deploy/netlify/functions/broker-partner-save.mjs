@@ -38,6 +38,8 @@ import {
   getPartner, savePartner, mintInvite, deletePartner, ALL_PROGRAMS,
 } from './_shared/broker-partners.mjs';
 import { purgeActivity } from './_shared/broker-activity.mjs';
+// Deploy 236.870 — the saved quote history goes with the record too.
+import { purgeQuotes } from './_shared/broker-quotes.mjs';
 import { syncRoleTable } from './_shared/sla-roles.mjs';
 
 export default async (req, context) => {
@@ -73,7 +75,8 @@ async function handle(req, context) {
     await deletePartner(email);
     await syncRoleTable(email, []);
     const purged = await purgeActivity(email);
-    return json(200, { ok: true, deleted: email, activityPurged: purged });
+    const quotesPurged = await purgeQuotes(email);
+    return json(200, { ok: true, deleted: email, activityPurged: purged, quotesPurged });
   }
 
   // ── purge activity, keeping the partner ─────────────────────────
@@ -81,7 +84,8 @@ async function handle(req, context) {
   // touching a real partner record.
   if (action === 'purge-activity') {
     const purged = await purgeActivity(email);
-    return json(200, { ok: true, activityPurged: purged });
+    const quotesPurged = await purgeQuotes(email);
+    return json(200, { ok: true, activityPurged: purged, quotesPurged });
   }
 
   // ── invite ──────────────────────────────────────────────────────
