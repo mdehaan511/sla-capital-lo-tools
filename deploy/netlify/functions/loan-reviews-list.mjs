@@ -12,7 +12,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isProcessor,
+  handleOptions, json, requireAuth, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 
 export default async (req, context) => {
@@ -30,7 +30,11 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
+  // Deploy 236.881 — LOs list the reviews for their OWN loans (the
+  // Documents tab was processor-only until now). Staff see everything.
+  const staff = isProcessor(user);
+  const mine = keySafe(normalizeEmail(user.email || ''));
+  if (!staff && !mine) return json(403, { error: 'Not authorized' });
 
   const url = new URL(req.url);
   const statusFilter = (url.searchParams.get('status') || 'in_progress').toLowerCase();
@@ -38,11 +42,21 @@ async function handle(req, context) {
   const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
   const { blobs } = await store.list();
 
+  // Deploy 236.881 — read in PARALLEL. This walked every review blob one
+  // await at a time; at 56 reviews that was slow enough to hang the tab, and
+  // LOs are about to start hitting it too. Same lesson as the profiles-store
+  // scan: a serial loop over a store is a timeout waiting to happen.
+  const recs = await Promise.all(
+    blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+  );
+
   const reviews = [];
-  for (const { key } of blobs) {
-    const r = await store.get(key, { type: 'json' });
+  for (const r of recs) {
     if (!r) continue;
     if (statusFilter !== 'all' && (r.status || 'in_progress') !== statusFilter) continue;
+    // An LO's list is their own loans only. Scoped by the review's own
+    // source.ownerKey, never by anything the caller sent.
+    if (!staff && ((r.source && r.source.ownerKey) || '') !== mine) continue;
     // Trim heavy fields (doc history) before returning the index list.
     // Detail page calls loan-reviews-get for the full record.
     reviews.push(summarize(r));

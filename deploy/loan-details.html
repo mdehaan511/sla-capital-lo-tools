@@ -378,6 +378,35 @@
     .env-card-actions button:hover { color: var(--danger); }
 
     .esign-btn { color: var(--gold-mid); }
+
+    /* Deploy 236.881 — Loan Officer view of the Documents tab.
+       LOs now see their own loan's document review, narrowed server-side to
+       the categories Mike named (appraisal, BPO, tax cert, operating
+       agreement, PSA, leases, CDA, term sheet, loan application, payoffs)
+       and READ-ONLY: every mutating control is hidden here, and the
+       endpoints behind them are still processor-gated, so this is the
+       polish on top of the real gate rather than the gate itself. */
+    body.dr-lo-readonly .verdict-actions,
+    body.dr-lo-readonly .doc-actions,
+    body.dr-lo-readonly .doc-toolbar,
+    body.dr-lo-readonly .dropzone,
+    body.dr-lo-readonly .dr-add-doc-btn,
+    body.dr-lo-readonly .dr-bulk-approve-btn,
+    body.dr-lo-readonly .dr-rename-btn,
+    body.dr-lo-readonly .dr-tray-rename-btn,
+    body.dr-lo-readonly .dr-invite-box,
+    body.dr-lo-readonly .dr-notes-wrap,
+    body.dr-lo-readonly .dr-conds-wrap,
+    body.dr-lo-readonly .v-btn,
+    body.dr-lo-readonly .small-btn.danger { display: none !important; }
+    /* A tray with nothing uploaded has nothing for an LO to do or see. */
+    body.dr-lo-readonly .tray.is-empty .tray-body { display: none !important; }
+    body.dr-lo-readonly .dr-lo-note {
+      margin: 0 0 14px; padding: 10px 14px; border-radius: 8px;
+      border: 1px solid var(--gold-border, rgba(200,129,58,.28));
+      background: var(--gold-light, rgba(200,129,58,.10));
+      color: var(--gold-mid, #b5712d); font-size: 12.5px; line-height: 1.55;
+    }
     /* Deploy 236.846 — the loan has no signable borrower/guarantor yet, so
        this button opens the collection modal instead of the send modal. The
        amber edge is the only advance warning; the button still works. */

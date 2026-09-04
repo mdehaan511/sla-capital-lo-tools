@@ -6,8 +6,12 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isProcessor, keySafe,
+  handleOptions, json, requireAuth, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 236.881 — LOs may now read the review for their OWN loans, narrowed
+// to the tray set in LO_VISIBLE_SLUGS. Filtering happens here, before the
+// record leaves the server.
+import { filterReviewForUser } from './_shared/loan-review-visibility.mjs';
 
 export default async (req, context) => {
   try {
@@ -24,7 +28,6 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
 
   const url = new URL(req.url);
   const id = url.searchParams.get('id');
@@ -33,5 +36,18 @@ async function handle(req, context) {
   const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
   const r = await store.get(keySafe(id), { type: 'json' });
   if (!r) return json(404, { error: 'Review not found' });
-  return json(200, { review: r });
+
+  // Staff see the whole file.
+  if (isProcessor(user)) return json(200, { review: r });
+
+  // Deploy 236.881 — a Loan Officer reads the review for a loan THEY OWN,
+  // narrowed to the trays in LO_VISIBLE_SLUGS. Ownership is the review's
+  // own source.ownerKey, which is the loan's owner key — not anything the
+  // caller supplied.
+  const mine = keySafe(normalizeEmail(user.email || ''));
+  const owner = (r.source && r.source.ownerKey) || '';
+  if (!mine || owner !== mine) {
+    return json(403, { error: 'This document review belongs to another loan officer.' });
+  }
+  return json(200, { review: filterReviewForUser(r, user) });
 }

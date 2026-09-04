@@ -5231,18 +5231,20 @@ function _buildDocumentsPlaceholder() {
 }
 
 function _initDocReviewPane() {
-  // Role gate: loan-reviews-list requires processor or admin.
-  // For LOs/other users, show a friendly message + open-in-new-tab
-  // link to the standalone AI Doc Review page (which has its own
-  // role gate and will show the same denial there).
-  if (!(SLA && SLA.isProcessor && SLA.isProcessor(_user))) {
-    _renderDocsPaneMessage(
-      'Document Review is processor / admin only',
-      'Ask a processor to open this loan’s Document Review. They’ll see the checklist of pending items here.',
-      null
-    );
-    return;
-  }
+  // Deploy 236.881 (Mike) — Loan Officers now see the Documents tab on
+  // their OWN loans, narrowed to the categories in LO_VISIBLE_SLUGS
+  // (appraisals, BPOs, tax certs, operating agreements, PSA, leases, CDA,
+  // term sheet, loan application, payoffs). It was processor/admin-only
+  // before this, and an LO got a "not for you" message here.
+  //
+  // READ-ONLY for them: the body class below hides every mutating control,
+  // and the server refuses the write anyway (upload / approve / move are
+  // still isProcessor). The narrowing itself is server-side too —
+  // loan-reviews-get filters the record before it leaves, so this class is
+  // presentation, never the access control.
+  var _docsReadOnly = !(SLA && SLA.isProcessor && SLA.isProcessor(_user));
+  document.body.classList.toggle('dr-lo-readonly', _docsReadOnly);
+
   // Find an existing review for this loan.
   SLA.api('GET', '/api/loan-reviews').then(function(resp) {
     var reviews = (resp && resp.reviews) || [];
@@ -5259,6 +5261,14 @@ function _initDocReviewPane() {
     });
     if (match) {
       _renderDocReviewIframe(match.id);
+    } else if (_docsReadOnly) {
+      // Starting a review is a processor action (loan-reviews-save is
+      // isProcessor-gated), so don't offer an LO a button that 403s.
+      _renderDocsPaneMessage(
+        'No document review yet',
+        'Your processor starts the document review for this loan. Once they do, the appraisal, BPO, tax cert, term sheet, loan application and payoff documents will show up here.',
+        null
+      );
     } else {
       _renderDocReviewStarter();
     }
@@ -8278,7 +8288,7 @@ function _renderRateLockCard() {
   // top + 43px).
   strip.style.cssText = 'min-height:41px;display:flex;align-items:center;gap:8px;font-size:13.5px;color:' + col + ';padding:0 2px';
   // Deploy 236.879 — second line names WHICH rate sheet the lock holds
-  // (historical pricing, 236.878). Filled async once the pricing module loads.
+  // (historical pricing, 236.881). Filled async once the pricing module loads.
   strip.innerHTML = '<span style="font-size:16px">🔒</span><span style="line-height:1.35">' + line +
     '<span id="rateLockSheetLine" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);line-height:1.3"></span></span>';
   var divider = document.createElement('div');
@@ -8301,7 +8311,7 @@ function _renderRateLockCard() {
 
 // Deploy 236.879 (Mike) — name the rate sheet the lock holds, on EXISTING
 // loans: derived live from rateLockStart + the pricing module's
-// PRICING_HISTORY (236.878), so no loan-record backfill is needed. The right
+// PRICING_HISTORY (236.881), so no loan-record backfill is needed. The right
 // module loads on demand (mf-pricing for MF 5+ loans, dscr-pricing
 // otherwise — they share the SLA_DSCR global and are never both loaded).
 // Daily cache-buster instead of a third version pin to keep in sync: a rate

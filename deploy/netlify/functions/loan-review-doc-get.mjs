@@ -14,6 +14,8 @@ import {
 // the processor+ fast path today; the borrower path (view your own
 // signed docs) unlocks automatically when borrowers land in PR #3.
 import { canReadReviewDoc } from './_shared/access.mjs';
+// Deploy 236.881 — LO tray restriction, enforced on the download too.
+import { seesAllTrays, canSeeSlug } from './_shared/loan-review-visibility.mjs';
 
 export default async (req, context) => {
   try {
@@ -47,6 +49,28 @@ async function handle(req, context) {
   } catch (_) {}
   const perm = await canReadReviewDoc(user, review, docId);
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
+
+  // Deploy 236.881 — a Loan Officer may only fetch a document that lives in
+  // a tray they can see. Hiding trays in the UI is presentation; THIS is the
+  // access control. Without it an LO could read any document on the loan by
+  // passing its docId, which is exactly what the restriction exists to stop.
+  //
+  // Which tray a doc belongs to is resolved from the review itself: its
+  // tray's currentDocId, or anything in that tray's document history.
+  if (!seesAllTrays(user)) {
+    const docs = (review && review.docs) || {};
+    let slug = '';
+    for (const s of Object.keys(docs)) {
+      const d = docs[s] || {};
+      if (d.currentDocId === docId) { slug = s; break; }
+      if (Array.isArray(d.documents) && d.documents.some((x) => x && x.docId === docId)) { slug = s; break; }
+    }
+    // An unplaceable docId is refused rather than allowed: a document we
+    // can't attribute to a tray is one we can't say this LO may see.
+    if (!slug || !canSeeSlug(user, slug)) {
+      return json(403, { error: 'This document isn\'t available on your view of the loan.' });
+    }
+  }
 
   const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
   const key = keySafe(reviewId) + '/' + keySafe(docId);
