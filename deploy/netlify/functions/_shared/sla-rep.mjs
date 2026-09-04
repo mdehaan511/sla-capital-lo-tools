@@ -94,8 +94,15 @@ export async function listRepsPublic() {
   try {
     const store = _profiles();
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
-      const p = await store.get(key, { type: 'json' }).catch(() => null);
+    // Deploy 236.875 — READ IN PARALLEL. The sequential version took 41s
+    // against the live profiles store (one network round-trip per blob,
+    // and that store holds every account that has ever signed in, not
+    // just staff), which made the signup page look broken. Mirrors the
+    // Promise.all in users-directory.mjs.
+    const profiles = await Promise.all(
+      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+    );
+    for (const p of profiles) {
       if (!p || !p.email) continue;
       const roles = rolesOf(p).map((r) => String(r).toLowerCase());
       // A profile with no roles at all is a legacy/seeded record; treat it
@@ -120,8 +127,10 @@ export async function repEmailFromId(id) {
   try {
     const store = _profiles();
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
-      const p = await store.get(key, { type: 'json' }).catch(() => null);
+    const profiles = await Promise.all(
+      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+    );
+    for (const p of profiles) {
       if (!p || !p.email) continue;
       if (repId(p.email) === want) return normalizeEmail(p.email);
     }

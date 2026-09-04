@@ -121,10 +121,12 @@ export async function listQuotes(brokerEmail, opts) {
   try {
     const store = _store();
     const { blobs } = await store.list({ prefix: bk(brokerEmail) + '/' });
-    for (const { key } of blobs) {
-      const q = await store.get(key, { type: 'json' }).catch(() => null);
-      if (q) out.push(q);
-    }
+    // Parallel: a busy partner keeps up to 500 of these, and the sizer
+    // reloads the list after every quote.
+    const recs = await Promise.all(
+      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+    );
+    for (const q of recs) if (q) out.push(q);
   } catch (e) {
     console.warn('[broker-quotes] list failed:', e && e.message);
   }
@@ -140,8 +142,10 @@ export async function listAllQuotes(opts) {
   try {
     const store = _store();
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
-      const q = await store.get(key, { type: 'json' }).catch(() => null);
+    const recs = await Promise.all(
+      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+    );
+    for (const q of recs) {
       if (!q) continue;
       if (opts.brokerEmail && q.brokerEmail !== normalizeEmail(opts.brokerEmail)) continue;
       out.push(q);
@@ -166,7 +170,7 @@ export async function trimHistory(brokerEmail) {
     // Quote ids are base36 timestamps, so the key order is chronological.
     const sorted = blobs.map((b) => b.key).sort();
     const drop = sorted.slice(0, blobs.length - KEEP_PER_BROKER);
-    for (const key of drop) await store.delete(key);
+    await Promise.all(drop.map((key) => store.delete(key)));
     return drop.length;
   } catch (e) {
     console.warn('[broker-quotes] trim failed:', e && e.message);
@@ -180,7 +184,8 @@ export async function purgeQuotes(brokerEmail) {
   try {
     const store = _store();
     const { blobs } = await store.list({ prefix: bk(brokerEmail) + '/' });
-    for (const { key } of blobs) { await store.delete(key); removed++; }
+    await Promise.all(blobs.map(({ key }) => store.delete(key)));
+    removed += blobs.length;
   } catch (e) {
     console.warn('[broker-quotes] purge failed:', e && e.message);
   }

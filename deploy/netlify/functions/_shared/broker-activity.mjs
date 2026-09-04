@@ -188,10 +188,8 @@ export async function purgeActivity(brokerEmail) {
     const store = _store();
     for (const prefix of ['sessions/' + k + '/', 'archive/' + k + '/']) {
       const { blobs } = await store.list({ prefix });
-      for (const { key } of blobs) {
-        await store.delete(key);
-        removed++;
-      }
+      await Promise.all(blobs.map(({ key }) => store.delete(key)));
+      removed += blobs.length;
     }
   } catch (e) {
     console.warn('[broker-activity] purge failed:', e && e.message);
@@ -210,8 +208,10 @@ export async function listSessions(opts) {
   try {
     const store = _store();
     const { blobs } = await store.list({ prefix: 'sessions/' });
-    for (const { key } of blobs) {
-      const s = await store.get(key, { type: 'json' }).catch(() => null);
+    const recs = await Promise.all(
+      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+    );
+    for (const s of recs) {
       if (!s) continue;
       if (opts.brokerEmail && s.brokerEmail !== String(opts.brokerEmail).toLowerCase()) continue;
       if (opts.ownerKey && s.ownerKey !== opts.ownerKey) continue;

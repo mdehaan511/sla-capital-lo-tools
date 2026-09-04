@@ -83,10 +83,12 @@ export async function listPartners() {
   try {
     const store = _store();
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
-      const p = await store.get(key, { type: 'json' }).catch(() => null);
-      if (p && p.email) out.push(p);
-    }
+    // Parallel — see the 236.875 note in sla-rep.mjs. This one is also on
+    // the signup path, via findByInviteToken.
+    const recs = await Promise.all(
+      blobs.map(({ key }) => store.get(key, { type: 'json' }).catch(() => null))
+    );
+    for (const p of recs) if (p && p.email) out.push(p);
   } catch (err) {
     console.warn('[broker-partners] list failed:', err && err.message);
   }
