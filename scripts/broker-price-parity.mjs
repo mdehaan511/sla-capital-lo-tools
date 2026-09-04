@@ -223,6 +223,31 @@ for (const page of BROKER_PAGES) {
 failures += leakFail;
 console.log(`${leakFail ? 'FAIL' : 'ok  '}  no broker page ships a pricing engine`);
 
+// 6. Every broker-* function must be reachable through /api/.
+//    CLAUDE.md says to update the function AND the netlify.toml redirect
+//    together; 236.870 shipped the function without the redirect and the
+//    endpoint 404'd in production while the function itself was fine. A
+//    missing redirect is invisible until someone hits it, so gate it.
+let routeFail = 0;
+try {
+  const toml = readFileSync(join(root, 'deploy/netlify.toml'), 'utf8');
+  const fnDir = join(root, 'deploy/netlify/functions');
+  const fns = (await import('node:fs')).readdirSync(fnDir)
+    .filter((f) => /^broker-.*\.mjs$/.test(f))
+    .map((f) => f.replace(/\.mjs$/, ''));
+  for (const fn of fns) {
+    if (!toml.includes(`to = "/.netlify/functions/${fn}"`)) {
+      console.log(`FAIL  ${fn}.mjs has no /api/ redirect in netlify.toml`);
+      routeFail++;
+    }
+  }
+  failures += routeFail;
+  console.log(`${routeFail ? 'FAIL' : 'ok  '}  every broker-* function has an /api/ redirect (${fns.length} checked)`);
+} catch (e) {
+  console.log('FAIL  could not verify redirects: ' + (e && e.message));
+  failures++;
+}
+
 console.log('');
 if (failures) {
   console.log(`${failures} FAILURE(S) across ${checked} scenarios.`);

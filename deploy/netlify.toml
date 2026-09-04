@@ -1029,6 +1029,13 @@
   to = "/.netlify/functions/broker-me"
   status = 200
   force = true
+# Deploy 236.870 — every Get Pricing is saved; this reads it back. A
+# partner sees only their own; admins see every partner's.
+[[redirects]]
+  from = "/api/broker-quotes"
+  to = "/.netlify/functions/broker-quotes-list"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/brokers"
   to = "/.netlify/functions/brokers-list"
