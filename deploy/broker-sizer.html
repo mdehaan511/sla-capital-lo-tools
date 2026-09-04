@@ -123,6 +123,30 @@
     .hrow .hr { font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap; }
     .hrow.dec .hr { color:var(--warn); font-weight:400; font-style:italic; }
     .hist-scroll { max-height:340px; overflow-y:auto; }
+
+    /* Print-sheet modal */
+    .mb { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9500;
+      align-items:center; justify-content:center; padding:24px; }
+    .mb.show { display:flex; }
+    .mc { background:#fff; border-radius:14px; width:100%; max-width:520px; max-height:90vh;
+      overflow:auto; padding:22px 24px; }
+    .mc h3 { font-family:'Lora',serif; font-size:19px; font-weight:600; color:var(--dark); margin-bottom:4px; }
+    .mc .mhint { font-size:12.5px; color:var(--muted); margin-bottom:16px; line-height:1.55; }
+    .macts { display:flex; justify-content:flex-end; gap:10px; margin-top:18px;
+      padding-top:16px; border-top:1px solid var(--border); }
+    .minibtn { display:inline-block; padding:7px 14px; border:1px solid var(--border); background:#fff;
+      border-radius:8px; font-family:inherit; font-size:12.5px; cursor:pointer; color:var(--text); }
+    .minibtn:hover { border-color:var(--gold-border); color:var(--gold-mid); }
+    .logobox { display:flex; gap:14px; align-items:flex-start; padding:14px;
+      border:1px solid var(--border); border-radius:10px; background:#faf8f3; }
+    .logoprev { width:96px; height:56px; border:1px dashed var(--border); border-radius:6px;
+      display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--muted);
+      background:#fff; overflow:hidden; flex-shrink:0; }
+    .logoprev img { max-width:100%; max-height:100%; object-fit:contain; }
+    .printbtn { margin-top:12px; width:100%; padding:11px; border-radius:10px;
+      border:1px solid var(--gold-border); background:var(--gold-light); color:var(--gold-mid);
+      font-family:inherit; font-size:14px; font-weight:600; cursor:pointer; }
+    .printbtn:disabled { opacity:.45; cursor:default; }
   </style>
 </head>
 <body>
@@ -179,6 +203,42 @@
         </div>
       </div>
       <div class="foot" id="foot"></div>
+    </div>
+  </div>
+
+  <!-- Print a rate sheet. Borrower name + email are REQUIRED (Mike) and
+       print on the sheet; the sheet itself carries the broker's logo, or
+       a neutral "Loan Quote" title, and never mentions SLA. -->
+  <div class="mb" id="printBg" onclick="if(event.target===this)closePrint()">
+    <div class="mc">
+      <h3>Rate sheet for your borrower</h3>
+      <div class="mhint">Their name prints on the sheet. It goes out under your brand — nothing on it
+        identifies us.</div>
+      <div class="f" style="margin-bottom:12px"><label>Borrower Name <span class="req">*</span></label>
+        <input type="text" id="prBorrowerName" placeholder="Jordan Blake" /></div>
+      <div class="f" style="margin-bottom:14px"><label>Borrower Email <span class="req">*</span></label>
+        <input type="email" id="prBorrowerEmail" placeholder="jordan@example.com" /></div>
+
+      <div class="logobox">
+        <div class="logoprev" id="logoPrev">No logo</div>
+        <div style="flex:1">
+          <div style="font-size:12.5px;font-weight:600;margin-bottom:2px" id="logoTitle">Your logo</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5" id="logoHint">
+            PNG or JPEG, under 375&nbsp;KB. Without one the sheet is titled &ldquo;Loan Quote&rdquo;.</div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <label class="minibtn">Upload<input type="file" id="logoFile" accept="image/png,image/jpeg"
+              style="display:none" onchange="uploadLogo(this)" /></label>
+            <button type="button" class="minibtn" id="logoDel" onclick="removeLogo()" style="display:none">Remove</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="err" id="prErr"></div>
+      <div class="macts">
+        <button type="button" class="minibtn" onclick="closePrint()">Cancel</button>
+        <button type="button" class="go" style="margin:0;width:auto;padding:10px 20px" id="prBtn"
+          onclick="makeSheet()">Create Rate Sheet</button>
+      </div>
     </div>
   </div>
 
@@ -524,9 +584,106 @@ function renderResult(r){
       '<div class="sub">' + escH(PROGRAMS[PROGRAM].label) + ' &middot; ' + (fee.slaPoints||0).toFixed(2) + ' SLA points</div></div>' +
     '<div class="rows">' + rows + '</div>' +
     '<div class="split">Your fee sits <b>on top</b> of SLA’s pricing. The note rate and SLA’s ' +
-      (fee.slaPoints||0).toFixed(2) + ' points are unchanged by it.</div>';
+      (fee.slaPoints||0).toFixed(2) + ' points are unchanged by it.<br>' +
+      'On the borrower’s sheet these combine into <b>one</b> origination number — they don’t see the split.</div>' +
+    '<div style="padding:0 18px 16px"><button type="button" class="printbtn" onclick="openPrint()">' +
+      'Create Rate Sheet for Borrower</button></div>';
 
   document.getElementById('foot').innerHTML = footNote(r);
+}
+
+// ── Rate sheet ───────────────────────────────────────────────────
+// Borrower name + email are required and print on the sheet; the sheet
+// itself is brand-agnostic (their logo, or a neutral "Loan Quote" title)
+// and shows origination as ONE combined number.
+function openPrint(){
+  if (!LAST || LAST.declined) return;
+  document.getElementById('prErr').classList.remove('show');
+  var b = (LAST.borrower) || {};
+  document.getElementById('prBorrowerName').value  = b.name  || '';
+  document.getElementById('prBorrowerEmail').value = b.email || '';
+  document.getElementById('printBg').classList.add('show');
+  loadLogo();
+}
+function closePrint(){ document.getElementById('printBg').classList.remove('show'); }
+
+function logoQS(){ return ME.previewOf ? '?as=' + encodeURIComponent(ME.previewOf) : ''; }
+
+function loadLogo(){
+  SLA.api('GET','/api/broker-logo' + logoQS()).then(function(r){
+    var l = r && r.logo;
+    var prev = document.getElementById('logoPrev');
+    if (l && l.dataB64) {
+      prev.innerHTML = '<img src="data:' + l.mime + ';base64,' + l.dataB64 + '" alt="" />';
+      document.getElementById('logoTitle').textContent = 'Your logo';
+      document.getElementById('logoHint').textContent = 'This is what will head your rate sheets.';
+      document.getElementById('logoDel').style.display = '';
+    } else {
+      prev.textContent = 'No logo';
+      document.getElementById('logoDel').style.display = 'none';
+    }
+  }).catch(function(){});
+}
+
+function uploadLogo(input){
+  var file = input.files && input.files[0];
+  if (!file) return;
+  input.value = '';
+  var reader = new FileReader();
+  reader.onload = function(){
+    var b64 = String(reader.result || '').replace(/^data:[^,]+,/, '');
+    document.getElementById('logoHint').textContent = 'Uploading…';
+    SLA.api('POST','/api/broker-logo' + logoQS(), { dataB64: b64, mime: file.type })
+      .then(function(){ loadLogo(); })
+      .catch(function(e){
+        document.getElementById('logoHint').textContent = (e && e.message) || 'Could not save that image.';
+      });
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeLogo(){
+  SLA.getToken().then(function(t){
+    return fetch('/api/broker-logo' + logoQS(), { method:'DELETE', headers:{ Authorization:'Bearer ' + t } });
+  }).then(function(){ loadLogo(); }).catch(function(){});
+}
+
+function makeSheet(){
+  var err = document.getElementById('prErr');
+  err.classList.remove('show');
+  var name  = String(document.getElementById('prBorrowerName').value || '').trim();
+  var email = String(document.getElementById('prBorrowerEmail').value || '').trim();
+  if (name.length < 2) { err.textContent = 'Enter the borrower’s name — it prints on the sheet.'; err.classList.add('show'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { err.textContent = 'Enter a valid borrower email.'; err.classList.add('show'); return; }
+
+  var btn = document.getElementById('prBtn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  var payload = { quoteId: LAST.quoteId, borrowerName: name, borrowerEmail: email };
+  if (ME.previewOf) payload.as = ME.previewOf;
+
+  SLA.getToken().then(function(t){
+    return fetch('/api/broker-rate-sheet', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', Authorization: 'Bearer ' + t },
+      body: JSON.stringify(payload),
+    });
+  }).then(function(res){
+    btn.disabled = false; btn.textContent = 'Create Rate Sheet';
+    if (!res.ok) {
+      return res.json().then(function(j){ throw new Error((j && j.error) || 'Could not create the sheet.'); });
+    }
+    return res.blob().then(function(blob){
+      // Open in a new tab so the broker can review before sending it on.
+      var url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+      closePrint();
+      loadHistory();
+    });
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = 'Create Rate Sheet';
+    err.textContent = (e && e.message) || 'Could not create the sheet.'; err.classList.add('show');
+  });
 }
 
 function footNote(r){

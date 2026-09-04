@@ -1036,6 +1036,18 @@
   to = "/.netlify/functions/broker-quotes-list"
   status = 200
   force = true
+# Deploy 236.872 — the broker's own logo, and the brand-agnostic rate
+# sheet it heads. Nothing on that PDF identifies SLA.
+[[redirects]]
+  from = "/api/broker-logo"
+  to = "/.netlify/functions/broker-logo"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/broker-rate-sheet"
+  to = "/.netlify/functions/broker-rate-sheet"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/brokers"
   to = "/.netlify/functions/brokers-list"
