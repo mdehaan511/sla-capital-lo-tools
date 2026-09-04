@@ -25,6 +25,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.880
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs';
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
@@ -88,7 +89,7 @@ async function handle(req, context) {
   const selfKey   = keySafe(selfEmail);
   let ownerKey = selfKey;
   if (body.owner && body.owner !== selfEmail && body.owner !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires admin or processor' }); // Deploy 236.880 - was isAdmin-only; processors work other LOs loans (Beth cancelling Randy's loan got a 403)
     ownerKey = keySafe(normalizeEmail(body.owner));
   }
 
