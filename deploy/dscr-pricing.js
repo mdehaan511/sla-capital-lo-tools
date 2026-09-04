@@ -598,7 +598,7 @@ function priceDSCR(raw) {
   };
 }
 
-// ── Deploy 236.877 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
+// ── Deploy 236.878 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
 // A DSCR loan locked on an older sheet must REPRICE on that sheet, even after
 // newer sheets land (appraisal comes back two weeks into the lock). Each
 // entry stores ONLY the DIYA keys that differ from the NEXT NEWER sheet, with
@@ -670,7 +670,7 @@ var _SLA_DSCR_API = {
   validateGuidelines: validateGuidelines, getFICOMin: getFICOMin,
   EXCEPTION_HINT: EXCEPTION_HINT,
   priceDSCR: priceDSCR,
-  // Deploy 236.877 — historical pricing (rate-lock repricing).
+  // Deploy 236.878 — historical pricing (rate-lock repricing).
   setPricingAsOf: setPricingAsOf, activePricing: activePricing,
   PRICING_HISTORY: PRICING_HISTORY,
 };

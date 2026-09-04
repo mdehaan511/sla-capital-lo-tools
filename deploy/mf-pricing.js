@@ -655,7 +655,7 @@ function priceDSCR(raw) {
   };
 }
 
-// ── Deploy 236.877 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
+// ── Deploy 236.878 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
 // Same machinery as dscr-pricing.js (see the comment there). MF 5+ sheets so
 // far only ever moved base rates; deltas verified against git history. The
 // MF sizer launched on the 8-7-26 matrix, so no MF lock can predate it.
@@ -706,7 +706,7 @@ var _SLA_DSCR_API = {
   EXCEPTION_HINT: EXCEPTION_HINT,
   priceDSCR: priceDSCR,
   OPEX_FIELDS: OPEX_FIELDS, // Deploy 236.750
-  // Deploy 236.877 — historical pricing (rate-lock repricing).
+  // Deploy 236.878 — historical pricing (rate-lock repricing).
   setPricingAsOf: setPricingAsOf, activePricing: activePricing,
   PRICING_HISTORY: PRICING_HISTORY,
 };

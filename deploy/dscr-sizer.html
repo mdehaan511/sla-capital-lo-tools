@@ -471,7 +471,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="dscr-pricing.js?v=236877"></script>
+<script src="dscr-pricing.js?v=236878"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -938,7 +938,7 @@ function fmtX(n) { return n!=null?n.toFixed(2)+'x':'&mdash;'; }
 var calcPI = SLA_DSCR.calcPI;
 var EXCEPTION_HINT = SLA_DSCR.EXCEPTION_HINT;
 
-// ── Deploy 236.877 — rate-lock historical pricing (Mike) ──────────────
+// ── Deploy 236.878 — rate-lock historical pricing (Mike) ──────────────
 // A loan with an ACTIVE 45-day rate lock reprices on the sheet in force on
 // its lock date, even when newer sheets have landed since. Expired lock →
 // current pricing (Mike's rule). Switching a locked loan to a different
@@ -3703,7 +3703,7 @@ function saveCurrentQuote() {
   // no-op'ing while showing the LO the "Saved" toast.
   if (window.ClientBook) {
     var loanRecord = ClientBook.buildLoanFromSizer('dscr', formData.address, formData, 'active');
-    // Deploy 236.877 — record WHICH rate sheet priced this save (rate-lock
+    // Deploy 236.878 — record WHICH rate sheet priced this save (rate-lock
     // historical pricing). Shows in the audit log; drift checks can verify a
     // locked loan against the sheet that actually priced it.
     if (window.SLA_DSCR && SLA_DSCR.activePricing) {
@@ -4905,7 +4905,7 @@ netlifyIdentity.on('init', function(user) {
           // empty-state hint). Runs BEFORE loadQuoteIntoForm so the
           // panel is visible from first paint.
           try { paintSizerHistory(found.sizerHistory || []); } catch (_) {}
-          // Deploy 236.877 — swap in the rate sheet in force on this loan's
+          // Deploy 236.878 — swap in the rate sheet in force on this loan's
           // lock date BEFORE the form loads and calculates.
           try { applyLockPricing(found); } catch (_) {}
           loadQuoteIntoForm(fd);
