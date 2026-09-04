@@ -133,6 +133,92 @@ export default async (req, context) => {
     console.warn('prospects-reassign: index sync failed (non-fatal):', e && e.message);
   }
 
+  // ── Deploy 236.881 (Mike) — notify the receiving LO: in-app reminder +
+  // email, mirroring loan-assign-lo's 236.351 block. The LO-dropdown path
+  // notified since 236.351; a New Application reassign moved everything
+  // SILENTLY and the new LO only found the deal by stumbling on it.
+  // Best-effort — a notify failure never poisons the reassign.
+  try {
+    const adminMeta = (user && user.user_metadata) || {};
+    const adminName = adminMeta.full_name || adminMeta.fullName || user.email || '';
+    const borrowerName = ((prospect.firstName || '') + ' ' + (prospect.lastName || '')).trim()
+      || prospect.email || 'the borrower';
+    const address = prospect.propAddress || '';
+    const amtNum = parseFloat(String(prospect.purchasePrice || prospect.propertyValue || '').replace(/[$,]/g, '')) || 0;
+    const amtStr = amtNum > 0 ? '$' + Math.round(amtNum).toLocaleString() : '';
+    const now2 = new Date().toISOString();
+
+    try { // in-app reminder (bell)
+      const remStore = getStore({ name: 'reminders', consistency: 'strong' });
+      const remId = 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      await remStore.setJSON(newOwnerKey + '/' + keySafe(remId), {
+        id: remId,
+        loanId:   result.loanId || '',
+        clientId: result.destClientId || '',
+        ownerKey: newOwnerKey,
+        address,
+        borrower: borrowerName,
+        note: 'New application assigned to you by ' + (adminName || 'an admin') +
+          (amtStr ? ' — ' + amtStr : '') + (address ? ' — ' + address : ''),
+        dueDate: now2.slice(0, 10),
+        completed: false,
+        createdAt: now2, updatedAt: now2, completedAt: null,
+        createdBy: user.email || '',
+        _kind: 'loan_assigned',
+      });
+    } catch (e) { console.warn('prospects-reassign: reminder create failed (non-fatal):', e && e.message); }
+
+    const apiKey = process.env.RESEND_API_KEY;
+    if (apiKey && toLoEmail) {
+      const base = process.env.URL || 'https://portal.slacapital.ai';
+      const link = (result.loanId && result.destClientId)
+        ? base + '/loan-details/' + encodeURIComponent(result.loanId) + '?owner=' + encodeURIComponent(toLoEmail)
+        : base + '/pipeline.html';
+      const escH2 = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const subject = 'Loan assigned to you: ' + (borrowerName || address || 'new application');
+      const bodyLines = [
+        'Hi,',
+        '',
+        (adminName || 'An admin') + ' has assigned a new application to you at SLA Capital.',
+        '',
+        'Borrower: ' + borrowerName,
+        address ? ('Property: ' + address) : '',
+        amtStr ? ('Amount: ' + amtStr) : '',
+        '',
+        result.loanId ? 'Open the loan:' : 'Open your pipeline:',
+        link,
+        '',
+        "You'll also see this in your Pipeline and reminders bell next time you log in.",
+        '',
+        '— SLA Capital',
+      ].filter(Boolean);
+      const text = bodyLines.join('\n');
+      const html =
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#261A36;line-height:1.55">' +
+        bodyLines.map((ln) => ln === link
+          ? '<p><a href="' + escH2(link) + '" style="color:#C8813A;font-weight:600">' + (result.loanId ? 'Open the loan →' : 'Open your pipeline →') + '</a></p>'
+          : '<p style="margin:0 0 8px 0">' + escH2(ln) + '</p>').join('') +
+        '</div>';
+      try {
+        const resp = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'SLA Capital <noreply@leads.slacapital.com>',
+            to: [toLoEmail],
+            subject, text, html,
+          }),
+        });
+        if (!resp.ok) {
+          const t = await resp.text().catch(() => '');
+          console.warn('prospects-reassign: email failed', resp.status, t.slice(0, 200));
+        }
+      } catch (e) { console.warn('prospects-reassign: email threw (non-fatal):', e && e.message); }
+    }
+  } catch (e) {
+    console.warn('prospects-reassign: notify block threw (non-fatal):', e && e.message);
+  }
+
   return json(200, { ok: true, newOwnerKey, ...result });
 };
 
