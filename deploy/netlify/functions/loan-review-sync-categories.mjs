@@ -45,6 +45,22 @@ export default async (req, context) => {
 function _blankStandardTray(item) {
   return {
     slug: item.slug,
+    // Deploy 236.877 — CARRY THE LABEL AND RUBRIC. A tray built here used to
+    // hold neither, on the assumption that the frontend's DOC_META would
+    // supply them. DOC_META covers 58 of the checklist's 78 slugs, so the
+    // other 21 rendered as their raw slug with no description —
+    // "foreign_entity_registration", "property_mgmt_summary" — sitting next
+    // to properly-named trays like Term Sheet (Mike's screenshot).
+    //
+    // The per-property branch below has always stamped these, with a comment
+    // noting per-property slugs "aren't in the frontend DOC_META". That is
+    // true of ANY tray whose slug nobody remembered to add. Every tray is now
+    // self-describing, so a new checklist item renders correctly the moment
+    // it exists and DOC_META becomes a nicety rather than a second list to
+    // keep in sync.
+    label: item.label || item.slug,
+    conditions: item.conditions || '',
+    section: item.section || 'loan',
     verdict: 'pending',
     required: !(item.optional || item.investor),
     processorNotes: '',
@@ -70,12 +86,15 @@ function _blankStandardTray(item) {
 }
 
 // The actual backfill, pure + exported so it's unit-testable (Deploy 236.782).
-// Mutates review.docs in place; returns the list of slugs it added.
+// Mutates review.docs in place; returns { added, relabeled } — Deploy
+// 236.877 widened it from a bare array because a label-only heal changes
+// nothing the caller could otherwise detect.
 export function syncMissingCategories(review) {
   if (!review.docs) review.docs = {};
   const checklist = getChecklist(review.loanType || '');
   const _isPortfolioReview = Array.isArray(review.properties) && review.properties.length > 1;
   const added = [];
+  let relabeled = 0;
 
   // Deploy 236.782 — portfolio reviews keep collateral split per property
   // ("<slug>__p<i>", from loan-reviews-save's create-time expansion). Backfill
@@ -121,7 +140,30 @@ export function syncMissingCategories(review) {
     review.docs[item.slug] = _blankStandardTray(item);
     added.push(item.slug);
   }
-  return added;
+
+  // Deploy 236.877 — heal trays that predate the label fix above. Every
+  // review created before this deploy has label-less trays, and they render
+  // as raw slugs; adding the field only to NEW trays would leave every
+  // existing loan looking wrong forever. Fills BLANKS ONLY, so a custom
+  // tray's own label and any processor edit are untouched.
+  const byId = {};
+  for (const item of checklist) if (item && item.slug) byId[item.slug] = item;
+  for (const slug of Object.keys(review.docs)) {
+    const tray = review.docs[slug];
+    if (!tray || tray.isCustom) continue;
+    // Per-property trays carry "<slug>__p<i>"; their metadata comes from the
+    // base checklist entry.
+    const base = byId[slug] || byId[String(slug).replace(/__p\d+$/, '')];
+    if (!base) continue;
+    if (!tray.label)      { tray.label = base.label || slug; relabeled++; }
+    if (!tray.conditions) { tray.conditions = base.conditions || ''; }
+    if (!tray.section)    { tray.section = base.section || 'loan'; }
+  }
+
+  // The caller only persists when something changed, so a label-only pass has
+  // to report itself — otherwise every review would heal in memory, render
+  // correctly once, and come back wrong on the next load.
+  return { added, relabeled };
 }
 
 async function handle(req, context) {
@@ -140,7 +182,7 @@ async function handle(req, context) {
   if (!review) return json(404, { error: 'Review not found' });
   if (!review.docs) review.docs = {};
 
-  const added = syncMissingCategories(review);
+  const { added, relabeled } = syncMissingCategories(review);
 
   // Deploy 236.849 — self-heal the two source-doc trays on page open:
   // (1) an EMPTY term_sheet tray backfills from the loan's rate-sheet
@@ -240,7 +282,7 @@ async function handle(req, context) {
     console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
   }
 
-  if (added.length || healed || healQueue.length) {
+  if (added.length || relabeled || healed || healQueue.length) {
     review.updatedAt = new Date().toISOString();
     await reviewStore.setJSON(keySafe(review.id), review);
   }
@@ -251,5 +293,5 @@ async function handle(req, context) {
     } catch (e) { console.warn('sync-categories: AI queue failed (non-fatal):', e && e.message); }
   }
 
-  return json(200, { ok: true, review, added, healed, aiQueued: healQueue });
+  return json(200, { ok: true, review, added, relabeled, healed, aiQueued: healQueue });
 }
