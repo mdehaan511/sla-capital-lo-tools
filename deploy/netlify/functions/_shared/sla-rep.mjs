@@ -16,6 +16,23 @@
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe, normalizeEmail } from './auth.mjs';
+import { createHash } from 'node:crypto';
+
+/**
+ * A genuinely opaque id for a staff member. Deploy 236.874.
+ *
+ * The first version used keySafe(email) — and keySafe PASSES EMAILS
+ * THROUGH UNCHANGED (owner keys in this codebase are raw emails). So the
+ * "names and opaque ids only" picker was shipping all 14 staff addresses
+ * to anyone holding an invite link. Caught in live testing.
+ *
+ * A truncated SHA-256 is not reversible. Someone could hash an address
+ * they already suspect and compare — but knowing the address is the thing
+ * we were protecting, so that confirms nothing they didn't have.
+ */
+export function repId(email) {
+  return createHash('sha256').update(normalizeEmail(email || '')).digest('hex').slice(0, 24);
+}
 
 // Who can be a broker's rep. Deliberately the client-facing tiers: a
 // broker is invited by a loan officer or an admin, not by a processor
@@ -87,7 +104,7 @@ export async function listRepsPublic() {
       if (!eligible) continue;
       const name = nameOf(p);
       if (!name) continue; // don't offer a nameless option
-      out.push({ id: keySafe(normalizeEmail(p.email)), name });
+      out.push({ id: repId(p.email), name });
     }
   } catch (err) {
     console.warn('[sla-rep] list failed:', err && err.message);
@@ -106,7 +123,7 @@ export async function repEmailFromId(id) {
     for (const { key } of blobs) {
       const p = await store.get(key, { type: 'json' }).catch(() => null);
       if (!p || !p.email) continue;
-      if (keySafe(normalizeEmail(p.email)) === want) return normalizeEmail(p.email);
+      if (repId(p.email) === want) return normalizeEmail(p.email);
     }
   } catch (err) {
     console.warn('[sla-rep] id resolve failed:', err && err.message);

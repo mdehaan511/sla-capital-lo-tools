@@ -30,7 +30,7 @@ import { checkRateLimit } from './_shared/rate-limit.mjs';
 import {
   findByInviteToken, consumeInvite, savePartner, getPartner,
 } from './_shared/broker-partners.mjs';
-import { listRepsPublic, repEmailFromId, getRep } from './_shared/sla-rep.mjs';
+import { listRepsPublic, repEmailFromId, getRep, repId } from './_shared/sla-rep.mjs';
 import { getSb } from './_shared/borrower-invite-core.mjs';
 import { syncRoleTable } from './_shared/sla-roles.mjs';
 
@@ -82,7 +82,7 @@ async function handle(req, context) {
       lastName:  partner.lastName || '',
       company:   partner.company || '',
       phone:     partner.phone || '',
-      knownRep:  rep && rep.name ? { id: keySafe(rep.email), name: rep.name } : null,
+      knownRep:  rep && rep.name ? { id: repId(rep.email), name: rep.name } : null,
       reps:      await listRepsPublic(),
       minPassword: MIN_PASSWORD,
     });
