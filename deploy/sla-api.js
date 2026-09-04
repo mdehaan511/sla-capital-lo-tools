@@ -2269,9 +2269,10 @@
      * full audit trail (_cancelledAt, _cancelledBy, _cancelledFrom,
      * _cancelReason) so we can later report on cancellation patterns.
      */
-    cancel: function (clientId, loanId, reason, ownerOverride) {
+    cancel: function (clientId, loanId, reason, ownerOverride, reasonCode) {
       var body = { clientId: clientId, loanId: loanId };
       if (reason)        body.reason = reason;
+      if (reasonCode)    body.reasonCode = reasonCode; // Deploy 236.883
       if (ownerOverride) body.owner  = ownerOverride;
       return api('POST', '/api/loan-cancel', body).then(function (r) {
         cache.clear('clients');
@@ -2297,9 +2298,10 @@
      * from `closed` (loan funded). Audit fields written on the loan
      * record: _declinedAt, _declinedBy, _declinedFrom, _declineReason.
      */
-    decline: function (clientId, loanId, reason, ownerOverride) {
+    decline: function (clientId, loanId, reason, ownerOverride, reasonCode) {
       var body = { clientId: clientId, loanId: loanId };
       if (reason)        body.reason = reason;
+      if (reasonCode)    body.reasonCode = reasonCode; // Deploy 236.883
       if (ownerOverride) body.owner  = ownerOverride;
       return api('POST', '/api/loan-decline', body).then(function (r) {
         cache.clear('clients');

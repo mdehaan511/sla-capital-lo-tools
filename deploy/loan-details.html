@@ -13,7 +13,7 @@
        resolution (browser was treating "sla-api.js" as
        /loan-details/sla-api.js under the rewritten path and
        fetching HTML back with the wrong MIME type). -->
-  <script src="/sla-api.js"></script>
+  <script src="/sla-api.js?v=236883"></script>
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
@@ -695,8 +695,28 @@
     <h3>Cancel Loan</h3>
     <p class="bi-sub" id="cancelLoanSub">This loan will be moved to <strong>Cancelled</strong> status. It will no longer appear on the Pipeline or in the default Loans view, but stays accessible from the Cancelled view if it needs to be restored later.</p>
 
+    <!-- Deploy 236.883 (Mike) — structured why. Options mirror
+         _shared/end-reasons.mjs; keep the two lists in sync. -->
     <div style="margin-top:14px">
-      <label class="bi-section-label">Reason (optional)</label>
+      <label class="bi-section-label">Why is this loan being cancelled?</label>
+      <select id="cancelReasonCode" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px">
+        <option value="">— Select a reason —</option>
+        <option value="other_lender">Borrower Went With Other Lender</option>
+        <option value="credit_below">Borrower Credit Below Expected</option>
+        <option value="background">Background Check Issues</option>
+        <option value="liquidity">Liquidity Issues</option>
+        <option value="appraisal">Appraisal Issues</option>
+        <option value="property_use">Property Use Issues</option>
+        <option value="fraud">Fraud Discovered</option>
+        <option value="borrower_cancelled">Borrower Cancelled Deal</option>
+        <option value="investor_cancelled">Investor Canceled Deal</option>
+        <option value="seller_cancelled">Seller Cancelled Deal</option>
+        <option value="deal_fell_through">Deal Fell Through</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div style="margin-top:14px">
+      <label class="bi-section-label">Details (optional)</label>
       <textarea id="cancelReason" placeholder="e.g., Borrower backed out, financing fell through, deal restructured&hellip;" style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
       <div style="font-size:11px;color:var(--muted);margin-top:6px">Recorded on the loan record for future reference.</div>
     </div>
@@ -719,8 +739,28 @@
     <h3>Decline Loan</h3>
     <p class="bi-sub" id="declineLoanSub">This loan will be moved to <strong>Declined</strong> status. Use this when SLA has decided not to lend on the deal.</p>
 
+    <!-- Deploy 236.883 (Mike) — structured why. Options mirror
+         _shared/end-reasons.mjs; keep the two lists in sync. -->
     <div style="margin-top:14px">
-      <label class="bi-section-label">Reason (optional)</label>
+      <label class="bi-section-label">Why is this loan being declined?</label>
+      <select id="declineReasonCode" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px">
+        <option value="">— Select a reason —</option>
+        <option value="other_lender">Borrower Went With Other Lender</option>
+        <option value="credit_below">Borrower Credit Below Expected</option>
+        <option value="background">Background Check Issues</option>
+        <option value="liquidity">Liquidity Issues</option>
+        <option value="appraisal">Appraisal Issues</option>
+        <option value="property_use">Property Use Issues</option>
+        <option value="fraud">Fraud Discovered</option>
+        <option value="borrower_cancelled">Borrower Cancelled Deal</option>
+        <option value="investor_cancelled">Investor Canceled Deal</option>
+        <option value="seller_cancelled">Seller Cancelled Deal</option>
+        <option value="deal_fell_through">Deal Fell Through</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div style="margin-top:14px">
+      <label class="bi-section-label">Details (optional)</label>
       <textarea id="declineReason" placeholder="e.g., FICO below threshold, asset doesn&rsquo;t qualify, concentration limit&hellip;" style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
       <div style="font-size:11px;color:var(--muted);margin-top:6px">Recorded on the loan record for future reference.</div>
     </div>
@@ -1318,6 +1358,6 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=236879"></script>
+<script src="/loan-details.js?v=236883"></script>
 </body>
 </html>

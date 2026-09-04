@@ -9149,6 +9149,7 @@ function openCancelLoanModal() {
       'It will no longer appear on the Pipeline or in the default Loans view, but stays accessible from the Cancelled view if it needs to be restored later.';
   }
   document.getElementById('cancelReason').value = '';
+  if (document.getElementById('cancelReasonCode')) document.getElementById('cancelReasonCode').value = '';
   document.getElementById('cancelLoanStatus').textContent = '';
   document.getElementById('cancelLoanStatus').className = 'bi-status';
   document.getElementById('cancelLoanBtn').disabled = false;
@@ -9177,6 +9178,7 @@ function openDeclineLoanModal() {
       'Use this when SLA has decided not to lend on the deal. The loan will leave the Pipeline and move to the Declined tab on Decisions, where an admin can restore it if needed.';
   }
   document.getElementById('declineReason').value = '';
+  if (document.getElementById('declineReasonCode')) document.getElementById('declineReasonCode').value = '';
   document.getElementById('declineLoanStatus').textContent = '';
   document.getElementById('declineLoanStatus').className = 'bi-status';
   document.getElementById('declineLoanBtn').disabled = false;
@@ -9191,13 +9193,20 @@ function confirmDeclineLoan() {
   var reason = (document.getElementById('declineReason').value || '').trim();
   var statusEl = document.getElementById('declineLoanStatus');
   var btn = document.getElementById('declineLoanBtn');
+  // Deploy 236.883 (Mike) — the WHY dropdown is required.
+  var reasonCode = String((document.getElementById('declineReasonCode') || {}).value || '');
+  if (!reasonCode) {
+    statusEl.className = 'bi-status err';
+    statusEl.textContent = 'Select why this loan is being declined.';
+    return;
+  }
   btn.disabled = true;
   btn.textContent = 'Declining…';
   statusEl.className = 'bi-status';
   statusEl.textContent = '';
 
   var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
-  SLA.Loans.decline(_client.id, _loanId, reason, ownerOvr).then(function(resp) {
+  SLA.Loans.decline(_client.id, _loanId, reason, ownerOvr, reasonCode).then(function(resp) {
     statusEl.className = 'bi-status ok';
     statusEl.textContent = '✓ Loan declined' + (resp.warning ? ' — ' + resp.warning : '');
     if (resp.loan) {
@@ -9870,13 +9879,20 @@ function confirmCancelLoan() {
   var reason = (document.getElementById('cancelReason').value || '').trim();
   var statusEl = document.getElementById('cancelLoanStatus');
   var btn = document.getElementById('cancelLoanBtn');
+  // Deploy 236.883 (Mike) \u2014 the WHY dropdown is required.
+  var reasonCode = String((document.getElementById('cancelReasonCode') || {}).value || '');
+  if (!reasonCode) {
+    statusEl.className = 'bi-status err';
+    statusEl.textContent = 'Select why this loan is being cancelled.';
+    return;
+  }
   btn.disabled = true;
   btn.textContent = 'Cancelling\u2026';
   statusEl.className = 'bi-status';
   statusEl.textContent = '';
 
   var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
-  SLA.Loans.cancel(_client.id, _loanId, reason, ownerOvr).then(function(resp) {
+  SLA.Loans.cancel(_client.id, _loanId, reason, ownerOvr, reasonCode).then(function(resp) {
     statusEl.className = 'bi-status ok';
     statusEl.textContent = '\u2713 Loan cancelled' + (resp.warning ? ' \u2014 ' + resp.warning : '');
     // Update local state so the page re-renders with the new badge +

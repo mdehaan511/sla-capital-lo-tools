@@ -139,13 +139,25 @@ async function handle(req, context) {
     targetLoan._declinedBy = selfEmail;
     targetLoan._declinedFrom = prevStatus;
     if (reason) targetLoan._declineReason = reason;
+    // Deploy 236.883 (Mike) — structured why-tracking (shared endReasonCode
+    // field with cancels so one report aggregates both).
+    let _rcLabel = '';
+    {
+      const { isEndReasonCode, END_REASON_LABEL } = await import('./_shared/end-reasons.mjs');
+      const rc = String(body.reasonCode || '').trim();
+      if (isEndReasonCode(rc)) {
+        targetLoan.endReasonCode = rc;
+        targetLoan.endReasonLabel = END_REASON_LABEL[rc];
+        _rcLabel = END_REASON_LABEL[rc];
+      }
+    }
     // Deploy 226 — audit log entry on decline.
     appendNoteEntry(targetLoan, {
       kind:        'decline',
-      text:        'Loan declined' + (reason ? ' — ' + reason : ''),
+      text:        'Loan declined' + (_rcLabel ? ' — ' + _rcLabel : '') + (reason ? ' — ' + reason : ''),
       author:      actorName,
       authorEmail: user.email || '',
-      meta:        { from: prevStatus, to: 'denied', reason: reason || '' },
+      meta:        { from: prevStatus, to: 'denied', reason: reason || '', reasonCode: targetLoan.endReasonCode || '' },
     });
   }
 

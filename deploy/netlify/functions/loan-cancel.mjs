@@ -130,6 +130,18 @@ async function handle(req, context) {
     targetLoan._cancelledBy = selfEmail;
     targetLoan._cancelledFrom = prevStatus;
     if (reason) targetLoan._cancelReason = reason;
+    // Deploy 236.883 (Mike) — structured why-tracking: the modal's dropdown
+    // code lands on the loan as endReasonCode (shared field with declines so
+    // one report aggregates both). Label stored too so old reports read
+    // without a lookup even if the list changes later.
+    {
+      const { isEndReasonCode, END_REASON_LABEL } = await import('./_shared/end-reasons.mjs');
+      const rc = String(body.reasonCode || '').trim();
+      if (isEndReasonCode(rc)) {
+        targetLoan.endReasonCode = rc;
+        targetLoan.endReasonLabel = END_REASON_LABEL[rc];
+      }
+    }
   }
 
   try {

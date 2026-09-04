@@ -228,6 +228,58 @@
     <div id="stateTableWrap" style="max-height:480px;overflow-y:auto"></div>
   </div>
 
+  <!-- Deploy 236.883 (Mike) — why loans end. Fed by the required reason
+       dropdown on the Cancel / Decline modals; loans ended before the
+       dropdown existed aggregate under "(no reason recorded)". -->
+  <div class="chart-card">
+    <h2>Cancel &amp; Decline Reasons</h2>
+    <div class="chart-sub">EVERY CANCELLED + DECLINED LOAN · COUNTS PER REASON · $ = COMBINED LOAN VOLUME</div>
+    <div id="endReasonsWrap"><div class="loading">Loading…</div></div>
+  </div>
+  <script>
+  (function () {
+    function money(n) { return '$' + Math.round(n || 0).toLocaleString(); }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function render(r) {
+      var wrap = document.getElementById('endReasonsWrap');
+      if (!wrap) return;
+      var rows = (r && r.rows) || [];
+      var t = (r && r.totals) || { cancelled: 0, declined: 0, total: 0, volume: 0 };
+      var h = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+        '<thead><tr style="text-align:left;color:var(--muted,#7a7488);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">' +
+        '<th style="padding:6px 8px">Reason</th><th style="padding:6px 8px;text-align:right">Cancelled</th>' +
+        '<th style="padding:6px 8px;text-align:right">Declined</th><th style="padding:6px 8px;text-align:right">Total</th>' +
+        '<th style="padding:6px 8px;text-align:right">Volume</th></tr></thead><tbody>';
+      rows.forEach(function (row) {
+        var dim = row.total === 0;
+        h += '<tr style="border-top:1px solid var(--border,#e4dfd4)' + (dim ? ';color:var(--muted,#7a7488)' : '') + '">' +
+          '<td style="padding:6px 8px">' + esc(row.label) + '</td>' +
+          '<td style="padding:6px 8px;text-align:right">' + row.cancelled + '</td>' +
+          '<td style="padding:6px 8px;text-align:right">' + row.declined + '</td>' +
+          '<td style="padding:6px 8px;text-align:right;font-weight:600">' + row.total + '</td>' +
+          '<td style="padding:6px 8px;text-align:right">' + (row.volume ? money(row.volume) : '—') + '</td></tr>';
+      });
+      h += '<tr style="border-top:2px solid var(--border,#e4dfd4);font-weight:700">' +
+        '<td style="padding:6px 8px">All reasons</td>' +
+        '<td style="padding:6px 8px;text-align:right">' + t.cancelled + '</td>' +
+        '<td style="padding:6px 8px;text-align:right">' + t.declined + '</td>' +
+        '<td style="padding:6px 8px;text-align:right">' + t.total + '</td>' +
+        '<td style="padding:6px 8px;text-align:right">' + money(t.volume) + '</td></tr>';
+      h += '</tbody></table>';
+      wrap.innerHTML = h;
+    }
+    function load() {
+      if (!(window.SLA && SLA.api)) { setTimeout(load, 400); return; }
+      SLA.api('GET', '/api/admin-end-reasons-report').then(render).catch(function (e) {
+        var wrap = document.getElementById('endReasonsWrap');
+        if (wrap) wrap.innerHTML = '<div style="color:var(--muted,#7a7488);padding:10px">Report unavailable: ' + esc((e && e.message) || 'unknown') + '</div>';
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
+    else load();
+  })();
+  </script>
+
   <!-- Loans table -->
   <div class="table-card">
     <div class="table-head">
