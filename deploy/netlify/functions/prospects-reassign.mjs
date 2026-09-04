@@ -133,7 +133,7 @@ export default async (req, context) => {
     console.warn('prospects-reassign: index sync failed (non-fatal):', e && e.message);
   }
 
-  // ── Deploy 236.881 (Mike) — notify the receiving LO: in-app reminder +
+  // ── Deploy 236.882 (Mike) — notify the receiving LO: in-app reminder +
   // email, mirroring loan-assign-lo's 236.351 block. The LO-dropdown path
   // notified since 236.351; a New Application reassign moved everything
   // SILENTLY and the new LO only found the deal by stumbling on it.
