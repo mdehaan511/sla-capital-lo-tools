@@ -19,7 +19,7 @@
  * buildFciBoardingPdf(ctx) → { bytes: Uint8Array, missing: string[] }
  *   ctx = { loan, client, guarantors[], sla }
  */
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, PDFName } from 'pdf-lib';
 import { FCI_BOARDING_TEMPLATE_B64 } from './fci-boarding-template.mjs';
 
 // ── SLA constants (the Broker/Originator + contact block on page 1). ──────
@@ -176,101 +176,123 @@ export async function buildFciBoardingPdf(ctx) {
 
   const doc = await PDFDocument.load(Buffer.from(FCI_BOARDING_TEMPLATE_B64, 'base64'));
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const pages = doc.getPages();
-  const ink = rgb(0.1, 0.1, 0.35); // subtle blue-black, reads as "typed in"
 
-  const text = (pg, x, y, s, size) => {
-    if (s === '' || s == null) return;
-    pages[pg].drawText(String(s), { x, y, size: size || 9, font, color: ink });
+  // Deploy 236.891 (Mike) — every value is a real AcroForm field, pre-filled
+  // but EDITABLE/clickable in any PDF viewer before printing, and blanks the
+  // platform can't fill are empty typeable fields. Checkboxes are toggleable.
+  const form = doc.getForm();
+  let seq = 0;
+  // Widgets must be TRANSPARENT — pdf-lib's default white background paints
+  // over the template's printed labels wherever a field rect grazes one.
+  const clearBg = (f) => {
+    f.acroField.getWidgets().forEach((w) => {
+      const ac = w.getAppearanceCharacteristics && w.getAppearanceCharacteristics();
+      if (ac && ac.dict) { ac.dict.delete(PDFName.of('BG')); ac.dict.delete(PDFName.of('BC')); }
+    });
   };
-  // Checkbox / radio mark: X centered on the 10×10 mark box the historical
-  // packages used (coordinates are the box's lower-left corner).
-  const mark = (pg, x, y) => {
-    pages[pg].drawText('X', { x: x + 1.8, y: y + 1.6, size: 9, font: bold, color: ink });
+  const text = (pg, x, y, s, w) => {
+    const f = form.createTextField('fci.f' + (++seq));
+    f.addToPage(pages[pg], {
+      x, y: y - 3.5, width: w || 140, height: 14.5,
+      borderWidth: 0,
+    });
+    clearBg(f);
+    if (s !== '' && s != null) f.setText(String(s));
+    f.setFontSize(9);
+  };
+  // Checkbox / radio mark over the form's printed box (coordinates are the
+  // 10×10 box's lower-left corner). Unchecked boxes stay invisible widgets.
+  const mark = (pg, x, y, checked) => {
+    const cb = form.createCheckBox('fci.c' + (++seq));
+    cb.addToPage(pages[pg], { x: x - 0.5, y: y - 0.5, width: 11, height: 11, borderWidth: 0 });
+    clearBg(cb);
+    if (checked !== false) cb.check();
   };
 
   // ── Page 1 — programs, lender, SLA broker block ─────────────────────────
-  text(0, 516, 724.5, todayStr);
+  text(0, 516, 724.5, todayStr, 70);
   [[282.0, 678.6], [485.7, 663.5], [314.7, 620.6], [217.7, 478.9], [101.0, 64.5]]
     .forEach(([x, y]) => mark(0, x, y));
-  text(0, 130, 582, need('Lender FCI account #', lender.acct));
-  text(0, 402, 582, lender.company);
-  text(0, 136, 563, lender.first);
-  text(0, 392, 563, lender.last);
-  text(0, 108, 234, SLA_BROKER.company);
-  text(0, 370, 234, SLA_BROKER.contact);
-  text(0, 66, 218, SLA_BROKER.street);
-  text(0, 291, 218, SLA_BROKER.city);
-  text(0, 438, 216, SLA_BROKER.state);
-  text(0, 548, 218, SLA_BROKER.zip);
-  text(0, 83, 197, SLA_BROKER.workPhone);
-  text(0, 57, 179, SLA_BROKER.email);
-  text(0, 323, 179, SLA_BROKER.otherContacts);
-  text(0, 132, 84, SLA_BROKER.bank);
-  text(0, 427, 67, SLA_BROKER.taxId);
-  text(0, 107, 50, SLA_BROKER.routing);
-  text(0, 376, 50, SLA_BROKER.account);
+  text(0, 130, 582, need('Lender FCI account #', lender.acct), 115);
+  text(0, 402, 582, lender.company, 180);
+  text(0, 136, 563, lender.first, 120);
+  text(0, 392, 563, lender.last, 160);
+  text(0, 108, 234, SLA_BROKER.company, 165);
+  text(0, 370, 234, SLA_BROKER.contact, 175);
+  text(0, 66, 218, SLA_BROKER.street, 165);
+  text(0, 291, 218, SLA_BROKER.city, 105);
+  text(0, 438, 216, SLA_BROKER.state, 80);
+  text(0, 548, 218, SLA_BROKER.zip, 45);
+  text(0, 83, 197, SLA_BROKER.workPhone, 90);
+  text(0, 57, 179, SLA_BROKER.email, 155);
+  text(0, 323, 179, SLA_BROKER.otherContacts, 230);
+  text(0, 132, 84, SLA_BROKER.bank, 175);
+  text(0, 427, 67, SLA_BROKER.taxId, 120);
+  text(0, 107, 50, SLA_BROKER.routing, 135);
+  text(0, 376, 50, SLA_BROKER.account, 170);
 
   // ── Page 2 — borrower + loan info ───────────────────────────────────────
-  text(1, 134, 730.5, need('Borrower entity name', entityName));
-  text(1, 335, 730.5, (client && client.email) || '');
-  text(1, 510, 730.5, mdY(g1.dob));
-  text(1, 380, 713.2, (client && client.phone) || '');
-  text(1, 526, 713.2, need('Entity TIN (EIN letter → UW tab)', tin));
-  text(1, 110, 696, home.street || '');
-  text(1, 330, 696, home.city || '');
-  text(1, 451, 696, stateName(home.state));
-  text(1, 551, 696, home.zip || '');
-  text(1, 126, 501.7, need('Property address', prop.street));
-  text(1, 332, 502, prop.city);
-  text(1, 445, 502, stateName(prop.state));
-  text(1, 556, 502, prop.zip);
+  text(1, 134, 730.5, need('Borrower entity name', entityName), 180);
+  text(1, 335, 730.5, (client && client.email) || '', 140);
+  text(1, 510, 730.5, mdY(g1.dob), 70);
+  text(1, 380, 713.2, (client && client.phone) || '', 105);
+  text(1, 526, 713.2, need('Entity TIN (EIN letter → UW tab)', tin), 70);
+  text(1, 110, 696, home.street || '', 175);
+  text(1, 330, 696, home.city || '', 100);
+  text(1, 451, 696, stateName(home.state), 85);
+  text(1, 551, 696, home.zip || '', 45);
+  text(1, 126, 501.7, need('Property address', prop.street), 180);
+  text(1, 332, 502, prop.city, 95);
+  text(1, 445, 502, stateName(prop.state), 90);
+  text(1, 556, 502, prop.zip, 45);
   // constant checkboxes (business purpose, secured, income 1-4, vacant,
   // 1st TD, No×4, monthly, short-first-payment No…) — identical on every
   // historical sheet; the ONE per-loan difference is the holdback row.
   [[567.2, 202.0], [358.0, 409.1], [564.5, 260.0], [567.3, 184.3], [191.9, 378.4],
    [24.6, 446.0], [103.1, 586.0], [79.7, 145.8], [228.5, 393.1], [116.3, 627.5],
    [355.6, 481.0], [438.7, 566.8]].forEach(([x, y]) => mark(1, x, y));
-  if (dutchRaw) mark(1, dutch ? 250.1 : 403.9, 317.7);
-  text(1, 466.5, 280.5, need('Lender Loan Number', sla));
-  text(1, 100, 243.7, need('Funding Date', mdY(loan.fundingDate)));
-  text(1, 324, 243.7, firstDueOf(loan));
-  text(1, 136, 226.5, need('Original Loan Amount', money2(total)));
-  if (!dutch && disbursed != null) text(1, 430.5, 226.5, money2(disbursed));
-  text(1, 72, 206, '10%'); text(1, 133, 206, '10');
-  text(1, 257, 206, '24%'); text(1, 318, 206, '30');
-  text(1, 121, 168.7, need('Amount of Payment', money2(payment)));
-  text(1, 382, 168.7, money2(payment));
-  text(1, 100, 129, need('Maturity Date', maturityOf(loan)));
+  // Both holdback options are toggleable; the right one starts checked.
+  mark(1, 250.1, 317.7, dutchRaw ? dutch : false);
+  mark(1, 403.9, 317.7, dutchRaw ? !dutch : false);
+  text(1, 466.5, 280.5, need('Lender Loan Number', sla), 125);
+  text(1, 100, 243.7, need('Funding Date', mdY(loan.fundingDate)), 75);
+  text(1, 324, 243.7, firstDueOf(loan), 80);
+  text(1, 136, 226.5, need('Original Loan Amount', money2(total)), 130);
+  text(1, 430.5, 226.5, (!dutch && disbursed != null) ? money2(disbursed) : '', 130);
+  text(1, 72, 206, '10%', 32); text(1, 133, 206, '10', 25);
+  text(1, 257, 206, '24%', 32); text(1, 318, 206, '30', 25);
+  text(1, 121, 168.7, need('Amount of Payment', money2(payment)), 90);
+  text(1, 382, 168.7, money2(payment), 90);
+  text(1, 100, 129, need('Maturity Date', maturityOf(loan)), 120);
 
   // ── Page 3 — rates, fee splits, authorizations, print names ────────────
-  text(2, 109, 758.2, need('Note Rate', pctStr(noteFrac)));
-  text(2, 316, 758.2, need('SOLD Rate (loan.soldRate)', pctStr(soldFrac)));
-  if (noteFrac != null && soldFrac != null) {
-    text(2, 509, 758.2, pctStr(Math.round((noteFrac - soldFrac) * 100000) / 100000));
-  }
+  text(2, 109, 758.2, need('Note Rate', pctStr(noteFrac)), 45);
+  text(2, 316, 758.2, need('SOLD Rate (loan.soldRate)', pctStr(soldFrac)), 42);
+  text(2, 509, 758.2, (noteFrac != null && soldFrac != null)
+    ? pctStr(Math.round((noteFrac - soldFrac) * 100000) / 100000) : '', 40);
   [[444.6, 740.4], [432.0, 724.6],
    [155.8, 615.8], [108.2, 615.8], [452.5, 615.8], [500.1, 615.8],
    [148.2, 598.1], [195.8, 598.1], [452.5, 596.8], [500.1, 596.8],
    [392.2, 375.2], [122.5, 358.7]].forEach(([x, y]) => mark(2, x, y));
-  text(2, 185, 690, '50'); text(2, 266, 690, '50'); text(2, 340, 690, '50');
-  text(2, 185, 675, '50'); text(2, 266, 675, '50');
-  text(2, 185, 659, '50'); text(2, 266, 659, '50');
+  text(2, 185, 690, '50', 28); text(2, 266, 690, '50', 28); text(2, 340, 690, '50', 28);
+  text(2, 185, 675, '50', 28); text(2, 266, 675, '50', 28);
+  text(2, 185, 659, '50', 28); text(2, 266, 659, '50', 28);
   // print names (signature LINES intentionally left blank for real signing)
-  text(2, 108, 99.7, (lender.first + ' ' + lender.last).trim());
-  text(2, 72, 63, SLA_BROKER.company);
-  text(2, 476, 63, SLA_BROKER.contact);
+  text(2, 108, 99.7, (lender.first + ' ' + lender.last).trim(), 160);
+  text(2, 72, 63, SLA_BROKER.company, 155);
+  text(2, 476, 63, SLA_BROKER.contact, 130);
 
   // ── Page 4 — Foreclosure Prevention Alternatives (Option 1) ────────────
-  text(3, 516, 724.5, todayStr);
-  text(3, 214, 678, sla);
-  text(3, 145, 663.7, lender.fpaCompany);
-  text(3, 130.5, 643.5, (lender.first + ' ' + lender.last).trim());
+  text(3, 516, 724.5, todayStr, 70);
+  text(3, 214, 678, sla, 200);
+  text(3, 145, 663.7, lender.fpaCompany, 220);
+  text(3, 130.5, 643.5, (lender.first + ' ' + lender.last).trim(), 180);
   mark(3, 63.5, 404.5);
-  text(3, 70, 60.7, (lender.first + ' ' + lender.last).trim());
-  text(3, 388, 63, SLA_BROKER.company);
+  text(3, 70, 60.7, (lender.first + ' ' + lender.last).trim(), 170);
+  text(3, 388, 63, SLA_BROKER.company, 175);
 
+  form.updateFieldAppearances(font);
   const bytes = await doc.save();
   return { bytes, missing };
 }
