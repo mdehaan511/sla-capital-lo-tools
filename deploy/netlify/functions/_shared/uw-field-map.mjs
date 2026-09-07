@@ -78,6 +78,12 @@ export const SLUG_FIELD_MAP = {
       label: 'The AS-IS value of the property as concluded by this BPO — the figure labeled "As Is Price", "As-Is Value", or "Sales Price" (number only, no $ or commas)' },
     { dataset: 'loan', key: 'arvBpo',
       label: 'The AFTER-REPAIR / repaired value on that SAME valuation line — the figure labeled "Repaired Price", "Repaired Value", or "As-Repaired" (number only, no $ or commas). Return null if the BPO states no repaired value.' },
+    // Deploy 236.886 (Mike) — trade-tape columns gathered at screening time:
+    // valuation metadata surfaces on the UW tab and auto-fills the Colchis tape.
+    { dataset: 'uw', key: 'valuationDate',     label: 'The effective date / valuation date of this report, as YYYY-MM-DD' },
+    { dataset: 'uw', key: 'valuationProvider', label: 'The company / vendor that produced this valuation (e.g. Clear Capital)' },
+    { dataset: 'uw', key: 'valuationSqft',     label: 'The square footage / gross living area of the subject property stated in this report (number only)' },
+    { dataset: 'uw', key: 'valuationType',     label: 'What kind of valuation report is this? Answer exactly one of: "BPO", "Appraisal", "AVM"' },
   ],
   loan_application: [
     { dataset: 'uw',        key: 'usCitizen',        label: 'Is the borrower/guarantor a U.S. citizen? Answer exactly "Yes" or "No"' },
@@ -100,6 +106,19 @@ export const SLUG_FIELD_MAP = {
     { dataset: 'uw', key: 'propertyType', label: 'The property type as stated: "SFR" (single family), "2-4 Unit", "PUD", or "Condo" — or the exact type if none of these' },
     { dataset: 'uw', key: 'propertySqFt', label: 'The gross living area / square footage of the subject property (number only)' },
     { dataset: 'uw', key: 'rucaRural',    label: 'Does the appraisal designate the property as Rural? Answer exactly "Yes" or "No" (append the RUCA code if the report states one)' },
+    // Deploy 236.886 (Mike) — trade-tape valuation metadata (same keys as the
+    // BPO tray; whichever valuation the loan actually has fills them).
+    { dataset: 'uw', key: 'valuationDate',     label: 'The effective date / appraisal date of this report, as YYYY-MM-DD' },
+    { dataset: 'uw', key: 'valuationProvider', label: 'The appraisal company / vendor that produced this report' },
+    { dataset: 'uw', key: 'valuationType',     label: 'What kind of valuation report is this? Answer exactly one of: "BPO", "Appraisal", "AVM"' },
+  ],
+  // Deploy 236.886 (Mike) — Entity TIN for the trade tape, straight off the
+  // EIN letter (DSCR slug ein_letter; RTL slug ein_or_w9 — same extraction).
+  ein_letter: [
+    { dataset: 'uw', key: 'entityTin', label: 'The entity\'s EIN / Tax ID number, formatted XX-XXXXXXX' },
+  ],
+  ein_or_w9: [
+    { dataset: 'uw', key: 'entityTin', label: 'The entity\'s EIN / Tax ID number, formatted XX-XXXXXXX' },
   ],
   sow: [
     { dataset: 'uw', key: 'rehabBudget',         label: 'The TOTAL renovation / rehab budget on this Statement of Work (number only)' },

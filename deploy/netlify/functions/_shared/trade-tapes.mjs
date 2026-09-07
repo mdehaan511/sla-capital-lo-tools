@@ -20,7 +20,19 @@
  * Mappers return '' when the platform genuinely doesn't know the value; the
  * endpoint reports blanks in required columns so processors hand-fill
  * knowingly instead of discovering holes after the tape ships.
+ *
+ * Deploy 236.886 (Mike, tape test feedback):
+ *   - doc-sourced columns (sqft, flood zone, 3rd-party AIV, valuation date/
+ *     type/provider, borrower reserves, entity TIN) now read the screened
+ *     Underwriting-tab values (loan.uwData — AI-extracted at doc review,
+ *     human-verified) with the old loan-record fallbacks;
+ *   - first payment + maturity derive from the funding date when unset;
+ *   - rate/points/LTC/LTAIV/LTARV cells carry the 'pct' style so Excel shows
+ *     10.99% instead of a raw 0.1099 ("showing as below zero");
+ *   - broker-originated deals no longer leak the BROKER's name/address/FICO
+ *     into the borrower + guarantor columns.
  */
+import { clientActsAsBroker } from './borrower-prefill.mjs';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const num = (v) => {
@@ -74,7 +86,27 @@ const clientName = (c) => {
   if (!c) return '';
   return (((c.firstName || '') + ' ' + (c.lastName || '')).replace(/\s+/g, ' ').trim());
 };
-const borrowerName = (ctx) => ctx.loan.entityName || (ctx.client && ctx.client.entityName) || clientName(ctx.client);
+// Deploy 236.886 — screened Underwriting-tab value (loan.uwData: AI-extracted
+// at doc review, human-verified on the UW tab). Null when never gathered.
+const uw = (c, key) => {
+  const e = c.loan && c.loan.uwData && c.loan.uwData[key];
+  const v = e && e.value;
+  return (v == null || v === '') ? null : v;
+};
+// Deploy 236.886 — broker-originated deals: the primary client record is the
+// BROKER, not the borrower (a live tape shipped with the broker's name + home
+// address in the borrower columns). People on the tape = the real guarantor
+// records only; the borrower name comes from the loan record itself.
+const isBrokerCtx = (c) => {
+  if (c._brokerCtx === undefined) c._brokerCtx = clientActsAsBroker(c.client, c.loan, null);
+  return c._brokerCtx;
+};
+const gPeople = (c) => isBrokerCtx(c) ? c.guarantors : [c.client].concat(c.guarantors);
+const entityNameOf = (c) => isBrokerCtx(c)
+  ? (c.loan.entityName || '')
+  : (c.loan.entityName || (c.client && c.client.entityName) || '');
+const borrowerName = (ctx) => entityNameOf(ctx)
+  || (isBrokerCtx(ctx) ? (ctx.loan.borrowerName || clientName(ctx.guarantors[0])) : clientName(ctx.client));
 const propTypeLabel = (pt) => {
   const p = String(pt || '').toLowerCase();
   if (!p) return '';
@@ -100,6 +132,58 @@ const ficoOf = (c, l) => {
   const f = c && num(c.fico);
   return f || (l ? num(l.creditMidScore) : null) || '';
 };
+// Deploy 236.886 — percent-styled cell ({ v, s:'pct' } renders "10.99%" via
+// xlsx-write's numFmt 10). Input is a DECIMAL fraction.
+const pct = (n) => (n == null || n === '' ? '' : { v: n, s: 'pct' });
+// Date of First Payment = the month after the month after closing, on the 1st
+// (Mike: "you should already know" it) — unless the loan record has one.
+const firstPaymentOf = (l) => {
+  if (l.firstPaymentDate) return dstr(l.firstPaymentDate);
+  const f = dparts(l.fundingDate);
+  if (!f) return '';
+  let m = f.m + 2, y = f.y;
+  if (m > 12) { m -= 12; y += 1; }
+  return m + '/1/' + y;
+};
+// Maturity = funding date + term months (day clamped to the target month).
+const maturityOf = (l) => {
+  if (l.maturityDate) return dstr(l.maturityDate);
+  const f = dparts(l.fundingDate);
+  if (!f) return '';
+  const t = num(l.term) || 12;
+  let m = f.m + t, y = f.y;
+  while (m > 12) { m -= 12; y += 1; }
+  const dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  return m + '/' + Math.min(f.d, dim) + '/' + y;
+};
+// Borrower Reserves = the UW tab's weighted liquidity: Σ(account balance ×
+// weight) + EMD paid. Weights mirror loan-uw-fields.js ACCOUNT_WEIGHTS (the
+// per-deal weight saved on each account row wins when present).
+const TAPE_ACCOUNT_WEIGHTS = {
+  'Checking/Savings': 0.70,
+  'Stocks/Mutual Funds': 0.50,
+  'IRA/401k/Retirement Plans': 0,
+  'HELOC': 0,
+  'Business Checking Acct.': 1.00,
+};
+const reservesOf = (c) => {
+  let total = 0, any = false;
+  for (let i = 1; i <= 5; i++) {
+    const a = uw(c, 'account' + i);
+    if (!a || typeof a !== 'object') continue;
+    const bal = num(a.balance);
+    if (bal == null) continue;
+    let w = (a.weight != null && a.weight !== '') ? num(a.weight) : TAPE_ACCOUNT_WEIGHTS[a.type];
+    if (w == null) w = 1;
+    if (w > 1) w = w / 100; // tolerate "70" for 70%
+    total += bal * w;
+    any = true;
+  }
+  const emd = num(uw(c, 'emd'));
+  if (emd != null) { total += emd; any = true; }
+  return any ? round2(total) : '';
+};
+const thirdPartyAiv = (c) => num(c.loan.aivBpo) || num(uw(c, 'asIsPrice')) || null;
 
 // ── Template: Colchis post-close trade tape (61 cols) ─────────────────────
 const COLCHIS_TRADE_COLS = [
@@ -112,10 +196,10 @@ const COLCHIS_TRADE_COLS = [
   ['Property Type', (c) => propTypeLabel(c.loan.propType)],
   ['AIV Units', (c) => num(c.loan.numUnits) || 1],
   ['ARV Units', (c) => num(c.loan.numUnits) || 1],
-  ['AIV Sqft', (c) => num(c.loan.sqft) || ''],
-  ['ARV Sqft', (c) => num(c.loan.sqft) || ''],
+  ['AIV Sqft', (c) => num(uw(c, 'propertySqFt')) || num(uw(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
+  ['ARV Sqft', (c) => num(uw(c, 'propertySqFt')) || num(uw(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
   ['Flood Zone', (c) => {
-    const z = String(c.loan.floodZone || '').trim().toUpperCase();
+    const z = String(c.loan.floodZone || uw(c, 'floodZone') || '').trim().toUpperCase();
     if (!z) return '';
     return (z === 'NO' || z === 'NONE' || z.charAt(0) === 'X' || z.charAt(0) === 'C' || z.charAt(0) === 'B') ? 'No' : 'Yes';
   }],
@@ -125,11 +209,11 @@ const COLCHIS_TRADE_COLS = [
   ['Remaining Rehab Budget', (c) => rehabAmt(c.loan)],
   ['Rehab Spent to Date', () => 0],
   ['Total Cost Basis', (c) => (num(c.loan.purchasePrice) || 0) + rehabAmt(c.loan) || ''],
-  ['Third Party AIV', (c) => num(c.loan.aivBpo) || ''],
+  ['Third Party AIV', (c) => thirdPartyAiv(c) || ''],
   ['Third Party ARV', (c) => num(c.loan.arvBpo) || num(c.loan.arv) || ''],
-  ['Valuation Date', () => ''],
-  ['Third Party Valuation Type', (c) => (num(c.loan.aivBpo) ? 'BPO' : '')],
-  ['Third Party Valuation Provider', () => ''],
+  ['Valuation Date', (c) => dstr(uw(c, 'valuationDate')) || String(uw(c, 'valuationDate') || '')],
+  ['Third Party Valuation Type', (c) => uw(c, 'valuationType') || (num(c.loan.aivBpo) ? 'BPO' : '')],
+  ['Third Party Valuation Provider', (c) => uw(c, 'valuationProvider') || ''],
   ['Loan Purpose', (c) => {
     const p = String(c.loan.loanPurpose || '').toLowerCase();
     if (p === 'purchase') return 'Purchase';
@@ -142,8 +226,8 @@ const COLCHIS_TRADE_COLS = [
     return rehabAmt(c.loan) > 0 ? 'Rehab' : 'Bridge';
   }],
   ['Origination Date', (c) => dstr(c.loan.fundingDate)],
-  ['Date of First Payment', (c) => dstr(c.loan.firstPaymentDate)],
-  ['Original Maturity Date', (c) => dstr(c.loan.maturityDate)],
+  ['Date of First Payment', (c) => firstPaymentOf(c.loan)],
+  ['Original Maturity Date', (c) => maturityOf(c.loan)],
   ['Term (Mo.)', (c) => num(c.loan.term) || 12],
   ['Total Loan Amount', (c) => totalAmt(c.loan) || ''],
   ['Balance At Submission', (c) => num(c.loan.upb) || totalAmt(c.loan) || ''],
@@ -151,8 +235,8 @@ const COLCHIS_TRADE_COLS = [
   ['Initial Rehab Holdback', (c) => rehabAmt(c.loan)],
   ['Initial Interest Reserve', () => 0],
   ['Appraisal Holdback', () => 0],
-  ['Note Rate (%)', (c) => rateFrac(c.loan.rate) || ''],
-  ['Orig Points (%)', (c) => { const p = num(c.loan.points); return p == null ? '' : p / 100; }],
+  ['Note Rate (%)', (c) => pct(rateFrac(c.loan.rate))],
+  ['Orig Points (%)', (c) => { const p = num(c.loan.points); return p == null ? '' : pct(p / 100); }],
   ['Original P&I Amount', (c) => {
     const t = totalAmt(c.loan), r = rateFrac(c.loan.rate);
     return (t && r) ? round2(t * r / 12) : '';
@@ -162,46 +246,56 @@ const COLCHIS_TRADE_COLS = [
   ['Dutch/Non-Dutch', (c) => dutchLabel(c.loan)],
   ['Initial LTC', (c) => {
     const t = totalAmt(c.loan), pp = num(c.loan.purchasePrice);
-    return (t && pp) ? round4((t - rehabAmt(c.loan)) / pp) : '';
+    return (t && pp) ? pct(round4((t - rehabAmt(c.loan)) / pp)) : '';
   }],
   ['LTAIV', (c) => {
-    const t = totalAmt(c.loan), aiv = num(c.loan.aivBpo);
-    return (t && aiv) ? round4(t / aiv) : '';
+    const t = totalAmt(c.loan), aiv = thirdPartyAiv(c);
+    return (t && aiv) ? pct(round4(t / aiv)) : '';
   }],
   ['Total LTC', (c) => {
     const t = totalAmt(c.loan), pp = num(c.loan.purchasePrice);
     const basis = (pp || 0) + rehabAmt(c.loan);
-    return (t && basis) ? round4(t / basis) : '';
+    return (t && basis) ? pct(round4(t / basis)) : '';
   }],
   ['LTARV', (c) => {
     const t = totalAmt(c.loan), arv = num(c.loan.arvBpo) || num(c.loan.arv);
-    return (t && arv) ? round4(t / arv) : '';
+    return (t && arv) ? pct(round4(t / arv)) : '';
   }],
   ['Borrower Name', (c) => borrowerName(c)],
-  ['Borrower Type', (c) => (c.loan.entityName || (c.client && c.client.entityName)) ? 'Entity' : 'Individual'],
-  ['Experience (# projects in 3yrs)', (c) => num(c.loan.experience) != null ? num(c.loan.experience) : (num(c.client && c.client.flips) || '')],
+  ['Borrower Type', (c) => (entityNameOf(c) ? 'Entity' : 'Individual')],
+  ['Experience (# projects in 3yrs)', (c) => {
+    const g1 = gPeople(c)[0];
+    return num(c.loan.experience) != null ? num(c.loan.experience) : (num(g1 && g1.flips) || '');
+  }],
   ['Foreign National Flag (Y/N)', (c) => {
-    const u = String((c.client && c.client.usCitizen) || c.loan.usCitizen || '').toLowerCase();
+    const g1 = gPeople(c)[0];
+    const u = String((g1 && g1.usCitizen) || c.loan.usCitizen || uw(c, 'usCitizen') || '').toLowerCase();
     if (!u) return '';
     return u === 'yes' || u === 'y' || u === 'true' ? 'N' : 'Y';
   }],
-  ['Borrower Reserves', () => ''],
-  ['Borrower Address', (c) => (c.client && c.client.homeAddress && c.client.homeAddress.street) || ''],
-  ['Borrower City', (c) => (c.client && c.client.homeAddress && c.client.homeAddress.city) || ''],
-  ['Borrower State', (c) => (c.client && c.client.homeAddress && c.client.homeAddress.state) || ''],
-  ['Borrower ZIP', (c) => (c.client && c.client.homeAddress && c.client.homeAddress.zip) || ''],
+  ['Borrower Reserves', (c) => reservesOf(c)],
+  // Borrower address = the primary PERSON on the deal (never the broker's).
+  ['Borrower Address', (c) => { const g = gPeople(c)[0]; return (g && g.homeAddress && g.homeAddress.street) || ''; }],
+  ['Borrower City', (c) => { const g = gPeople(c)[0]; return (g && g.homeAddress && g.homeAddress.city) || ''; }],
+  ['Borrower State', (c) => { const g = gPeople(c)[0]; return (g && g.homeAddress && g.homeAddress.state) || ''; }],
+  ['Borrower ZIP', (c) => { const g = gPeople(c)[0]; return (g && g.homeAddress && g.homeAddress.zip) || ''; }],
   ['Entity TIN', (c) => {
-    const cos = (c.client && c.client.companies) || [];
+    const screened = uw(c, 'entityTin');
+    if (screened) return String(screened);
+    // Fall back to a company on the primary person's record, entity-name-matched
+    // first. On broker deals the broker's own companies are never consulted.
+    const person = gPeople(c)[0];
+    const cos = (person && person.companies) || [];
     const ent = String(borrowerName(c)).toLowerCase();
     const hit = cos.find((co) => co && co.ein && String(co.name || '').toLowerCase() === ent) || cos.find((co) => co && co.ein);
     return (hit && hit.ein) || '';
   }],
-  ['Guarantor 1 Name', (c) => clientName(c.client)],
-  ['Guarantor 1 FICO', (c) => ficoOf(c.client, c.loan)],
-  ['Guarantor 1 DOB', (c) => dstr(c.client && c.client.dob)],
-  ['Guarantor 2 Name', (c) => clientName(c.guarantors[0])],
-  ['Guarantor 2 FICO', (c) => (c.guarantors[0] ? ficoOf(c.guarantors[0], null) : '')],
-  ['Guarantor 2 DOB', (c) => dstr(c.guarantors[0] && c.guarantors[0].dob)],
+  ['Guarantor 1 Name', (c) => clientName(gPeople(c)[0])],
+  ['Guarantor 1 FICO', (c) => { const g = gPeople(c)[0]; return g ? ficoOf(g, c.loan) : ''; }],
+  ['Guarantor 1 DOB', (c) => { const g = gPeople(c)[0]; return dstr(g && g.dob); }],
+  ['Guarantor 2 Name', (c) => clientName(gPeople(c)[1])],
+  ['Guarantor 2 FICO', (c) => { const g = gPeople(c)[1]; return g ? ficoOf(g, null) : ''; }],
+  ['Guarantor 2 DOB', (c) => { const g = gPeople(c)[1]; return dstr(g && g.dob); }],
 ];
 function round4(n) { return Math.round(n * 10000) / 10000; }
 // Columns whose blanks the processor must hand-fill before sending.
@@ -240,9 +334,9 @@ function settlementRow(c) {
     fmt(paidTo),
     fmt(nextDue),
     fmt(trade),
-    gross != null ? gross : '',
-    colchis != null ? colchis : '',
-    (gross != null && colchis != null) ? round4(gross - colchis) : '',
+    pct(gross),
+    pct(colchis),
+    (gross != null && colchis != null) ? pct(round4(gross - colchis)) : '',
     L != null ? L : '',
     M != null ? M : '',
     N,
@@ -255,7 +349,7 @@ function settlementRow(c) {
     M != null ? M : '', // CCM Balance
     V != null ? V : '',
     W != null ? W : '',
-    1, // Purchase Price (%)
+    pct(1), // Purchase Price (%) — 100.00%
     Y != null ? Y : '',
     String(c.params.fundingBank || ''),
   ];

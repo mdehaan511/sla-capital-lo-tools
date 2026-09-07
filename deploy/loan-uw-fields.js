@@ -118,6 +118,13 @@
   var UNDERWRITING_FIELDS = [
     // — Deal terms —
     { key: 'asIsPrice',      label: 'As-is Price',    section: 'Deal',   source: 'doc',    docType: 'BPO/Valuation',   sourceNote: 'BPO/Valuation' },
+    // Deploy 236.886 (Mike) — valuation metadata gathered at screening time;
+    // these auto-fill the Colchis trade tape (AIV/ARV Sqft, Valuation Date /
+    // Type / Provider columns). AI-grabbed from the BPO or appraisal.
+    { key: 'valuationDate',     label: 'Valuation Date',     section: 'Deal', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'BPO or Appraisal effective date' },
+    { key: 'valuationType',     label: 'Valuation Type',     section: 'Deal', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'BPO / Appraisal / AVM' },
+    { key: 'valuationProvider', label: 'Valuation Provider', section: 'Deal', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'Vendor on the report' },
+    { key: 'valuationSqft',     label: 'Sq Ft (per valuation)', section: 'Deal', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'GLA stated on the valuation' },
     { key: 'purchasePrice',  label: 'Purchase Price (PSA)', section: 'Deal', source: 'loan', loanField: 'purchasePrice', sourceNote: 'PSA' },
     { key: 'assignmentContractPrice', label: 'Assignment Contract Price', section: 'Deal', source: 'doc', docType: 'Assignment Contract', sourceNote: 'Assignment Contract' },
     { key: 'assignmentFee',  label: 'Assignment Fee (listed)', section: 'Deal', source: 'doc', docType: 'Assignment Contract', sourceNote: 'Assignment Contract' },
@@ -147,6 +154,8 @@
     { key: 'middleCredit',   label: 'Middle Credit',  section: 'Borrower', source: 'doc',  docType: 'Credit Report',   sourceNote: 'Credit Report', flag: true },
     { key: 'usCitizen',      label: 'US Citizen',     section: 'Borrower', source: 'doc',  docType: 'Loan Application', sourceNote: 'Loan Application' },
     { key: 'maritalStatus',  label: 'Marital Status', section: 'Borrower', source: 'doc',  docType: 'Loan Application', sourceNote: 'Loan Application' },
+    // Deploy 236.886 (Mike) — Entity TIN off the EIN letter → trade tape.
+    { key: 'entityTin',      label: 'Entity TIN (EIN)', section: 'Borrower', source: 'doc', docType: 'EIN Letter / W-9', sourceNote: 'EIN Letter' },
 
     // — Ratios (all calculated; red-flagged vs guidelines) —
     { key: 'monthlyPayment', label: 'Monthly Payment', section: 'Ratios', source: 'calc', calc: 'monthlyPayment', sourceNote: 'Calculated' },
@@ -258,6 +267,12 @@
     // — Valuation — (pre-filled from the sizer, overridable against the doc)
     { key: 'appraisedValue', label: 'Appraised Value', section: 'Valuation', source: 'loan', loanField: 'propValue', editableLoan: true, sourceNote: 'BPO/Valuation' },
     { key: 'rents',          label: 'Rents',           section: 'Valuation', source: 'loan', loanField: 'rent', editableLoan: true, sourceNote: 'Appraisal or lease (lower of two)' },
+    // Deploy 236.886 (Mike) — valuation metadata (trade-tape columns), same
+    // keys as the RTL set so one extraction map serves both programs.
+    { key: 'valuationDate',     label: 'Valuation Date',     section: 'Valuation', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'BPO or Appraisal effective date' },
+    { key: 'valuationType',     label: 'Valuation Type',     section: 'Valuation', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'BPO / Appraisal / AVM' },
+    { key: 'valuationProvider', label: 'Valuation Provider', section: 'Valuation', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'Vendor on the report' },
+    { key: 'valuationSqft',     label: 'Sq Ft (per valuation)', section: 'Valuation', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'GLA stated on the valuation' },
 
     // — Deal —
     { key: 'purchasePrice',  label: 'Purchase Price',  section: 'Deal', source: 'loan', loanField: 'purchasePrice', sourceNote: 'PSA/Assignment' },
@@ -270,6 +285,8 @@
     { key: 'lowCredit',      label: 'Low Credit',      section: 'Borrower', source: 'doc', docType: 'Credit Report', sourceNote: 'Credit Report' },
     { key: 'middleCredit',   label: 'Middle Credit',   section: 'Borrower', source: 'doc', docType: 'Credit Report', sourceNote: 'Credit Report' },
     { key: 'usCitizen',      label: 'US Citizen',      section: 'Borrower', source: 'doc', docType: 'Loan Application', sourceNote: 'Loan Application' },
+    // Deploy 236.886 (Mike) — Entity TIN off the EIN letter → trade tape.
+    { key: 'entityTin',      label: 'Entity TIN (EIN)', section: 'Borrower', source: 'doc', docType: 'EIN Letter', sourceNote: 'EIN Letter' },
 
     // — Payment & Ratios — (tax/HOI/HOA pre-filled from the sizer, overridable)
     { key: 'monthlyTax',     label: 'Monthly Tax',     section: 'Payment', source: 'loan', loanField: 'taxes', editableLoan: true, sourceNote: 'Tax Certificate' },
