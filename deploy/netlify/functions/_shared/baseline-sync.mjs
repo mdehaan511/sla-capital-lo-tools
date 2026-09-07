@@ -610,7 +610,9 @@ function normalizePoints(p) {
 // format actually matches (e.g. SLA-20260525-4732, not SLA-..._890j).
 // Same SLA loanId always hashes to the same Baseline Id → retries
 // safely deduplicate. Collision risk at ~20 loans/day is < 2%/year.
-function deriveBaselineLoanId(loan) {
+// Deploy 236.885 — exported: the trade-tape export prints this as the
+// Lender Loan ID / Loan Number column (matches the Loan Details chip).
+export function deriveBaselineLoanId(loan) {
   const date = (loan && loan.fundingDate)
     ? String(loan.fundingDate).replace(/-/g, '')
     : todayCompact();

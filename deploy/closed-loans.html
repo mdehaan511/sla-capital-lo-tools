@@ -1164,8 +1164,121 @@ function renderBucketTab(items, b){
   return '<div class="acc" style="padding:0">' + _dispBody(group, b, false) + '</div>';
 }
 function renderPendingSale(items){
-  var note = '<div class="cl-note">Loans closed out and awaiting sale. Toggle <strong>Actively Trading?</strong> once conditions are cleared and the loan is ready to trade. (Trade-tape export coming.)</div>';
+  // Deploy 236.885 (Mike) — the promised trade-tape export. Staff pick a
+  // template + loans; the server assembles a real .xlsx from loan records.
+  var tapeBtn = _isStaff
+    ? ' <button type="button" class="cl-act primary" style="margin-left:10px" onclick="openTradeTapeModal()">📊 Trade Tapes</button>'
+    : '';
+  var note = '<div class="cl-note">Loans closed out and awaiting sale. Toggle <strong>Actively Trading?</strong> once conditions are cleared and the loan is ready to trade.' + tapeBtn + '</div>';
   return note + renderBucketTab(items, 'pending_sale');
+}
+
+// ── Deploy 236.885 — Trade Tape export modal ────────────────────────
+function _tapeCandidates(){
+  // Pending-sale RTLs (being offered) + sold-RTLs (settling a trade).
+  return _closed.filter(function(it){
+    var b = displayBucket(it.loan);
+    return (b === 'pending_sale' && isRtl(it.loan)) || b === 'sold_rtl' || b === 'servicing';
+  });
+}
+function openTradeTapeModal(){
+  var old = document.getElementById('tapeModal'); if (old) old.remove();
+  var items = _tapeCandidates();
+  if (!items.length) { alert('No pending-sale or sold RTL loans to put on a tape.'); return; }
+  var today = new Date().toISOString().slice(0,10);
+  var rows = items.map(function(it, i){
+    var l = it.loan;
+    var trading = String(l.activelyTrading||'').toLowerCase()==='yes';
+    var b = displayBucket(l);
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#eee7da);font-size:13px;cursor:pointer">' +
+      '<input type="checkbox" class="tape-loan" data-i="' + i + '"' + (trading ? ' checked' : '') + ' style="flex:none" />' +
+      '<span style="flex:1">' + escH(l.address||'(no address)') + ' — ' + escH(clientName(it.client)) + '</span>' +
+      '<span style="color:var(--muted);font-size:11px;white-space:nowrap">' + escH(money(l.finalLoanAmount||l.loanAmt)) + ' · ' + escH(b === 'pending_sale' ? (trading ? 'trading' : 'pending') : b.replace('_',' ')) + '</span>' +
+    '</label>';
+  }).join('');
+  var wrap = document.createElement('div');
+  wrap.id = 'tapeModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:620px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-family:\'Lora\',serif;font-size:17px;font-weight:600">Trade Tape Export</div>' +
+      '<div style="padding:14px 20px;overflow:auto;flex:1">' +
+        '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Tape</label>' +
+        '<select id="tapeKey" onchange="_tapeParamsVis()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px;margin-bottom:12px">' +
+          '<option value="colchis_trade">Colchis Trade Tape (offering loans)</option>' +
+          '<option value="colchis_settlement">Colchis Settlement Tape (trade agreed)</option>' +
+        '</select>' +
+        '<div id="tapeParams" style="display:none;margin-bottom:12px">' +
+          '<div style="display:flex;gap:10px">' +
+            '<div style="flex:1"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Trade Date</label>' +
+              '<input type="date" id="tapeTradeDate" value="' + today + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px" /></div>' +
+            '<div style="flex:1.4"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Funding Bank</label>' +
+              '<input type="text" id="tapeFundingBank" placeholder="e.g. Stride #10812200" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px" /></div>' +
+          '</div>' +
+        '</div>' +
+        '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Loans (actively-trading pre-checked)</label>' +
+        rows +
+        '<div id="tapeStatus" style="font-size:12px;color:var(--muted);margin-top:10px"></div>' +
+      '</div>' +
+      '<div style="padding:12px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" onclick="document.getElementById(\'tapeModal\').remove()" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">Cancel</button>' +
+        '<button type="button" id="tapeGoBtn" onclick="downloadTradeTape()" style="font-size:13px;padding:8px 18px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Download Tape</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function(e){ if (e.target === wrap) wrap.remove(); });
+  window._tapeItems = items;
+}
+function _tapeParamsVis(){
+  var k = (document.getElementById('tapeKey')||{}).value;
+  var p = document.getElementById('tapeParams');
+  if (p) p.style.display = (k === 'colchis_settlement') ? '' : 'none';
+}
+function downloadTradeTape(){
+  var items = window._tapeItems || [];
+  var picked = [];
+  Array.prototype.forEach.call(document.querySelectorAll('.tape-loan:checked'), function(cb){
+    var it = items[parseInt(cb.getAttribute('data-i'), 10)];
+    if (it) picked.push({ owner: it.ownerKey, clientId: it.client.id, loanId: it.loan.id });
+  });
+  var status = document.getElementById('tapeStatus');
+  if (!picked.length) { status.textContent = 'Check at least one loan.'; return; }
+  var key = (document.getElementById('tapeKey')||{}).value || 'colchis_trade';
+  var params = {};
+  if (key === 'colchis_settlement') {
+    params.tradeDate = (document.getElementById('tapeTradeDate')||{}).value || '';
+    params.fundingBank = (document.getElementById('tapeFundingBank')||{}).value || '';
+    if (!params.tradeDate) { status.textContent = 'Trade Date is required for the settlement tape.'; return; }
+  }
+  var btn = document.getElementById('tapeGoBtn');
+  btn.disabled = true; btn.textContent = 'Building…';
+  status.textContent = '';
+  SLA.getToken().then(function(t){
+    return fetch('/api/trade-tape-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+      body: JSON.stringify({ tapeKey: key, loans: picked, params: params }),
+    });
+  }).then(function(resp){
+    if (!resp.ok) return resp.json().then(function(d){ throw new Error(d.error || ('HTTP ' + resp.status)); });
+    var missing = decodeURIComponent(resp.headers.get('X-Tape-Missing') || '');
+    var cd = resp.headers.get('Content-Disposition') || '';
+    var fm = /filename="([^"]+)"/.exec(cd);
+    return resp.blob().then(function(b){
+      var u = URL.createObjectURL(b);
+      var a = document.createElement('a');
+      a.href = u; a.download = (fm && fm[1]) || 'trade-tape.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(u); }, 4000);
+      btn.disabled = false; btn.textContent = 'Download Tape';
+      status.innerHTML = missing
+        ? '<span style="color:var(--warn,#7a5218)">⚠ Hand-fill before sending — blank required cells:<br>' + escH(missing).replace(/ \| /g, '<br>') + '</span>'
+        : '<span style="color:var(--ok,#166534)">✓ Tape downloaded — all required columns populated.</span>';
+    });
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = 'Download Tape';
+    status.textContent = 'Export failed: ' + ((e && e.message) || 'unknown');
+  });
 }
 
 // TAB: Draws — RTL only, rollups + expand to individual draws (Sitewire).
