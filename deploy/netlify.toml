@@ -851,6 +851,13 @@
 [functions."trade-tape-export"]
   timeout = 26
 
+# Deploy 236.889: past trade tapes — list / re-download / mark used.
+[[redirects]]
+  from = "/api/trade-tapes-history"
+  to = "/.netlify/functions/trade-tapes-history"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/admin-end-reasons-report"
   to = "/.netlify/functions/admin-end-reasons-report"

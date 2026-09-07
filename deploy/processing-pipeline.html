@@ -2008,7 +2008,9 @@ function openStrideTapeModal() {
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML =
     '<div style="background:#fff;max-width:620px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
-      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:17px;font-weight:600">Stride Submission Tape</div>' +
+      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:space-between">Stride Submission Tape' +
+        '<button type="button" onclick="openTapeHistory()" style="font-size:12px;font-weight:500;padding:5px 12px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">🗂 View Past Tapes</button>' +
+      '</div>' +
       '<div style="padding:14px 20px;overflow:auto;flex:1">' +
         '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Tape</label>' +
         '<select id="strideKey" onchange="_strideRefreshRows()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px;margin-bottom:12px">' +
@@ -2065,6 +2067,86 @@ function downloadStrideTape() {
   }).catch(function(err) {
     btn.disabled = false; btn.textContent = 'Download Tape';
     status.textContent = 'Export failed: ' + (err && err.message ? err.message : 'unknown');
+  });
+}
+
+// ── Deploy 236.889 — Past Trade Tapes (shared history; every export from
+// this page or the Closed Pipeline is saved server-side). Same modal as
+// closed-loans.html — keep the two copies in sync.
+function openTapeHistory(){
+  var old = document.getElementById('tapeHistModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'tapeHistModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9600;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:760px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3)">' +
+      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:16px;font-weight:600">Past Trade Tapes</div>' +
+      '<div id="tapeHistBody" style="padding:12px 20px;overflow:auto;flex:1;font-size:13px;color:var(--muted)">Loading…</div>' +
+      '<div style="padding:12px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;background:#faf8f3">' +
+        '<button type="button" onclick="document.getElementById(\'tapeHistModal\').remove()" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">Close</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function(e){ if (e.target === wrap) wrap.remove(); });
+  SLA.api('GET', '/api/trade-tapes-history').then(function(r){
+    window._tapeHist = (r && r.tapes) || [];
+    renderTapeHist();
+  }).catch(function(e){
+    var b = document.getElementById('tapeHistBody');
+    if (b) b.textContent = 'Failed to load: ' + ((e && e.message) || 'unknown');
+  });
+}
+function renderTapeHist(){
+  var body = document.getElementById('tapeHistBody'); if (!body) return;
+  var tapes = window._tapeHist || [];
+  if (!tapes.length){ body.innerHTML = '<div>No tapes generated yet — every download from here on is kept automatically.</div>'; return; }
+  var rows = tapes.map(function(t){
+    var when = t.createdAt ? new Date(t.createdAt).toLocaleString() : '';
+    var extra = (t.params && t.params.tradeDate) ? ' · trade ' + escH(t.params.tradeDate) : '';
+    var usedBadge = t.used
+      ? '<button type="button" onclick="toggleTapeUsed(\'' + escH(t.id) + '\')" title="Sent ' + escH((t.usedBy||'') + (t.usedAt ? ' · ' + new Date(t.usedAt).toLocaleDateString() : '')) + '" style="font-size:11px;padding:4px 10px;border:1px solid #bbe3c4;background:#e9f7ec;color:#166534;border-radius:20px;cursor:pointer;font-weight:600">✓ Used</button>'
+      : '<button type="button" onclick="toggleTapeUsed(\'' + escH(t.id) + '\')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border,#E4DFD4);background:#fff;color:var(--muted);border-radius:20px;cursor:pointer">Mark used</button>';
+    return '<tr>' +
+      '<td style="padding:7px 8px 7px 0;border-bottom:1px solid #f0ece2"><div style="color:var(--ink,#222);font-weight:500">' + escH(t.tapeLabel || t.tapeKey || '?') + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + escH((t.createdBy || '').split('@')[0]) + extra + (t.missingCount ? ' · ' + t.missingCount + ' hand-fill cell' + (t.missingCount === 1 ? '' : 's') : '') + '</div></td>' +
+      '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;white-space:nowrap;color:var(--ink,#222)">' + escH(when) + '</td>' +
+      '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;text-align:center;color:var(--ink,#222)">' + (t.loanCount != null ? t.loanCount : '—') + '</td>' +
+      '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;text-align:center">' + usedBadge + '</td>' +
+      '<td style="padding:7px 0 7px 8px;border-bottom:1px solid #f0ece2;text-align:right"><button type="button" onclick="downloadPastTape(\'' + escH(t.id) + '\')" style="font-size:12px;padding:5px 12px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer">⬇ Download</button></td>' +
+    '</tr>';
+  }).join('');
+  body.innerHTML =
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      '<thead><tr style="font-size:11px;text-transform:uppercase;color:var(--muted)">' +
+        '<th style="text-align:left;padding:0 8px 6px 0">Tape</th><th style="text-align:left;padding:0 8px 6px">Created</th>' +
+        '<th style="padding:0 8px 6px">Properties</th><th style="padding:0 8px 6px">Used?</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+function toggleTapeUsed(id){
+  var t = (window._tapeHist || []).filter(function(x){ return x && x.id === id; })[0];
+  var next = !(t && t.used);
+  SLA.api('POST', '/api/trade-tapes-history', { id: id, used: next }).then(function(r){
+    if (t && r && r.tape){ t.used = r.tape.used; t.usedBy = r.tape.usedBy; t.usedAt = r.tape.usedAt; }
+    renderTapeHist();
+  }).catch(function(e){
+    alert('Update failed: ' + ((e && e.message) || 'unknown'));
+  });
+}
+function downloadPastTape(id){
+  SLA.getToken().then(function(tk){
+    return fetch('/api/trade-tapes-history?id=' + encodeURIComponent(id), { headers: { 'Authorization': 'Bearer ' + tk } });
+  }).then(function(resp){
+    if (!resp.ok) return resp.json().then(function(d){ throw new Error(d.error || ('HTTP ' + resp.status)); });
+    var fm = /filename="([^"]+)"/.exec(resp.headers.get('Content-Disposition') || '');
+    return resp.blob().then(function(b){
+      var u = URL.createObjectURL(b);
+      var a = document.createElement('a');
+      a.href = u; a.download = (fm && fm[1]) || 'trade-tape.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(u); }, 4000);
+    });
+  }).catch(function(e){
+    alert('Download failed: ' + ((e && e.message) || 'unknown'));
   });
 }
 

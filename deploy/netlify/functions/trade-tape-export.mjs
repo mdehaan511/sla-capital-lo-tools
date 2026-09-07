@@ -84,12 +84,48 @@ async function handle(req, context) {
   const today = new Date().toISOString().slice(0, 10);
   const filename = (built.filenameBase + ' ' + today + '.xlsx').replace(/[^\w .()-]/g, '_');
 
+  // Deploy 236.889 (Mike) — persist every generated tape so processors can
+  // re-download past tapes (trade-tapes-history.mjs) and mark the one that
+  // was actually sent — mistake tapes stay listed but unmarked. Files are
+  // stored as base64 TEXT (the blob-store convention here). Best-effort: a
+  // history-save failure never blocks the export itself.
+  let tapeId = '';
+  try {
+    tapeId = 'tape_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const tapesStore = getStore({ name: 'trade_tapes', consistency: 'strong' });
+    await tapesStore.set('file/' + tapeId, buf.toString('base64'));
+    const idx = (await tapesStore.get('index', { type: 'json' }).catch(() => null)) || { tapes: [] };
+    if (!Array.isArray(idx.tapes)) idx.tapes = [];
+    idx.tapes.unshift({
+      id: tapeId,
+      tapeKey: tape.key,
+      tapeLabel: tape.label,
+      createdAt: new Date().toISOString(),
+      createdBy: user.email || '',
+      loanCount: ctxs.length,
+      filename,
+      params: { tradeDate: String(params.tradeDate || ''), fundingBank: String(params.fundingBank || '') },
+      missingCount: built.missing.length,
+      used: false,
+    });
+    // Bounded history: past 300 tapes the oldest entries fall off, files too.
+    if (idx.tapes.length > 300) {
+      const drop = idx.tapes.splice(300);
+      for (const d of drop) { try { await tapesStore.delete('file/' + d.id); } catch (e) {} }
+    }
+    await tapesStore.setJSON('index', idx);
+  } catch (e) {
+    console.warn('trade-tape-export: history save failed (non-fatal):', e && e.message);
+    tapeId = '';
+  }
+
   return new Response(buf, {
     status: 200,
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="' + filename + '"',
       'X-Tape-Loans': String(ctxs.length),
+      'X-Tape-Id': tapeId,
       'X-Tape-Missing': encodeURIComponent(built.missing.slice(0, 40).join(' | ')).slice(0, 3500),
       'X-Tape-Errors': encodeURIComponent(errors.join(' | ')).slice(0, 1000),
     },
