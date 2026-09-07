@@ -216,6 +216,8 @@
         <button type="button" class="lo-filter" id="myLoansToggle" style="display:none" onclick="toggleMyLoans()" title="Show only loans assigned to me">My Loans</button>
         <!-- Deploy 236.638 — add a new loan to Processing (SLA-native since 236.687). -->
         <button type="button" class="gear-btn" id="newLoanBtn" style="display:none" onclick="openNewLoanModal()" title="Create a new loan on the processing pipeline">+ New Loan</button>
+        <!-- Deploy 236.888 (Mike) — Stride pre-funding submission tapes. -->
+        <button type="button" class="gear-btn" id="strideTapeBtn" style="display:none" onclick="openStrideTapeModal()" title="Export a Stride pre-funding submission tape (.xlsx)">📊 Stride Tapes</button>
         <button type="button" class="gear-btn" id="ssGearBtn" style="display:none" onclick="openSubstatusEditor()" title="Edit substatuses (admin)">⚙ Substatuses</button>
         <button type="button" class="gear-btn" id="ttGearBtn" style="display:none" onclick="openTaskTemplatesEditor()" title="Edit per-stage task templates (admin)">⚙ Task Templates</button>
       </div>
@@ -421,6 +423,8 @@ window.netlifyIdentity.on('init', function(user) {
     var _mlt = document.getElementById('myLoansToggle'); if (_mlt) _mlt.style.display = '';
     // Deploy 236.638 — staff (processors + admins) can manually add a loan.
     var _nlb = document.getElementById('newLoanBtn'); if (_nlb) _nlb.style.display = '';
+    // Deploy 236.888 — Stride tape export (tapes carry TINs/DOBs, staff only).
+    var _stb = document.getElementById('strideTapeBtn'); if (_stb) _stb.style.display = '';
   }
   if (_isAdmin) {
     document.getElementById('ssGearBtn').style.display = '';
@@ -1955,6 +1959,112 @@ function saveTaskTemplatesEditor() {
     btn.disabled = false;
     statusEl.textContent = 'Failed: ' + (err && err.message ? err.message : 'unknown');
     statusEl.className = 'ss-status err';
+  });
+}
+
+// ── Deploy 236.888 — Stride pre-funding tape export ────────────────
+// Same endpoint + xlsx engine as the Colchis tapes on the Closed Pipeline
+// (/api/trade-tape-export, _shared/trade-tapes.mjs); these two templates map
+// the in-processing loan onto Stride's submission sheets. The tape picker
+// filters the loan list by program: the DSCR tape lists DSCR loans (MF 5+
+// excluded — Stride's sheet is 1-4 unit resi), the RTL tape everything else.
+function _strideCandidates(tapeKey) {
+  var all = [];
+  Object.keys(_items || {}).forEach(function(col) {
+    (_items[col] || []).forEach(function(it) { all.push(it); });
+  });
+  return all.filter(function(it) {
+    var tool = String(it.loan.toolType || 'dscr').toLowerCase();
+    var isDscr = tool === 'dscr' && !it.loan.mfProgram;
+    return tapeKey === 'stride_dscr' ? isDscr : !isDscr;
+  });
+}
+function _strideName(it) {
+  var c = it.client || {};
+  return c.entityName || ((c.firstName || '') + ' ' + (c.lastName || '')).replace(/\s+/g, ' ').trim() || '(no name)';
+}
+function _strideLoanRows() {
+  var key = (document.getElementById('strideKey') || {}).value || 'stride_dscr';
+  var items = _strideCandidates(key);
+  window._strideItems = items;
+  if (!items.length) return '<div style="font-size:13px;color:var(--muted);padding:8px 0">No in-processing ' + (key === 'stride_dscr' ? 'DSCR' : 'RTL') + ' loans.</div>';
+  return items.map(function(it, i) {
+    var l = it.loan;
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#eee7da);font-size:13px;cursor:pointer">' +
+      '<input type="checkbox" class="stride-loan" data-i="' + i + '" style="flex:none" />' +
+      '<span style="flex:1">' + escH(l.address || '(no address)') + ' — ' + escH(_strideName(it)) + '</span>' +
+      '<span style="color:var(--muted);font-size:11px;white-space:nowrap">' + escH(fmtMoney(l.loanAmt)) + (l.fundingDate ? ' · closes ' + escH(String(l.fundingDate).slice(0, 10)) : '') + '</span>' +
+    '</label>';
+  }).join('');
+}
+function _strideRefreshRows() {
+  var box = document.getElementById('strideLoans');
+  if (box) box.innerHTML = _strideLoanRows();
+}
+function openStrideTapeModal() {
+  var old = document.getElementById('strideModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'strideModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:620px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:17px;font-weight:600">Stride Submission Tape</div>' +
+      '<div style="padding:14px 20px;overflow:auto;flex:1">' +
+        '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Tape</label>' +
+        '<select id="strideKey" onchange="_strideRefreshRows()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px;margin-bottom:12px">' +
+          '<option value="stride_dscr">Stride DSCR (pre-funding)</option>' +
+          '<option value="stride_rtl">Stride RTL (pre-funding)</option>' +
+        '</select>' +
+        '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Loans in processing</label>' +
+        '<div id="strideLoans">' + _strideLoanRows() + '</div>' +
+        '<div id="strideStatus" style="font-size:12px;color:var(--muted);margin-top:10px"></div>' +
+      '</div>' +
+      '<div style="padding:12px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" onclick="document.getElementById(\'strideModal\').remove()" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">Cancel</button>' +
+        '<button type="button" id="strideGoBtn" onclick="downloadStrideTape()" style="font-size:13px;padding:8px 18px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Download Tape</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function(e){ if (e.target === wrap) wrap.remove(); });
+}
+function downloadStrideTape() {
+  var items = window._strideItems || [];
+  var picked = [];
+  Array.prototype.forEach.call(document.querySelectorAll('.stride-loan:checked'), function(cb) {
+    var it = items[parseInt(cb.getAttribute('data-i'), 10)];
+    if (it) picked.push({ owner: it.ownerKey, clientId: it.client.id, loanId: it.loan.id });
+  });
+  var status = document.getElementById('strideStatus');
+  if (!picked.length) { status.textContent = 'Check at least one loan.'; return; }
+  var key = (document.getElementById('strideKey') || {}).value || 'stride_dscr';
+  var btn = document.getElementById('strideGoBtn');
+  btn.disabled = true; btn.textContent = 'Building…';
+  status.textContent = '';
+  SLA.getToken().then(function(t) {
+    return fetch('/api/trade-tape-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+      body: JSON.stringify({ tapeKey: key, loans: picked }),
+    });
+  }).then(function(resp) {
+    if (!resp.ok) return resp.json().then(function(d){ throw new Error(d.error || ('HTTP ' + resp.status)); });
+    var missing = decodeURIComponent(resp.headers.get('X-Tape-Missing') || '');
+    var cd = resp.headers.get('Content-Disposition') || '';
+    var fm = /filename="([^"]+)"/.exec(cd);
+    return resp.blob().then(function(blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fm ? fm[1] : 'Stride Tape.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+      btn.disabled = false; btn.textContent = 'Download Tape';
+      status.innerHTML = missing
+        ? '<strong>Hand-fill before sending:</strong> ' + escH(missing).replace(/ \| /g, '<br>')
+        : 'Tape downloaded — every required column filled.';
+    });
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Download Tape';
+    status.textContent = 'Export failed: ' + (err && err.message ? err.message : 'unknown');
   });
 }
 

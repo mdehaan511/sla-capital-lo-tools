@@ -13,7 +13,13 @@
  *                      accrued interest on 30/360, Dutch accrues on the TOTAL
  *                      loan amount, Non-Dutch on the balance at purchase —
  *                      verified against 6 historical trade sheets).
- *   (Stride pre-funding DSCR + RTL tapes: next phase.)
+ *   stride_dscr        PRE-FUNDING — Stride submission tape for a DSCR loan
+ *                      (73-col "Form" sheet; Deploy 236.888). Investor-side
+ *                      columns (Pass-thru Rate, Investor Lock Price, MERS MIN,
+ *                      Stride/Servicer IDs) stay blank for hand-fill and are
+ *                      surfaced in the missing report.
+ *   stride_rtl         PRE-FUNDING — Stride submission tape for an RTL loan
+ *                      (56-col "Sheet1"; Deploy 236.888). Same hand-fill rule.
  *
  * ctx per loan: { loan, client, guarantors[], sla, ownerKey, params }
  *   guarantors = ADDITIONAL guarantor client records (loan.guarantorClientIds).
@@ -362,6 +368,252 @@ const COLCHIS_SETTLE_HEADERS = ['Loan Number', 'Street Address', 'Borrower Name'
   'Proceeds', 'Funding Bank'];
 const COLCHIS_SETTLE_REQUIRED = ['Street Address', 'Gross Rate', 'Colchis Rate', 'Total Loan Amount', 'Dutch Interest'];
 
+// ── Stride pre-funding tapes (Deploy 236.888) ─────────────────────────────
+// One row per loan, column-for-column from Mike's sample submissions
+// ("Stride - DSCR Tape.xlsm" Form sheet / "Stride - RTL Template.xlsx"
+// Sheet1). Sample files carry Excel serial dates; Stride accepts date
+// strings, so we emit M/D/YYYY like the Colchis tapes.
+
+// Monthly amortizing payment, 360-month term (DSCR is 30-yr amortizing).
+const amortPI = (total, rf) => {
+  if (!total || rf == null) return null;
+  if (rf === 0) return round2(total / 360);
+  const m = rf / 12;
+  const f = Math.pow(1 + m, 360);
+  return round2(total * m * f / (f - 1));
+};
+// DSCR sizer prepay codes → Stride's flag / term (months) / type string.
+const PREPAY_MAP = {
+  '5y6m':  { term: 60, type: '5yr/6mo' },
+  '54321': { term: 60, type: '5-4-3-2-1' },
+  '321':   { term: 36, type: '3-2-1' },
+  '320':   { term: 24, type: '3-2-0' },
+  '300':   { term: 12, type: '3-0-0' },
+};
+const prepayInfo = (l) => PREPAY_MAP[String(l.prepay || '').toLowerCase()] || null;
+const dscrPurpose = (l) => {
+  const p = String(l.loanPurpose || '').toLowerCase();
+  if (!p) return '';
+  if (p.indexOf('cash') >= 0) return 'Cash-Out Refinance';
+  if (p.charAt(0) === 'p') return 'Purchase';
+  return 'R/T Refinance';
+};
+// Y when the primary client's book holds another loan that already closed.
+const repeatBorrower = (c) => {
+  const loans = (c.client && c.client.loans) || [];
+  const done = loans.some((l) => l && l.id !== c.loan.id &&
+    /^(closed|sold|liquidated)$/.test(String(l.status || '').toLowerCase()));
+  return done ? 'Y' : 'N';
+};
+const yn = (v) => (v ? 'Yes' : 'No');
+const addDays = (iso, days) => {
+  const p = dparts(iso);
+  if (!p) return '';
+  const d = new Date(Date.UTC(p.y, p.m - 1, p.d + days));
+  return (d.getUTCMonth() + 1) + '/' + d.getUTCDate() + '/' + d.getUTCFullYear();
+};
+// DSCR PITIA — the sizer stamps its computed total onto the loan.
+const pitiaOf = (l) => num(l._totalPayment) || null;
+const dscrOf = (l) => num(l.dscr) || num(l._dscr) || null;
+// DSCR points: loan.points, else the sizer's "_points" display ("2.00 pts").
+const dscrPoints = (l) => num(l.points) != null ? num(l.points) : num(l._points);
+const g1Of = (c) => gPeople(c)[0] || null;
+const citizenOf = (c) => {
+  const g1 = g1Of(c);
+  const u = String((g1 && g1.usCitizen) || c.loan.usCitizen || uw(c, 'usCitizen') || '').toLowerCase();
+  if (!u) return null;
+  return (u === 'yes' || u === 'y' || u === 'true');
+};
+
+const STRIDE_DSCR_COLS = [
+  ['Loan Numbers', (c) => c.sla],
+  ['Seller', () => 'Sir Lends A Lot LLC'],
+  ['Channel', () => 'Retail'],
+  ['Seller Program', () => 'DSCR'],
+  ['Original Loan Amount', (c) => totalAmt(c.loan) || ''],
+  [' Current UPB', (c) => num(c.loan.upb) || totalAmt(c.loan) || ''],
+  ['Borrower Name First', (c) => borrowerName(c)],
+  ['Borrower Name Last', () => ''],
+  ['Co-Borrower Name First', () => ''],
+  ['Co-Borrower Name Last', () => ''],
+  ['Guarantor', (c) => clientName(gPeople(c)[0])],
+  ['Guarantor 2', (c) => clientName(gPeople(c)[1])],
+  ['Property Address', (c) => parseAddr(c.loan.address).street],
+  ['Property City', (c) => parseAddr(c.loan.address).city],
+  ['Property State', (c) => parseAddr(c.loan.address).state],
+  ['Property Zip', (c) => parseAddr(c.loan.address).zip],
+  ['Note Rate', (c) => pct(rateFrac(c.loan.rate || c.loan._finalRate))],
+  ['Pass-thru Rate', () => ''], // investor-side — hand-fill
+  [' FICO', (c) => { const g = g1Of(c); return g ? ficoOf(g, c.loan) : ''; }],
+  [' LTV', (c) => {
+    const t = totalAmt(c.loan), v = num(uw(c, 'appraisedValue')) || num(c.loan.propValue);
+    return (t && v) ? pct(round4(t / v)) : '';
+  }],
+  ['CLTV', (c) => {
+    const t = totalAmt(c.loan), v = num(uw(c, 'appraisedValue')) || num(c.loan.propValue);
+    return (t && v) ? pct(round4(t / v)) : ''; // no junior liens on our deals
+  }],
+  ['DSCR', (c) => dscrOf(c.loan) || ''],
+  [' DTI', () => ''],
+  ['Sales Price', (c) => (dscrPurpose(c.loan) === 'Purchase' ? (num(c.loan.purchasePrice) || '') : '')],
+  ['Property Value', (c) => num(uw(c, 'appraisedValue')) || num(c.loan.propValue) || ''],
+  ['Doc Type', () => 'DSCR'],
+  ['Doc Months', () => ''],
+  ['Doc Type Detail', () => ''],
+  ['Purpose', (c) => dscrPurpose(c.loan)],
+  ['Occupancy', () => 'Investment'],
+  ['Property Type', (c) => propTypeLabel(c.loan.propType)],
+  ['Units', (c) => num(c.loan.numUnits) || 1],
+  ['Orig Term', () => 360],
+  ['Amort Term', () => 360],
+  ['Seasoning', () => ''],
+  ['IO Flag', (c) => yn(String(c.loan.isIO || '').toLowerCase() === 'yes')],
+  ['IO Months', (c) => (String(c.loan.isIO || '').toLowerCase() === 'yes' ? 120 : 0)],
+  ['ARM Flag', (c) => yn(/arm/i.test(String(c.loan.product || c.loan.productType || '')))],
+  ['Fixed Period', () => ''],
+  ['Product Type', (c) => c.loan.product || '30 year fixed'],
+  ['Product', () => ''],
+  ['Non-Warrantable Flag', () => 'No'],
+  ['Rural Flag', (c) => yn(/^y/i.test(String(uw(c, 'rucaRural') || '')))],
+  ['ST Rental Flag', (c) => yn(!!(c.loan.shortTermRental || c.loan.strRental || /str|short/i.test(String(c.loan.rentalType || ''))))],
+  ['Prepay Flag', (c) => yn(!!prepayInfo(c.loan))],
+  ['Prepay Penalty Term', (c) => { const p = prepayInfo(c.loan); return p ? p.term : 0; }],
+  ['Prepay Penalty Type', (c) => { const p = prepayInfo(c.loan); return p ? p.type : ''; }],
+  ['Citizenship', (c) => { const u = citizenOf(c); return u == null ? '' : (u ? 'US Citizen' : 'Foreign National'); }],
+  ['Foreign National Flag', (c) => { const u = citizenOf(c); return u == null ? '' : (u ? 'No' : 'Yes'); }],
+  ['ITIN Flag', () => 'No'],
+  ['FTHB Flag', () => 'No'],
+  // DSCR + MF5+ escrow taxes AND insurance (Deploy 236.855 standing rule).
+  ['Monthly Insurance', () => 'Yes'],
+  ['Monthly Tax', () => 'Yes'],
+  ['Escrow Payment', () => 'Yes'],
+  ['Program', () => ''],
+  ['Monthly P&I', (c) => {
+    const t = totalAmt(c.loan), rf = rateFrac(c.loan.rate || c.loan._finalRate);
+    if (!t || rf == null) return '';
+    // IO loans pay interest only (the sample sheet's own P&I is exactly this).
+    return String(c.loan.isIO || '').toLowerCase() === 'yes' ? round2(t * rf / 12) : amortPI(t, rf);
+  }],
+  ['Monthly PITI', (c) => pitiaOf(c.loan) || ''],
+  ['Application Date', () => ''],
+  ['Closing Date', (c) => dstr(c.loan.closingDate || c.loan.fundingDate)],
+  ['Origination Points', (c) => dscrPoints(c.loan) != null ? dscrPoints(c.loan) : ''],
+  ['Estimated Disbursment Date', (c) => dstr(c.loan.fundingDate)],
+  ['First Payment Date', (c) => firstPaymentOf(c.loan)],
+  ['Escrows at Close', () => ''],
+  ['Pre-Paid Interest at Close', () => ''],
+  ['Investor Name', () => 'Colchis'],
+  ['Investor Lock Date', (c) => dstr(c.loan.rateLockStart)],
+  ['Investor Lock Expiration Date', (c) => addDays(c.loan.rateLockStart, 45)], // 45-day DSCR lock
+  ['Investor Lock Price', () => ''], // investor-side — hand-fill
+  ['Estimated Investor Sale Date', () => ''],
+  ['Servicer ID', () => ''],
+  ['MERs MIN ID', () => ''], // assigned at registration — hand-fill
+  ['ULI', () => ''],
+  ['Day Count (360, 365)', () => 360],
+];
+const STRIDE_DSCR_REQUIRED = ['Property Address', 'Property State', 'Original Loan Amount',
+  'Note Rate', ' FICO', ' LTV', 'DSCR', 'Property Value', 'Purpose', 'Monthly PITI',
+  'First Payment Date', 'Guarantor', 'Investor Lock Date',
+  'Pass-thru Rate', 'Investor Lock Price', 'MERs MIN ID'];
+
+const STRIDE_RTL_COLS = [
+  ['Servicer ID', () => ''],
+  ['Initial Escrow', () => 0],
+  ['Loan Number', (c) => c.sla],
+  ['Seller', () => 'Sir Lends A Lot, LLC'],
+  ['Stride ID', () => ''], // assigned by Stride — hand-fill
+  ['Seller Program', () => 'RTL'],
+  ['Investor', () => 'Colchis'],
+  ['Investor Buy Rate', (c) => pct(rateFrac(c.loan.soldRate))],
+  ['Loan Number', (c) => c.sla], // yes, twice — the template repeats it
+  ['Borrowing Entity', (c) => borrowerName(c)],
+  ['Guarantor', (c) => gPeople(c).map(clientName).filter(Boolean).join('; ')],
+  ['Address', (c) => parseAddr(c.loan.address).street],
+  ['City', (c) => parseAddr(c.loan.address).city],
+  ['State', (c) => parseAddr(c.loan.address).state],
+  ['Zip', (c) => parseAddr(c.loan.address).zip],
+  ['Total Loan Amount', (c) => totalAmt(c.loan) || ''],
+  ['Original Rehab Amount', (c) => rehabAmt(c.loan)],
+  ['Current Rehab Amount', (c) => rehabAmt(c.loan)], // pre-funding: nothing drawn yet
+  ['Current Balance', (c) => { const t = totalAmt(c.loan); return t == null ? '' : t - rehabAmt(c.loan); }],
+  ['Original Interest Reserve', () => 'n/a'], // we don't hold interest reserves
+  ['Current Interest Reserve', () => 'n/a'],
+  ['OOP Rehab', () => 'n/a'],
+  ['Total Rehab Amount', (c) => rehabAmt(c.loan)],
+  ['Borrower Total Projects Completed', (c) => {
+    const g1 = g1Of(c);
+    return num(c.loan.experience) != null ? num(c.loan.experience) : (num(g1 && g1.flips) || '');
+  }],
+  ['FICO', (c) => { const g = g1Of(c); return g ? ficoOf(g, c.loan) : ''; }],
+  ['Purchase Price', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? (num(c.loan.purchasePrice) || '') : 'N/A')],
+  ['AIV', (c) => thirdPartyAiv(c) || ''],
+  ['ARV', (c) => num(c.loan.arvBpo) || num(c.loan.arv) || ''],
+  ['Appraisal Type', (c) => {
+    const t = String(uw(c, 'valuationType') || '').toLowerCase();
+    if (t === 'appraisal') return '1004';
+    if (t === 'bpo' || (!t && num(c.loan.aivBpo))) return 'BPO';
+    if (t === 'avm') return 'AVM';
+    return '';
+  }],
+  ['Note Rate', (c) => pct(rateFrac(c.loan.rate))],
+  ['Origination Date', (c) => dstr(c.loan.fundingDate)],
+  ['Next Due', (c) => firstPaymentOf(c.loan)], // pre-funding: next due IS first due
+  ['First Due', (c) => firstPaymentOf(c.loan)],
+  ['Maturity Date', (c) => maturityOf(c.loan)],
+  ['Term', (c) => (num(c.loan.term) || 12) + ' months'],
+  ['Purchase/Refi', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? 'PURCHASE' : (c.loan.loanPurpose ? 'REFI' : ''))],
+  // Sample uses "Note" where interest accrues on the full note (our Dutch).
+  ['Accrual Type', (c) => { const d = dutchLabel(c.loan); return d === 'Dutch' ? 'Note' : (d === 'Non-Dutch' ? 'As Disbursed' : ''); }],
+  ['Borrower Internal Projects Exited', () => ''],
+  ['# of Years Experience', () => ''],
+  ['Repeat Borrower (Y/N)', (c) => repeatBorrower(c)],
+  ['# of Bed/Baths', (c) => {
+    const bd = num(c.loan.bedrooms), ba = num(c.loan.bathrooms);
+    return (bd || ba) ? ((bd || '?') + ' bed ' + (ba || '?') + ' bath') : '';
+  }],
+  ['Pre- Rehab Sqft', (c) => num(uw(c, 'propertySqFt')) || num(uw(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
+  ['Post- Rehab Sqft', (c) => num(uw(c, 'propertySqFt')) || num(uw(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
+  ['# of Units', (c) => num(c.loan.numUnits) || 1],
+  ['Property Type', (c) => { const p = propTypeLabel(c.loan.propType); return p === 'SFR' ? 'SF' : p; }],
+  ['Loan Type', (c) => {
+    const lt = String(c.loan.loanType || '').toLowerCase();
+    if (lt === 'bridge') return 'Bridge';
+    if (lt === 'ground_up' || lt === 'guc' || String(c.loan.toolType || '').toLowerCase() === 'guc') return 'GUC';
+    return 'RTL';
+  }],
+  ['Exit Strategy', () => ''], // lives on the long app, not the loan — hand-fill
+  ['Guarantor Citizenship Status', (c) => { const u = citizenOf(c); return u == null ? '' : (u ? 'US' : 'Foreign National'); }],
+  ['Multi Property Flag', () => 'N'],
+  ['Cross Collateralized Flag', () => 'N'],
+  ['Asset Purchased', (c) => { const p = propTypeLabel(c.loan.propType); return p === 'SFR' ? 'SF' : p; }],
+  ['Entitlement Status', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? '' : 'NA')],
+  ['Build Status', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? '' : 'NA')],
+  ['Lot Purchase Price', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? (num(c.loan.purchasePrice) || '') : 'NA')],
+  ['Lot Purchase Date', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? '' : 'NA')],
+  ['Project Summary', (c) => String(c.loan.projectDescription || '').slice(0, 500)],
+];
+const STRIDE_RTL_REQUIRED = ['Address', 'State', 'Total Loan Amount', 'Note Rate',
+  'FICO', 'AIV', 'ARV', 'Origination Date', 'Maturity Date', 'Borrowing Entity',
+  'Guarantor', 'Exit Strategy', 'Stride ID'];
+
+function strideBuild(cols, required, sheetName, filenameBase) {
+  return function build(ctxs) {
+    const rows = [cols.map((col) => col[0])];
+    const missing = [];
+    for (const c of ctxs) {
+      const row = cols.map((col) => { try { return col[1](c); } catch (e) { return ''; } });
+      rows.push(row);
+      cols.forEach((col, i) => {
+        if (required.indexOf(col[0]) >= 0 && (row[i] === '' || row[i] == null)) {
+          missing.push(c.sla + ': ' + col[0].trim());
+        }
+      });
+    }
+    return { sheets: [{ name: sheetName, rows }], missing, filenameBase };
+  };
+}
+
 // ── Registry ───────────────────────────────────────────────────────────────
 export const TRADE_TAPES = {
   colchis_trade: {
@@ -410,5 +662,20 @@ export const TRADE_TAPES = {
       rows.push(totals);
       return { sheets: [{ name: 'SLA Trade', rows }], missing, filenameBase: 'SLA Colchis Settlement' };
     },
+  },
+  // Deploy 236.888 — Stride pre-funding submission tapes (Processing Pipeline).
+  stride_dscr: {
+    key: 'stride_dscr',
+    label: 'Stride Submission Tape — DSCR (pre-funding)',
+    stage: 'pre_funding',
+    params: [],
+    build: strideBuild(STRIDE_DSCR_COLS, STRIDE_DSCR_REQUIRED, 'Form', 'Stride Submission Loan Tape - DSCR'),
+  },
+  stride_rtl: {
+    key: 'stride_rtl',
+    label: 'Stride Submission Tape — RTL (pre-funding)',
+    stage: 'pre_funding',
+    params: [],
+    build: strideBuild(STRIDE_RTL_COLS, STRIDE_RTL_REQUIRED, 'Sheet1', 'Stride Submission Loan Tape - RTL'),
   },
 };
