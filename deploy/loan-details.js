@@ -8021,6 +8021,13 @@ function renderPostClosePanel(l) {
       '</label>';
   }
   var pct = defs.length ? Math.round((done / defs.length) * 100) : 0;
+  // Deploy 236.890 (Mike) — the filled FCI boarding package, generated from
+  // the loan record (FCI has no boarding API). Processor-tier endpoint.
+  var boardBtn =
+    '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#eee);display:flex;align-items:center;gap:10px">' +
+      '<button type="button" id="fciBoardBtn" onclick="downloadFciBoardingSheet()" style="font-size:13px;padding:8px 14px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-weight:600">📄 FCI Boarding Sheet</button>' +
+      '<span id="fciBoardStatus" style="font-size:12px;color:var(--muted)"></span>' +
+    '</div>';
   return '<div class="section" id="postCloseSection">' +
     '<div class="section-head"><h2>Post Close Tasks</h2><span class="section-tag ' + (done === defs.length ? 'tag-readonly' : 'tag-editable') + '">' + done + '/' + defs.length + '</span></div>' +
     '<div class="section-body">' +
@@ -8028,8 +8035,46 @@ function renderPostClosePanel(l) {
         '<div style="height:100%;width:' + pct + '%;background:var(--success,#166534);transition:width .2s"></div>' +
       '</div>' +
       rows +
+      boardBtn +
     '</div>' +
   '</div>';
+}
+// Deploy 236.890 — generate + download the filled FCI boarding package.
+function downloadFciBoardingSheet() {
+  if (!_loan || !_client) return;
+  var btn = document.getElementById('fciBoardBtn');
+  var status = document.getElementById('fciBoardStatus');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  if (status) status.textContent = '';
+  var body = { clientId: _client.id, loanId: _loanId };
+  var owner = _closingOwner(); if (owner) body.owner = owner;
+  SLA.getToken().then(function(t) {
+    return fetch('/api/fci-boarding-sheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+      body: JSON.stringify(body),
+    });
+  }).then(function(resp) {
+    if (!resp.ok) return resp.json().then(function(d) { throw new Error(d.error || ('HTTP ' + resp.status)); });
+    var missing = decodeURIComponent(resp.headers.get('X-Boarding-Missing') || '');
+    var fm = /filename="([^"]+)"/.exec(resp.headers.get('Content-Disposition') || '');
+    return resp.blob().then(function(b) {
+      var u = URL.createObjectURL(b);
+      var a = document.createElement('a');
+      a.href = u; a.download = (fm && fm[1]) || 'FCI Boarding.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function() { URL.revokeObjectURL(u); }, 4000);
+      if (btn) { btn.disabled = false; btn.textContent = '📄 FCI Boarding Sheet'; }
+      if (status) {
+        status.innerHTML = missing
+          ? '<span style="color:var(--warn,#7a5218)">⚠ Hand-fill before sending: ' + escH(missing).replace(/ \| /g, '; ') + '</span>'
+          : '<span style="color:var(--success,#166534)">✓ Downloaded — review + sign, then send to FCI.</span>';
+      }
+    });
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = '📄 FCI Boarding Sheet'; }
+    if (status) status.textContent = 'Failed: ' + (err && err.message || 'unknown');
+  });
 }
 function refreshPostClosePanel() {
   var el = document.getElementById('postCloseSection');

@@ -858,6 +858,16 @@
   status = 200
   force = true
 
+# Deploy 236.890: filled FCI boarding package (pdf-lib over the FCI template).
+[[redirects]]
+  from = "/api/fci-boarding-sheet"
+  to = "/.netlify/functions/fci-boarding-sheet"
+  status = 200
+  force = true
+
+[functions."fci-boarding-sheet"]
+  timeout = 26
+
 [[redirects]]
   from = "/api/admin-end-reasons-report"
   to = "/.netlify/functions/admin-end-reasons-report"
