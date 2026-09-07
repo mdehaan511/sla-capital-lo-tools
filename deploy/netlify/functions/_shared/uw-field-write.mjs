@@ -86,6 +86,88 @@ export function felonyAlertFor(slug, proposals) {
     '. A felony of any age is a hard stop on both RTL and DSCR; this loan cannot proceed without a documented exception.';
 }
 
+// Deploy 236.887 (Mike) — bank-statement liquidity accounts. The acctStmt*
+// virtual keys (uw-field-map, bank_stmt_current slug) are synthesized into
+// the UW tab's account1..5 rows: value {type, balance, weight}, unverified,
+// aiNote tagged "<tray label> (acct N)" so a re-review updates its own rows
+// in place instead of eating fresh slots. Weights mirror loan-uw-fields.js
+// ACCOUNT_WEIGHTS (and trade-tapes.mjs TAPE_ACCOUNT_WEIGHTS) — keep in sync.
+// Match order matters: "Business Checking" must hit Business before Checking.
+const STMT_TYPES = [
+  { type: 'Business Checking Acct.',    weight: 1.00, match: /business/i },
+  { type: 'IRA/401k/Retirement Plans',  weight: 0,    match: /ira|401|retire|roth|sep\b|pension/i },
+  { type: 'HELOC',                      weight: 0,    match: /heloc|line of credit|credit line/i },
+  { type: 'Stocks/Mutual Funds',        weight: 0.50, match: /stock|mutual|brokerage|invest|securities/i },
+  { type: 'Checking/Savings',           weight: 0.70, match: /check|saving|money market|\bcd\b|deposit/i },
+];
+function normStmtType(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const exact = STMT_TYPES.find((t) => t.type.toLowerCase() === s.toLowerCase());
+  if (exact) return exact;
+  return STMT_TYPES.find((t) => t.match.test(s)) || null;
+}
+export function applyStmtAccountProposals(loan, stmtProps, now) {
+  loan.uwData  = (loan.uwData && typeof loan.uwData === 'object') ? loan.uwData : {};
+  loan.uwAudit = Array.isArray(loan.uwAudit) ? loan.uwAudit : [];
+  const byIdx = {};
+  let doubt = '';
+  let label = '';
+  stmtProps.forEach((p) => {
+    if (!label) label = String(p.aiNote || '').split(' — ')[0]; // aiNote = docLabel [— where]
+    if (p.key === 'acctStmtDoubt') { doubt = String(p.value || '').trim(); return; }
+    const m = /^acctStmt([1-3])(Type|Balance)$/.exec(p.key);
+    if (m) (byIdx[m[1]] = byIdx[m[1]] || {})[m[2].toLowerCase()] = p.value;
+  });
+  let wrote = 0;
+  Object.keys(byIdx).sort().forEach((i) => {
+    const balance = Number(String(byIdx[i].balance == null ? '' : byIdx[i].balance).replace(/[^0-9.\-]/g, ''));
+    if (!isFinite(balance) || balance < 0) return;
+    let rowDoubt = doubt;
+    let t = normStmtType(byIdx[i].type);
+    if (!t) {
+      // Unrecognized category → safest common bucket, and force a human look.
+      t = STMT_TYPES[STMT_TYPES.length - 1];
+      rowDoubt = (rowDoubt ? rowDoubt + '; ' : '') + 'account type unclear ("' + String(byIdx[i].type || '').slice(0, 60) + '")';
+    }
+    const tag = label + ' (acct ' + i + ')';
+    const aiNote = tag + (rowDoubt ? ' — ⚠ VERIFY: ' + rowDoubt.slice(0, 240) : '');
+    // Slot: this statement's own prior unverified row (re-review updates in
+    // place), else the first genuinely empty account row. Never a human's row.
+    let slot = null;
+    for (let n = 1; n <= 5 && !slot; n++) {
+      const e = loan.uwData['account' + n];
+      if (e && e.isAI === true && e.verified !== true && String(e.aiNote || '').indexOf(tag) === 0) slot = 'account' + n;
+    }
+    for (let n = 1; n <= 5 && !slot; n++) {
+      const e = loan.uwData['account' + n];
+      const v = e && e.value;
+      const empty = !e || v == null || v === '' ||
+        (typeof v === 'object' && (v.balance == null || v.balance === '') && !v.type);
+      if (empty) slot = 'account' + n;
+    }
+    if (!slot) return; // all five rows in use by real values — leave them be
+    const prior = loan.uwData[slot] || null;
+    if (prior && prior.verified === true && prior.isAI !== true) return; // human truth wins
+    const value = { type: t.type, balance: balance, weight: t.weight };
+    if (prior && prior.isAI === true && JSON.stringify(prior.value) === JSON.stringify(value)
+        && prior.aiNote === aiNote) return; // no churn on identical re-reads
+    loan.uwData[slot] = {
+      value, source: 'doc', sourceNote: '', isAI: true, aiNote,
+      verified: false, by: 'ai', byName: 'AI', at: now,
+    };
+    loan.uwAudit.push({
+      key: slot, from: prior ? prior.value : undefined, to: value,
+      by: 'ai', byName: 'AI', isAI: true, aiNote, at: now,
+    });
+    wrote++;
+  });
+  if (loan.uwAudit.length > _UW_AUDIT_CAP) {
+    loan.uwAudit = loan.uwAudit.slice(loan.uwAudit.length - _UW_AUDIT_CAP);
+  }
+  return wrote;
+}
+
 // Deploy 236.500 — persist AI-extracted UW/Lightning fields onto the loan
 // as unverified proposals (verified:false, isAI:true) with a provenance
 // note + append-only audit entry, mirroring loan-uw-field-save.mjs's write
@@ -110,6 +192,14 @@ export async function writeFieldProposals(source, proposals, actorEmail) {
   const _alBefore = Object.assign({}, loan);
   const now = new Date().toISOString();
   let wrote = 0;
+
+  // Deploy 236.887 — bank-statement account proposals become account1..5 rows
+  // (see applyStmtAccountProposals above), never entries under their own keys.
+  const stmtProps = proposals.filter(function (p) { return /^acctStmt/.test(p.key); });
+  if (stmtProps.length) {
+    proposals = proposals.filter(function (p) { return !/^acctStmt/.test(p.key); });
+    wrote += applyStmtAccountProposals(loan, stmtProps, now);
+  }
 
   proposals.forEach(function (p) {
     // Deploy 236.767 (Mike) — dataset 'loan' writes a REAL loan field (the BPO's

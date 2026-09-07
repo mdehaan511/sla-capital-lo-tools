@@ -97,6 +97,29 @@ export const SLUG_FIELD_MAP = {
   emd_receipt: [
     { dataset: 'uw', key: 'emd', label: 'The earnest money deposit (EMD) amount that was PAID (number only)' },
   ],
+  // Deploy 236.887 (Mike) — AI-proposed liquidity accounts off the CURRENT
+  // month's bank statements. The acctStmt* keys are VIRTUAL: uw-field-write
+  // synthesizes them into the UW tab's account1..5 rows ({type,balance,weight},
+  // unverified, with a ⚠ VERIFY note when the AI flags any doubt) instead of
+  // writing them under these keys. Only the current-month tray extracts —
+  // the previous-month statement shows the SAME accounts and would
+  // double-count the borrower's reserves.
+  bank_stmt_current: [
+    { dataset: 'uw', key: 'acctStmt1Type',
+      label: 'For the FIRST deposit/investment account shown on this statement: the account category. Answer EXACTLY one of: "Checking/Savings", "Stocks/Mutual Funds", "IRA/401k/Retirement Plans", "HELOC", "Business Checking Acct."' },
+    { dataset: 'uw', key: 'acctStmt1Balance',
+      label: 'For the FIRST account shown on this statement: the ENDING / closing balance (number only, no $ or commas)' },
+    { dataset: 'uw', key: 'acctStmt2Type',
+      label: 'For the SECOND account, if this statement shows more than one: the account category (same exact choices), or null if only one account' },
+    { dataset: 'uw', key: 'acctStmt2Balance',
+      label: 'For the SECOND account, if shown: the ENDING / closing balance (number only), or null if only one account' },
+    { dataset: 'uw', key: 'acctStmt3Type',
+      label: 'For the THIRD account, if this statement shows three or more: the account category (same exact choices), or null' },
+    { dataset: 'uw', key: 'acctStmt3Balance',
+      label: 'For the THIRD account, if shown: the ENDING / closing balance (number only), or null' },
+    { dataset: 'uw', key: 'acctStmtDoubt',
+      label: 'Anything a human should double-check before counting these balances toward liquidity: joint ownership, an account holder who is not the borrower/guarantor on this loan, missing pages, a statement older than about 60 days, large unexplained recent deposits, margin or loan balances against the account, or more than three accounts on the statement. ONE short line naming the issue, or null if none.' },
+  ],
   // Deploy 236.681 — RTL guideline-driven Underwriting-tab auto-grab. These
   // populate the new RTL UW fields (loan-uw-fields.js) as unverified proposals
   // for the underwriter to confirm. (Harmless on DSCR reviews — no matching DSCR

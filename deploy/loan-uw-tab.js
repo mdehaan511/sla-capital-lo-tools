@@ -333,20 +333,27 @@
   }
 
   function accountRowHtml(dataset, f, data) {
-    var val = (data[f.key] && data[f.key].value) || {};
+    var entry = data[f.key];
+    var val = (entry && entry.value) || {};
     var weights = F.ACCOUNT_WEIGHTS || [];
     var opts = '<option value="">— type —</option>' + weights.map(function(w){
       return '<option value="'+escA(w.type)+'"'+(val.type===w.type?' selected':'')+'>'+esc(w.type)+'</option>';
     }).join('');
     var wDisp = (val.weight==null||val.weight==='') ? '' : (num(val.weight)*100)+'%';
+    // Deploy 236.887 — AI-proposed account rows (bank-statement extraction)
+    // get the same amber + one-click Confirm as regular unverified proposals.
+    var unverAI = !!(entry && entry.isAI && !entry.verified);
+    var confirmBtn = unverAI
+      ? ' · <a href="#" class="uw-confirm" onclick="event.stopPropagation();SLA_UW_TAB._confirm(\''+dataset+'\',\''+f.key+'\');return false">✓ Confirm</a>'
+      : '';
     return '<div class="uw-r-item">'+esc(f.label)+'</div>'
-      + '<div class="uw-r-value uw-acct" data-key="'+escA(f.key)+'">'
+      + '<div class="uw-r-value uw-acct'+(unverAI?' uw-unverified':'')+'" data-key="'+escA(f.key)+'">'
       +   '<div class="uw-acct-row">'
       +     '<select class="uw-acct-type" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')">'+opts+'</select>'
       +     '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="'+escA(val.balance!=null&&val.balance!==''?money(val.balance):'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
       +     '<input class="uw-acct-wt" type="text" placeholder="wt %" value="'+escA(wDisp)+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" title="weight % (defaults from type)" />'
       +   '</div>'
-      +   (data[f.key] ? '<span class="uw-prov">'+esc(provText(data[f.key]))+'</span>' : '')
+      +   (entry ? '<span class="uw-prov">'+esc(provText(entry))+confirmBtn+'</span>' : '')
       + '</div>'
       + '<div class="uw-r-loc">Most Recent Account Statement</div>';
   }
