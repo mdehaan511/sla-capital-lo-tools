@@ -177,18 +177,35 @@ export default async (req, context) => {
       seenQuoteLoans.add(qr.loanId);
       return true;
     });
+  // Deploy 236.908 (Mike: "in the universal search the quotes don't appear if
+  // a loan also exists") — the filter above only knows about loans that
+  // MATCHED THE SEARCH. A quote whose loan exists but didn't match (the quote
+  // kept the borrower-typed address while the loan holds the canonical one,
+  // or the loan sits outside the "mine" scope) still came through as a quote,
+  // and a legacy address-keyed quote with no loanId at all always did. Ask
+  // Postgres whether a loan exists for each surviving quote — by loanId, or
+  // by address for the legacy ones — and put the LOAN in its place.
+  let finalQuotes = quotes, finalLoans = loans;
+  try {
+    const found = await _findLoansForQuotes(quotes, selfEmail);
+    ({ quotes: finalQuotes, loans: finalLoans } =
+      reconcileQuotesWithLoans({ quotes, loans, found, wantAll, selfEmail }));
+  } catch (e) {
+    console.warn('search-pg: quote/loan reconcile failed (showing quotes as-is):', e && e.message);
+  }
+
   const coveredAddrs = new Set();
-  loans.forEach((l) => { const a = _norm(l.address); if (a) coveredAddrs.add(a); });
-  quotes.forEach((qr) => { const a = _norm(qr.address); if (a) coveredAddrs.add(a); });
+  finalLoans.forEach((l) => { const a = _norm(l.address); if (a) coveredAddrs.add(a); });
+  finalQuotes.forEach((qr) => { const a = _norm(qr.address); if (a) coveredAddrs.add(a); });
   const prospects = prospectsResult.filter((p) => !coveredAddrs.has(_norm(p.address)));
 
   return json(200, {
     q,
-    loans:     loans.slice(0, PER_CATEGORY),
+    loans:     finalLoans.slice(0, PER_CATEGORY),
     clients:   clients.slice(0, PER_CATEGORY),
     brokers:   brokers.slice(0, PER_CATEGORY),
     prospects: prospects.slice(0, PER_CATEGORY),
-    quotes:    quotes.slice(0, PER_CATEGORY),
+    quotes:    finalQuotes.slice(0, PER_CATEGORY),
     _source:   'postgres',
   });
 };
@@ -273,6 +290,77 @@ async function _searchClientsPG(q, wantAll, selfEmail) {
 
 const LOAN_SELECT = 'id,client_id,address,status,sla_display_id,tool_type,loan_amt,owner_email,updated_at,' +
   'clients!client_id(id,first_name,last_name,email,entity_name)';
+
+/** Same address normalisation the handler uses for prospect dedupe. */
+function _normAddr(s) {
+  return String(s || '').trim().toLowerCase()
+    .replace(/,\s*(usa|us|united states)\.?$/i, '').replace(/[.,]/g, '').replace(/\s+/g, ' ');
+}
+
+/**
+ * Deploy 236.908 — does a loan exist for these quotes? ONE PostgREST query:
+ * ids for quotes that carry a loanId, exact (case-insensitive) address for the
+ * legacy address-keyed ones. No owner filter on purpose — the question is
+ * "does a loan exist", not "does one I can see exist"; scope is applied when
+ * deciding whether to SHOW the loan (reconcileQuotesWithLoans).
+ */
+async function _findLoansForQuotes(quotes, selfEmail) {
+  const ids = [...new Set(quotes.filter((q) => q && q.loanId).map((q) => String(q.loanId)))];
+  const addrs = [...new Set(quotes
+    .filter((q) => q && !q.loanId && String(q.address || '').trim())
+    .map((q) => String(q.address).trim()))].slice(0, 20);
+  if (!ids.length && !addrs.length) return [];
+
+  // PostgREST filter values: double-quoted so commas/parens in an address
+  // survive; backslash-escape quotes, and % / _ so ilike matches literally.
+  const quote = (v) => '"' + String(v)
+    .replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[%_]/g, '\\$&') + '"';
+  const clauses = [];
+  if (ids.length) clauses.push('id.in.(' + ids.map((i) => i.replace(/[(),"\s]/g, '')).join(',') + ')');
+  for (const a of addrs) clauses.push('address.ilike.' + quote(a));
+
+  const parts = [
+    'select=' + encodeURIComponent(LOAN_SELECT),
+    'or=' + encodeURIComponent('(' + clauses.join(',') + ')'),
+    'limit=' + (ids.length + addrs.length + 10),
+  ];
+  const rows = await _pgSelect('loans', parts.join('&'));
+  return rows.map((l) => _rowToLoanResult(l, selfEmail));
+}
+
+/**
+ * Deploy 236.908 — pure: drop every quote that has a loan, and surface that
+ * loan in the results instead (when it's in scope and not already there).
+ *
+ * @param quotes   surviving quote hits
+ * @param loans    loan hits so far, in priority order (kept first)
+ * @param found    loan results fetched for the quotes (_rowToLoanResult shape)
+ * Exported for scripts/search-quote-dedupe-test.mjs.
+ */
+export function reconcileQuotesWithLoans({ quotes, loans, found, wantAll, selfEmail }) {
+  const byId = new Map();
+  const byAddr = new Map();
+  for (const l of (found || [])) {
+    if (!l || !l.id) continue;
+    byId.set(l.id, l);
+    const a = _normAddr(l.address);
+    if (a && !byAddr.has(a)) byAddr.set(a, l);
+  }
+  const seen = new Set((loans || []).map((l) => l && l.id).filter(Boolean));
+  const outLoans = (loans || []).slice();
+  const outQuotes = [];
+  for (const qr of (quotes || [])) {
+    if (!qr) continue;
+    const hit = qr.loanId ? byId.get(String(qr.loanId)) : byAddr.get(_normAddr(qr.address));
+    if (!hit) { outQuotes.push(qr); continue; }
+    // A loan exists → the quote never shows. Show the loan in its place, but
+    // only inside the caller's scope: a quote can outlive a reassign, and
+    // "mine" must not become a window into another LO's book.
+    const inScope = !!wantAll || normalizeEmail(hit.ownerKey || '') === selfEmail;
+    if (inScope && !seen.has(hit.id)) { seen.add(hit.id); outLoans.push(hit); }
+  }
+  return { quotes: outQuotes, loans: outLoans };
+}
 
 function _rowToLoanResult(l, selfEmail) {
   const c = l.clients || {};
