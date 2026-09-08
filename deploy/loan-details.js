@@ -5148,18 +5148,35 @@ function refreshBorrowerAccessList() {
       listEl.innerHTML = '<div style="font-size:12px;color:var(--muted);font-style:italic">No borrowers have portal access yet.</div>';
       return;
     }
+    // Deploy 236.895 (Mike) — "see a borrower's portal as an admin". Opens the
+    // REAL portal page in read-only admin view, so what's on screen is exactly
+    // what the borrower sees rather than a mock-up that drifts from it.
+    var _canViewPortal = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
     listEl.innerHTML = grants.map(function(g) {
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff">' +
+      var viewBtn = _canViewPortal
+        ? '<button type="button" onclick="viewBorrowerPortal(\'' + escAttr(g.email) + '\')" title="Open this borrower\'s portal, read-only" style="font-size:11px;color:var(--ink,#222);background:#fff;border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;margin-right:6px">👁 View portal</button>'
+        : '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff;gap:8px">' +
         '<div style="min-width:0">' +
           '<div style="font-weight:500;font-size:13px;word-break:break-all">' + escH(g.email) + '</div>' +
           '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace;margin-top:2px">' + escH(g.role || 'borrower') + ' · granted ' + (g.grantedAt ? new Date(g.grantedAt).toLocaleDateString() : 'unknown') + '</div>' +
         '</div>' +
-        '<button type="button" onclick="revokeBorrowerAccess(\'' + escAttr(g.email) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 10px;cursor:pointer">Revoke</button>' +
+        '<div style="white-space:nowrap">' + viewBtn +
+          '<button type="button" onclick="revokeBorrowerAccess(\'' + escAttr(g.email) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 10px;cursor:pointer">Revoke</button>' +
+        '</div>' +
       '</div>';
     }).join('');
   }).catch(function(err) {
     listEl.innerHTML = '<div style="font-size:12px;color:var(--danger,#7c1f1f)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
   });
+}
+// Deploy 236.895 (Mike) — open a borrower's own portal, read-only, in a new
+// tab. Admin-gated here and, far more importantly, on every endpoint the
+// portal calls: the ADMIN's token goes with the request, so the view is
+// logged under their name and every write is refused server-side.
+function viewBorrowerPortal(email) {
+  if (!email) return;
+  window.open('/borrower-portal.html?viewAs=' + encodeURIComponent(email), '_blank', 'noopener');
 }
 function inviteBorrowerAccess() {
   // Deploy 236.592 — invite a GUARANTOR chosen from the dropdown (only people

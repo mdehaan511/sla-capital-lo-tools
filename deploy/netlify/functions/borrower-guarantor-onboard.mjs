@@ -25,6 +25,8 @@ import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
 import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { encryptField } from './_shared/crypto.mjs';
+// Deploy 236.895 — admin "view as a borrower" (read-only).
+import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -40,6 +42,12 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
+  // Deploy 236.895 — onboarding creates a guarantor client record; an admin
+  // viewing the portal must not do that as the borrower.
+  const view = resolveViewAs(req, user);
+  if (view.error) return view.error;
+  const noWrite = denyWrite(view);
+  if (noWrite) return noWrite;
   const email = normalizeEmail(user.email);
   if (!email || email.indexOf('@') < 0) return json(400, { error: 'No email on your account.' });
 

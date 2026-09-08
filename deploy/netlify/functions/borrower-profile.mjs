@@ -27,6 +27,8 @@ import {
 import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
 import { encryptField } from './_shared/crypto.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.895 — admin "view as a borrower" (read-only).
+import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -43,7 +45,13 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  const email = normalizeEmail(user.email);
+  // Deploy 236.895 — an admin viewing a borrower's portal reads their
+  // profile; saving it is refused (make the edit on Loan Details, where it
+  // is recorded under the admin's own name).
+  const view = resolveViewAs(req, user);
+  if (view.error) return view.error;
+  if (method === 'POST') { const no = denyWrite(view); if (no) return no; }
+  const email = view.email;
 
   // Which client(s) may this borrower edit? Strictly the ones their live
   // loan_access grants point at. Map primaryClientId -> ownerKey (the grant's

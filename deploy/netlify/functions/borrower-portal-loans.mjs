@@ -28,6 +28,8 @@ import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
 // Deploy 236.747 — stamp portal activity so the corrected-docs reminder cron
 // only emails borrowers who actually use the portal.
 import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
+// Deploy 236.895 — ?viewAs=<email> lets an admin see a borrower's portal.
+import { resolveViewAs } from './_shared/portal-view-as.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -44,11 +46,22 @@ async function handle(req, context) {
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
 
-  const email = normalizeEmail(user.email);
-  // Deploy 236.747 — best-effort, throttled portal-login stamp.
-  await markPortalActivity(email);
+  // Deploy 236.895 — normally the caller's own email; an admin may pass
+  // ?viewAs= to render someone else's portal read-only.
+  const view = resolveViewAs(req, user);
+  if (view.error) return view.error;
+  const email = view.email;
+  // Deploy 236.747 — best-effort, throttled portal-login stamp. NOT stamped
+  // when an admin is looking: this feeds the corrected-docs reminder cron,
+  // which must keep emailing a borrower who has not actually signed in.
+  if (!view.viewingAs) await markPortalActivity(email);
   const grants = await listAccessibleLoans(email);
-  if (!grants.length) return json(200, { loans: [], needsVerification: false, borrowerName: '' });
+  if (!grants.length) {
+    return json(200, {
+      loans: [], needsVerification: false, borrowerName: '',
+      viewingAs: view.viewingAs ? email : '',
+    });
+  }
 
   const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
 
@@ -84,7 +97,11 @@ async function handle(req, context) {
     }
   }));
 
-  return json(200, { loans, needsVerification, verifyPrefill, borrowerName });
+  return json(200, {
+    loans, needsVerification, verifyPrefill, borrowerName,
+    // Tells the page to paint the read-only banner and hide the controls.
+    viewingAs: view.viewingAs ? email : '',
+  });
 }
 
 // Deploy 236.592 — resolve the borrower's OWN client record on a loan (the one

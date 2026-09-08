@@ -247,6 +247,33 @@
     var _needsVerification = false;   // Deploy 236.592 — first-login "verify your info" gate
     var _verifyPrefill = null;
 
+    // Deploy 236.895 (Mike) — admin "view as a borrower".
+    // /borrower-portal.html?viewAs=<email> renders THAT borrower's portal,
+    // read-only. The server does the real gating (admin only, every write
+    // refused); this side just carries the parameter and makes the mode
+    // impossible to miss, so nobody mistakes it for their own account.
+    var _viewAs = '';
+    try { _viewAs = (new URLSearchParams(location.search).get('viewAs') || '').trim().toLowerCase(); } catch (_) {}
+    function _api(path) {
+      if (!_viewAs) return path;
+      return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'viewAs=' + encodeURIComponent(_viewAs);
+    }
+    function _paintViewAsBanner(email, note) {
+      var el = document.getElementById('viewAsBanner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'viewAsBanner';
+        el.style.cssText = 'position:sticky;top:0;z-index:9000;background:#3d2f1c;color:#f7ecd9;'
+          + 'padding:9px 16px;font-size:13px;line-height:1.45;display:flex;align-items:center;'
+          + 'justify-content:space-between;gap:12px;flex-wrap:wrap';
+        document.body.insertBefore(el, document.body.firstChild);
+      }
+      el.innerHTML =
+        '<span>👁 <strong>Admin view</strong> — you are seeing the portal as <strong>' + escH(email) + '</strong>. '
+          + 'Read-only; nothing you do here is saved.' + (note ? ' <em>' + escH(note) + '</em>' : '') + '</span>' +
+        '<a href="/borrower-portal.html" style="color:#f7ecd9;text-decoration:underline;white-space:nowrap">Exit admin view</a>';
+    }
+
     function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function escAttr(s) { return escH(s).replace(/"/g,'&quot;'); }
     function fmtMoney(v) {
@@ -369,7 +396,7 @@
       var pbody = document.getElementById('pfBody');
       if (pbody) pbody.style.opacity = '0.5';
       _borrowerJwt().then(function (token) {
-        return fetch('/api/borrower-profile', { headers: { 'Authorization': 'Bearer ' + token } });
+        return fetch(_api('/api/borrower-profile'), { headers: { 'Authorization': 'Bearer ' + token } });
       }).then(function (r) {
         if (!r.ok) return r.json().then(function (j) { throw new Error((j && j.error) || ('HTTP ' + r.status)); });
         return r.json();
@@ -438,7 +465,7 @@
       if (ssn.length === 9) payload.ssn = ssn; // only a full SSN replaces what's on file
       var btn = document.getElementById('pfSaveBtn'); if (btn) btn.disabled = true;
       _borrowerJwt().then(function (token) {
-        return fetch('/api/borrower-profile', {
+        return fetch(_api('/api/borrower-profile'), {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -459,7 +486,7 @@
     function loadLoans() {
       var container = document.getElementById('loansContainer');
       _borrowerJwt().then(function(token) {
-        return fetch('/api/borrower-portal-loans', {
+        return fetch(_api('/api/borrower-portal-loans'), {
           headers: { 'Authorization': 'Bearer ' + token }
         });
       }).then(function(r) {
@@ -468,6 +495,18 @@
       }).then(function(data) {
         _loans = (data && data.loans) || [];
         _needsVerification = !!(data && data.needsVerification);
+        // Deploy 236.895 — the server confirms the admin view; trust its answer
+        // rather than the URL, so a non-admin who types ?viewAs= sees nothing.
+        if (data && data.viewingAs) {
+          // The first-login verify gate would otherwise hide every loan from the
+          // admin. Say the gate is up, then show the loans anyway — that is what
+          // someone opening this actually needs to see.
+          _paintViewAsBanner(data.viewingAs, _needsVerification
+            ? 'This borrower still has the first-login verification form up.' : '');
+          _needsVerification = false;
+        } else if (_viewAs) {
+          _viewAs = '';   // server declined the view — fall back to our own portal
+        }
         _verifyPrefill = (data && data.verifyPrefill) || null;
         // Deploy 236.592 — keep the greeting fresh from the borrower's verified
         // client name (Supabase full_name can carry a stale name, e.g. an earlier
@@ -572,7 +611,7 @@
       if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; btn.style.opacity = '0.6'; }
       if (msg) { msg.style.color = '#7a7488'; msg.textContent = 'Saving your details…'; }
       _borrowerJwt().then(function(token) {
-        return fetch('/api/borrower-guarantor-onboard', {
+        return fetch(_api('/api/borrower-guarantor-onboard'), {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -646,6 +685,13 @@
     };
     function _uploadFile(loanId, file, statusIdPrefix) {
       var status = document.getElementById(statusIdPrefix + '_status');
+      // Deploy 236.895 — the server refuses this too; stopping here just gives
+      // a straight answer instead of a 403 after reading the whole file.
+      if (_viewAs) {
+        status.className = 'upload-status error';
+        status.textContent = 'Read-only admin view — upload documents from Loan Details instead.';
+        return;
+      }
       status.className = 'upload-status info';
       status.textContent = 'Uploading ' + file.name + '…';
       var loan = _loans.find(function(l) { return l.loanId === loanId; });
@@ -657,7 +703,7 @@
         var idx = dataUrl.indexOf(',');
         var b64 = idx >= 0 ? dataUrl.slice(idx + 1) : '';
         _borrowerJwt().then(function(token) {
-          return fetch('/api/borrower-doc-upload', {
+          return fetch(_api('/api/borrower-doc-upload'), {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
             body: JSON.stringify({

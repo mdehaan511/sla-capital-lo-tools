@@ -36,6 +36,8 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { canReadLoan } from './_shared/access.mjs';
+// Deploy 236.895 — admin "view as a borrower" (read-only).
+import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -53,6 +55,12 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
+  // Deploy 236.895 — never upload on a borrower's behalf from their portal
+  // view; a document filed as them would misattribute the audit trail.
+  const view = resolveViewAs(req, user);
+  if (view.error) return view.error;
+  const noWrite = denyWrite(view);
+  if (noWrite) return noWrite;
 
   const body = await readJsonBody(req);
   if (!body) return json(400, { error: 'Invalid JSON' });
