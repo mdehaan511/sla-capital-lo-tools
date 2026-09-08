@@ -4816,7 +4816,16 @@ netlifyIdentity.on('init', function(user) {
             // stamped borrower (loan.borrowerName/borrowerEmail, set by the broker
             // short app). Normal loans (borrower IS the client) keep the refresh.
             var _isBrokerLoanRec = !!(found._isBrokerLoan || found.brokerId || found.brokerName);
-            if (_isBrokerLoanRec) {
+            // Deploy 236.910 (Mike) — only treat the parent client as the broker
+            // when it actually IS the broker (flag, placeholder, or matching
+            // email/name); a brokered loan parented on the real borrower keeps
+            // the normal client-record refresh (see rtl-sizer.html).
+            var _bkNm = function(s){ return String(s||'').toLowerCase().replace(/[.,]/g,'').replace(/\s+/g,' ').trim(); };
+            var _cliNm = _bkNm((clientRec.firstName||'') + ' ' + (clientRec.lastName||''));
+            var _clientIsBrokerRec = !!(clientRec._isBroker === true || clientRec._isBrokerPlaceholder === true ||
+              (found.brokerEmail && clientRec.email && String(clientRec.email).toLowerCase() === String(found.brokerEmail).toLowerCase()) ||
+              (found.brokerName && _cliNm && _cliNm === _bkNm(found.brokerName)));
+            if (_isBrokerLoanRec && _clientIsBrokerRec) {
               // Deploy 236.906 (Mike) — fall back to the loan's denormalized
               // guarantors[] when the broker short app never stamped a borrower
               // (see rtl-sizer.html for rationale).
