@@ -72,9 +72,16 @@ const DIYA = {
   //
   // The FICO columns above 75 LTV remain unreachable on this product (the
   // always-applied 5+ Multi row is NA above 75), so the matrix stays 6 wide.
-  effectiveDate: "September 2, 2026",
+  // Deploy 236.902 — 9.5.26 sheet ("rate-sheet-2026-09-05 (1).xlsx"): base
+  // rates +0.050 on all four products, and PPP 3-Year (321) +0.050 → +0.300.
+  // Everything else diffed cell-by-cell and UNCHANGED (FICO floor 700, the
+  // +1.000 5+ Multi row still NA above 75 LTV, IO, cash-out, DSCR ≥ 1.20,
+  // UPB bands, min rate 6.25). The 9.2.26 sheet's suspect "54321 -0.010"
+  // anomaly (deliberately not applied then) is CORRECTED to -0.100 on this
+  // sheet — the no-apply call was right.
+  effectiveDate: "September 5, 2026",
   minRate: 6.25,
-  baseRate: { "30Y Fixed": 6.575, "10/6 ARM": 6.575, "7/6 ARM": 6.475, "5/6 ARM": 6.475 }, // 236.842: +0.050 (9.2.26 sheet)
+  baseRate: { "30Y Fixed": 6.625, "10/6 ARM": 6.625, "7/6 ARM": 6.525, "5/6 ARM": 6.525 }, // 236.902: +0.050 (9.5.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050],
@@ -96,7 +103,7 @@ const DIYA = {
   dscr: {
     "1.20+": [-0.050,-0.050,-0.050,-0.050,-0.050,-0.050],
   },
-  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.050, "none":0.500 },
+  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.300, "none":0.500 }, // 236.902: 321 +0.050 → +0.300 (9.5.26 sheet)
   tpo: {
     "0":0, "0.25":0.080, "0.50":0.160, "0.75":0.240,
     "1.00":0.320, "1.25":0.390, "1.50":0.460, "1.75":0.530,
@@ -656,11 +663,16 @@ function priceDSCR(raw) {
 }
 
 // ── Deploy 236.878 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
-// Same machinery as dscr-pricing.js (see the comment there). MF 5+ sheets so
-// far only ever moved base rates; deltas verified against git history. The
-// MF sizer launched on the 8-7-26 matrix, so no MF lock can predate it.
+// Same machinery as dscr-pricing.js (see the comment there). Deltas verified
+// against git history; the 9.5.26 sheet was the first to move something other
+// than base rates (PPP 321). The MF sizer launched on the 8-7-26 matrix, so
+// no MF lock can predate it.
 var PRICING_HISTORY = [
-  { effective: '2026-09-02', label: 'September 2, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-05', label: 'September 5, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-02', label: 'September 2, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.575, "10/6 ARM": 6.575, "7/6 ARM": 6.475, "5/6 ARM": 6.475 },
+    ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.050, "none":0.500 },
+  } },
   { effective: '2026-09-01', label: 'September 1, 2026', overrides: {
     baseRate: { "30Y Fixed": 6.525, "10/6 ARM": 6.525, "7/6 ARM": 6.425, "5/6 ARM": 6.425 },
   } },
