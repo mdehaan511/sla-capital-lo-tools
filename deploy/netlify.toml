@@ -831,6 +831,17 @@
 [functions."loan-extension-send"]
   timeout = 26
 
+# Deploy 236.897: loan-extension-restamp — rebuild an executed extension whose
+# signature lines rendered blank. Signatures come from the sealed audit; no
+# signer is asked for anything. Admin only.
+[[redirects]]
+  from = "/api/loan-extension-restamp"
+  to = "/.netlify/functions/loan-extension-restamp"
+  status = 200
+  force = true
+[functions."loan-extension-restamp"]
+  timeout = 26
+
 # Deploy 236.823: loan-followup-done — record a closing-anniversary borrower
 # follow-up (Closed Loans → Follow-ups tab). The reminder digest is
 # followup-reminder-cron.mjs (scheduled, no redirect needed).

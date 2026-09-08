@@ -32,6 +32,8 @@ import { checkRateLimit } from './_shared/rate-limit.mjs';
 // loan.extensionEsign (status chip on the closed-loans servicing rows).
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.897 — client ids go stale on merge; find loans by LOAN id.
+import { locateLoan } from './_shared/loan-locate.mjs';
 
 export default async (req) => {
   try { return await handle(req); }
@@ -309,12 +311,26 @@ function _extensionDoneNote(envelope) {
     '. Maturity on this record is not auto-updated (it syncs from FCI).';
 }
 async function syncExtensionMarker(envelope, status, noteText) {
-  if (envelope.envelopeKind !== 'loan_extension' || !envelope.clientId || !envelope.loanId) return;
+  if (envelope.envelopeKind !== 'loan_extension' || !envelope.loanId) return;
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-    const client = await clientsStore.get(`${envelope.ownerKey}/${envelope.clientId}`, { type: 'json' });
-    const loan = client && (client.loans || []).find((l) => l.id === envelope.loanId);
-    if (!loan) return;
+    // Deploy 236.897 (Mike: the chip never appeared for 3602 24th Ave W) —
+    // find the loan by LOAN id, not by the clientId frozen into the envelope
+    // when it was sent. That client was merged away between the send and the
+    // borrower signing six days later, so the old lookup silently found
+    // nothing and returned, leaving the servicing row with no chip at all.
+    const found = await locateLoan({
+      ownerKey: envelope.ownerKey,
+      clientId: envelope.clientId,
+      loanId: envelope.loanId,
+      clientsStore,
+    });
+    if (!found) return;
+    const { client, loan } = found;
+    if (found.moved) {
+      console.log('[envelope-sign] extension marker: loan ' + envelope.loanId +
+        ' moved from client ' + envelope.clientId + ' to ' + found.clientId);
+    }
     const cur = loan.extensionEsign;
     // A newer extension envelope owns the chip — don't let a stale one clobber it.
     if (cur && cur.envelopeId && cur.envelopeId !== envelope.id) return;
@@ -334,7 +350,7 @@ async function syncExtensionMarker(envelope, status, noteText) {
       });
     }
     loan.updatedAt = new Date().toISOString();
-    await writeClient(envelope.ownerKey, client, { clientsStore });
+    await writeClient(found.ownerKey, client, { clientsStore });
   } catch (e) {
     console.warn('envelope-sign: extension marker sync failed (non-fatal):', e && e.message);
   }

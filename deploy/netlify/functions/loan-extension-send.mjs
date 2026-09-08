@@ -101,9 +101,15 @@ async function handle(req, context) {
   if (lenderEmail === borrowerEmail) return json(400, { error: 'Lender and borrower emails must differ.' });
 
   // ── Render the agreement PDF ──────────────────────────────────────
-  let pdfBytes;
-  try { pdfBytes = await buildExtensionAgreementPdf(values); }
-  catch (e) { return json(500, { error: 'PDF generation failed: ' + (e.message || 'unknown') }); }
+  let pdfBytes, sigFields;
+  try {
+    // Deploy 236.897 — the builder now also reports where it drew the two
+    // signature rules, so envelope-sign can stamp the signatures onto the
+    // agreement instead of leaving the lines blank.
+    const built = await buildExtensionAgreementPdf(values);
+    pdfBytes = built.buffer;
+    sigFields = built.sigFields;
+  } catch (e) { return json(500, { error: 'PDF generation failed: ' + (e.message || 'unknown') }); }
   const pdfBase64 = pdfBytes.toString('base64');
 
   // ── Create the envelope (same record shape as envelopes.mjs) ──────
@@ -124,7 +130,10 @@ async function handle(req, context) {
       hadPdf: true,
       pdfHash: hashPdf(pdfBase64),
       pdfSize: pdfBytes.length,
+      // sigCoords is the single-rule legacy path (rate sheets). An extension
+      // has one rule per PARTY, so it uses sigFields instead — see 236.897.
       sigCoords: null,
+      sigFields,
     }],
     signers: [
       { firstName: lender.firstName, lastName: lender.lastName, email: lenderEmail,

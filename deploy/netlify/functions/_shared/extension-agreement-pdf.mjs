@@ -9,11 +9,15 @@
  *   [PROPERTY ADDRESS] [CURRENT UPB] [NEXT MATURITY DATE] [1 ORIGINATION POINT]
  *   + the paid-at-signing vs added-to-principal checkbox pair.
  *
- * The signature blocks render as labeled lines; the actual signatures are
- * applied by the native eSign flow (envelope-sign appends the signature
- * certificate page with each signer's typed signature + audit trail).
+ * The signature blocks render as labeled lines. Deploy 236.897 (Mike: "It came
+ * back with a signing confirmation page but the document does not show as
+ * signed") — we now also hand back the COORDINATES of those two lines so
+ * envelope-sign can stamp each party's signature onto the agreement itself.
+ * The certificate page alone left a fully executed agreement whose signature
+ * lines were visibly blank, which is not something you can send a servicer.
  *
- * Returns a Buffer of PDF bytes.
+ * Returns { buffer, sigFields } — sigFields is one entry per signer role,
+ * shaped for native-esign's stamper.
  */
 import PDFDocument from 'pdfkit';
 
@@ -44,9 +48,44 @@ export function buildExtensionAgreementPdf(v) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margins: { top: 64, bottom: 64, left: 64, right: 64 } });
     const chunks = [];
+    const sigFields = [];
+    // pdfkit lays out top-down and this agreement is one page today, but count
+    // pages anyway so the coordinates stay right if the text ever grows.
+    let pageNumber = 1;
+    doc.on('pageAdded', () => { pageNumber += 1; });
     doc.on('data', (c) => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('end', () => resolve({ buffer: Buffer.concat(chunks), sigFields }));
     doc.on('error', reject);
+
+    const SIG_RULE = '____________________________';
+    const DATE_RULE = '______________';
+
+    /**
+     * Record where a "Signature: ____  Date: ____" line was drawn, so the
+     * signature can later be stamped onto the rule instead of beside it.
+     *
+     * pdfkit measures y from the page TOP and draws a line's glyphs on a
+     * baseline below that; pdf-lib measures from the BOTTOM and draws AT the
+     * baseline. We hand over a top-based baseline and let the stamper flip it,
+     * so neither side has to know about the other's origin.
+     */
+    function markSignatureLine(role, prefix) {
+      const left = doc.page.margins.left;
+      const lineTop = doc.y;
+      // widthOfString uses the font currently set, which is why every caller
+      // sets B() immediately before.
+      const ascent = doc.currentLineHeight() * 0.78;
+      sigFields.push({
+        role,
+        pageNumber,
+        pageHeight: doc.page.height,
+        sigX: left + doc.widthOfString(prefix),
+        dateX: left + doc.widthOfString(prefix + SIG_RULE + '    Date: '),
+        // Sit the text ON the rule rather than on top of the underscores.
+        sigYFromTop: lineTop + ascent,
+        dateYFromTop: lineTop + ascent,
+      });
+    }
 
     // Deploy 236.845 — the extension term reads "three (3) months" (Mike),
     // matching the new-maturity default of the 1st of the month three months
@@ -99,14 +138,20 @@ export function buildExtensionAgreementPdf(v) {
     B().text('The parties execute this Agreement by electronic signature; the attached signature certificate forms part of this Agreement.', { lineGap: 3 });
     doc.moveDown(2);
 
-    // Signature blocks — signed via the appended eSign certificate page.
+    // Signature blocks. The rules are measured as they're drawn (236.897) so
+    // envelope-sign can stamp each party's name and date onto its own line —
+    // the lender's on the lender rule, the borrower's on the borrower rule.
     H().text('LENDER:');
     B().text('Sir Lends A Lot, LLC');
-    B().text('By: ' + String(v.lenderName || '') + '    Signature: ____________________________    Date: ______________');
+    const lenderPrefix = 'By: ' + String(v.lenderName || '') + '    Signature: ';
+    B(); markSignatureLine('lender', lenderPrefix);
+    B().text(lenderPrefix + SIG_RULE + '    Date: ' + DATE_RULE);
     doc.moveDown(1.5);
     H().text('BORROWER:');
     B().text(String(v.borrowerName || ''));
-    B().text('Signature: ____________________________    Date: ______________');
+    const borrowerPrefix = 'Signature: ';
+    B(); markSignatureLine('borrower', borrowerPrefix);
+    B().text(borrowerPrefix + SIG_RULE + '    Date: ' + DATE_RULE);
 
     doc.end();
   });

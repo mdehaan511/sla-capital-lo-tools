@@ -34,6 +34,18 @@
 import crypto from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
+/**
+ * Deploy 236.897 — how each signer role is described on the certificate page.
+ * Unknown roles keep the historical "Co-Signer" wording.
+ */
+function roleLabel(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'borrower') return 'Borrower';
+  if (r === 'lender')   return 'Lender';
+  if (r === 'guarantor') return 'Guarantor';
+  return 'Co-Signer';
+}
+
 export const TERMSHEET_CONSENT_VERSION = 1;
 
 // Plain-English ESIGN/UETA consent shown to term-sheet signers. Less
@@ -172,8 +184,49 @@ export async function appendSignaturePageToPdf({ pdfBase64, envelope, doc }) {
   // signature appears, which surprised LOs ("the signature line is
   // still blank"). We stamp every signer that has signed; for
   // multi-signer envelopes signers stack vertically beneath the line.
+  // Deploy 236.897 (Mike) — documents with MORE THAN ONE signature line.
+  // The legacy sigCoords path below models a single "Borrower Signature" rule
+  // with extra signers stacked beneath it, which is right for a rate sheet but
+  // wrong for a Loan Extension Agreement: that has a LENDER rule and a
+  // BORROWER rule, and each party belongs on their own. `doc.sigFields` gives
+  // one coordinate block per role; anything without a matching field is left
+  // to the certificate page, exactly as before.
+  const sigFields = (doc && Array.isArray(doc.sigFields)) ? doc.sigFields : null;
+  if (sigFields && sigFields.length) {
+    const allPages = pdf.getPages();
+    for (const field of sigFields) {
+      if (!field || !field.pageNumber || !field.pageHeight) continue;
+      const signer = (envelope.signers || []).find(
+        (s) => s && s.role === field.role && s.audit && s.audit.signedAt
+      );
+      if (!signer) continue;   // not signed yet, or no signer in that role
+      const targetPage = allPages[field.pageNumber - 1];
+      if (!targetPage) continue;
+
+      const targetHeight = targetPage.getHeight();
+      const fullName = ((signer.firstName || '') + ' ' + (signer.lastName || '')).trim();
+      const dateStr = new Date(signer.audit.signedAt).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric',
+      });
+      targetPage.drawText(fullName, {
+        x: field.sigX,
+        y: targetHeight - field.sigYFromTop,
+        size: 14,
+        font: timesItalic,
+        color: PLUM,
+      });
+      targetPage.drawText(dateStr, {
+        x: field.dateX,
+        y: targetHeight - field.dateYFromTop,
+        size: 11,
+        font: helv,
+        color: TEXT,
+      });
+    }
+  }
+
   const sigCoords = doc && doc.sigCoords;
-  if (sigCoords && sigCoords.pageNumber && sigCoords.pageHeight) {
+  if (!sigFields && sigCoords && sigCoords.pageNumber && sigCoords.pageHeight) {
     const pageIdx = sigCoords.pageNumber - 1;
     const allPages = pdf.getPages();
     const targetPage = allPages[pageIdx] || allPages[allPages.length - 1];
@@ -264,7 +317,10 @@ export async function appendSignaturePageToPdf({ pdfBase64, envelope, doc }) {
   const signers = (envelope.signers || []).filter((s) => s && s.audit && s.audit.signedAt);
   for (const s of signers) {
     // Sub-header
-    page.drawText((s.role === 'borrower' ? 'Borrower' : 'Co-Signer') + ' \u2014 ' + s.firstName + ' ' + s.lastName, {
+    // Deploy 236.897 \u2014 name the role the signer actually held. A loan
+    // extension is signed by the LENDER and the borrower; calling Mike a
+    // "Co-Signer" on the executed agreement misdescribes who signed what.
+    page.drawText(roleLabel(s.role) + ' \u2014 ' + s.firstName + ' ' + s.lastName, {
       x: MARGIN, y: cursorY,
       size: 10, font: helvBold, color: GOLD,
     });
