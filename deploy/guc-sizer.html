@@ -2786,9 +2786,18 @@ function renderCashoutSummary() {
   // misleading number computed against the property value.
   var calc = window._rtlLastCalc || {};
   var loanAmt = calc.bMax || 0;
+  // Deploy 236.898 (Mike) — honor active overrides (this card read the RAW
+  // calc, so overridden points left the Cashout Estimate stale; same class
+  // of bug as the RTL sizer's bridge loan-amount override).
+  var _o = window._rtlOverrides || {};
+  if (_o.loanAmt !== null && _o.loanAmt !== undefined && isFinite(_o.loanAmt)) {
+    loanAmt = _o.loanAmt;
+  }
   if (loanAmt <= 0) return;
 
-  var ptsRate = (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
+  var ptsRate = (_o.points !== null && _o.points !== undefined && !isNaN(_o.points))
+    ? _o.points
+    : (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
   var ptsFee = loanAmt * (ptsRate / 100);
   // Deploy 236.526 — Admin Sandbox: custom fee editor drives flats in Admin Mode.
   var flatFees = window._rtlAdminMode ? _rtlFlatFeesTotal() : (600 + 900 + 500 + 150);
@@ -2809,7 +2818,7 @@ function renderCashoutSummary() {
       '<tr><td>New Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
       '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
       '<tr><td>− Origination (' + ptsLabel + ')</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
-      '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
+      '<tr><td>− Flat Fees</td><td class="bv neg">$' + Math.round(flatFees).toLocaleString() + '</td></tr>' +
       (brokerPts > 0
         ? '<tr><td>− Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
         : '') +

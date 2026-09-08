@@ -109,6 +109,20 @@ export default async (req, context) => {
         for (const key of Object.keys(prior)) {
           if (!(key in incoming)) merged[key] = prior[key];
         }
+        // Deploy 236.898 (Mike) — pricing fields are SIZER-OWNED. This
+        // generic client save must never change an existing loan's amount,
+        // rate, or points (the retired Loan Details "Override" wrote loanAmt
+        // here without repricing, so a rate sheet mixed the new amount with
+        // figures priced at the old one — and stale cached JS could still
+        // try). The sizer endpoints (sizer-save-loan / loan-update-from-
+        // sizer) remain the only writers of these.
+        for (const pk of ['loanAmt', 'rate', 'points', 'loanAmtLocked']) {
+          if (pk in prior && String(merged[pk]) !== String(prior[pk])) {
+            console.warn('clients-save: ignoring ' + pk + ' change on loan ' + incoming.id +
+              ' (' + String(prior[pk]) + ' -> ' + String(merged[pk]) + ') — pricing fields are sizer-owned');
+            merged[pk] = prior[pk];
+          }
+        }
         return merged;
       });
     }

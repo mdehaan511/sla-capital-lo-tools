@@ -1024,6 +1024,16 @@ function renderReserveCard() {
     effDp = o.dp;
     loanAmt = Math.max(0, pp - effDp + (isRehab ? rb : 0));
   }
+  // Deploy 236.898 (Mike) — the DIRECT loan-amount override (236.827) was
+  // never applied here, so after overriding the amount this card's fees /
+  // Cash to Close / holding kept the pre-override figures. Mirror
+  // applyOverridesAndRender: the amount wins, the DP re-derives.
+  if (o.loanAmt !== null && o.loanAmt !== undefined && isFinite(o.loanAmt)) {
+    loanAmt = o.loanAmt;
+    if (typeof calc.downPayment === 'number' && pp > 0) {
+      effDp = Math.max(0, pp - loanAmt + (isRehab ? rb : 0));
+    }
+  }
   if (calc.isTransactional || loanAmt <= 0) { card.style.display = 'none'; return; }
 
   // Total fees = origination (points × loan) + flat schedule ($2,150) +
@@ -2692,9 +2702,26 @@ function renderCashoutSummary() {
   // misleading number computed against the property value.
   var calc = window._rtlLastCalc || {};
   var loanAmt = calc.bMax || 0;
+  // Deploy 236.898 (Mike) — this card read the RAW calc, so an active
+  // rate/points/DP/loan-amount override left the Cashout Estimate at the
+  // pre-override figures (the $377,300-vs-$275k bridge report). Apply the
+  // overrides the same way applyOverridesAndRender / renderReserveCard do.
+  var _o = window._rtlOverrides || {};
+  var _pp = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  var _rb = parseFloat((document.getElementById('rehabBudget')||{}).value) || 0;
+  var _ltV = (document.getElementById('loanType')||{}).value;
+  var _isRehabLt = (_ltV === 'light' || _ltV === 'heavy');
+  if (_o.dp !== null && _o.dp !== undefined && _pp > 0) {
+    loanAmt = Math.max(0, _pp - _o.dp + (_isRehabLt ? _rb : 0));
+  }
+  if (_o.loanAmt !== null && _o.loanAmt !== undefined && isFinite(_o.loanAmt)) {
+    loanAmt = _o.loanAmt;
+  }
   if (loanAmt <= 0) return;
 
-  var ptsRate = (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
+  var ptsRate = (_o.points !== null && _o.points !== undefined && !isNaN(_o.points))
+    ? _o.points
+    : (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
   var ptsFee = loanAmt * (ptsRate / 100);
   // Deploy 236.526 — Admin Sandbox: custom fee editor drives flats in Admin Mode.
   var flatFees = window._rtlAdminMode ? _rtlFlatFeesTotal() : (600 + 900 + 500 + 150);
@@ -2715,7 +2742,7 @@ function renderCashoutSummary() {
       '<tr><td>New Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
       '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
       '<tr><td>− Origination (' + ptsLabel + ')</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
-      '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
+      '<tr><td>− Flat Fees</td><td class="bv neg">$' + Math.round(flatFees).toLocaleString() + '</td></tr>' +
       (brokerPts > 0
         ? '<tr><td>− Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
         : '') +

@@ -52,8 +52,11 @@ import { writeClient } from './_shared/client-write.mjs';
 // fico as a string range like "740-759"; RTL stores it as a numeric
 // string like "740". Either round-trips fine as a string.
 const FIELDS = {
-  rate:             { label: 'Rate',           coerce: toNumber, modifiable: true,  format: (v) => (v * 1).toFixed(3) + '%' },
-  points:           { label: 'Points',         coerce: toNumber, modifiable: true,  format: (v) => (v * 1).toFixed(3) + ' pts' },
+  // Deploy 236.898 (Mike) — `rate` and `points` REMOVED from this whitelist.
+  // Editing them on Loan Details desynced pricing from the sizer (a rate
+  // sheet went out with an overridden amount but figures priced at the
+  // old one). Rate / points / loan amount change ONLY through the sizer's
+  // override flow, which reprices everything and re-saves coherently.
   purchasePrice:    { label: 'Purchase Price', coerce: toNumber, modifiable: true,  format: (v) => '$' + Math.round(v).toLocaleString() },
   rehabBudget:      { label: 'Rehab Budget',   coerce: toNumber, modifiable: true,  format: (v) => '$' + Math.round(v).toLocaleString() },
   arv:              { label: 'ARV',            coerce: toNumber, modifiable: true,  format: (v) => '$' + Math.round(v).toLocaleString() },

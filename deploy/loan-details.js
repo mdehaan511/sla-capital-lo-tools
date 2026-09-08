@@ -1080,18 +1080,16 @@ function render() {
     var purposeLabel = loanPurpose
       ? loanPurpose.charAt(0).toUpperCase() + loanPurpose.slice(1).replace(/_/g,' ')
       : '';
-    // Item #12 + #4: prominent loan amount with override button.
-    // When LO clicks Override, the field becomes editable and saving sets
-    // loanAmtLocked=true so subsequent sizer re-saves don't blow it away.
+    // Item #12 + #4: prominent loan amount. Deploy 236.898 (Mike) — the
+    // inline Override is GONE: the amount changed here without repricing,
+    // so rate sheets mixed the overridden amount with sizer figures priced
+    // at the old one. Loan amount / rate / points change ONLY in the sizer
+    // (whose pencil overrides reprice everything and re-save coherently).
     var lockedAttr = l.loanAmtLocked ? ' data-locked="1"' : '';
     html += '<div class="loan-hero"' + lockedAttr + '>' +
       '<div class="loan-hero-label">Loan Amount' + (l.loanAmtLocked ? ' <span class="loan-hero-lock">LO override</span>' : '') + '</div>' +
       '<div class="loan-hero-val" id="loanAmtDisplay">' + (loanAmt ? fmtM(loanAmt) : '<span class="empty">—</span>') + '</div>' +
-      // Item #4: Reset to Max button when override is active
-      (l.loanAmtLocked && l.maxLoan
-        ? '<button type="button" class="loan-hero-reset" onclick="resetLoanAmtToMax()">Reset to Max ($' + Math.round(parseFloat(l.maxLoan)).toLocaleString() + ')</button>'
-        : '') +
-      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">' + (l.loanAmtLocked ? 'Edit' : 'Override') + '</button>' +
+      '<a href="' + escAttr(sizerUrl) + '" class="loan-hero-edit" style="text-decoration:none" title="Loan amount, rate, and points are changed in the sizer so pricing stays consistent">Edit in Sizer</a>' +
     '</div>';
     // Deploy 164: pricing override tags on DSCR fin-grid. Note Rate cell
     // gets the gold "Overridden" pill when _rateOverride is set; a new
@@ -1198,16 +1196,14 @@ function render() {
         : '') +
     '</div>';
   } else {
-    // Item #4 + #12: hero loan amount with override
+    // Item #4 + #12: hero loan amount. Deploy 236.898 (Mike) — inline
+    // Override removed; pricing fields are edited in the sizer only (see
+    // the DSCR hero above for the rationale).
     var lockedAttr = l.loanAmtLocked ? ' data-locked="1"' : '';
     html += '<div class="loan-hero"' + lockedAttr + '>' +
       '<div class="loan-hero-label">Loan Amount' + (l.loanAmtLocked ? ' <span class="loan-hero-lock">LO override</span>' : '') + '</div>' +
       '<div class="loan-hero-val" id="loanAmtDisplay">' + (loanAmt ? fmtM(loanAmt) : '<span class="empty">—</span>') + '</div>' +
-      // Item #4: Reset to Max button when override is active
-      (l.loanAmtLocked && l.maxLoan
-        ? '<button type="button" class="loan-hero-reset" onclick="resetLoanAmtToMax()">Reset to Max ($' + Math.round(parseFloat(l.maxLoan)).toLocaleString() + ')</button>'
-        : '') +
-      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">' + (l.loanAmtLocked ? 'Edit' : 'Override') + '</button>' +
+      '<a href="' + escAttr(sizerUrl) + '" class="loan-hero-edit" style="text-decoration:none" title="Loan amount, rate, and points are changed in the sizer so pricing stays consistent">Edit in Sizer</a>' +
     '</div>';
     // Deploy 162: small "Overridden" tag next to rate/points/DP cells
     // when the matching pricing override is set on the loan record.
@@ -5628,8 +5624,9 @@ var FIN_DROPDOWNS = {
 };
 
 var FIN_EDITABLE = [
-  { label: 'Note Rate',         key: 'rate',             kind: 'number', step: '0.001', hint: 'Percent (e.g. 8.625)' },
-  { label: 'Points',            key: 'points',           kind: 'number', step: '0.001', hint: 'Origination points (e.g. 1.5)' },
+  // Deploy 236.898 (Mike) — Note Rate + Points removed: editing them here
+  // desynced pricing from the sizer (rate sheets mixed values). Rate,
+  // points, and loan amount change ONLY in the sizer's override flow.
   { label: 'Purchase Price',    key: 'purchasePrice',    kind: 'money',  hint: 'Dollars' },
   { label: 'Rehab Budget',      key: 'rehabBudget',      kind: 'money',  hint: 'Dollars' },
   { label: 'ARV',               key: 'arv',              kind: 'money',  hint: 'After-repair value, dollars' },
@@ -5709,7 +5706,8 @@ function _dscrTierLabel(v) {
 // the DSCR grid; "LTP" matches the RTL "Loan to Price" cell that
 // some sizers emit. Both lock the same way.
 // Deploy 236.647 — Product / Initial Advance / LTAIV are derived, not editable.
-var FIN_READONLY = ['Down Payment', 'Monthly Payment', 'LTV', 'LTP', 'LTP/LTV', 'LTC', 'LTARV', 'LTAIV', 'Product', 'Initial Advance'];
+// Deploy 236.898 — Note Rate + Points are sizer-owned now (see FIN_EDITABLE).
+var FIN_READONLY = ['Note Rate', 'Points', 'Down Payment', 'Monthly Payment', 'LTV', 'LTP', 'LTP/LTV', 'LTC', 'LTARV', 'LTAIV', 'Product', 'Initial Advance'];
 
 // Strip any trailing "Overridden" / "modified" / lock badge text
 // the existing renderers tack onto the label so the match is exact.
@@ -7025,51 +7023,16 @@ function syncOverrideToQuote() {
 }
 
 // Item #4: revert override back to the sizer-computed max loan amount
-function resetLoanAmtToMax() {
-  if (!_loan || !_client) return;
-  if (!_loan.maxLoan) { showToast('No max loan on file'); return; }
-  if (!confirm('Reset loan amount to maximum allowable from sizer?\n\n$' + Math.round(parseFloat(_loan.maxLoan)).toLocaleString())) return;
-  _loan.loanAmt = String(_loan.maxLoan);
-  _loan.loanAmtLocked = false;
-  _loan.updatedAt = new Date().toISOString();
-  persistClient().then(function() {
-    return syncOverrideToQuote();
-  }).then(function() {
-    showToast('Loan amount reset to maximum');
-    if (typeof render === 'function') render();
-  }).catch(function(err) {
-    showToast('Reset failed: ' + (err.message || 'unknown'));
-  });
-}
-
+// Deploy 236.898 (Mike) — the inline loan-amount override is retired: it
+// changed the amount WITHOUT repricing, so rate sheets carried the new
+// amount with figures the sizer computed at the old one. Any stray caller
+// (stale cached markup) gets sent to the sizer instead.
 function overrideLoanAmt() {
-  if (!_loan || !_client) return;
-  var displayEl = document.getElementById('loanAmtDisplay');
-  var heroEl    = displayEl ? displayEl.closest('.loan-hero') : null;
-  if (!displayEl) return;
-  var btn = heroEl.querySelector('.loan-hero-edit');
-  // Replace display with input, swap button to Save
-  var current = (_loan.loanAmt || '').toString().replace(/[^0-9.]/g, '');
-  displayEl.outerHTML = '<input type="number" min="0" step="1000" id="loanAmtInput" class="loan-hero-input" value="' + current + '" />';
-  btn.textContent = 'Save';
-  btn.onclick = function() {
-    var input = document.getElementById('loanAmtInput');
-    var newAmt = (input.value || '').toString();
-    if (!newAmt) { showToast('Enter a loan amount'); return; }
-    _loan.loanAmt = newAmt;
-    _loan.loanAmtLocked = true;
-    _loan.updatedAt = new Date().toISOString();
-    persistClient().then(function() {
-      return syncOverrideToQuote();
-    }).then(function() {
-      showToast('Loan amount overridden — saved');
-      // Re-render the page so the hero shows the locked badge
-      if (typeof render === 'function') render();
-    }).catch(function(err) {
-      showToast('Save failed: ' + (err.message || 'unknown'));
-    });
-  };
+  var sizerLink = document.querySelector('.open-sizer-btn');
+  showToast('Loan amount is changed in the sizer — opening it now');
+  if (sizerLink && sizerLink.href) window.location.href = sizerLink.href;
 }
+function resetLoanAmtToMax() { overrideLoanAmt(); }
 
 // Save the current _client back via SLA.Clients.save, ensuring _loan changes
 // are persisted to the parent client record.
