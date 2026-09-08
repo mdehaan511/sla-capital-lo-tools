@@ -5349,6 +5349,36 @@ function _generateRTLRateSheetPDF(opts) {
     }
     pdfHasDraw = pdfMoStart !== null && pdfMoMax !== null && Math.round(pdfMoStart) !== Math.round(pdfMoMax);
     window._snapshotConsumed = true;
+  } else {
+    // Deploy 236.899 (Mike) — LIVE-path override rescale. Printing straight
+    // from the sizer with an active loan-amount / rate override: bMaxNum +
+    // displayedRate come from the override-updated metric cards, but
+    // pdfMoStart/pdfMoMax still come from the RAW calc — the bridge $275k
+    // override printed a $3,262/mo payment computed at the raw max. Monthly
+    // interest is linear in amount × rate (Dutch = full loan; Non-Dutch
+    // START = interest on the advance, where the rehab holdback is a FIXED
+    // dollar amount — same treatment as the 236.522 snapshot correction
+    // above). No-op when nothing is overridden (scale ≈ 1).
+    var _rawLoanL  = (typeof _calcSnap.bMax === 'number' && _calcSnap.bMax > 0) ? _calcSnap.bMax : null;
+    var _rawRateL  = (typeof _calcSnap.rate === 'number' && _calcSnap.rate > 0) ? _calcSnap.rate : null;
+    var _dispRateL = parseFloat(String(displayedRate || '').replace(/[^0-9.]/g, ''));
+    var _corrRateL = (isFinite(_dispRateL) && _dispRateL > 0) ? _dispRateL / 100 : _rawRateL;
+    if (_rawLoanL && _rawRateL && _corrRateL && bMaxNum > 0) {
+      var _scL = (bMaxNum / _rawLoanL) * (_corrRateL / _rawRateL);
+      if (isFinite(_scL) && _scL > 0 && Math.abs(_scL - 1) > 0.0005) {
+        if (pdfMoMax !== null) pdfMoMax = pdfMoMax * _scL;
+        if (!pdfIsDutch && pdfInitAdv !== null) {
+          var _hbL  = Math.max(0, _rawLoanL - pdfInitAdv); // rehab escrow (fixed $)
+          var _advL = Math.max(0, bMaxNum - _hbL);
+          pdfInitAdv = _advL;
+          if (pdfMoStart !== null) pdfMoStart = _advL * _corrRateL / 12;
+        } else if (pdfMoStart !== null) {
+          pdfMoStart = pdfMoStart * _scL;
+        }
+        if (pdfMoMax !== null) moDisp = '$' + Math.round(pdfMoMax).toLocaleString() + '/mo';
+        pdfHasDraw = pdfMoStart !== null && pdfMoMax !== null && Math.round(pdfMoStart) !== Math.round(pdfMoMax);
+      }
+    }
   }
 
   var LABELS={bridge:'Bridge',light:'Light Rehab',heavy:'Heavy Rehab' };
@@ -5636,6 +5666,12 @@ function _generateRTLRateSheetPDF(opts) {
 
   var totalRows = feeRows.length + auxRows.length;
   var feeBlockH = 22 + totalRows*ROW_H + ROW_H*2 + 24;
+  // Deploy 236.899 (Mike) — page-break guard. The PRELIMINARY banner
+  // (236.846) pushes everything down ~36pt; with a broker-fee row in the
+  // block the fee section overflowed the page bottom and the total /
+  // footnote printed clipped. Every block after this one already calls
+  // checkPage() — this one just never did.
+  checkPage(feeBlockH + 14);
   doc.setFillColor(255,255,255);
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
   rr(lm,y,cw,feeBlockH,4,'FD');

@@ -2874,6 +2874,9 @@ function _generateRateSheetPDF(opts) {
   var totalFeeAmt = feeRows.reduce(function(s,row){ return s + row[1]; }, 0);
 
   var feeBlockH = 22 + feeRows.length * ROW_H + ROW_H + 14;
+  // Deploy 236.899 (Mike) — page-break guard: the PRELIMINARY banner pushes
+  // content down and the fee block could print clipped off the page bottom.
+  checkPage(feeBlockH + 14);
   doc.setFillColor(255,255,255);
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
   rr(lm, y, cw, feeBlockH, 4, 'FD');
