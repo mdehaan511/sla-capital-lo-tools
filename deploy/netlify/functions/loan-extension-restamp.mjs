@@ -188,7 +188,15 @@ async function handle(req, context) {
     });
     loan.updatedAt = now;
     await writeClient(found.ownerKey, client, { clientsStore });
-  } catch (e) { console.warn('loan-extension-restamp: note failed (non-fatal):', e && e.message); }
+    summary.markerWritten = true;
+  } catch (e) {
+    // Report it. The PDF is already repaired and stored, so this is not fatal
+    // to the request — but silently swallowing it is how the marker went
+    // missing in the first place.
+    console.error('loan-extension-restamp: loan write FAILED:', e && e.message);
+    summary.markerWritten = false;
+    summary.markerError = (e && e.message) || 'unknown';
+  }
 
   return json(200, { ok: true, ...summary });
 }
