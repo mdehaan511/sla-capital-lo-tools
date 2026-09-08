@@ -2270,9 +2270,11 @@ function render() {
     var sourceBadge = (l.fromApplication && (l.brokerEmail || l.brokerName))
       ? '<span class="section-tag" style="background:rgba(200,129,58,0.10);color:var(--gold-mid, #b5712d);border:1px solid rgba(200,129,58,0.28)">Submitted via Broker</span>'
       : '';
-    // Link to broker book entry if we have a brokerId.
+    // Link to broker book entry if we have a brokerId. Deploy 236.905 —
+    // pass ?focus= so the book opens ON this broker (expanded + scrolled)
+    // instead of the top of the general list.
     var brokerBookLink = l.brokerId
-      ? '<a href="/brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
+      ? '<a href="/brokers.html?focus=' + encodeURIComponent(l.brokerId) + '" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book at this broker">View in Broker Book →</a>'
       : '';
     // Deploy 236.327 — "Convert to standard deal" button. Deploy
     // 236.328 — broadened gate: any loan whose Broker Info section

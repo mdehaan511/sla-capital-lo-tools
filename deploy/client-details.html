@@ -518,8 +518,28 @@ function render() {
       '</div>';
   }
 
+  // Deploy 236.905 (Mike) — Brokered Deals. A broker's deals live on the
+  // BORROWERS' client records, linked back here only by loan.brokerId — so
+  // this page showed none of them (the 402-1 Plymouth Rd confusion: the
+  // loan named Tanner as broker, his contact page showed nothing).
+  // Placeholder filled post-paint by refreshBrokeredDeals(), mirroring the
+  // guarantor-backref pattern above.
+  if (c._isBroker) {
+    html +=
+      '<div class="section">' +
+        '<div class="section-head">' +
+          '<h2>Brokered Deals</h2>' +
+          '<a href="/brokers.html?focus=' + encodeURIComponent(c.id) + '" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none">View in Broker Book →</a>' +
+        '</div>' +
+        '<div style="overflow-x:auto"><div id="brokeredDealsList">' +
+          '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading…</div>' +
+        '</div></div>' +
+      '</div>';
+  }
+
   document.getElementById('pageContent').innerHTML = html;
   if (guarantorBackrefs.length) refreshGuarantorOnLoans(guarantorBackrefs);
+  if (c._isBroker) refreshBrokeredDeals(c.id);
   // Re-bind sla-forms behaviors (autocomplete, masks, money) on the rendered subtree
   if (window.SLAForms && SLAForms.reformatExisting) {
     SLAForms.reformatExisting(document.getElementById('pageContent'));
@@ -634,6 +654,55 @@ function saveProfile() {
 // viewing a cross-LO client), index it by client id, look each loan
 // up on its primary client, and render the same row format the Loans
 // section uses.
+// Deploy 236.905 (Mike) — fill the Brokered Deals section: every loan in
+// scope whose brokerId points at this client. Same walk as the guarantor
+// backrefs below (admins see cross-LO deals; LOs see their own book).
+function refreshBrokeredDeals(brokerId) {
+  var container = document.getElementById('brokeredDealsList');
+  if (!container) return;
+  var listOpts = SLA.isAdmin && SLA.isAdmin(_user) ? { all: true } : {};
+  SLA.Clients.list(listOpts).then(function(r) {
+    var hits = [];
+    var scan = function(owner, cc) {
+      (cc.loans || []).forEach(function(l) {
+        if (l && l.brokerId === brokerId) {
+          hits.push({ owner: owner, clientId: cc.id,
+            borrower: l.borrowerName || (((cc.firstName || '') + ' ' + (cc.lastName || '')).trim()) || cc.entityName || '—',
+            loan: l });
+        }
+      });
+    };
+    if (r && r.byOwner) Object.keys(r.byOwner).forEach(function(k) { (r.byOwner[k] || []).forEach(function(cc) { scan(k, cc); }); });
+    else (r && r.clients ? r.clients : []).forEach(function(cc) { scan(_loEmail || '', cc); });
+    if (!hits.length) {
+      container.innerHTML = '<div style="padding:1rem 1.25rem;color:var(--muted);font-size:13px;font-style:italic">No loans are linked to this broker yet.</div>';
+      return;
+    }
+    hits.sort(function(a, b) { return String(b.loan.updatedAt || '').localeCompare(String(a.loan.updatedAt || '')); });
+    var rows = hits.map(function(h) {
+      var l = h.loan;
+      var url = SLA.urls && SLA.urls.loanDetails
+        ? SLA.urls.loanDetails(l.id, { owner: h.owner || _loEmail })
+        : ('/loan-details/' + encodeURIComponent(l.id) + (h.owner ? '?owner=' + encodeURIComponent(h.owner) : ''));
+      var amt = l.loanAmt ? '$' + Math.round(parseFloat(String(l.loanAmt).replace(/[^0-9.]/g, '')) || 0).toLocaleString() : '—';
+      return '<tr style="cursor:pointer" onclick="window.location.href=\'' + escAttr(url) + '\'">' +
+        '<td class="td-mono" style="max-width:240px;overflow:hidden;white-space:nowrap"><div style="overflow:hidden;text-overflow:ellipsis">' + escH(l.address || '(no address)') + '</div></td>' +
+        '<td style="font-size:12.5px">' + escH(h.borrower) + '</td>' +
+        '<td><span class="badge ' + (l.toolType || 'dscr') + '">' + ((l.toolType || 'dscr').toUpperCase()) + '</span></td>' +
+        '<td style="font-size:12px">' + escH(String(l.status || '—')) + '</td>' +
+        '<td class="td-mono">' + escH(amt) + '</td>' +
+        '<td class="td-mono" style="font-size:11px">' + escH((l.brokerFee ? parseFloat(l.brokerFee).toFixed(2) + ' pts' : '—')) + '</td>' +
+      '</tr>';
+    }).join('');
+    container.innerHTML =
+      '<table class="loans-table" style="width:100%">' +
+        '<thead><tr><th>Property</th><th>Borrower</th><th>Type</th><th>Status</th><th>Amount</th><th>Broker Fee</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+  }).catch(function(e) {
+    container.innerHTML = '<div style="padding:1rem;color:var(--muted);font-size:13px">Failed to load brokered deals: ' + escH(e && e.message || 'unknown') + '</div>';
+  });
+}
+
 function refreshGuarantorOnLoans(backrefs) {
   var container = document.getElementById('guarantorOnLoansList');
   if (!container) return;

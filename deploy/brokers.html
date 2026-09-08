@@ -660,6 +660,40 @@ function renderLeaderboard() {
   body.innerHTML = html;
 }
 
+// ── Deploy 236.905 (Mike) — ?focus=<brokerId> deep link ──────────────
+// Loan Details' "View in Broker Book" passes the broker id; land ON that
+// broker (expanded + scrolled) instead of the top of the general list.
+// A broker under another LO's book isn't in the admin's own "My Brokers"
+// list, so fall through to the All Users view when needed.
+function _applyFocusParam() {
+  var m = /[?&]focus=([^&]+)/.exec(location.search || '');
+  if (!m) return;
+  var id = decodeURIComponent(m[1]);
+  if ((_brokers || []).some(function(b){ return b && b.id === id; })) {
+    scrollToBroker(id);
+    return;
+  }
+  if (_isAdmin) {
+    window._focusBrokerId = id;
+    if (_currentView !== 'admin') setView('admin'); // loadAdminData → _focusAdminCard
+    else _focusAdminCard();
+  }
+}
+function _focusAdminCard() {
+  var id = window._focusBrokerId;
+  if (!id) return;
+  setTimeout(function () {
+    var card = document.querySelector('#adminView .broker-card[data-id="' + id + '"]');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.style.outline = '2px solid var(--gold, #C8813A)';
+      card.style.outlineOffset = '2px';
+      setTimeout(function () { card.style.outline = ''; }, 4000);
+      window._focusBrokerId = '';
+    }
+  }, 80);
+}
+
 // Helper used by the leaderboard row click — expand the matching
 // broker in the main list and scroll it into view.
 function scrollToBroker(brokerId) {
@@ -891,6 +925,7 @@ function loadAdminData() {
     }).join('');
     if (current) sel.value = current;
     renderAdminBrokers();
+    _focusAdminCard(); // Deploy 236.905 — ?focus= deep link (cross-LO broker)
   }).catch(function(e) {
     listEl.innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>' + escapeHtml(e.message || 'unknown') + '</p></div>';
   });
@@ -1232,7 +1267,7 @@ function renderAdminBrokers() {
       var contactUrlAdmin = 'client-details.html?clientId=' + encodeURIComponent(b.id) +
         (owner ? '&owner=' + encodeURIComponent(owner) : '');
       return '' +
-        '<div class="broker-card">' +
+        '<div class="broker-card" data-id="' + escapeHtml(b.id) + '">' +
           '<div class="broker-header" onclick="window.location.href=\'' + contactUrlAdmin + '\'" style="cursor:pointer" title="Open Contact Page">' +
             '<div class="broker-avatar">' + escapeHtml(avatar) + '</div>' +
             '<div class="broker-info">' +
@@ -1277,6 +1312,7 @@ function loadData() {
     _aggregates = aggResult.byId;
     _orphanedInline = aggResult.orphans;
     renderBrokers();
+    _applyFocusParam(); // Deploy 236.905 — ?focus= deep link
   }).catch(function(e) {
     console.error('[brokers] loadData failed', e);
     document.getElementById('brokersList').innerHTML =
