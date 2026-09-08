@@ -103,6 +103,13 @@ export function synthRecordForGuarantor({ guarantor, loan, primary, ownerKey, as
       addrState: '',
       zip:     '',
     };
+  } else if (_primaryIsBroker(primary, loan)) {
+    // Deploy 236.911 (Mike) — on a broker-parented loan the primary client
+    // is the BROKER: their companies[0]/entityName is the BROKERAGE, not
+    // the borrower's vesting LLC. Leave the entity blank rather than print
+    // "Swigart and Company" as the vesting entity on a guarantor's
+    // application PDF.
+    company = null;
   } else if (primary && Array.isArray(primary.companies) && primary.companies.length) {
     const c = primary.companies[0];
     company = {
@@ -168,4 +175,20 @@ export function synthRecordForGuarantor({ guarantor, loan, primary, ownerKey, as
     prefill:  { propertyAddress: data.propertyAddress },
     data,
   };
+}
+
+// Deploy 236.911 — mirrors clientActsAsBroker (_shared/borrower-prefill.mjs)
+// without importing it (this module is deliberately dependency-free): on a
+// broker-originated loan the primary client is the broker when it carries the
+// _isBroker flag, has no email (placeholder parents), or matches the loan's
+// broker email.
+function _primaryIsBroker(primary, loan) {
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const brokerOriginated = !!(loan && (loan._isBrokerLoan || loan.brokerId || loan.brokerName));
+  if (!brokerOriginated) return false;
+  if (primary && primary._isBroker === true) return true;
+  const cEmail = norm(primary && primary.email);
+  if (!cEmail) return true;
+  if (norm(loan && loan.brokerEmail) && norm(loan.brokerEmail) === cEmail) return true;
+  return false;
 }

@@ -43,6 +43,8 @@ import { queueTruthRefresh } from './_shared/review-truth.mjs'; // Deploy 236.81
 // same treatment as removal (236.703). Signed docs can't silently keep an
 // outdated guarantor set.
 import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
+// Deploy 236.911 — shared broker classification for the vesting-entity guard.
+import { clientActsAsBroker } from './_shared/borrower-prefill.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -395,6 +397,12 @@ async function _resolveLoanVestingEntity({ ownerKey, primaryClientId, loanId, lo
   }
 
   // Source 3 — primary client's companies (catch-all).
+  // Deploy 236.911 (Mike) — NEVER on a broker-parented loan: there the
+  // primary client is the BROKER, and companies[0] is the BROKERAGE
+  // ("Swigart and Company"), not the borrower's vesting LLC. This was
+  // stamping the brokerage onto every manually-added guarantor's client
+  // record as if it were their entity.
+  if (clientActsAsBroker(primary, loan)) return null;
   if (primary && Array.isArray(primary.companies) && primary.companies.length) {
     const c = primary.companies[0];
     if (c && c.name) {
