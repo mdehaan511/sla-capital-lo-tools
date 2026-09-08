@@ -867,6 +867,17 @@
 [functions."loan-extension-servicer"]
   timeout = 26
 
+# Deploy 236.904: loan-extension-resync — put back servicing-row markers that
+# were never written (a client merge invalidated the id they were keyed by).
+# Admin only; the envelope is the source of truth for how far signing got.
+[[redirects]]
+  from = "/api/loan-extension-resync"
+  to = "/.netlify/functions/loan-extension-resync"
+  status = 200
+  force = true
+[functions."loan-extension-resync"]
+  timeout = 26
+
 # Deploy 236.823: loan-followup-done — record a closing-anniversary borrower
 # follow-up (Closed Loans → Follow-ups tab). The reminder digest is
 # followup-reminder-cron.mjs (scheduled, no redirect needed).
