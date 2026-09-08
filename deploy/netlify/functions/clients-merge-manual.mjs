@@ -55,6 +55,86 @@ import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-wr
 // Deploy 236.402 (C2 slice 2): winner persists route through the shared
 // PG-first writeClient helper (covers blob + pg + clients-index).
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.907 (Mike: "Merge failed on b_…: Loser client not found") — a
+// merge side can live in one of THREE places, and the admin dedupe list on
+// brokers.html offers records from all of them. See _resolveSide.
+import { db } from './_shared/supabase-db.mjs';
+import { brokerToClient } from './_shared/broker-client.mjs';
+
+/**
+ * Deploy 236.907 — find a merge side wherever it actually is.
+ *
+ * "Merge failed on b_1783451884345_t3sl8m: Loser client not found at
+ * sara.s@slacapital.com/b_1783451884345_t3sl8m."
+ *
+ * That record is real — it is "Jaelen Churchill", one of 65 `b_` broker
+ * records the 236.27 inline-broker migration wrote into the LEGACY `brokers`
+ * blob store. brokers-list folds those into the admin dedupe list right
+ * alongside broker-flagged clients, so Merge Duplicates happily offers one as
+ * a loser — and this endpoint only ever looked in `clients`.
+ *
+ * Order: the clients blob (the normal case) → a Postgres row with no blob
+ * (the "orphan" class from project_broker_placeholder_pg_orphans) → the
+ * legacy brokers store. Whichever side is the WINNER gets promoted into a
+ * proper client by the writeClient at the end; the loser is removed from
+ * wherever it was found.
+ */
+async function _resolveSide(clientsStore, legacyBrokers, ownerKey, id) {
+  const key = ownerKey + '/' + keySafe(id);
+  const blob = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+  if (blob) return { rec: blob, source: 'clients', key };
+
+  try {
+    const row = await db.first('clients', { select: '*', eq: { id } });
+    if (row) {
+      // A row that still owns loans can't be rebuilt from here without
+      // inventing loan records; that is admin-blob-pg-sync's job.
+      const loanRows = await db.select('loans', { select: 'id', eq: { client_id: id }, limit: 1 }).catch(() => []);
+      if (loanRows && loanRows.length) {
+        return { error: 'Client ' + id + ' exists only in Postgres and still has loans — rebuild its record (admin-blob-pg-sync) before merging.' };
+      }
+      return { rec: _clientFromPgRow(row), source: 'pg', key };
+    }
+  } catch (e) {
+    console.warn('[clients-merge] PG lookup failed for ' + id + ':', e && e.message);
+  }
+
+  const legacy = await legacyBrokers.get(key, { type: 'json' }).catch(() => null);
+  if (legacy) return { rec: brokerToClient(legacy), source: 'legacy', key };
+
+  return null;
+}
+
+/** Blob-shaped client from a Postgres clients row (no loans — see above). */
+function _clientFromPgRow(row) {
+  const out = {
+    id:             row.id,
+    firstName:      row.first_name   || '',
+    lastName:       row.last_name    || '',
+    email:          row.email        || '',
+    phone:          row.phone        || '',
+    entityName:     row.entity_name  || '',
+    displayName:    row.display_name || '',
+    companies:      row.companies    || [],
+    homeAddress:    row.home_address    || null,
+    mailingAddress: row.mailing_address || null,
+    fico:           row.fico  || '',
+    dob:            row.dob   || '',
+    notes:          row.notes || '',
+    notesLog:       row.notes_log || [],
+    createdAt:      row.created_at,
+    updatedAt:      row.updated_at,
+    createdBy:      row.created_by || '',
+    loans:          [],
+  };
+  Object.assign(out, row.extra || {});
+  // Promoted flags win over anything stale in extra (see 236.461).
+  out._isBroker = !!row.is_broker;
+  if (row.is_broker_placeholder) out._isBrokerPlaceholder = true;
+  if (row.ssn_enc)   out.ssn_enc  = row.ssn_enc;
+  if (row.ssn_last4) out.ssnLast4 = row.ssn_last4;
+  return out;
+}
 
 function _isEmpty(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
@@ -145,13 +225,20 @@ async function handle(req, context) {
   // case that needs a second sweep over the winner's own supporting data.
   const winnerMoves = resultOwnerKey !== winnerOwnerKey;
 
-  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const clientsStore  = getStore({ name: 'clients', consistency: 'strong' });
+  const legacyBrokers = getStore({ name: 'brokers', consistency: 'strong' });
   const winnerKey = winnerOwnerKey + '/' + keySafe(winnerId);
   const loserKey  = loserOwnerKey  + '/' + keySafe(loserId);
-  const winner = await clientsStore.get(winnerKey, { type: 'json' }).catch(() => null);
-  const loser  = await clientsStore.get(loserKey,  { type: 'json' }).catch(() => null);
-  if (!winner) return json(404, { error: 'Winner client not found at ' + winnerKey });
-  if (!loser)  return json(404, { error: 'Loser client not found at '  + loserKey });
+  // Deploy 236.907 — each side may be a client blob, a Postgres-only row, or
+  // a legacy brokers-store record. See _resolveSide.
+  const winnerSide = await _resolveSide(clientsStore, legacyBrokers, winnerOwnerKey, winnerId);
+  const loserSide  = await _resolveSide(clientsStore, legacyBrokers, loserOwnerKey,  loserId);
+  if (!winnerSide) return json(404, { error: 'Winner client not found at ' + winnerKey + ' (not in clients, Postgres, or the legacy brokers store)' });
+  if (!loserSide)  return json(404, { error: 'Loser client not found at '  + loserKey  + ' (not in clients, Postgres, or the legacy brokers store)' });
+  if (winnerSide.error) return json(409, { error: winnerSide.error });
+  if (loserSide.error)  return json(409, { error: loserSide.error });
+  const winner = winnerSide.rec;
+  const loser  = loserSide.rec;
 
   const now = new Date().toISOString();
 
@@ -456,12 +543,22 @@ async function handle(req, context) {
     // updates owner_email in place rather than leaving a duplicate row
     // behind; the stale BLOB under the old owner key is what needs the
     // explicit delete below.
+    // Deploy 236.907 — this write is also what PROMOTES a winner that lived
+    // only in Postgres or the legacy brokers store into a real client record.
     await writeClient(resultOwnerKey, winner, { clientsStore });
-    await clientsStore.delete(loserKey);
-    if (winnerMoves) {
+    if (winnerSide.source === 'legacy') {
+      try { await legacyBrokers.delete(winnerSide.key); } catch (_) { /* promoted; stale copy is harmless */ }
+    }
+    if (loserSide.source === 'clients') await clientsStore.delete(loserKey);
+    if (winnerMoves && winnerSide.source === 'clients') {
       await clientsStore.delete(winnerOwnerKey + '/' + keySafe(winner.id));
     }
-    await pgMirror.deleteClientStrict(loser.id);
+    if (loserSide.source === 'legacy') {
+      // Never had a Postgres row or a clients-index entry; the blob is all.
+      await legacyBrokers.delete(loserSide.key);
+    } else {
+      await pgMirror.deleteClientStrict(loser.id);
+    }
   } catch (e) {
     return json(500, { error: 'Failed to persist merge: ' + (e && e.message) });
   }
@@ -481,7 +578,40 @@ async function handle(req, context) {
   // this only touches the bucket it left.
   if (winnerMoves) await indexRemoveClient(winnerOwnerKey, winner.id);
 
+  // Deploy 236.907 — deals point at a broker through loan.brokerId, and the
+  // Brokers page aggregates deal flow by exactly that id. Until now a broker
+  // merge left every loan attributed to the LOSER's id, so its deals silently
+  // dropped off the winner's card. Postgres promotes broker_id to a column,
+  // so the affected loans are one indexed query rather than a walk of every
+  // book — and they can sit under any LO, not just the two in this merge.
+  let brokerRepointed = 0, brokerRepointError = '';
+  try {
+    const rows = await db.select('loans', { select: 'id,client_id,owner_email', eq: { broker_id: loser.id } });
+    const byClient = {};
+    for (const r of (rows || [])) {
+      if (!r || !r.client_id) continue;
+      const oKey = keySafe(normalizeEmail(r.owner_email || ''));
+      const k = oKey + '/' + r.client_id;
+      if (!byClient[k]) byClient[k] = { owner: oKey, clientId: r.client_id, loanIds: new Set() };
+      byClient[k].loanIds.add(r.id);
+    }
+    for (const g of Object.values(byClient)) {
+      const c = await clientsStore.get(g.owner + '/' + keySafe(g.clientId), { type: 'json' }).catch(() => null);
+      if (!c || !Array.isArray(c.loans)) continue;
+      let dirty = false;
+      for (const l of c.loans) {
+        if (l && g.loanIds.has(l.id) && l.brokerId === loser.id) { l.brokerId = winner.id; dirty = true; brokerRepointed++; }
+      }
+      if (dirty) await writeClient(g.owner, c, { clientsStore });
+    }
+  } catch (e) {
+    brokerRepointError = (e && e.message) || 'unknown';
+    console.error('[clients-merge] brokerId repoint failed:', brokerRepointError);
+  }
+
   return json(200, {
+    winnerSource: winnerSide.source, loserSource: loserSide.source,
+    brokerRepointed, brokerRepointError: brokerRepointError || undefined,
     ok: true,
     winnerClientId: winner.id,
     resultOwner,
