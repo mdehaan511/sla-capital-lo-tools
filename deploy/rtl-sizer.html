@@ -5350,7 +5350,7 @@ function _generateRTLRateSheetPDF(opts) {
     pdfHasDraw = pdfMoStart !== null && pdfMoMax !== null && Math.round(pdfMoStart) !== Math.round(pdfMoMax);
     window._snapshotConsumed = true;
   } else {
-    // Deploy 236.899 (Mike) — LIVE-path override rescale. Printing straight
+    // Deploy 236.900 (Mike) — LIVE-path override rescale. Printing straight
     // from the sizer with an active loan-amount / rate override: bMaxNum +
     // displayedRate come from the override-updated metric cards, but
     // pdfMoStart/pdfMoMax still come from the RAW calc — the bridge $275k
@@ -5666,7 +5666,7 @@ function _generateRTLRateSheetPDF(opts) {
 
   var totalRows = feeRows.length + auxRows.length;
   var feeBlockH = 22 + totalRows*ROW_H + ROW_H*2 + 24;
-  // Deploy 236.899 (Mike) — page-break guard. The PRELIMINARY banner
+  // Deploy 236.900 (Mike) — page-break guard. The PRELIMINARY banner
   // (236.846) pushes everything down ~36pt; with a broker-fee row in the
   // block the fee section overflowed the page bottom and the total /
   // footnote printed clipped. Every block after this one already calls

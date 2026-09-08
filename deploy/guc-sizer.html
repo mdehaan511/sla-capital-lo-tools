@@ -5398,7 +5398,7 @@ function _generateRTLRateSheetPDF(opts) {
     pdfHasDraw = pdfMoStart !== null && pdfMoMax !== null && Math.round(pdfMoStart) !== Math.round(pdfMoMax);
     window._snapshotConsumed = true;
   } else {
-    // Deploy 236.899 (Mike) — LIVE-path override rescale, mirrored from
+    // Deploy 236.900 (Mike) — LIVE-path override rescale, mirrored from
     // rtl-sizer.html: an active rate/points override changes bMaxNum /
     // displayedRate (scraped from the updated cards) while pdfMoStart /
     // pdfMoMax still come from the RAW calc. Monthly interest is linear in
@@ -5718,7 +5718,7 @@ function _generateRTLRateSheetPDF(opts) {
 
   var totalRows = feeRows.length + auxRows.length;
   var feeBlockH = 22 + totalRows*ROW_H + ROW_H*2 + 24;
-  // Deploy 236.899 (Mike) — page-break guard (mirrors rtl-sizer): the
+  // Deploy 236.900 (Mike) — page-break guard (mirrors rtl-sizer): the
   // PRELIMINARY banner pushes content down and this block could print
   // clipped off the page bottom. Later blocks already call checkPage().
   checkPage(feeBlockH + 14);
