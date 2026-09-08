@@ -112,6 +112,10 @@
     .ext-chip.sent { background:#fef3c7; color:#92400e; }
     .ext-chip.half { background:#dbeafe; color:#1e40af; }
     .ext-chip.done { background:#dcfce7; color:#166534; }
+    /* Deploy 236.903 — a withdrawn request, and the chip as a control. */
+    .ext-chip.dead { background:#f1f0ee; color:#6b6560; text-decoration:line-through; }
+    button.ext-chip { border:none; cursor:pointer; font-family:inherit; }
+    button.ext-chip:hover { filter:brightness(0.94); }
     .cl-addr { font-weight: 600; }
     .cl-num { font-family: 'DM Mono', monospace; }
     .cl-ph { color: var(--muted); }
@@ -741,20 +745,33 @@ function dispOptions(cur){
 // Deploy 236.847 (Mike) — extension eSign status chip. The maturity date is
 // NOT auto-updated on completion (it syncs from FCI); the chip + loan note are
 // the signal that the signed agreement's new date should show up there.
-function extChip(l){
+function extChip(l, it){
   var m = l.extensionEsign;
   if (!m || !m.status) return '';
   var nm = m.newMaturityDate ? ' — new maturity ' + fmtDate(m.newMaturityDate) : '';
-  if (m.status === 'completed')
-    return '<span class="ext-chip done" title="'+escAttr('Extension agreement fully executed'+nm)+'">✓ Ext. executed</span>';
-  if (m.status === 'lender_signed')
-    return '<span class="ext-chip half" title="'+escAttr('Lender signed — borrower invited to sign'+nm)+'">Ext: borrower to sign</span>';
-  return '<span class="ext-chip sent" title="'+escAttr('Extension agreement sent — awaiting lender signature'+nm)+'">Ext: sent</span>';
+  var cls = 'sent', label = 'Ext: sent', tip = 'Extension agreement sent — awaiting lender signature' + nm;
+  if (m.status === 'completed'){
+    cls = 'done'; label = '✓ Ext. executed'; tip = 'Extension agreement fully executed' + nm;
+    // Deploy 236.903 — once the servicer has it, say so on the row: that is
+    // the step that actually moves the maturity date.
+    var sv = l.extensionServicer || {};
+    if (sv.acceptedAt) { label = '✓ Ext. boarded'; tip = 'Executed and accepted by the servicer' + nm; }
+    else if (sv.sentAt) { label = '✓ Ext. at servicer'; tip = 'Executed, sent to the servicer, not yet accepted' + nm; }
+  } else if (m.status === 'lender_signed'){
+    cls = 'half'; label = 'Ext: borrower to sign'; tip = 'Lender signed — borrower invited to sign' + nm;
+  } else if (m.status === 'cancelled'){
+    cls = 'dead'; label = 'Ext: cancelled'; tip = 'Extension request withdrawn' +
+      (m.cancelledBy ? ' by ' + m.cancelledBy : '') + nm;
+  }
+  // Staff can act on it; everyone else just reads it.
+  if (!_isStaff || !it) return '<span class="ext-chip '+cls+'" title="'+escAttr(tip)+'">'+label+'</span>';
+  return '<button type="button" class="ext-chip '+cls+'" title="'+escAttr(tip+' — click to manage')+'" onclick="event.stopPropagation();openExtensionManage(\''+
+    escAttr(it.client.id)+'\',\''+escAttr(l.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+label+'</button>';
 }
 function dispCell(it){
   // Deploy 236.693 — LOs get a read-only disposition label (no picker / editor).
   if (!_isStaff) {
-    return '<td>'+escH(DISP_LABEL[displayBucket(it.loan)]||DISP_LABEL[dispositionOf(it.loan)]||'—')+extChip(it.loan)+'</td>';
+    return '<td>'+escH(DISP_LABEL[displayBucket(it.loan)]||DISP_LABEL[dispositionOf(it.loan)]||'—')+extChip(it.loan, it)+'</td>';
   }
   // Deploy 236.843 — one-button Loan Extension Agreement (Mike): fills the
   // template from the loan and sends a sequential eSign (lender verifies +
@@ -767,7 +784,7 @@ function dispCell(it){
     escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+
     dispOptions(dispositionOf(it.loan))+'</select>' +
     '<button type="button" class="svc-edit" title="Edit servicing details" onclick="openServicingEditor(\''+
-    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button>' + extBtn + extChip(it.loan) + '</td>';
+    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button>' + extBtn + extChip(it.loan, it) + '</td>';
 }
 
 // ── Servicing-details editor (staff) ───────────────────────────────
@@ -932,6 +949,180 @@ function svcSave(){
 // SEQUENTIAL eSign — the lender (Mike) reviews + signs the filled agreement
 // first; the borrower is invited automatically the moment he signs. Signed
 // copies email to everyone when both are done.
+// ── Deploy 236.903 (Mike) — Manage an extension already in flight ────────
+// One panel per extension, offering only what its current state allows:
+//   in flight  → copy the signing link, cancel the request
+//   executed   → download the agreement, record the servicer hand-off
+// Acceptance by the servicer is what moves the maturity date, and the
+// one-month-out maturity notice re-arms itself for the new date because that
+// cron's ledger is keyed by the maturity date.
+var _extTarget = null;
+
+function openExtensionManage(clientId, loanId, ownerKey){
+  var it = null;
+  for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
+  if (!it) return;
+  _extTarget = it;
+  var old = document.getElementById('extManageModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'extManageModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9700;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:560px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:16px;font-weight:600">Loan Extension' +
+        '<div style="font-size:12px;font-weight:400;color:var(--muted);margin-top:2px">' + escH(it.loan.address||'') + '</div>' +
+      '</div>' +
+      '<div id="extManageBody" style="padding:14px 20px;overflow:auto;flex:1;font-size:13px">Loading…</div>' +
+      '<div id="extManageMsg" style="display:none;margin:0 20px 12px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.45"></div>' +
+      '<div style="padding:12px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;background:#faf8f3">' +
+        '<button type="button" onclick="document.getElementById(\'extManageModal\').remove()" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">Close</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function(e){ if (e.target === wrap) wrap.remove(); });
+  renderExtManage();
+}
+
+function _extMsg(text, bad){
+  var el = document.getElementById('extManageMsg'); if (!el) return;
+  el.style.display = 'block';
+  el.style.background = bad ? '#fdf1f1' : '#f1f7f2';
+  el.style.color = bad ? '#8a2222' : '#1f5130';
+  el.style.border = '1px solid ' + (bad ? '#f0c9c9' : '#cfe6d6');
+  el.textContent = text;
+}
+
+function renderExtManage(){
+  var body = document.getElementById('extManageBody'); if (!body || !_extTarget) return;
+  var l = _extTarget.loan;
+  var m = l.extensionEsign || {};
+  var sv = l.extensionServicer || {};
+  var row = function(k, v){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #f2efe9"><span style="color:var(--muted)">'+escH(k)+'</span><span style="text-align:right;color:var(--ink,#222)">'+v+'</span></div>'; };
+
+  var STATUS = { sent:'Sent — awaiting lender signature', lender_signed:'Lender signed — awaiting borrower',
+                 completed:'Fully executed', cancelled:'Cancelled' };
+  var html = '<div style="margin-bottom:14px">' +
+    row('Status', '<strong>' + escH(STATUS[m.status] || m.status || '—') + '</strong>') +
+    row('Sent', m.sentAt ? escH(new Date(m.sentAt).toLocaleDateString()) : '—') +
+    row('New maturity per agreement', m.newMaturityDate ? escH(fmtDate(m.newMaturityDate)) : '—') +
+    row('Maturity on this loan now', l.maturityDate ? escH(fmtDate(l.maturityDate)) : '—') +
+    '</div>';
+
+  if (m.status === 'completed'){
+    // ── Executed: download + the servicer hand-off ──
+    html +=
+      '<button type="button" onclick="extDownload()" style="width:100%;font-size:13px;font-weight:600;padding:9px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;margin-bottom:14px">⬇ Download signed agreement</button>' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:6px">Servicer hand-off</div>' +
+      '<label style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;cursor:pointer">' +
+        '<input type="checkbox" id="extSvcSent" ' + (sv.sentAt ? 'checked' : '') + ' onchange="extSetServicer()" style="margin-top:2px">' +
+        '<span>Sent to the servicer' + (sv.sentAt ? '<div style="font-size:11px;color:var(--muted)">' + escH(new Date(sv.sentAt).toLocaleDateString() + ' · ' + (sv.sentBy||'').split('@')[0]) + '</div>' : '') + '</span>' +
+      '</label>' +
+      '<label style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;cursor:pointer">' +
+        '<input type="checkbox" id="extSvcAccepted" ' + (sv.acceptedAt ? 'checked' : '') + ' onchange="extSetServicer()" style="margin-top:2px">' +
+        '<span>Accepted by the servicer' +
+          '<div style="font-size:11px;color:var(--muted)">' +
+            (sv.acceptedAt
+              ? escH(new Date(sv.acceptedAt).toLocaleDateString() + ' · ' + (sv.acceptedBy||'').split('@')[0])
+              : 'Ticking this sets the maturity date to ' + escH(m.newMaturityDate ? fmtDate(m.newMaturityDate) : 'the agreement date') +
+                ' and re-arms the one-month-out borrower notice for it.') +
+          '</div>' +
+        '</span>' +
+      '</label>';
+  } else if (m.status === 'cancelled'){
+    html += '<div style="color:var(--muted)">This request was withdrawn' +
+      (m.cancelledAt ? ' on ' + escH(new Date(m.cancelledAt).toLocaleDateString()) : '') +
+      (m.cancelledBy ? ' by ' + escH(m.cancelledBy) : '') +
+      '. The signing links no longer work. Use ⏳ on the row to send a new one.</div>';
+  } else {
+    // ── Still out for signature ──
+    html +=
+      '<button type="button" onclick="extCopyLink()" style="width:100%;font-size:13px;font-weight:600;padding:9px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;margin-bottom:8px">🔗 Copy signing link for the current signer</button>' +
+      '<div id="extLinkBox" style="display:none;font-size:11px;font-family:\'DM Mono\',monospace;word-break:break-all;background:#faf8f3;border:1px solid var(--border,#E4DFD4);border-radius:6px;padding:8px;margin-bottom:12px"></div>' +
+      '<button type="button" onclick="extCancel()" style="width:100%;font-size:13px;font-weight:600;padding:9px;border:1px solid rgba(124,31,31,0.25);background:#fff;color:var(--danger,#7c1f1f);border-radius:6px;cursor:pointer">✕ Cancel this extension request</button>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:6px">Cancelling invalidates the link in the email the borrower already has, and tells them there is nothing left to sign.</div>';
+  }
+  body.innerHTML = html;
+}
+
+function extDownload(){
+  var it = _extTarget; if (!it) return;
+  var m = it.loan.extensionEsign || {};
+  if (!m.envelopeId) { _extMsg('No envelope on file for this extension.', true); return; }
+  _extMsg('Preparing the signed agreement…', false);
+  SLA.getToken().then(function(tk){
+    return fetch('/api/envelope-final-pdf?envelopeId=' + encodeURIComponent(m.envelopeId) +
+      '&doc=0&owner=' + encodeURIComponent(it.ownerKey), { headers: { 'Authorization': 'Bearer ' + tk } });
+  }).then(function(resp){
+    if (!resp.ok) return resp.json().then(function(d){ throw new Error(d.error || ('HTTP ' + resp.status)); });
+    return resp.blob().then(function(b){
+      var u = URL.createObjectURL(b);
+      var a = document.createElement('a');
+      a.href = u;
+      a.download = 'Loan Extension Agreement - ' + String(it.loan.address||'').split(',')[0].trim() + ' - Signed.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(u); }, 4000);
+      _extMsg('Downloaded.', false);
+    });
+  }).catch(function(e){ _extMsg('Download failed: ' + (e && e.message || 'unknown'), true); });
+}
+
+function extCopyLink(){
+  var it = _extTarget; if (!it) return;
+  var m = it.loan.extensionEsign || {};
+  _extMsg('Getting the link…', false);
+  SLA.api('POST', '/api/loan-extension-link', { envelopeId: m.envelopeId, owner: it.ownerKey })
+    .then(function(r){
+      var box = document.getElementById('extLinkBox');
+      if (box){ box.style.display='block'; box.textContent = r.url; }
+      var who = (r.signer && (r.signer.name || r.signer.email)) || 'the signer';
+      try {
+        navigator.clipboard.writeText(r.url).then(function(){
+          _extMsg('Copied — this link signs as ' + who + '.' + (r.minted ? ' (A fresh link was generated.)' : ''), false);
+        }, function(){ _extMsg('Link for ' + who + ' is below — copy it manually.', false); });
+      } catch (_) { _extMsg('Link for ' + who + ' is below — copy it manually.', false); }
+    })
+    .catch(function(e){ _extMsg('Could not get a link: ' + (e && e.message || 'unknown'), true); });
+}
+
+function extCancel(){
+  var it = _extTarget; if (!it) return;
+  var m = it.loan.extensionEsign || {};
+  var reason = prompt('Cancel this extension request?\n\nOptional reason (shown to the borrower):', 'The loan is being paid off instead.');
+  if (reason === null) return;
+  _extMsg('Cancelling…', false);
+  SLA.api('POST', '/api/loan-extension-cancel', { envelopeId: m.envelopeId, owner: it.ownerKey, reason: reason })
+    .then(function(r){
+      it.loan.extensionEsign = Object.assign({}, m, { status: 'cancelled', cancelledAt: new Date().toISOString() });
+      _extMsg('Cancelled. ' + r.linksInvalidated + ' signing link(s) invalidated' +
+        (r.notified ? ', ' + r.notified + ' borrower notified.' : '.'), false);
+      renderExtManage();
+      if (typeof render === 'function') render();
+    })
+    .catch(function(e){ _extMsg('Cancel failed: ' + (e && e.message || 'unknown'), true); });
+}
+
+function extSetServicer(){
+  var it = _extTarget; if (!it) return;
+  var sent = !!(document.getElementById('extSvcSent') || {}).checked;
+  var accepted = !!(document.getElementById('extSvcAccepted') || {}).checked;
+  _extMsg('Saving…', false);
+  SLA.api('POST', '/api/loan-extension-servicer', {
+    clientId: it.client.id, loanId: it.loan.id, owner: it.ownerKey,
+    sent: sent, accepted: accepted,
+  }).then(function(r){
+    it.loan.extensionServicer = r.extensionServicer;
+    if (r.maturityDate) it.loan.maturityDate = r.maturityDate;
+    _extMsg(r.maturityChanged
+      ? 'Saved. Maturity moved to ' + fmtDate(r.maturityChanged.to) + ' — the one-month-out borrower notice will fire for the new date.'
+      : 'Saved.', false);
+    renderExtManage();
+    if (typeof render === 'function') render();
+  }).catch(function(e){
+    _extMsg('Save failed: ' + (e && e.message || 'unknown'), true);
+    renderExtManage();
+  });
+}
+
 function openExtensionModal(clientId, loanId, ownerKey){
   var it=_find(clientId, loanId, ownerKey);
   if (!it) return;

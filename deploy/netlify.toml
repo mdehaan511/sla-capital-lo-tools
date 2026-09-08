@@ -842,6 +842,31 @@
 [functions."loan-extension-restamp"]
   timeout = 26
 
+# Deploy 236.903: managing an extension that is already out — cancel the
+# request (kills the signing links), copy the active signer's link, and record
+# the servicer hand-off (acceptance moves the maturity date).
+[[redirects]]
+  from = "/api/loan-extension-cancel"
+  to = "/.netlify/functions/loan-extension-cancel"
+  status = 200
+  force = true
+[functions."loan-extension-cancel"]
+  timeout = 26
+
+[[redirects]]
+  from = "/api/loan-extension-link"
+  to = "/.netlify/functions/loan-extension-link"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/loan-extension-servicer"
+  to = "/.netlify/functions/loan-extension-servicer"
+  status = 200
+  force = true
+[functions."loan-extension-servicer"]
+  timeout = 26
+
 # Deploy 236.823: loan-followup-done — record a closing-anniversary borrower
 # follow-up (Closed Loans → Follow-ups tab). The reminder digest is
 # followup-reminder-cron.mjs (scheduled, no redirect needed).
