@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="sla-api.js?v=236864"></script>
+  <script src="sla-api.js?v=236906"></script>
   <script src="sla-nav.js"></script>
 <script src="/sla-search.js"></script>
   <script src="sla-sizer-assign-lo.js"></script>
@@ -4817,10 +4817,17 @@ netlifyIdentity.on('init', function(user) {
             // short app). Normal loans (borrower IS the client) keep the refresh.
             var _isBrokerLoanRec = !!(found._isBrokerLoan || found.brokerId || found.brokerName);
             if (_isBrokerLoanRec) {
-              var _bName  = String(found.borrowerName || fd.borrowerName || fd.borrower || '').trim();
-              var _bEmail = String(found.borrowerEmail || fd.borrowerEmail || '').toLowerCase();
+              // Deploy 236.906 (Mike) — fall back to the loan's denormalized
+              // guarantors[] when the broker short app never stamped a borrower
+              // (see rtl-sizer.html for rationale).
+              var _g0 = (Array.isArray(found.guarantors) && found.guarantors[0]) || null;
+              var _g0Name = _g0 ? (String((_g0.firstName || '') + ' ' + (_g0.lastName || '')).replace(/\s+/g, ' ').trim() || String(_g0.name || '').trim()) : '';
+              var _bName  = String(found.borrowerName || fd.borrowerName || fd.borrower || '').trim() || _g0Name;
+              var _bEmail = String(found.borrowerEmail || fd.borrowerEmail || (_g0 && _g0.email) || '').toLowerCase();
+              var _bPhone = String(found.borrowerPhone || fd.borrowerPhone || (_g0 && _g0.phone) || '').trim();
               if (_bName)  { fd.borrower = _bName; fd.borrowerName = _bName; }
               if (_bEmail) fd.borrowerEmail = _bEmail;
+              if (_bPhone) fd.borrowerPhone = _bPhone;
             } else {
               var _freshName  = ((clientRec.firstName || '') + ' ' + (clientRec.lastName || '')).trim();
               var _freshEmail = (clientRec.email || '').toLowerCase();

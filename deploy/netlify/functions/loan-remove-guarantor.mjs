@@ -105,6 +105,14 @@ async function handle(req, context) {
   if (loan.guarantorOwnership && typeof loan.guarantorOwnership === 'object') {
     delete loan.guarantorOwnership[body.guarantorClientId];
   }
+  // Deploy 236.906 (Mike) — mirror the add path: drop the denormalized
+  // loan.guarantors[] entry too, or the rate-sheet gate / sizer PDFs keep
+  // seeing a guarantor the LO removed. (A second email-keyed prune happens
+  // below once the guarantor's identity is resolved, for legacy entries
+  // that never carried a clientId.)
+  if (Array.isArray(loan.guarantors)) {
+    loan.guarantors = loan.guarantors.filter((x) => !(x && x.clientId === body.guarantorClientId));
+  }
   loan.updatedAt = now;
   primary.updatedAt = now;
 
@@ -128,6 +136,13 @@ async function handle(req, context) {
     console.warn('loan-remove-guarantor: identity lookup failed (non-fatal):', e && e.message);
   }
   const guarantorLabel = guarantorName || guarantorEmail || body.guarantorClientId;
+
+  // Deploy 236.906 (Mike) — second flat-array prune, by resolved email, for
+  // legacy loan.guarantors[] entries that carry no clientId.
+  if (guarantorEmail && Array.isArray(loan.guarantors)) {
+    loan.guarantors = loan.guarantors.filter((x) =>
+      !(x && !x.clientId && normalizeEmail(x.email || '') === guarantorEmail));
+  }
 
   // Note-log entry on the loan for audit.
   {

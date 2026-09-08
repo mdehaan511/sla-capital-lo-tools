@@ -101,10 +101,22 @@ export function rateSheetSignable(client, loan, guarantors) {
   const broker = brokerOf(l);
   const parties = [];
   if (client) parties.push(client);
-  const extra = (guarantors && guarantors.length)
-    ? guarantors
-    : (Array.isArray(l.guarantors) ? l.guarantors : []);
-  for (const g of extra) if (g) parties.push(g);
+  // Deploy 236.906 (Mike) — UNION the resolved records with the denormalized
+  // loan.guarantors[] array instead of either/or. The resolved list comes from
+  // a cached client pool that can lag a manual "+ Add Guarantor" by minutes;
+  // a guarantor missing from it must still count via the flat copy the add
+  // endpoint now writes. Dedupe by email so the same person isn't listed twice.
+  const seen = {};
+  const pushParty = (g) => {
+    if (!g) return;
+    const em = String(g.email || '').toLowerCase();
+    if (em && seen[em]) return;
+    if (em) seen[em] = true;
+    parties.push(g);
+  };
+  if (client && client.email) seen[String(client.email).toLowerCase()] = true;
+  if (guarantors && guarantors.length) for (const g of guarantors) pushParty(g);
+  if (Array.isArray(l.guarantors)) for (const g of l.guarantors) pushParty(g);
 
   if (!parties.length) {
     return { ok: false, reason: REASONS.missing, signer: null, broker, parties: [] };

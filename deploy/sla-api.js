@@ -3315,10 +3315,23 @@ if (typeof window !== 'undefined' && typeof window.applyPhoneMask !== 'function'
     var broker = brokerOf(l);
     var parties = [];
     if (client) parties.push(client);
-    var extra = (guarantors && guarantors.length)
-      ? guarantors
-      : (Array.isArray(l.guarantors) ? l.guarantors : []);
-    for (var e = 0; e < extra.length; e++) if (extra[e]) parties.push(extra[e]);
+    // Deploy 236.906 (Mike) — UNION the resolved records with the denormalized
+    // loan.guarantors[] array instead of either/or (mirrors the server copy in
+    // _shared/rate-sheet-signable.mjs). The resolved list comes from the
+    // 5-min-stale client-list cache; a just-added guarantor missing from it
+    // must still count via the flat copy loan-add-guarantor now writes.
+    var seen = {};
+    function pushParty(g) {
+      if (!g) return;
+      var em = _low(g.email);
+      if (em && seen[em]) return;
+      if (em) seen[em] = true;
+      parties.push(g);
+    }
+    if (client && client.email) seen[_low(client.email)] = true;
+    var e;
+    if (guarantors && guarantors.length) for (e = 0; e < guarantors.length; e++) pushParty(guarantors[e]);
+    if (Array.isArray(l.guarantors)) for (e = 0; e < l.guarantors.length; e++) pushParty(l.guarantors[e]);
 
     if (!parties.length) {
       return { ok: false, reason: REASONS.missing, signer: null, broker: broker, parties: [] };

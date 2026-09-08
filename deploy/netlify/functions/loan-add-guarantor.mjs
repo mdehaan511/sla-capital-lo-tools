@@ -239,6 +239,28 @@ async function handle(req, context) {
     loan.guarantorOwnership = Object.assign({}, loan.guarantorOwnership || {});
     loan.guarantorOwnership[guarantor.id] = pct;
   }
+  // Deploy 236.906 (Mike) — ALSO write the flat loan.guarantors[] entry, the
+  // same denormalized shape loan-broker-borrower-capture keeps. The rate-sheet
+  // signature gate (SLARateSheet.signable) and the sizer PDFs read this array
+  // when they can't resolve guarantorClientIds against the (5-min-stale)
+  // client-list cache — without it, a broker loan whose guarantor was added
+  // here kept bouncing the LO to the "Borrower / Guarantor required" modal and
+  // printed the rate sheet with no guarantor on it.
+  loan.guarantors = Array.isArray(loan.guarantors) ? loan.guarantors : [];
+  const flatDupe = loan.guarantors.some((x) => x && (
+    (x.clientId && x.clientId === guarantor.id) ||
+    (x.email && String(x.email).toLowerCase() === email)
+  ));
+  if (!flatDupe) {
+    loan.guarantors.push({
+      firstName,
+      lastName,
+      email,
+      phone,
+      clientId:  guarantor.id,
+      ownership: isFinite(pct) ? String(pct) : '',
+    });
+  }
   loan.updatedAt = now;
 
   // Audit entry on the loan's notesLog.
