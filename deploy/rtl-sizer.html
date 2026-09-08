@@ -1888,18 +1888,40 @@ function applyOverridesAndRender() {
       }
     });
   }
-  // ── Monthly interest card (rate or loan amount changed) ──────
+  // ── Payment cards (rate or loan amount changed) ──────────────
+  // Deploy 236.901 (Mike) — the cards were renamed "Monthly Interest" →
+  // "Starting Payment" / "Max Payment" and this updater's regex silently
+  // stopped matching ANYTHING, so every override left the on-screen
+  // payment at the pre-override figure (the PDF got its fix in 236.900).
+  // Dutch = flat interest on the full amount; Non-Dutch START = interest
+  // on the advance, where the rehab holdback is a FIXED dollar amount.
   var monthlyCards = document.querySelectorAll('.metric-card');
-  monthlyCards.forEach(function(card) {
-    var lbl = card.querySelector('.metric-label');
-    if (lbl && /Monthly Interest/i.test(lbl.textContent)) {
+  var _effR2 = effRate || (typeof calc.rate === 'number' ? calc.rate : null);
+  if (_effR2 && effLoanAmt > 0) {
+    var _isDutchC = !!calc.isDutch;
+    var _holdC = (typeof calc.initAdv === 'number' && typeof calc.bMax === 'number')
+      ? Math.max(0, calc.bMax - calc.initAdv) : 0;
+    var _effAdv = Math.max(0, effLoanAmt - _holdC);
+    var _moMaxEff = effLoanAmt * _effR2 / 12;
+    var _moStartEff = _isDutchC ? _moMaxEff : _effAdv * _effR2 / 12;
+    monthlyCards.forEach(function(card) {
+      var lbl = card.querySelector('.metric-label');
       var val = card.querySelector('.metric-value');
-      if (val && effRate) {
-        var mo = effLoanAmt * effRate / 12;
-        val.textContent = '$' + Math.round(mo).toLocaleString() + '/mo';
+      if (!lbl || !val) return;
+      if (/^Starting Payment/i.test(lbl.textContent)) {
+        val.textContent = '$' + Math.round(_moStartEff).toLocaleString() + '/mo';
+        var sub = card.querySelector('.metric-sub');
+        if (sub && !_isDutchC && /initial advance/i.test(sub.textContent)) {
+          sub.textContent = 'Interest on initial advance ($' + Math.round(_effAdv).toLocaleString() + ')';
+        }
+      } else if (/^Max Payment/i.test(lbl.textContent)) {
+        val.textContent = '$' + Math.round(_moMaxEff).toLocaleString() + '/mo';
+      } else if (/Monthly Interest/i.test(lbl.textContent)) {
+        // legacy label — kept so any old card shape still updates
+        val.textContent = '$' + Math.round(_moMaxEff).toLocaleString() + '/mo';
       }
-    }
-  });
+    });
+  }
   // ── Right-side fees card (broker fee rows depend on loan amount) ─
   try { renderBrokerFeesCardRows(); } catch (_) {}
   // ── Cashout / cash-to-close summary (uses total fees + loan amount) ─
