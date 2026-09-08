@@ -41,10 +41,6 @@
     .login-msg{ min-height:16px; margin-top:12px; font-size:12px; color:var(--muted); line-height:1.4; }
     h1.page-title{ font-family:'Lora',serif; font-size:22px; margin:6px 0 2px; }
     .sub{ color:var(--muted); font-size:13px; margin-bottom:18px; }
-    .progress{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:18px; display:flex; align-items:center; gap:14px; }
-    .progress .bar{ flex:1; height:9px; background:#eee7d8; border-radius:5px; overflow:hidden; }
-    .progress .bar > div{ height:100%; background:var(--green); transition:width .3s; }
-    .progress .lbl{ font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .item{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:12px; }
     .item-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
     .item-name{ font-weight:600; font-size:15px; }
@@ -118,7 +114,12 @@
     <a class="back-link" href="borrower-portal.html"><svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg> Back to my loans</a>
     <h1 class="page-title" id="pageTitle">Your Documents</h1>
     <div class="sub" id="pageSub"></div>
-    <div class="progress"><div class="bar"><div id="progressBar" style="width:0%"></div></div><div class="lbl" id="progressLbl"></div></div>
+    <!-- Deploy 236.909 (Mike) — the "N of M accepted" completion bar is gone.
+         The list is not a fixed checklist: the loan team can add documents
+         at any point, so a bar that read 100% could turn into 80% the next
+         day, and a borrower at 9 of 10 would reasonably think one more
+         upload finished the job. The per-document status pills say what is
+         actually outstanding without promising a total. -->
 
     <!-- Deploy 236.743 — two-column layout (Mike): documents on the left,
          Your Agents (moved up from the page bottom) + the new Your SLA Team
@@ -249,11 +250,9 @@
     // Accepted items drop off the list.
     var active = _items.filter(function(it){ return it.status !== 'accepted'; });
     var accepted = _items.filter(function(it){ return it.status === 'accepted'; });
-    var total = _items.length;
-    var doneCount = accepted.length;
-    var pct = total ? Math.round((doneCount/total)*100) : 0;
-    document.getElementById('progressBar').style.width = pct + '%';
-    document.getElementById('progressLbl').textContent = doneCount + ' of ' + total + ' accepted';
+    // Deploy 236.909 — no completion bar (see the markup comment): additional
+    // documents can be requested later, so "N of M" implied a total we
+    // don't actually have.
 
     if (!active.length){
       c.innerHTML = '<div class="empty"><div style="font-size:28px">✓</div><div style="margin-top:8px;font-weight:600;color:var(--green)">All documents received.</div><div style="margin-top:4px">Thanks! Your loan team has everything they need for now.</div></div>';
