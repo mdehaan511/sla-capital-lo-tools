@@ -17,6 +17,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor,
 } from './_shared/auth.mjs';
+import { contentTypeFor } from './_shared/trade-tape-store.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -46,11 +47,15 @@ async function handle(req, context) {
     const b64 = await store.get('file/' + id).catch(() => null);
     if (!b64) return json(404, { error: 'Tape file no longer stored' });
     const buf = Buffer.from(String(b64), 'base64');
+    const name = String(meta.filename || 'Trade Tape.xlsx').replace(/"/g, '');
     return new Response(buf, {
       status: 200,
       headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': 'attachment; filename="' + String(meta.filename || 'Trade Tape.xlsx').replace(/"/g, '') + '"',
+        // Deploy 236.893 — the catalogue is no longer all .xlsx. An uploaded
+        // final tape can be .xls or .csv, and serving one of those as xlsx
+        // makes Excel greet the auditor with a repair prompt.
+        'Content-Type': contentTypeFor(name),
+        'Content-Disposition': 'attachment; filename="' + name + '"',
       },
     });
   }

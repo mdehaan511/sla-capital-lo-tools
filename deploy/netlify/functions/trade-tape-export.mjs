@@ -23,6 +23,7 @@ import {
 import { TRADE_TAPES } from './_shared/trade-tapes.mjs';
 import { buildXlsx } from './_shared/xlsx-write.mjs';
 import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
+import { saveTape } from './_shared/trade-tape-store.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -89,31 +90,28 @@ async function handle(req, context) {
   // was actually sent — mistake tapes stay listed but unmarked. Files are
   // stored as base64 TEXT (the blob-store convention here). Best-effort: a
   // history-save failure never blocks the export itself.
+  //
+  // Deploy 236.893 — the write + the 300-tape prune moved into
+  // _shared/trade-tape-store.mjs, which the upload endpoint shares. The prune
+  // now counts GENERATED tapes only: uploaded final tapes are the audit
+  // record and must not age out because somebody ran a batch of exports.
   let tapeId = '';
   try {
-    tapeId = 'tape_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-    const tapesStore = getStore({ name: 'trade_tapes', consistency: 'strong' });
-    await tapesStore.set('file/' + tapeId, buf.toString('base64'));
-    const idx = (await tapesStore.get('index', { type: 'json' }).catch(() => null)) || { tapes: [] };
-    if (!Array.isArray(idx.tapes)) idx.tapes = [];
-    idx.tapes.unshift({
-      id: tapeId,
-      tapeKey: tape.key,
-      tapeLabel: tape.label,
-      createdAt: new Date().toISOString(),
-      createdBy: user.email || '',
-      loanCount: ctxs.length,
+    tapeId = await saveTape({
+      buf,
       filename,
-      params: { tradeDate: String(params.tradeDate || ''), fundingBank: String(params.fundingBank || '') },
-      missingCount: built.missing.length,
-      used: false,
+      meta: {
+        source: 'generated',
+        tapeKey: tape.key,
+        tapeLabel: tape.label,
+        createdAt: new Date().toISOString(),
+        createdBy: user.email || '',
+        loanCount: ctxs.length,
+        params: { tradeDate: String(params.tradeDate || ''), fundingBank: String(params.fundingBank || '') },
+        missingCount: built.missing.length,
+        used: false,
+      },
     });
-    // Bounded history: past 300 tapes the oldest entries fall off, files too.
-    if (idx.tapes.length > 300) {
-      const drop = idx.tapes.splice(300);
-      for (const d of drop) { try { await tapesStore.delete('file/' + d.id); } catch (e) {} }
-    }
-    await tapesStore.setJSON('index', idx);
   } catch (e) {
     console.warn('trade-tape-export: history save failed (non-fatal):', e && e.message);
     tapeId = '';

@@ -1295,7 +1295,13 @@ function openTapeHistory(){
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9600;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML =
     '<div style="background:#fff;max-width:760px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3)">' +
-      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:16px;font-weight:600">Past Trade Tapes</div>' +
+      '<div style="padding:14px 20px;border-bottom:1px solid var(--border,#E4DFD4);font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:12px">Past Trade Tapes' +
+        // Deploy 236.893 (Mike) — the final tape that actually went to the
+        // investor gets uploaded here so the catalogue is complete for audit.
+        '<span><input type="file" id="tapeUploadInput" accept=".xlsx,.xlsm,.xlsb,.xls,.csv" style="display:none" onchange="tapeUploadPicked(this)">' +
+          '<button type="button" onclick="document.getElementById(\'tapeUploadInput\').click()" style="font-size:12px;font-weight:600;font-family:sans-serif;padding:6px 12px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;white-space:nowrap">⬆ Upload Final Tape</button></span>' +
+      '</div>' +
+      '<div id="tapeUploadMsg" style="display:none;margin:12px 20px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.45"></div>' +
       '<div id="tapeHistBody" style="padding:12px 20px;overflow:auto;flex:1;font-size:13px;color:var(--muted)">Loading…</div>' +
       '<div style="padding:12px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;background:#faf8f3">' +
         '<button type="button" onclick="document.getElementById(\'tapeHistModal\').remove()" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">Close</button>' +
@@ -1314,28 +1320,102 @@ function openTapeHistory(){
 function renderTapeHist(){
   var body = document.getElementById('tapeHistBody'); if (!body) return;
   var tapes = window._tapeHist || [];
-  if (!tapes.length){ body.innerHTML = '<div>No tapes generated yet — every download from here on is kept automatically.</div>'; return; }
+  var admin = (typeof _isAdmin !== 'undefined' && _isAdmin);
+  if (!tapes.length){ body.innerHTML = '<div>No tapes yet — every tape generated here is saved automatically, and you can add a final tape with ⬆ Upload Final Tape above.</div>'; return; }
   var rows = tapes.map(function(t){
     var when = t.createdAt ? new Date(t.createdAt).toLocaleString() : '';
-    var extra = (t.params && t.params.tradeDate) ? ' · trade ' + escH(t.params.tradeDate) : '';
+    // Deploy 236.893 — uploaded finals are the audit record, generated tapes
+    // are working output. Say which is which at a glance.
+    var uploaded = (t.source === 'uploaded');
+    var tag = uploaded
+      ? '<span title="Final tape uploaded to the catalogue" style="margin-left:6px;font-size:9px;letter-spacing:.06em;font-weight:700;padding:2px 6px;border-radius:10px;background:#efe4d3;color:#7a5320;vertical-align:middle">FINAL</span>'
+      : '';
+    var bits = [];
+    if (t.createdBy) bits.push(escH((t.createdBy || '').split('@')[0]));
+    if (t.params && t.params.tradeDate) bits.push('trade ' + escH(t.params.tradeDate));
+    if (t.missingCount) bits.push(t.missingCount + ' hand-fill cell' + (t.missingCount === 1 ? '' : 's'));
+    if (uploaded && t.sheetName) bits.push(escH(t.sheetName));
+    if (uploaded && t.sizeBytes) bits.push(Math.max(1, Math.round(t.sizeBytes / 1024)) + ' KB');
+    if (uploaded && t.loanCount == null && t.countNote) bits.push(escH(t.countNote));
     var usedBadge = t.used
       ? '<button type="button" onclick="toggleTapeUsed(\'' + escH(t.id) + '\')" title="Sent ' + escH((t.usedBy||'') + (t.usedAt ? ' · ' + new Date(t.usedAt).toLocaleDateString() : '')) + '" style="font-size:11px;padding:4px 10px;border:1px solid #bbe3c4;background:#e9f7ec;color:#166534;border-radius:20px;cursor:pointer;font-weight:600">✓ Used</button>'
       : '<button type="button" onclick="toggleTapeUsed(\'' + escH(t.id) + '\')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border,#E4DFD4);background:#fff;color:var(--muted);border-radius:20px;cursor:pointer">Mark used</button>';
+    // Uploaded finals are exempt from the automatic prune, so a misclick would
+    // otherwise sit in the audit log forever. Removing one is an admin call.
+    var del = admin
+      ? '<button type="button" onclick="removeTapeEntry(\'' + escH(t.id) + '\')" title="Remove from the catalogue" style="margin-left:6px;font-size:12px;padding:5px 8px;border:1px solid var(--border,#E4DFD4);background:#fff;color:var(--muted);border-radius:6px;cursor:pointer">✕</button>'
+      : '';
     return '<tr>' +
-      '<td style="padding:7px 8px 7px 0;border-bottom:1px solid #f0ece2"><div style="color:var(--ink,#222);font-weight:500">' + escH(t.tapeLabel || t.tapeKey || '?') + '</div>' +
-        '<div style="font-size:11px;color:var(--muted)">' + escH((t.createdBy || '').split('@')[0]) + extra + (t.missingCount ? ' · ' + t.missingCount + ' hand-fill cell' + (t.missingCount === 1 ? '' : 's') : '') + '</div></td>' +
+      '<td style="padding:7px 8px 7px 0;border-bottom:1px solid #f0ece2"><div style="color:var(--ink,#222);font-weight:500">' + escH(t.tapeLabel || t.tapeKey || '?') + tag + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + bits.join(' · ') + '</div></td>' +
       '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;white-space:nowrap;color:var(--ink,#222)">' + escH(when) + '</td>' +
-      '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;text-align:center;color:var(--ink,#222)">' + (t.loanCount != null ? t.loanCount : '—') + '</td>' +
+      '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;text-align:center;color:var(--ink,#222)"' + (t.loanCount == null && t.countNote ? ' title="' + escH(t.countNote) + '"' : '') + '>' + (t.loanCount != null ? t.loanCount : '—') + '</td>' +
       '<td style="padding:7px 8px;border-bottom:1px solid #f0ece2;text-align:center">' + usedBadge + '</td>' +
-      '<td style="padding:7px 0 7px 8px;border-bottom:1px solid #f0ece2;text-align:right"><button type="button" onclick="downloadPastTape(\'' + escH(t.id) + '\')" style="font-size:12px;padding:5px 12px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer">⬇ Download</button></td>' +
+      '<td style="padding:7px 0 7px 8px;border-bottom:1px solid #f0ece2;text-align:right;white-space:nowrap"><button type="button" onclick="downloadPastTape(\'' + escH(t.id) + '\')" style="font-size:12px;padding:5px 12px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer">⬇ Download</button>' + del + '</td>' +
     '</tr>';
   }).join('');
   body.innerHTML =
     '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
       '<thead><tr style="font-size:11px;text-transform:uppercase;color:var(--muted)">' +
         '<th style="text-align:left;padding:0 8px 6px 0">Tape</th><th style="text-align:left;padding:0 8px 6px">Created</th>' +
-        '<th style="padding:0 8px 6px">Properties</th><th style="padding:0 8px 6px">Used?</th><th></th>' +
+        '<th style="padding:0 8px 6px">Loans</th><th style="padding:0 8px 6px">Used?</th><th></th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+// ── Deploy 236.893 — upload the FINAL tape ────────────────────────────────
+// Mike: keep a long-term catalogue of every trade tape for auditing. The tape
+// is named by the uploaded file, and the loan count is read out of the file
+// itself server-side (_shared/tape-row-count.mjs) rather than typed in.
+function tapeUploadPicked(input){
+  var f = input && input.files && input.files[0];
+  if (input) input.value = '';   // so re-picking the same file still fires change
+  if (!f) return;
+  if (f.size > 4 * 1024 * 1024){
+    _tapeMsg('"' + f.name + '" is ' + Math.round(f.size / 1024 / 1024) + 'MB — larger than the 4MB upload limit. Trade tapes are normally well under 1MB, so check the file.', true);
+    return;
+  }
+  _tapeMsg('Reading "' + f.name + '"…', false);
+  var rd = new FileReader();
+  rd.onerror = function(){ _tapeMsg('Could not read that file.', true); };
+  rd.onload = function(){
+    var s = String(rd.result || '');
+    var b64 = s.slice(s.indexOf(',') + 1);
+    _tapeMsg('Uploading "' + f.name + '"…', false);
+    SLA.api('POST', '/api/trade-tape-upload', { filename: f.name, dataB64: b64 }).then(function(r){
+      var t = r && r.tape;
+      if (!t) throw new Error('No tape returned');
+      if (r.duplicate){
+        _tapeMsg('"' + t.filename + '" is already in the catalogue' + (t.createdAt ? ' (added ' + new Date(t.createdAt).toLocaleDateString() + ')' : '') + ' — not logged twice.', false);
+        return;
+      }
+      _tapeMsg(t.loanCount != null
+        ? 'Saved "' + t.filename + '" — ' + t.loanCount + ' loan' + (t.loanCount === 1 ? '' : 's') + ' found in the file.'
+        : 'Saved "' + t.filename + '" — but the loan count could not be read' + (t.countNote ? ': ' + t.countNote : '') + '.', false);
+      window._tapeHist = [t].concat(window._tapeHist || []);
+      renderTapeHist();
+    }).catch(function(e){
+      _tapeMsg('Upload failed: ' + ((e && e.message) || 'unknown'), true);
+    });
+  };
+  rd.readAsDataURL(f);
+}
+function _tapeMsg(text, bad){
+  var el = document.getElementById('tapeUploadMsg'); if (!el) return;
+  el.style.display = 'block';
+  el.style.background = bad ? '#fdf1f1' : '#f1f7f2';
+  el.style.color = bad ? '#8a2222' : '#1f5130';
+  el.style.border = '1px solid ' + (bad ? '#f0c9c9' : '#cfe6d6');
+  el.textContent = text;
+}
+function removeTapeEntry(id){
+  var t = (window._tapeHist || []).filter(function(x){ return x && x.id === id; })[0];
+  if (!confirm('Remove "' + ((t && t.tapeLabel) || id) + '" from the tape catalogue? The stored file is deleted too.')) return;
+  SLA.api('POST', '/api/trade-tape-upload', { id: id, remove: true }).then(function(){
+    window._tapeHist = (window._tapeHist || []).filter(function(x){ return x && x.id !== id; });
+    _tapeMsg('Removed from the catalogue.', false);
+    renderTapeHist();
+  }).catch(function(e){
+    _tapeMsg('Remove failed: ' + ((e && e.message) || 'unknown'), true);
+  });
 }
 function toggleTapeUsed(id){
   var t = (window._tapeHist || []).filter(function(x){ return x && x.id === id; })[0];

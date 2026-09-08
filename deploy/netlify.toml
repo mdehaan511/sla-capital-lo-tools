@@ -858,6 +858,14 @@
   status = 200
   force = true
 
+# Deploy 236.893: upload the FINAL trade tape into the same catalogue, named
+# by its own filename, with the loan count read out of the file.
+[[redirects]]
+  from = "/api/trade-tape-upload"
+  to = "/.netlify/functions/trade-tape-upload"
+  status = 200
+  force = true
+
 # Deploy 236.890: filled FCI boarding package (pdf-lib over the FCI template).
 [[redirects]]
   from = "/api/fci-boarding-sheet"
