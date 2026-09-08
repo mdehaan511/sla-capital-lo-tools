@@ -392,9 +392,37 @@ async function handle(req, context) {
       status:    inheritedStatus || body.loan.status || 'active',
     });
     if (body.prospectId) fresh.prospectId = body.prospectId;
-    client.loans.push(fresh);
-    loanRecord = fresh;
-    loanCreated = true;
+    // Deploy 236.903 (Mike) — DOUBLE-SAVE GUARD. Two Save clicks racing
+    // (the 545 Ridgelawn pair landed 433ms apart) appended two identical
+    // loans. If this client already holds a loan at the same address with
+    // the same product, rate, AND amount, that IS this quote — update it
+    // instead of appending a duplicate. Any difference in those four
+    // fields (a repriced quote, a second loan on the property) appends
+    // normally.
+    const _dupN = (a) => String(a || '').toLowerCase()
+      .replace(/,\s*(usa|us|united states)\.?$/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const _twin = (client.loans || []).find((l) => l && l.id !== fresh.id
+      && l.address && fresh.address && _dupN(l.address) === _dupN(fresh.address)
+      && String(l.toolType || '') === String(fresh.toolType || '')
+      && String(l.rate || '') === String(fresh.rate || '')
+      && String(l.loanAmt || '') === String(fresh.loanAmt || ''));
+    if (_twin) {
+      const _tIdx = client.loans.findIndex((l) => l && l.id === _twin.id);
+      const _tMerged = Object.assign({}, _twin, fresh, {
+        id: _twin.id,
+        createdAt: _twin.createdAt,
+        status: _resolveStatus(_twin.status, fresh.status),
+      });
+      client.loans[_tIdx] = _tMerged;
+      loanRecord = _tMerged;
+      loanCreated = false;
+      console.warn('sizer-save-loan: double-save guard — identical loan ' + _twin.id +
+        ' at "' + String(fresh.address).slice(0, 60) + '" updated instead of appending a duplicate');
+    } else {
+      client.loans.push(fresh);
+      loanRecord = fresh;
+      loanCreated = true;
+    }
   }
 
   client.updatedAt = now;

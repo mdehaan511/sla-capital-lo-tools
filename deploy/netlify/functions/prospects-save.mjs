@@ -267,6 +267,19 @@ export default async (req, context) => {
     }
   }
 
+  // Deploy 236.903 (Mike) — re-submission guard tripped: no second loan was
+  // created. Stamp the prospect so the New Application card can badge it
+  // ("matches existing loan") and the LO knows to work the existing deal.
+  if (ids && ids.duplicateOfLoanId) {
+    try {
+      prospect._duplicateOfLoanId = ids.duplicateOfLoanId;
+      prospect._duplicateOfClientId = ids.duplicateOfClientId || '';
+      prospect._duplicateStatus = ids.duplicateStatus || '';
+      await store.setJSON(key, prospect);
+      prospectsIndex.upsertRecord(ownerKey, prospect).catch(() => {});
+    } catch (e) { console.warn('prospects-save: duplicate stamp failed (non-fatal):', e && e.message); }
+  }
+
   // Deploy 236.738 — GUC: file the borrower's GC as a Vendor (loan-contacts,
   // role 'contractor') tied to the new loan. One record serves both surfaces:
   // Loan Details → Contacts (per-loan filter) AND the Vendors page (lists the
@@ -338,6 +351,76 @@ async function createGcVendorFromProspect(prospect, ids, loEmail) {
   console.log(`[apply-gc p=${prospect.id || '?'}] GC vendor created ${contact.id} for loan ${ids.loanId}`);
 }
 
+// ── Deploy 236.903 (Mike) — RE-SUBMISSION GUARD ───────────────────────────
+// A borrower/broker re-submitting an application for a deal the LO already
+// holds used to mint a SECOND loan (worst case: an unpriced phantom
+// shadowing a CLOSED loan — the 402-1 Plymouth Rd case). Suppress the
+// auto-created loan ONLY when ALL THREE match an existing non-dead loan
+// under the same LO:
+//   1. same property address (normalized),
+//   2. same product family (rtl / dscr / guc — an RTL loan followed by a
+//      DSCR application on the same property is the NORMAL refi sequence
+//      and must NOT be suppressed),
+//   3. same borrower/guarantor (email, or full name as fallback — different
+//      borrowers can legitimately chase the same property).
+// The prospect itself still saves and shows in New Application with a
+// "matches existing loan" stamp; only the duplicate loan is not created.
+// Fails OPEN on any doubt — a missed duplicate beats a suppressed real deal.
+const _DUP_AB = { street:'st', avenue:'ave', boulevard:'blvd', drive:'dr', road:'rd',
+  lane:'ln', court:'ct', circle:'cir', place:'pl', parkway:'pkwy', trail:'trl',
+  terrace:'ter', north:'n', south:'s', east:'e', west:'w' };
+function _dupNormAddr(a) {
+  return String(a || '').toLowerCase().replace(/,\s*(usa|us|united states)\.?$/, '')
+    .replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .map((w) => _DUP_AB[w] || w).filter(Boolean).join(' ');
+}
+function _dupFamily(p) {
+  const s = String(p || '').toLowerCase();
+  if (s === 'fix_flip' || s === 'rtl' || s === 'bridge' || s === 'transactional') return 'rtl';
+  if (s === 'ground_up' || s === 'guc') return 'guc';
+  return 'dscr';
+}
+async function findDuplicateLoanForProspect(prospect, loEmail, ownerKey, clientsStore) {
+  try {
+    if (!prospect.propAddress) return null;
+    const wantAddr = _dupNormAddr(prospect.propAddress);
+    if (!wantAddr || wantAddr.length < 8) return null;
+    const fam = _dupFamily(prospect.loanProduct);
+    const isBroker = String(prospect.submitterType || '').toLowerCase() === 'broker'
+      || !!prospect.brokerEmail || !!prospect.brokerName;
+    const pEmail = normalizeEmail(isBroker ? (prospect.borrowerEmail || '') : (prospect.email || ''));
+    const pName = (isBroker
+      ? ((prospect.borrowerFirstName || '') + ' ' + (prospect.borrowerLastName || ''))
+      : ((prospect.firstName || '') + ' ' + (prospect.lastName || '')))
+      .trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!pEmail && !pName) return null; // can't establish same-borrower → don't suppress
+    const rows = await _pgFetch('loans',
+      'select=' + encodeURIComponent('id,client_id,address,status,tool_type') +
+      '&owner_email=eq.' + encodeURIComponent(normalizeEmail(loEmail)) + '&limit=1000');
+    const DEAD = { cancelled: 1, denied: 1, declined: 1, dead: 1, liquidated: 1 };
+    const cands = (rows || []).filter((r) => r && r.address && r.client_id
+      && !DEAD[String(r.status || '').toLowerCase()]
+      && (String(r.tool_type || 'dscr').toLowerCase() || 'dscr') === fam
+      && _dupNormAddr(r.address) === wantAddr);
+    for (const cand of cands.slice(0, 5)) {
+      const cRec = await clientsStore.get(ownerKey + '/' + keySafe(cand.client_id), { type: 'json' }).catch(() => null);
+      if (!cRec) continue;
+      const loan = (cRec.loans || []).find((l) => l && l.id === cand.id);
+      const lEmail = normalizeEmail((loan && loan.borrowerEmail) || cRec.email || '');
+      const lName = String((loan && loan.borrowerName) ||
+        ((cRec.firstName || '') + ' ' + (cRec.lastName || ''))).trim().toLowerCase().replace(/\s+/g, ' ');
+      const emailMatch = !!(pEmail && lEmail && pEmail === lEmail);
+      const nameMatch = !!(pName && lName && pName === lName);
+      if (emailMatch || nameMatch) {
+        return { loanId: cand.id, clientId: cand.client_id, address: cand.address, status: cand.status || '' };
+      }
+    }
+  } catch (e) {
+    console.warn('prospects-save: duplicate-loan guard failed open:', e && e.message);
+  }
+  return null;
+}
+
 // Auto-create or update a Client record + initial Loan from a prospect submission
 async function upsertClientFromProspect(prospect, loEmail) {
   // Deploy 236.287 — extensive logging + parallelized owner-scoped scan.
@@ -355,6 +438,15 @@ async function upsertClientFromProspect(prospect, loEmail) {
     return;
   }
   console.log(`${tag} start owner=${ownerKey} lookup=${lookupEmail} isBroker=${isBrokerSubmission}`);
+
+  // Deploy 236.903 (Mike) — re-submission guard (see helper above): same
+  // address + same product family + same borrower under this LO → the deal
+  // already exists; keep the prospect card but do NOT mint a second loan.
+  const dup = await findDuplicateLoanForProspect(prospect, loEmail, ownerKey, clientsStore);
+  if (dup) {
+    console.warn(`${tag} DUPLICATE of loan ${dup.loanId} (${dup.status}) at "${dup.address}" — auto-loan suppressed`);
+    return { clientId: dup.clientId, loanId: null, duplicateOfLoanId: dup.loanId, duplicateOfClientId: dup.clientId, duplicateStatus: dup.status };
+  }
 
   // Search this LO's clients for an existing match by lookup email.
   // Deploy 236.387 — direct Postgres lookup (owner_email + email)

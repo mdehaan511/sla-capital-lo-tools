@@ -70,6 +70,11 @@ function projectProspect(p) {
     clientId:         p.clientId         || '',
     loanId:           p.loanId           || '',
     status:           p.status           || '',
+    // Deploy 236.903 — re-submission guard: prospect matched an existing
+    // loan (same address + product family + borrower), no auto-loan minted.
+    _duplicateOfLoanId:   p._duplicateOfLoanId   || '',
+    _duplicateOfClientId: p._duplicateOfClientId || '',
+    _duplicateStatus:     p._duplicateStatus     || '',
     savedAt:          p.savedAt,
     updatedAt:        p.updatedAt,
     createdAt:        p.createdAt,
