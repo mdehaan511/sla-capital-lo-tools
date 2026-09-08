@@ -633,8 +633,20 @@
       });
     };
 
+    // Deploy 236.896 (Mike) — pill COLOUR from the borrower stage, not the raw
+    // status. `status === 'approved'` means credit-approved (the loan has just
+    // ENTERED processing), so keying colour off it painted a green pill on loans
+    // that are only at New Loan / Document Collection / Underwriting.
+    function stageClass(loan) {
+      var k = (loan && loan.borrowerStage && loan.borrowerStage.key) || '';
+      if (k === 'closed')       return 'closed';
+      if (k === 'cleartoclose') return 'approved';
+      if (k === 'denied')       return 'denied';
+      if (k) return '';   // review / processing / underwriting → neutral gold
+      return statusClass(loan.status);   // no stage from the server → as before
+    }
     function renderLoanCard(loan) {
-      var scls = statusClass(loan.status);
+      var scls = stageClass(loan);
       return '<div class="loan-card">' +
         '<div class="loan-head">' +
           '<div>' +

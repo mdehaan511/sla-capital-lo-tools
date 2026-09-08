@@ -141,19 +141,59 @@ function _prefill(c) {
 // processing stage (processingStage, authoritative) — falling back to
 // status/baselineStatus — into a small, friendly set borrowers see:
 //   In Review → Document Collection → Underwriting → Clear to Close → Closed/Funded
-// "Processing" shows as "Document Collection" per Mike; "Approved" = "Clear to
-// Close". Internal stage renames never leak to borrowers.
+// "Processing" shows as "Document Collection" per Mike; internal stage renames
+// never leak to borrowers.
+//
+// Deploy 236.896 (Mike: "The status isnt correct. It is showing clear to close
+// when it is not.") — `status === 'approved'` used to be OR'd onto the Clear to
+// Close line. But in this system **approved means credit-approved, i.e. the
+// loan ENTERS processing** — it is the entry condition for the board, not the
+// end of it. So every loan sitting in New Loan / Document Collection /
+// Underwriting was telling its borrower they were clear to close: 42 live loans
+// when Mike caught it, his own example being 4220 Glendale (stage `new_loan`,
+// the very first column).
+//
+// The rule now mirrors processing-pipeline.html `columnFor()` exactly:
+// processingStage is checked FIRST and ALONE, and a loan with no stage but
+// status 'approved' lands in `new_loan` — the same place the staff board puts
+// it. Keeping the two in lockstep is the point; a borrower must never be told
+// something the board would contradict.
+//
+// Clear to Close is `pp_approved` and nothing else — per settings.mjs, "Clear
+// to Close" is a SUB-STAGE of pp_approved.
+const _STAGE_LABELS = {
+  new_loan:     { key: 'review',       label: 'In Review' },
+  processing:   { key: 'processing',   label: 'Document Collection' },
+  underwriting: { key: 'underwriting', label: 'Underwriting' },
+  pp_approved:  { key: 'cleartoclose', label: 'Clear to Close' },
+  pp_closed:    { key: 'closed',       label: 'Closed / Funded' },
+};
+
 function _borrowerStage(loan) {
   const ps = String(loan.processingStage || '').toLowerCase().trim();
   const st = String(loan.status || '').toLowerCase().trim();
   const bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+
+  // Terminal first — a closed/offloaded loan is done wherever its stage says.
+  // Deliberately NOT keyed off `disposition`: a handful of legacy records carry
+  // a denied loan with disposition 'sold', and reading those would tell that
+  // borrower their dead loan had funded.
   if (ps === 'pp_closed' || st === 'closed' || bl === 'closed' || bl === 'sold' ||
       bl === 'liquidated' || bl === 'servicing' || bl === 'in servicing' || bl === 'paid off') {
     return { key: 'closed', label: 'Closed / Funded' };
   }
-  if (ps === 'pp_approved' || st === 'approved' || bl === 'approved') return { key: 'cleartoclose', label: 'Clear to Close' };
-  if (ps === 'underwriting' || bl === 'underwriting') return { key: 'underwriting', label: 'Underwriting' };
-  if (ps === 'processing' || bl === 'processing') return { key: 'processing', label: 'Document Collection' };
+
+  // A dead loan is not "In Review". Say so rather than implying it is moving.
+  if (st === 'denied')    return { key: 'denied', label: 'Not Approved' };
+  if (st === 'cancelled') return { key: 'denied', label: 'Cancelled' };
+
+  // processingStage is authoritative — checked alone, exactly as columnFor does.
+  if (_STAGE_LABELS[ps]) return _STAGE_LABELS[ps];
+
+  // No stage yet: fall back to the legacy Baseline status, then to `approved`,
+  // which means the loan has just entered the board at New Loan.
+  if (bl === 'underwriting') return _STAGE_LABELS.underwriting;
+  if (bl === 'processing')   return _STAGE_LABELS.processing;
   return { key: 'review', label: 'In Review' };
 }
 
