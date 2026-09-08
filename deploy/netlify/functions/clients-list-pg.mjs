@@ -148,6 +148,11 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.823 — closing-anniversary follow-up ledger (Closed Loans
   // Follow-ups tab). Rides in extra; keep in sync with clients-list.mjs.
   'anniversaryFollowUps',
+  // Deploy 236.901 — loan extension eSign marker (Closed Loans servicing chip)
+  // and the servicer hand-off record. Both are written server-side and read
+  // ONLY by the summary list, so leaving them off the allow-list made the chip
+  // invisible no matter how correctly the marker was stamped.
+  'extensionEsign', 'extensionServicer',
 ];
 
 function _loanRowToApi(l, summary) {

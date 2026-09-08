@@ -235,6 +235,11 @@ const LOAN_SUMMARY_FIELDS = [
   // Follow-ups tab): {d7:{doneAt,doneBy,note},…}. Keep in sync with
   // clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
   'anniversaryFollowUps',
+  // Deploy 236.901 — loan extension eSign marker (Closed Loans servicing chip)
+  // and the servicer hand-off record. Both are written server-side and read
+  // ONLY by the summary list, so leaving them off the allow-list made the chip
+  // invisible no matter how correctly the marker was stamped.
+  'extensionEsign', 'extensionServicer',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with
