@@ -277,6 +277,26 @@ export async function syncPropertyFieldsToLoan(record) {
 
   let changed = false;
 
+  // Deploy 236.894 (Mike) — NEVER rewrite a broker-book record's identity.
+  // On a broker-submitted deal the loan's PRIMARY CLIENT IS THE BROKER
+  // (_isBroker: true — sizer-save/prospects-save land the loan on the
+  // broker's record while borrower info is deferred). Applying the long
+  // app's borrower fields here overwrote the broker's name/email/phone, so
+  // the NEXT submission from that broker couldn't match them by email and
+  // minted a duplicate Broker Book entry — one per deal, wearing the
+  // borrower's email under the broker's display name (the Tanner
+  // Tollestrup duplicates). The borrower's identity stays on the
+  // borrower_info record + the loan's borrowerName/borrowerEmail, which
+  // the Rate Sheet / Loan Application PDFs already read on broker deals.
+  if (client._isBroker === true) {
+    const bn = (String(data.borrowerFirstName || '') + ' ' + String(data.borrowerLastName || '')).trim();
+    if (bn) loanUpdates.borrowerName = bn;
+    if (data.borrowerEmail) loanUpdates.borrowerEmail = String(data.borrowerEmail).toLowerCase().trim();
+    for (const k of Object.keys(clientUpdates)) delete clientUpdates[k];
+    companiesUpdate = null;
+    console.log('borrower-info-sync: primary client is a broker record — borrower identity kept off it (loan-level fields updated instead)');
+  }
+
   Object.keys(clientUpdates).forEach((k) => {
     const incoming = clientUpdates[k];
     const existing = client[k];

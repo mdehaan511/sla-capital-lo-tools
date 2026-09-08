@@ -270,6 +270,14 @@ async function syncBorrowerFieldsToClient(record) {
   let client = null;
   try { client = await clientsStore.get(clientKey, { type: 'json' }); } catch (_) {}
   if (!client) return;
+  // Deploy 236.894 (Mike) — on a broker-submitted deal the primary client
+  // IS the broker's book record; never rewrite its identity with the
+  // borrower's (that's what minted the duplicate Broker Book entries —
+  // same guard as _shared/borrower-info-sync.mjs).
+  if (client._isBroker === true) {
+    console.log('borrower-info-save-auth: primary client is a broker record — skipping borrower identity sync');
+    return;
+  }
   let changed = false;
   Object.keys(clientUpdates).forEach((k) => {
     const incoming = clientUpdates[k];

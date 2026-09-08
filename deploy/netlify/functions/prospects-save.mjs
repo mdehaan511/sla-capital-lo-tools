@@ -544,6 +544,20 @@ async function upsertClientFromProspect(prospect, loEmail) {
         if (b.company) loan.brokerCompany = b.company;
         if (b.email)   loan.brokerEmail   = b.email;
         if (b.phone)   loan.brokerPhone   = b.phone;
+        // Deploy 236.894 (Mike) — broker submission with NO existing parent
+        // client: the loan's parent IS the broker, and linkOrCreateBroker
+        // just resolved/created exactly that record. Reuse it instead of
+        // minting a second same-email broker client below (the b_… + c_…
+        // same-second Tanner Tollestrup pair in the Broker Book).
+        if (!existing && isBrokerSubmission) {
+          const linkedKey = ownerKey + '/' + keySafe(linked.id);
+          const linkedRec = await clientsStore.get(linkedKey, { type: 'json' }).catch(() => null);
+          if (linkedRec) {
+            existing = linkedRec;
+            existingKey = linkedKey;
+            console.log(`${tag} adopting broker-link client ${linked.id} as parent (no prior client matched)`);
+          }
+        }
       }
     }
   } catch (e) {
