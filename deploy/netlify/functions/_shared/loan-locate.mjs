@@ -17,11 +17,19 @@
  * off the LOAN id. This is the same lesson as the audit log in 236.861, which
  * had history stranded by the same movement.
  *
- * Cheap path first: try the clientId we were given. Only if that misses do we
- * walk the owner's book, then (optionally) every owner.
+ * Cheap path first: try the clientId we were given. If that misses, ASK
+ * POSTGRES which client holds the loan — `loans.id` is the primary key there
+ * and the row carries client_id + owner_email, so it is one indexed lookup.
+ *
+ * The first version of this walked the owner's blob book instead and took the
+ * endpoint past its timeout on a large book (HTTP 504). Same lesson as
+ * reference_profiles_store_slow: don't scan a blob store, read an index and
+ * then fetch by key. The blob walk survives only as a last resort behind an
+ * explicit flag, for the case where PG has not mirrored the loan.
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
+import { db } from './supabase-db.mjs';
 
 /**
  * @returns {Promise<{client:object, loan:object, clientId:string,
@@ -29,43 +37,48 @@ import { keySafe } from './auth.mjs';
  *   `moved` is true when the loan was found somewhere other than the
  *   clientId the caller passed — worth logging, it means an id went stale.
  */
-export async function locateLoan({ ownerKey, clientId, loanId, clientsStore, searchAllOwners = false }) {
+export async function locateLoan({ ownerKey, clientId, loanId, clientsStore, allowScan = false }) {
   if (!loanId) return null;
   const store = clientsStore || getStore({ name: 'clients', consistency: 'strong' });
 
-  // 1. The id we were given — right in the overwhelming majority of cases.
-  if (ownerKey && clientId) {
+  const read = async (oKey, cId) => {
+    if (!oKey || !cId) return null;
     try {
-      const client = await store.get(ownerKey + '/' + keySafe(clientId), { type: 'json' });
+      const client = await store.get(oKey + '/' + keySafe(cId), { type: 'json' });
       const loan = client && Array.isArray(client.loans)
         ? client.loans.find((l) => l && l.id === loanId) : null;
-      if (loan) return { client, loan, clientId, ownerKey, moved: false };
-    } catch (_) { /* fall through to the search */ }
+      return loan ? { client, loan } : null;
+    } catch (_) { return null; }
+  };
+
+  // 1. The ids we were given — right in the overwhelming majority of cases.
+  const direct = await read(ownerKey, clientId);
+  if (direct) return { ...direct, clientId, ownerKey, moved: false };
+
+  // 2. Ask Postgres who holds it now. One primary-key lookup.
+  try {
+    const row = await db.first('loans', {
+      select: 'id,client_id,owner_email',
+      eq: { id: loanId },
+    });
+    if (row && row.client_id) {
+      const oKey = keySafe(String(row.owner_email || '').toLowerCase()) || ownerKey;
+      const hit = await read(oKey, row.client_id);
+      if (hit) {
+        return { ...hit, clientId: row.client_id, ownerKey: oKey, moved: true };
+      }
+    }
+  } catch (e) {
+    console.warn('[loan-locate] PG lookup failed for ' + loanId + ':', e && e.message);
   }
 
-  // 2. The same owner's book. A merge keeps the loan under its owner.
-  if (ownerKey) {
+  // 3. Last resort: walk the owner's book. Off by default — on a large book
+  //    this is slow enough to blow a function's timeout, which is how the
+  //    236.897 repair first failed. Only for callers that can afford it and
+  //    have a reason to think PG is behind.
+  if (allowScan && ownerKey) {
     const found = await _scanOwner(store, ownerKey, loanId);
     if (found) return found;
-  }
-
-  // 3. Every owner — a reassign moves the loan across books. Off by default
-  //    because it is a full walk; callers that can afford it opt in.
-  if (searchAllOwners) {
-    const owners = new Set();
-    try {
-      const listing = await store.list();
-      for (const b of (listing.blobs || [])) {
-        const k = String(b.key || '');
-        const slash = k.indexOf('/');
-        if (slash > 0) owners.add(k.slice(0, slash));
-      }
-    } catch (_) { return null; }
-    for (const o of owners) {
-      if (o === ownerKey) continue;   // already scanned
-      const found = await _scanOwner(store, o, loanId);
-      if (found) return found;
-    }
   }
 
   return null;
