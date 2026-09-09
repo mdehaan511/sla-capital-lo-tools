@@ -7,7 +7,7 @@
  * Run: node scripts/review-retype-test.mjs
  */
 import { retypeReview } from '../deploy/netlify/functions/loan-review-retype.mjs';
-import { getChecklist, portfolioCollateralEntries } from '../deploy/netlify/functions/_shared/loan-review-checklists.mjs';
+import { getChecklist, portfolioCollateralEntries, sizerType, reviewTypeForLoan } from '../deploy/netlify/functions/_shared/loan-review-checklists.mjs';
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -46,6 +46,14 @@ function rtlReview() {
 console.log('review retype gate\n');
 check('sanity: RTL and DSCR checklists differ', RTL_ONLY.length > 0 && DSCR_ONLY.length > 0, true);
 
+// -- Deploy 236.934: the one loan -> review-type rule ------------------------
+check('rtl loan → rtl review', reviewTypeForLoan({ toolType: 'rtl', loanType: 'light' }), 'rtl');
+check('guc loan → guc review', reviewTypeForLoan({ toolType: 'GUC' }), 'guc');
+check('dscr loan → dscr review', reviewTypeForLoan({ toolType: 'dscr', loanType: '30-Year Fixed' }), 'dscr');
+check('no tool type → dscr (the Start button default)', reviewTypeForLoan({}), 'dscr');
+check('sizerType keeps a real stored type', sizerType('RTL'), 'rtl');
+check('sizerType drops a product label', sizerType('light'), '');
+
 // -- The reported case: RTL review on a DSCR loan ---------------------------
 {
   const rv = rtlReview();
@@ -78,9 +86,30 @@ check('sanity: RTL and DSCR checklists differ', RTL_ONLY.length > 0 && DSCR_ONLY
   check('a blank investor gets the new default', blank.investor, 'diya');
 
   const light = rtlReview(); light.loanType = 'light';
-  check('a light review is refused', retypeReview(light, 'dscr').changed, false);
+  check('a light (product-label) review is upgraded, not refused (236.934)', [retypeReview(light, 'dscr').changed, light.loanType], [true, 'dscr']);
   check('an unknown target is refused', retypeReview(rtlReview(), 'bridge').changed, false);
   check('null never throws', retypeReview(null, 'dscr').changed, false);
+}
+
+// -- Deploy 236.934: a 'light' (product-label) review upgrades to the loan's type
+{
+  // 1717 W Forest Hill: the borrower-intake creators copied loan.loanType
+  // ('light' = "Fix and Flip - Light") so the review had NO checklist, only the
+  // six trays the borrower uploaded into.
+  const rv = { id: 'r_light', loanType: 'light', investor: '', createdBy: 'auto:borrower-intake', docs: {
+    ein_or_w9:          tray('borrower', { currentDocId: 'd1' }),
+    bank_stmt_current:  tray('borrower', { currentDocId: 'd2' }),
+    guarantor_id:       tray('guarantor', { currentDocId: 'd3' }),
+  } };
+  const r = retypeReview(rv, 'rtl');
+  check('light -> rtl is an upgrade', [r.changed, r.from, r.to, rv.loanType], [true, 'light', 'rtl', 'rtl']);
+  check('  nothing removed, nothing "kept" (no old checklist to compare)', [r.removed, r.kept], [[], []]);
+  check('  the borrower\'s uploads survive in place', [rv.docs.ein_or_w9.currentDocId, rv.docs.guarantor_id.currentDocId], ['d1', 'd3']);
+  check('  the full RTL checklist now exists', RTL.filter((s) => !rv.docs[s]), []);
+  check('  investor gets the RTL default', rv.investor, 'colchis');
+  check('  history reads LIGHT to RTL', /LIGHT to RTL/.test(rv.history.slice(-1)[0].note), true);
+  const blank = { id: 'r_blank', loanType: '', docs: {} };
+  check('a blank review type upgrades too', [retypeReview(blank, 'dscr').changed, blank.loanType, DSCR.filter((s) => !blank.docs[s])], [true, 'dscr', []]);
 }
 
 // -- DSCR -> RTL works the other way too ------------------------------------

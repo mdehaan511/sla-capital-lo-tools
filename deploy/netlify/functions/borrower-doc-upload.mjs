@@ -31,6 +31,7 @@
  *      uploads (they haven't got a rubric).
  */
 import { getStore } from '@netlify/blobs';
+import { reviewTypeForLoan } from './_shared/loan-review-checklists.mjs'; // Deploy 236.934
 import {
   handleOptions, json, requireAuth, readJsonBody,
   normalizeEmail, keySafe,
@@ -116,7 +117,7 @@ async function handle(req, context) {
       id:              'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
       address:         loan ? (loan.address || '') : '',
       investor:        '',
-      loanType:        loan ? (loan.loanType || '').toLowerCase() : '',
+      loanType:        reviewTypeForLoan(loan), // Deploy 236.934 — sizer type, never the product label
       docs:            {},
       snapshotClient:  client || {},
       snapshotLoan:    loan   || {},

@@ -343,6 +343,23 @@ export function getChecklist(loanType) {
   return [];
 }
 
+// Deploy 236.934 (Mike: "Why is this loan missing document trays?") — the review
+// type a LOAN maps to, the same rule as the Start Document Review button:
+// guc → guc, rtl → rtl, else dscr. Anything that mints a review FROM a loan
+// must use this and never loan.loanType — that field is the PRODUCT label
+// ('light' = "Fix and Flip - Light", '30-Year Fixed', …) and getChecklist('light')
+// is empty, which is how 1717 W Forest Hill ended up with six trays and no
+// checklist. sizerType() keeps a stored review type only when it is a real one.
+export const REVIEW_TYPES = ['dscr', 'rtl', 'guc'];
+export function sizerType(v) {
+  const t = String(v || '').toLowerCase();
+  return REVIEW_TYPES.includes(t) ? t : '';
+}
+export function reviewTypeForLoan(loan) {
+  const t = String((loan && loan.toolType) || '').toLowerCase();
+  return t === 'guc' ? 'guc' : t === 'rtl' ? 'rtl' : 'dscr';
+}
+
 export function getDefaultInvestor(loanType) {
   const t = String(loanType || '').toLowerCase();
   if (t === 'dscr') return 'diya';

@@ -62,12 +62,17 @@ export function retypeReview(review, toType, opts = {}) {
   const from = String(review.loanType || '').toLowerCase();
   const to = String(toType || '').toLowerCase();
   out.from = from; out.to = to;
-  if (!TYPES.includes(from) || !TYPES.includes(to) || from === to) return out;
+  // Deploy 236.934 — a review whose loanType is NOT a sizer type ('light' = the
+  // loan's PRODUCT label, copied by the borrower-intake creators before this
+  // deploy; or blank) has no checklist at all. Treat it as an upgrade: nothing
+  // to remove, mint the full checklist around whatever the borrower uploaded.
+  if (!TYPES.includes(to) || from === to) return out;
+  const upgrade = !TYPES.includes(from);
 
   const now = opts.now || new Date().toISOString();
   const by = opts.by || 'system';
   const portfolio = Array.isArray(review.properties) && review.properties.length > 1;
-  const oldSet = _slugSet(from, portfolio);
+  const oldSet = upgrade ? new Set() : _slugSet(from, portfolio);
   const newSet = _slugSet(to, portfolio);
 
   review.docs = review.docs || {};
@@ -88,7 +93,7 @@ export function retypeReview(review, toType, opts = {}) {
   const { added } = syncMissingCategories(review);
   out.added = added;
 
-  const FROM = from.toUpperCase(), TO = to.toUpperCase();
+  const FROM = (from || 'none').toUpperCase(), TO = to.toUpperCase();
   review.retypedAt = now; review.retypedFrom = from; review.retypedBy = by;
   review.history = Array.isArray(review.history) ? review.history : [];
   review.history.push({
@@ -140,7 +145,6 @@ async function handle(req, context) {
   // Locate every review's loan in parallel; the loan's toolType is the target.
   const located = await Promise.all(reviews.map(async (review) => {
     const from = String(review.loanType || '').toLowerCase();
-    if (!TYPES.includes(from)) return { review, reason: 'review type ' + (from || '(none)') + ' is not a sizer type', quiet: true };
     const src = review.source || {};
     if (!src.loanId) return { review, reason: 'no source loan' };
     let found = null;

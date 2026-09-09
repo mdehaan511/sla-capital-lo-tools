@@ -22,6 +22,7 @@
  *          that name was already there (returned rather than duplicated).
  */
 import { getStore } from '@netlify/blobs';
+import { sizerType, reviewTypeForLoan } from './_shared/loan-review-checklists.mjs'; // Deploy 236.934
 import {
   handleOptions, json, requireAuth, readJsonBody, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
@@ -91,7 +92,9 @@ async function handle(req, context) {
     if (!review) review = byAddress;
   } catch (e) { console.warn('[borrower-intake-add-category] review lookup failed:', e && e.message); }
 
-  const loanType = String((review && review.loanType) || (loan && loan.loanType) || '').toLowerCase();
+  // Deploy 236.934 — the sizer type (guc/rtl/dscr), never loan.loanType: that is the
+  // product label ('light'), and a review stored with it has no checklist.
+  const loanType = sizerType(review && review.loanType) || reviewTypeForLoan(loan);
   if (!review) {
     review = {
       id:        'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
