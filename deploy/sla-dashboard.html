@@ -1101,6 +1101,11 @@ function _cdmRender() {
       status: l.Status || '—',
       date: (isLeads ? l._leadDate : loanCloseDate(l)) || '',
       revenue: estimatedRevenue(l),
+      // Deploy 236.919 (Mike) — a DSCR loan with no TPO Premium on file is
+      // understating its revenue (estimatedRevenue only adds the premium when
+      // it's present). Flag it so the modal's numbers read as "not fully
+      // inclusive" instead of silently low. Leads modal has no revenue → skip.
+      noTpo: !isLeads && inferLoanType(l) === 'DSCR' && !(tpoPremiumPct(l) > 0),
     };
   });
   var BUCKET_ORDER = { 'Won': 0, 'Open': 1, 'On Hold': 2, 'RTL': 0, 'DSCR': 1, 'Unknown': 2 };
@@ -1125,10 +1130,14 @@ function _cdmRender() {
   var tot = function(label, val) {
     return '<div><span style="color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:0.06em;font-weight:600">' + label + '</span> · <strong style="font-size:13.5px">' + val + '</strong></div>';
   };
+  // Deploy 236.919 (Mike) — surface how many DSCR rows are missing their TPO
+  // Premium so the revenue total is read as a floor, not a final number.
+  var noTpoCount = rows.reduce(function(s, r) { return s + (r.noTpo ? 1 : 0); }, 0);
   document.getElementById('cdmTotals').innerHTML =
     tot(isLeads ? 'Leads' : 'Deals', String(rows.length)) +
     tot('Total ' + (isLeads ? 'Requested' : 'Deal Value'), fmtMoney(totalValue)) +
-    (isLeads ? '' : tot('Total Est. Revenue', fmtMoney(totalRev)));
+    (isLeads ? '' : tot('Total Est. Revenue', fmtMoney(totalRev))) +
+    (noTpoCount ? '<div style="color:#854d0e;background:#fef3c7;border:1px solid rgba(133,77,14,0.28);border-radius:6px;padding:2px 10px;font-size:11.5px;font-weight:600">⚠ ' + noTpoCount + ' DSCR loan' + (noTpoCount === 1 ? '' : 's') + ' missing TPO Premium — revenue not fully inclusive</div>' : '');
   ['bucket','address','amount','status','date','revenue'].forEach(function(col) {
     var el = document.getElementById('cdmSortArrow_' + col);
     if (!el) return;
@@ -1140,7 +1149,12 @@ function _cdmRender() {
     var href = '/loan-details/' + encodeURIComponent(l._slaLoanId) + '?owner=' + encodeURIComponent(l._ownerKey);
     var chip = '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;letter-spacing:0.02em;' +
       (_CDM_BUCKET_STYLE[r.bucket] || _CDM_BUCKET_STYLE['Unknown']) + '">' + escH(r.bucket) + '</span>';
-    return '<tr onmouseover="this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.background=\'transparent\'">' +
+    // Deploy 236.919 — flagged rows keep their amber tint through the hover
+    // handlers (the mouseout restore must put the tint BACK, not transparent).
+    var baseBg = r.noTpo ? 'rgba(254,243,199,0.55)' : 'transparent';
+    var rowTitle = r.noTpo ? ' title="DSCR loan with no TPO Premium on file — Est. Revenue is missing the premium"' : '';
+    return '<tr' + rowTitle + ' style="background:' + baseBg + '"' +
+      ' onmouseover="this.style.background=\'rgba(200,129,58,0.08)\'" onmouseout="this.style.background=\'' + baseBg + '\'">' +
       '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde">' + chip + '</td>' +
       '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde">' +
         '<a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' +
@@ -1159,7 +1173,9 @@ function _cdmRender() {
             ' onchange="cdmEditCloseDate(this, \'' + escH(l._slaLoanId) + '\', \'' + escH(l._clientId) + '\', \'' + escH(l._ownerKey) + '\')"' +
             ' style="padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;font-family:inherit" />') +
       '</td>' +
-      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' + (r.revenue > 0 ? fmtMoney(r.revenue) : '—') + '</td>' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' + (r.revenue > 0 ? fmtMoney(r.revenue) : '—') +
+        (r.noTpo ? '<div style="font-size:9.5px;font-weight:700;color:#854d0e;letter-spacing:0.03em">⚠ NO TPO PREMIUM</div>' : '') +
+      '</td>' +
     '</tr>';
   }).join('');
   document.getElementById('cdmBody').innerHTML = html ||
