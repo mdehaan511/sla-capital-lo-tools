@@ -40,6 +40,18 @@ export default async (req, context) => {
     const ua = String(body.ua || '').slice(0, 120);
     const stack = String(body.stack || '').slice(0, 400);
 
+    // Deploy 236.923 (Mike) — server-side copy of the sla-api.js extension
+    // filter (sla-api is cached up to a day, so old clients keep beaconing):
+    // a stack that lives entirely in a browser extension (chrome-extension://,
+    // safari-extension://, or Safari's file:///…appex resources) is the
+    // extension's crash, not ours — PayPal Honey's UnavailableError was
+    // paging the Slack channel for the borrower portal. Ack, don't alert.
+    if (stack &&
+        !/https?:\/\/(portal\.slacapital\.ai|slaloantools\.netlify\.app)/.test(stack) &&
+        /(chrome-extension|moz-extension|safari-web-extension|safari-extension):\/\/|file:\/\//.test(stack)) {
+      return json(200, { ok: true, ignored: 'extension-origin error' });
+    }
+
     alertServerError({
       source: 'frontend:' + (page || 'unknown-page'),
       message: String(body.message).slice(0, 400),

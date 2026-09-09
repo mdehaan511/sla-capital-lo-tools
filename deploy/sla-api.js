@@ -3157,6 +3157,15 @@
       // Skip benign noise browsers throw that isn't actionable.
       if (msg.indexOf('ResizeObserver loop') >= 0) return;
       if (msg === 'Script error.') return; // opaque cross-origin errors
+      // Deploy 236.923 (Mike) — browser-EXTENSION errors are not our bugs.
+      // A borrower's PayPal Honey Safari extension threw UnavailableError on
+      // borrower-portal and the beacon shipped it to Slack as if the portal
+      // broke. If the stack points at an extension origin (or a file:///
+      // extension resource, Safari-style) and never touches our own origin,
+      // the error happened in someone else's code — drop it.
+      var st = String(stack || '');
+      if (st && st.indexOf(window.location.origin) < 0 &&
+          /(chrome-extension|moz-extension|safari-web-extension|safari-extension):\/\/|file:\/\//.test(st)) return;
       _beaconCount++;
       var payload = JSON.stringify({
         message: msg.slice(0, 500),
