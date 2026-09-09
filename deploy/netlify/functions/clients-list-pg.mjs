@@ -129,6 +129,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // the allow-list the sync wrote correctly but the page never saw it, so
   // every commission still rendered BILLED.
   'commissionPaymentStatus', 'commissionPaidAt',
+  // Deploy 236.926 — see clients-list.mjs (payment ref; 'manual' = hand-marked).
+  'commissionPaymentRef',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

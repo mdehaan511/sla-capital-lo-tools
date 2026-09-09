@@ -219,6 +219,10 @@ const LOAN_SUMMARY_FIELDS = [
   // the allow-list the sync wrote correctly but the page never saw it, so
   // every commission still rendered BILLED.
   'commissionPaymentStatus', 'commissionPaidAt',
+  // Deploy 236.926 — payment confirmation number (BILL's, or 'manual' for a
+  // hand-marked past commission). Was read by lo-commissions.html but never
+  // projected, so the confirmation tooltip silently never showed.
+  'commissionPaymentRef',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

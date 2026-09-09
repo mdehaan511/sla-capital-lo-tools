@@ -182,7 +182,20 @@ function shortDate(v) {
 // out." Shows the date once BILL has one, and what it's still waiting on when
 // it doesn't — an empty cell would read as "nobody has looked".
 function paidCell(r) {
-  if (!r.billId) return '<span style="color:var(--muted)">—</span>';
+  // Deploy 236.926 (Mike) — past commissions paid OUTSIDE BILL can be hand-
+  // marked paid. Only rows with no bill get the control (billed rows are
+  // BILL's to settle via the payment sync); a manual mark stamps
+  // commissionPaymentRef 'manual' and can be undone by clicking the date.
+  if (!r.billId) {
+    if (r.payStatus === 'PAID') {
+      var mLbl = r.paidAt ? shortDate(r.paidAt) : 'paid';
+      return '<span onclick="unmarkCommissionPaid(\'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')"' +
+        ' title="Marked paid manually (outside BILL). Click to un-mark." style="white-space:nowrap;cursor:pointer">' + escH(mLbl) + ' ✓</span>';
+    }
+    return '<button type="button" onclick="markCommissionPaid(\'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')"' +
+      ' title="This commission was paid outside BILL — record the payout date"' +
+      ' style="font-size:10.5px;padding:2px 8px;border:1px solid var(--border);background:transparent;border-radius:5px;cursor:pointer;color:var(--muted)">mark paid</button>';
+  }
   if (r.paidAt) {
     var lbl = shortDate(r.paidAt);
     var sched = String(r.payStatus || '') !== 'PAID';
@@ -422,7 +435,9 @@ function render() {
       // "Billed" and "paid" are different facts and the page used to conflate
       // them: a commission stayed BILLED forever because paying happens in BILL
       // and nothing told the portal.
-      var billedTag = r.billId ? ' ' + payPill(r) : '';
+      // Deploy 236.926 — a manually-marked commission (no bill) shows the PAID
+      // pill too, so the address column reads the same as a BILL-paid row.
+      var billedTag = (r.billId || r.payStatus === 'PAID') ? ' ' + payPill(r) : '';
       return '<tr>' +
         '<td><a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' + billedTag +
           '<div style="font-size:10.5px;color:var(--muted)">' + escH(r.borrower) + '</div></td>' +
@@ -476,7 +491,9 @@ function render() {
 
     // Deploy 236.808 — one-button BILL creation for this LO's UNBILLED
     // loans in the period (auto-creates the vendor in BILL if needed).
-    var unbilled = list.filter(function(r) { return !r.billId; });
+    // Deploy 236.926 — manually-marked-paid rows are settled: they must not
+    // count as unbilled or the Create Bill button would double-pay them.
+    var unbilled = list.filter(function(r) { return !r.billId && r.payStatus !== 'PAID'; });
     var unbilledTotal = 0;
     unbilled.forEach(function(r) { var c = computeRow(r, plan); unbilledTotal += c.base + c.bonus; });
     var billBtn = '';
@@ -554,7 +571,7 @@ function sendToBill(owner) {
   var plan = planOf(owner);
   if (plan === 'revenue') return;
   var period = document.getElementById('periodSelect').value || 'all';
-  var rows = _rows.filter(function(r) { return r.owner === owner && inPeriod(r) && !r.billId; });
+  var rows = _rows.filter(function(r) { return r.owner === owner && inPeriod(r) && !r.billId && r.payStatus !== 'PAID'; }); // 236.926 — manual-paid rows never re-bill
   var items = [];
   var total = 0;
   rows.forEach(function(r) {
@@ -614,6 +631,10 @@ function _saveField(el, loanId, clientId, owner, fields) {
         if (_rows[i].loanId !== loanId) continue;
         if (fields.commissionSource !== undefined) _rows[i].source = fields.commissionSource;
         if (fields.commissionReferral !== undefined) _rows[i].referral = fields.commissionReferral === 'yes';
+        // Deploy 236.926 — manual mark-paid / un-mark round-trip.
+        if (fields.commissionPaymentStatus !== undefined) _rows[i].payStatus = fields.commissionPaymentStatus;
+        if (fields.commissionPaidAt !== undefined) _rows[i].paidAt = fields.commissionPaidAt;
+        if (fields.commissionPaymentRef !== undefined) _rows[i].payRef = fields.commissionPaymentRef;
       }
       if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
       render();
@@ -625,6 +646,29 @@ function setSource(sel, loanId, clientId, owner) {
 }
 function setReferral(cb, loanId, clientId, owner) {
   _saveField(cb, loanId, clientId, owner, { commissionReferral: cb.checked ? 'yes' : '' });
+}
+// Deploy 236.926 (Mike) — hand-mark a PAST commission as paid (payouts that
+// happened outside BILL, before one-button billing existed). Only offered on
+// rows with no commissionBillId, so it never fights the BILL payment sync.
+function markCommissionPaid(loanId, clientId, owner) {
+  var today = new Date().toISOString().slice(0, 10);
+  var d = prompt('Date this commission was paid (YYYY-MM-DD):', today);
+  if (d === null) return; // cancelled
+  d = String(d).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { alert('Enter the date as YYYY-MM-DD.'); return; }
+  _saveField({ disabled: false }, loanId, clientId, owner, {
+    commissionPaymentStatus: 'PAID',
+    commissionPaidAt: d,
+    commissionPaymentRef: 'manual',
+  });
+}
+function unmarkCommissionPaid(loanId, clientId, owner) {
+  if (!confirm('Un-mark this commission as paid? It will count as unbilled again.')) return;
+  _saveField({ disabled: false }, loanId, clientId, owner, {
+    commissionPaymentStatus: '',
+    commissionPaidAt: '',
+    commissionPaymentRef: '',
+  });
 }
 
 // ── Plan assignments ──────────────────────────────────────────────

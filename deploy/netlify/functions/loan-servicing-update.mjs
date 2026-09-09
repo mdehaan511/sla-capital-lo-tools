@@ -55,6 +55,12 @@ const FIELDS = {
   // commissionSource 'lo'|'company' (company-sourced first loan halves the
   // tier bps) and commissionReferral 'yes'|'' ($250 borrower-referral bonus).
   commissionSource: 1, commissionReferral: 1,
+  // Deploy 236.926 (Mike) — manual "mark paid" for PAST commissions that were
+  // paid outside BILL (before the one-button billing existed). The page only
+  // offers it on rows with NO commissionBillId, so the BILL payment sync
+  // (which walks billed loans only) never fights a manual stamp; the ref is
+  // stamped 'manual' so a manual mark is distinguishable from a BILL payout.
+  commissionPaymentStatus: 1, commissionPaidAt: 1, commissionPaymentRef: 1,
 };
 
 // Deploy 236.784 — same set loan-set-disposition accepts.
