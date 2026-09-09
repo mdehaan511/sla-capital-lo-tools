@@ -198,6 +198,12 @@ const LOAN_SUMMARY_FIELDS = [
   // fetch, so edits looked like they didn't save (they reverted on reload).
   'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
+  // Deploy 236.925 — Processing Pipeline substatus pill. The picker saved
+  // fine (loan-processing-stage writes processingSubstatus) but the board's
+  // reload reads THIS summary, which dropped the field — so every change
+  // looked like it reverted. baselineSubstatus is the legacy-import fallback
+  // the pill renders when the SLA field is empty.
+  'processingSubstatus', 'baselineSubstatus',
   // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields.
   'tpoSpread', 'closingFees', 'activelyTrading',
   // Deploy 236.674 — Funding Plan fields (TPO premium migrated from Baseline as
