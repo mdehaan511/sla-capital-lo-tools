@@ -33,6 +33,9 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
 import { getChecklist, portfolioCollateralEntries } from './_shared/loan-review-checklists.mjs';
+// Deploy 236.921 — the review re-derives its portfolio properties from the
+// LOAN on page open; the loan is found by loan id (client ids go stale).
+import { locateLoan } from './_shared/loan-locate.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -83,6 +86,73 @@ function _blankStandardTray(item) {
     history: [],
     documents: [],
   };
+}
+
+/**
+ * Deploy 236.921 (Mike: "This loan is a portfolio but only appears to have
+ * document collection for 1 property.")
+ *
+ * review.properties was written ONCE, when the review was created, from the
+ * loan as it was that day. 2524 Hawthorne's review was created on Aug 24 as a
+ * single-property RTL; on Sept 9 the loan became a three-property portfolio.
+ * syncMissingCategories only expands per property when the REVIEW already
+ * says portfolio, and nothing ever re-derived that from the loan — so the
+ * other two properties never got a single tray.
+ *
+ * This adopts the loan's properties into the review when the loan knows more
+ * than the review does. Then the existing per-property expansion below does
+ * the rest. Two things it is careful about:
+ *
+ *   - A shared BASE collateral tray (appraisal, sow, psa, …) blocks
+ *     per-property expansion of that slug, and may hold documents. Deleting
+ *     it would lose them; leaving it shows the same category twice (once
+ *     shared, once per property). It becomes PROPERTY 1's tray instead —
+ *     the loan's primary address is properties[0], and everything uploaded
+ *     while the loan was single-property belonged to that address.
+ *   - Custom / "Other" trays are left untagged; the UI shows those under
+ *     every property tab as shared, which is what they are.
+ *
+ * Pure: mutates the review, returns what it did. Exported for the gate.
+ */
+export function adoptPortfolioFromLoan(review, loan) {
+  const out = { adopted: false, from: 0, to: 0, migrated: [] };
+  if (!review || !loan) return out;
+  const props = Array.isArray(loan.properties) ? loan.properties : [];
+  if (!loan.isPortfolio || props.length < 2) return out;
+  const have = Array.isArray(review.properties) ? review.properties : [];
+  out.from = have.length;
+  if (have.length >= props.length) return out;
+
+  review.properties = props.map((p, i) => ({
+    index: i,
+    label: (have[i] && have[i].label) || 'Property ' + (i + 1),
+    address: (p && p.address) || (have[i] && have[i].address) || '',
+  }));
+  review.isPortfolio = true;
+  out.to = review.properties.length;
+  out.adopted = true;
+
+  // Base collateral trays → Property 1.
+  review.docs = review.docs || {};
+  const p0 = review.properties[0] || {};
+  for (const slug of Object.keys(review.docs)) {
+    const tray = review.docs[slug];
+    if (!tray || typeof tray !== 'object') continue;
+    if (tray.isCustom) continue;                          // shared by design
+    if (/__p\d+$/.test(slug)) continue;                   // already per-property
+    if (String(tray.section || '') !== 'collateral') continue;
+    if (tray.propertyIndex != null) continue;
+    const pslug = slug + '__p0';
+    if (review.docs[pslug]) continue;                     // would clobber — leave it
+    const moved = { ...tray, slug: pslug, propertyIndex: 0, propertyLabel: p0.label || 'Property 1', propertyAddress: p0.address || '' };
+    moved.history = Array.isArray(tray.history) ? tray.history.slice() : [];
+    moved.history.push({ ts: new Date().toISOString(), action: 'portfolio_adopt',
+      note: 'Loan became a ' + props.length + '-property portfolio; this tray now belongs to ' + (p0.label || 'Property 1') + '.' });
+    review.docs[pslug] = moved;
+    delete review.docs[slug];
+    out.migrated.push(slug);
+  }
+  return out;
 }
 
 // The actual backfill, pure + exported so it's unit-testable (Deploy 236.782).
@@ -181,6 +251,25 @@ async function handle(req, context) {
   const review = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });
   if (!review) return json(404, { error: 'Review not found' });
   if (!review.docs) review.docs = {};
+
+  // Deploy 236.921 — let the review catch up with a loan that became a
+  // portfolio after the review existed. Best-effort: a loan we can't find
+  // simply means no adoption this time.
+  let portfolio = { adopted: false, from: 0, to: 0, migrated: [] };
+  let loanTypeMismatch = '';
+  try {
+    const src = review.source || {};
+    if (src.loanId) {
+      const found = await locateLoan({
+        ownerKey: src.ownerKey ? keySafe(src.ownerKey) : '', clientId: src.clientId || '', loanId: src.loanId,
+      });
+      if (found && found.loan) {
+        portfolio = adoptPortfolioFromLoan(review, found.loan);
+        const lt = String(found.loan.toolType || '').toLowerCase();
+        if (lt && review.loanType && lt !== String(review.loanType).toLowerCase()) loanTypeMismatch = review.loanType + ' → loan is ' + lt;
+      }
+    }
+  } catch (e) { console.warn('loan-review-sync-categories: portfolio adopt skipped:', e && e.message); }
 
   const { added, relabeled } = syncMissingCategories(review);
 
@@ -282,7 +371,7 @@ async function handle(req, context) {
     console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
   }
 
-  if (added.length || relabeled || healed || healQueue.length) {
+  if (added.length || relabeled || healed || healQueue.length || portfolio.adopted) {
     review.updatedAt = new Date().toISOString();
     await reviewStore.setJSON(keySafe(review.id), review);
   }
@@ -293,5 +382,6 @@ async function handle(req, context) {
     } catch (e) { console.warn('sync-categories: AI queue failed (non-fatal):', e && e.message); }
   }
 
-  return json(200, { ok: true, review, added, relabeled, healed, aiQueued: healQueue });
+  return json(200, {
+    portfolio, loanTypeMismatch: loanTypeMismatch || undefined, ok: true, review, added, relabeled, healed, aiQueued: healQueue });
 }
