@@ -69,7 +69,7 @@
         // Deploy 236.803 — live FCI payoff-demand tracker. Processor-only: it
         // reads the whole servicing book, not one LO's loans.
         { label: 'Payoff Demands', href: '/payoff-demands.html', requires: 'processor' },
-        { label: 'Tasks',        href: '/tasks.html',        requires: 'processor' },
+        { label: 'Tasks',        href: '/tasks.html' },   // Deploy 236.931 (Mike) — everyone; was processor-only
       ],
     },
     {

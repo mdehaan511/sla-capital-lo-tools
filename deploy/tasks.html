@@ -74,6 +74,7 @@
     .t-loan a:hover { color: var(--gold); text-decoration: underline; }
     .t-due { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
     .t-assignee { font-size: 12px; color: var(--muted); word-break: break-word; }
+    .t-loan a { word-break: break-word; }  /* Deploy 236.931 — addresses wrap */
     .t-creator { font-size: 11px; color: var(--muted); word-break: break-word; }
     .t-delete { background: transparent; border: none; color: rgba(122,116,136,0.5); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; }
     .t-delete:hover { color: var(--danger); background: rgba(124,31,31,0.08); }
@@ -129,7 +130,10 @@ window.netlifyIdentity.on('init', function(user) {
   _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
   // Deploy 236.558 — opened to the PROCESSOR role (admin OR processor) for the
   // processing-team rollout. Was admin-only (236.275).
-  if (!_isStaff) { window.location.replace('/'); return; }
+  // Deploy 236.931 (Mike: "He didn't have access to the Tasks page. Please give
+  // that to everyone.") — the nav badge counts an LO's own tasks, so they need
+  // somewhere to look. LOs get the "My Tasks" scope only; the All scope stays
+  // admin / processor (tasks-list enforces it server-side too).
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
   if (_isStaff) {
@@ -259,6 +263,14 @@ function render() {
   document.getElementById('tasksTable').innerHTML = html;
 }
 
+// Deploy 236.931 — a person, never an email: tasks-list fills assignedToName /
+// createdByName from profiles; this is the same fallback for a stale response.
+function prettyName(email) {
+  var local = String(email || '').trim().toLowerCase().split('@')[0];
+  if (!local) return '';
+  if (local === 'system') return 'SLA Platform';
+  return local.split(/[._-]+/).filter(Boolean).map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+}
 function renderRow(t) {
   var past = isPastDue(t);
   var due  = t.dueDate ? fmtDate(t.dueDate) : '—';
@@ -268,10 +280,11 @@ function renderRow(t) {
   return '<div class="tasks-table-row' + (t.completed ? ' done' : '') + (past ? ' past-due' : '') + '" data-task-id="' + escAttr(t.id) + '">' +
     '<input type="checkbox" class="t-check"' + (t.completed ? ' checked' : '') + ' onchange="toggleComplete(\'' + escAttr(t.id) + '\', this.checked)" />' +
     '<div class="t-title">' + escH(t.title) + '</div>' +
-    '<div class="t-loan"><a href="' + escAttr(loanHref) + '">' + escH(t.clientId || '') + ' · ' + escH((t.loanId || '').slice(-6)) + '</a></div>' +
+    // Deploy 236.931 — the address (tasks-list attaches it), ids only as a last resort.
+    '<div class="t-loan"><a href="' + escAttr(loanHref) + '">' + escH(t.address || ((t.clientId || '') + ' · ' + (t.loanId || '').slice(-6))) + '</a></div>' +
     '<div class="t-due">' + escH(due) + '</div>' +
-    '<div class="t-assignee">' + escH(t.assignedToName || t.assignedTo || '—') + '</div>' +
-    '<div class="t-creator">' + escH(t.createdByName || t.createdBy || '') + '</div>' +
+    '<div class="t-assignee">' + escH(t.assignedToName || prettyName(t.assignedTo) || '—') + '</div>' +
+    '<div class="t-creator">' + escH(t.createdByName || prettyName(t.createdBy)) + '</div>' +
     '<button class="t-delete" onclick="del(\'' + escAttr(t.id) + '\', \'' + escAttr(t.ownerKey || '') + '\')" title="Delete">✕</button>' +
   '</div>';
 }

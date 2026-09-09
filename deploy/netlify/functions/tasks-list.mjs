@@ -25,6 +25,9 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.266
+// Deploy 236.931 (Mike) — tasks leave here carrying the loan's address and
+// people's names, so the Tasks page shows neither loan ids nor emails.
+import { enrichTasks } from './_shared/task-enrich.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -69,7 +72,7 @@ async function handle(req, context) {
         const t = await tasksStore.get(key, { type: 'json' });
         if (t) out.push(t);
       }));
-      return json(200, { tasks: out });
+      return json(200, { tasks: await enrichTasks(out) });
     } catch (e) {
       return json(500, { error: 'Failed to list tasks: ' + (e.message || 'unknown') });
     }
@@ -93,7 +96,7 @@ async function handle(req, context) {
       }
       tasks.push(t);
     }));
-    return json(200, { tasks });
+    return json(200, { tasks: await enrichTasks(tasks) });
   } catch (e) {
     return json(500, { error: 'Failed to list tasks: ' + (e.message || 'unknown') });
   }
