@@ -1674,7 +1674,7 @@ function render() {
   // Penalty dropdown removed — it already shows in Loan Financials.
   var _ltOrig     = String(l.fundingDate || l.originationDate || '');
   var _ltFirstPay = _computeFirstPayment(_ltOrig) || '';
-  var _ltMaturity = _addMonths(_ltOrig, parseInt(_ltTerm, 10)) || '';
+  var _ltMaturity = _computeMaturity(_ltOrig, parseInt(_ltTerm, 10)) || ''; // Deploy 236.913 — 1st-of-following-month convention
 
   html += '<div class="section" id="loanTermsSection">' +
     '<div class="section-head"><h2>Loan Terms</h2><span class="section-tag tag-editable">Editable</span></div>' +
@@ -7486,6 +7486,19 @@ function _computeFirstPayment(ymd) {
   if (!d) return '';
   return _ldToYmd(new Date(d.getFullYear(), d.getMonth() + 2, 1, 12, 0, 0));
 }
+// Deploy 236.913 (Dan Austin) — maturity is NOT closing + term to the day.
+// The standard is the 1st of the month FOLLOWING the origination date, plus
+// the term (close 9/2/2026, 12mo → 10/1/2027). A loan that closes exactly on
+// the 1st needs no bump (close 9/1 + 12mo → 9/1/2027). Same formula the FCI
+// boarding sheet already uses (_shared/fci-boarding.mjs maturityOf, verified
+// against FCI's own samples), and it lines up with First Payment: first
+// payment + (term − 1) months = maturity.
+function _computeMaturity(ymd, termMonths) {
+  var d = _ldParseYmd(ymd);
+  if (!d || !isFinite(termMonths)) return '';
+  var bump = d.getDate() > 1 ? 1 : 0;
+  return _ldToYmd(new Date(d.getFullYear(), d.getMonth() + termMonths + bump, 1, 12, 0, 0));
+}
 // Deploy 236.644 — keep the non-editable First Payment + Maturity fields in
 // sync with the current Closing Date + Loan Term inputs (wired to their oninput).
 function recalcTermDates() {
@@ -7494,7 +7507,7 @@ function recalcTermDates() {
   var fp = document.getElementById('lt-firstPaymentDate');
   var mt = document.getElementById('lt-maturityDate');
   if (fp) fp.value = _computeFirstPayment(closing) || '';
-  if (mt) mt.value = _addMonths(closing, parseInt(term, 10)) || '';
+  if (mt) mt.value = _computeMaturity(closing, parseInt(term, 10)) || '';
 }
 
 function _ldOwnerOverride() {
@@ -7664,7 +7677,7 @@ function saveLoanTerms() {
     lienPosition:     _ldVal('lt-lienPosition'),
     originationDate:  _closing,
     firstPaymentDate: _computeFirstPayment(_closing) || '',
-    maturityDate:     _addMonths(_closing, parseInt(_termN, 10)) || '',
+    maturityDate:     _computeMaturity(_closing, parseInt(_termN, 10)) || '', // Deploy 236.913 — 1st-of-following-month convention
     // Deploy 236.641 — Loan Purpose / Closing Date / Description moved into
     // the Loan Terms box from the retired Property & Application section.
     loanPurpose:        _ldVal('af-loanPurpose'),

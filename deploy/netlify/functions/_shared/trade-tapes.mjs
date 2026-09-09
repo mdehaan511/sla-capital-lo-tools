@@ -151,16 +151,19 @@ const firstPaymentOf = (l) => {
   if (m > 12) { m -= 12; y += 1; }
   return m + '/1/' + y;
 };
-// Maturity = funding date + term months (day clamped to the target month).
+// Maturity fallback (loan has no stored maturityDate): 1st of the month
+// FOLLOWING funding + term — the lender-standard convention (Deploy 236.913,
+// Dan Austin). Matches fci-boarding.mjs maturityOf and the Loan Terms UI; a
+// loan funding exactly on the 1st gets no bump.
 const maturityOf = (l) => {
   if (l.maturityDate) return dstr(l.maturityDate);
   const f = dparts(l.fundingDate);
   if (!f) return '';
   const t = num(l.term) || 12;
   let m = f.m + t, y = f.y;
+  if (f.d > 1) m += 1;
   while (m > 12) { m -= 12; y += 1; }
-  const dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
-  return m + '/' + Math.min(f.d, dim) + '/' + y;
+  return m + '/1/' + y;
 };
 // Borrower Reserves = the UW tab's weighted liquidity: Σ(account balance ×
 // weight) + EMD paid. Weights mirror loan-uw-fields.js ACCOUNT_WEIGHTS (the
