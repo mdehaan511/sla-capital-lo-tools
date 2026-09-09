@@ -10,9 +10,12 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, isAdmin,
+  handleOptions, json, requireAuth, readJsonBody,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+// Deploy 236.915 — cross-owner client writes gate on the processor tier,
+// like every loan-level endpoint has since 236.266.
+import { canOverrideOwner, canWriteClient } from './_shared/access.mjs';
 import { syncClient as brevoSyncClient } from './_shared/brevo.mjs';
 // Deploy 236.5 (Brokers Phase 3b) — auto-link any loan on this client
 // that has broker inline fields but no brokerId. Safe to run even on
@@ -47,9 +50,17 @@ export default async (req, context) => {
   if (body === null) return json(400, { error: 'Invalid JSON' });
   if (!body || !body.id) return json(400, { error: 'client id required' });
 
-  // Owner: default to current user. Admins may override via _owner.
+  // Owner: default to current user. Admins AND processors may save into
+  // another LO's book via _owner (Deploy 236.915 — was admin-only).
+  //
+  // Anyone else asking for an override is REFUSED, not quietly ignored.
+  // Before 236.915 a non-admin's _owner was dropped on the floor and the
+  // save proceeded under their OWN key — which, for a client that lives in
+  // someone else's book, mints a duplicate rather than editing the record.
   let owner = normalizeEmail(user.email);
-  if (body._owner && isAdmin(user)) {
+  if (body._owner && normalizeEmail(body._owner) !== owner) {
+    const gate = canOverrideOwner(user);
+    if (!gate.ok) return json(gate.status || 403, { error: 'Owner override requires admin or processor' });
     owner = normalizeEmail(body._owner);
   }
 
@@ -69,11 +80,12 @@ export default async (req, context) => {
   const key = `${ownerKey}/${clientKey}`;
 
   try {
-    // If an existing record exists under this key owned by someone else,
-    // only an admin may overwrite it.
+    // Deploy 236.915 — an existing record in this book: the book's owner or
+    // the processor tier may overwrite it (canWriteClient in access.mjs).
     const existing = await store.get(key, { type: 'json' });
-    if (existing && !isAdmin(user) && (existing.createdBy && normalizeEmail(existing.createdBy) !== owner)) {
-      return json(403, { error: 'Not authorized to modify this client' });
+    if (existing) {
+      const w = canWriteClient(user, existing, owner);
+      if (!w.ok) return json(w.status || 403, { error: 'Not authorized to modify this client' });
     }
     // Preserve sensitive/server-only fields the client never sees in API
     // responses (so they aren't accidentally wiped by a UI save).

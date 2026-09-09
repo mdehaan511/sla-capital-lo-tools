@@ -106,6 +106,36 @@ export function canReadClient(user, client) {
   return _deny(403, 'not owner');
 }
 
+/**
+ * Deploy 236.915 (Mike: "make it so that processors have full ability to
+ * modify any clients information") — may this user overwrite an EXISTING
+ * client record in `ownerEmail`'s book?
+ *
+ * Jessy (processor) got "Not authorized to modify this client" saving a
+ * guarantor profile. clients-save was the one client-level write that never
+ * got the 236.266 / 236.880 treatment: loan-cancel, make-primary, tasks, docs,
+ * notes, financials all gate cross-owner work on canOverrideOwner, but this
+ * one still asked isAdmin — so a processor could work every part of a loan
+ * except the borrower's own record.
+ *
+ * Rule: the owner of the BOOK the record lives in, or anyone who may
+ * override owners (admin + processor tier). Deliberately NOT "whoever
+ * first created it": the legacy check compared existing.createdBy to the
+ * caller, which locked LOs out of Baseline-imported records in their own
+ * book (createdBy = the migration pseudo-owner) and out of anything a
+ * merge or reassign had moved to them. The record's home decides.
+ * `existing` is kept in the signature for callers that already have it;
+ * the decision no longer depends on it.
+ */
+export function canWriteClient(user, existing, ownerEmail) {
+  if (!user) return _deny(401, 'not authenticated');
+  if (canOverrideOwner(user).ok) return _allow();
+  const self = normalizeEmail(user.email);
+  const owner = normalizeEmail(ownerEmail || '');
+  if (owner && owner !== self) return _deny(403, 'not your book');
+  return _allow();
+}
+
 // ── Loan-level capabilities ──────────────────────────────────
 
 export async function canReadLoan(user, loan, opts) {
