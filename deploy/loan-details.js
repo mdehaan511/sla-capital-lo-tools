@@ -1723,7 +1723,7 @@ function render() {
       (!isDscr ? (function(){
         var _ltDutch = String(l.dutchInterest || (fd && fd.dutchInterest) ||
           (String(l.toolType||'').toLowerCase()==='guc' ? 'non_dutch' : 'dutch')).toLowerCase()==='non_dutch' ? 'non_dutch' : 'dutch';
-        return '<div class="field"><label>Interest Structure</label><select id="lt-dutchInterest">' +
+        return '<div class="field"><label>Interest Structure</label><select id="lt-dutchInterest" onchange="recalcTermDates()">' +
           '<option value="dutch"' + (_ltDutch === 'dutch' ? ' selected' : '') + '>Dutch (full balance)</option>' +
           '<option value="non_dutch"' + (_ltDutch === 'non_dutch' ? ' selected' : '') + '>Non-Dutch (as drawn)</option>' +
         '</select></div>';
@@ -1733,6 +1733,19 @@ function render() {
       // inputs so their .value is still readable in JS but the user can't edit.
       '<div class="field"><label>First Payment Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(_ltFirstPay) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
       '<div class="field"><label>Maturity Date <span style="text-transform:none;font-weight:400;color:var(--muted)">' + (_ltMatFromServicing ? '(from Servicing)' : '(auto)') + '</span></label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" disabled title="' + (_ltMatFromServicing ? 'Set in Servicing (manual edit or accepted extension). Changing the Closing Date or Loan Term recomputes it.' : 'Calculated from Closing Date + Loan Term') + '" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
+      // Deploy 236.932 (Mike) — daily + prepaid interest on a 30/360 basis, RTL/GUC
+      // only. Read-only: amount and rate are sizer-owned, the day count comes from
+      // the Closing Date; recalcTermDates keeps both live as the card is edited.
+      (!isDscr ? (function(){
+        var ib = _ldInterestBits(l, l.fundingDate || '', '');
+        var ro = ' disabled style="background:var(--bg,#f0ece5);color:var(--muted)"';
+        return '<div class="field"><label>Daily Interest <span style="text-transform:none;font-weight:400;color:var(--muted)">(30/360)</span></label>' +
+            '<input type="text" id="lt-dailyInterest" value="' + escAttr(ib.dailyText) + '" title="Loan amount × note rate ÷ 360"' + ro + ' />' +
+            '<div id="lt-dailyInterestHint" style="font-size:11px;color:var(--muted);margin-top:3px">' + escH(ib.baseText) + '</div></div>' +
+          '<div class="field"><label>Prepaid Interest <span style="text-transform:none;font-weight:400;color:var(--muted)">(to the 1st)</span></label>' +
+            '<input type="text" id="lt-prepaidInterest" value="' + escAttr(ib.prepaidText) + '" title="Daily interest × the 30/360 days from the Closing Date to the 1st of the next month"' + ro + ' />' +
+            '<div id="lt-prepaidInterestHint" style="font-size:11px;color:var(--muted);margin-top:3px">' + escH(ib.daysText) + '</div></div>';
+      })() : '') +
       // Deploy 236.647 — Holdback (= Rehab Budget, already in Financials), Initial
       // Advance, and Down Payment removed from Loan Terms; Initial Advance + Down
       // Payment now live in the Loan Financials grid.
@@ -7497,6 +7510,67 @@ function _addMonths(ymd, months) {
 // First payment = the 1st of the month two months out from the origination/
 // closing date (e.g. close Aug 20 → first payment Oct 1) — the standard
 // full-month-plus convention, matching the closed-loans first-payment logic.
+// Deploy 236.932 (Mike: "add daily interest to the RTLs Loan Detail page. It
+// should be a 30/360 basis ... also include the prepaid interest which will be
+// the interest paid from the closing date up to the 1st of the next month.")
+// Pure math first (gated by scripts/rtl-daily-interest-test.mjs); the Loan
+// Terms card renders it read-only and recalcTermDates keeps it live.
+function _ldRatePctOf(raw) {
+  // Same decimal-vs-percent rule as Loan Financials: 0.105 and 10.5 both mean 10.5%.
+  var n = parseFloat(raw);
+  if (!isFinite(n) || n <= 0) return 0;
+  return n <= 1 ? n * 100 : n;
+}
+// 30/360 day count from the Closing Date to the 1st of the next month: a 31st
+// counts as the 30th, so the answer is 1..30. Closing on the 1st = the whole
+// month (the first regular payment is the 1st of the month after next).
+function _days30360ToNextFirst(ymd) {
+  var d = _ldParseYmd(ymd);
+  if (!d) return 0;
+  return 31 - Math.min(d.getDate(), 30);
+}
+// Dutch = interest on the full note; Non-Dutch = on the initial advance
+// (loan amount less the rehab / construction holdback) until draws fund.
+function _ldInterestMath(amount, ratePct, closingYmd, dutch, holdback) {
+  var amt = _ldDrawsNum(amount), hb = _ldDrawsNum(holdback);
+  var base = dutch ? amt : Math.max(0, amt - hb);
+  var r = Number(ratePct) || 0;
+  var daily = (base > 0 && r > 0) ? base * (r / 100) / 360 : 0;
+  var days = _days30360ToNextFirst(closingYmd);
+  return { base: base, daily: daily, days: days, prepaid: daily * days };
+}
+function _ldMoney2(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+// Everything the two Loan Terms fields show, from the loan on file plus the
+// card's live Closing Date / Interest Structure inputs when they exist.
+function _ldInterestBits(l, closingYmd, dutchVal) {
+  var fd = (l && l.formData) || {};
+  var amount = _ldDrawsNum(l.finalLoanAmount) || _ldDrawsNum(l.loanAmt);
+  var ratePct = _ldRatePctOf(l.rate || fd._finalRate || '');
+  var dutchStr = String(dutchVal || l.dutchInterest || fd.dutchInterest || (_isGucLoan(l) ? 'non_dutch' : 'dutch')).toLowerCase();
+  var dutch = dutchStr !== 'non_dutch';
+  var m = _ldInterestMath(amount, ratePct, closingYmd, dutch, l.rehabBudget || fd.rehabBudget || '');
+  var closeD = _ldParseYmd(closingYmd);
+  var nextFirst = closeD ? new Date(closeD.getFullYear(), closeD.getMonth() + 1, 1, 12, 0, 0) : null;
+  function md(d) { return (d.getMonth() + 1) + '/' + d.getDate(); }
+  return {
+    dailyText:   m.daily > 0 ? _ldMoney2(m.daily) : '\u2014',
+    baseText:    m.base > 0
+      ? ('on ' + _ldMoney2(m.base).replace(/\.00$/, '') + (dutch ? ' (Dutch, full balance)' : ' initial advance (Non-Dutch)') + ' at ' + ratePct.toFixed(3) + '%')
+      : 'Needs a loan amount and rate',
+    prepaidText: (m.daily > 0 && m.days > 0) ? _ldMoney2(m.prepaid) : '\u2014',
+    daysText:    closeD ? (m.days + ' day' + (m.days === 1 ? '' : 's') + ' \u00b7 ' + md(closeD) + ' to ' + md(nextFirst)) : 'Needs a Closing Date',
+  };
+}
+function _ldRefreshInterestFields() {
+  var di = document.getElementById('lt-dailyInterest');
+  if (!di || !_loan) return;
+  var sel = document.getElementById('lt-dutchInterest');
+  var b = _ldInterestBits(_loan, _ldVal('af-fundingDate'), sel ? sel.value : '');
+  di.value = b.dailyText;
+  var pi = document.getElementById('lt-prepaidInterest'); if (pi) pi.value = b.prepaidText;
+  var h1 = document.getElementById('lt-dailyInterestHint'); if (h1) h1.textContent = b.baseText;
+  var h2 = document.getElementById('lt-prepaidInterestHint'); if (h2) h2.textContent = b.daysText;
+}
 function _computeFirstPayment(ymd) {
   var d = _ldParseYmd(ymd);
   if (!d) return '';
@@ -7546,6 +7620,7 @@ function recalcTermDates() {
   var mt = document.getElementById('lt-maturityDate');
   if (fp) fp.value = _computeFirstPayment(closing) || '';
   if (mt) mt.value = _ltEffectiveMaturity(closing, term);
+  _ldRefreshInterestFields(); // Deploy 236.932 — days follow the Closing Date
 }
 
 function _ldOwnerOverride() {
