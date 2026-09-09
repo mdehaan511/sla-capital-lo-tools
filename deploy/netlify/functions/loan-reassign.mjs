@@ -47,6 +47,7 @@ import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-wr
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { quotesIndex } from './_shared/quotes-index.mjs'; // Deploy 236.928
 
 export default async (req, context) => {
   try {
@@ -345,6 +346,10 @@ async function handle(req, context) {
         q._reassignedAt = now;
         q._reassignedBy = selfEmail;
         await quotesStore.setJSON(key, q);
+        // Deploy 236.928 — keep the quotes-index row (what the Leads board
+        // reads) in step with the blob rewrite; it was keeping the OLD
+        // clientId after a reassign.
+        await quotesIndex.upsertRecord(ownerKey, q);
         movedQuotes += 1;
       }
     }

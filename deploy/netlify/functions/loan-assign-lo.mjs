@@ -49,6 +49,11 @@ import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-wr
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.928 (Mike) — the quote move below rewrote the BLOBS but never
+// touched the materialized quotes-index, which is what the Leads pipeline is
+// served from. The stale index row kept the lead on the OLD owner's board
+// (rendered as an orphan draft, since their scope no longer holds the loan).
+import { quotesIndex } from './_shared/quotes-index.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -216,6 +221,11 @@ async function handle(req, context) {
       q._reassignedBy = user.email || '';
       await qStore.setJSON(newQuoteKey, q);
       if (newQuoteKey !== key) await qStore.delete(key);
+      // Deploy 236.928 — keep the quotes-index in step with the blob move so
+      // the lead leaves the old LO's Leads board immediately.
+      const qId = q.id || key.slice(oldOwnerKey.length + 1);
+      await quotesIndex.removeRecord(oldOwnerKey, qId);
+      await quotesIndex.upsertRecord(newOwnerKey, q);
       movedQuotes += 1;
     }
   } catch (e) {

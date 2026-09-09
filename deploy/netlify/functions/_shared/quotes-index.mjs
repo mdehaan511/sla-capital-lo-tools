@@ -69,5 +69,9 @@ export const quotesIndex = createStoreIndex({
   // fields) is discarded and rebuilt with the new projection on the
   // next read.
   // Deploy 236.762 — v3: + mfProgram (MF sizer routing).
-  version:          3,
+  // Deploy 236.928 — v4: same projection; bumped to discard the stale rows
+  // loan-assign-lo stranded under old owners (it moved quote blobs without
+  // updating this index — fixed there). The rebuild re-derives from the
+  // correctly-moved blobs, clearing every historical ghost lead in one pass.
+  version:          4,
 });

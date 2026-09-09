@@ -34,6 +34,7 @@ import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
 import { revokeLoanAccess } from './_shared/loan-access-store.mjs';
+import { quotesIndex } from './_shared/quotes-index.mjs'; // Deploy 236.928
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -232,7 +233,10 @@ async function handle(req, context) {
       if (q.loanId === body.loanId || (q.clientId === body.clientId && (!q.loanId || q.loanId === body.loanId))) {
         q.clientId = dest.id; if (!q.loanId) q.loanId = body.loanId;
         q.updatedAt = now; q._reassignedAt = now; q._reassignedBy = selfEmail;
-        await quotesStore.setJSON(key, q); movedQuotes += 1;
+        await quotesStore.setJSON(key, q);
+        // Deploy 236.928 — index write-through (see loan-assign-lo).
+        await quotesIndex.upsertRecord(ownerKey, q);
+        movedQuotes += 1;
       }
     }
   } catch (e) { console.warn('make-primary: quote move failed (non-fatal):', e && e.message); }
