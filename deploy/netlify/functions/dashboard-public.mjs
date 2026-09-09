@@ -58,6 +58,24 @@ async function handle(req, context) {
   return json(200, { ok: true, count: loans.length, loans, _source: 'postgres' });
 }
 
+// The TPO premium on file, distinguishing "deliberately zero" from "nobody has
+// filled this in". Returns a number (possibly 0) or '' when nothing is on file.
+//
+// A real positive premium anywhere in the chain wins. Failing that, the first
+// value that is explicitly present and numeric is returned as-is — so a stored
+// zero survives as 0 and the dashboard can stop nagging about it.
+function resolveTpoPremium(values) {
+  let explicit = null;
+  for (const v of values) {
+    if (v === undefined || v === null || v === '') continue;
+    const n = parseFloat(v);
+    if (!isFinite(n)) continue;
+    if (n > 0) return n;
+    if (explicit === null) explicit = n;
+  }
+  return explicit === null ? '' : explicit;
+}
+
 // ── Port of sla-dashboard.html adaptLoan() ────────────────────────────────
 function adaptRow(r) {
   if (!r || !r.id) return null;
@@ -69,9 +87,14 @@ function adaptRow(r) {
   // the mirror's decimal (0.1045).
   const rateDec = isFinite(rate) ? (rate > 1 ? rate / 100 : rate) : '';
   const borrower = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || c.entity_name || '';
-  let tpo = parseFloat(ex.tpo);
-  if (!isFinite(tpo) || tpo <= 0) tpo = parseFloat(ex.tpoPremium);
-  if (!isFinite(tpo) || tpo <= 0) tpo = parseFloat(ex.tpoSpread);
+  // Deploy 236.933 (Mike): an explicit 0 is an ANSWER, not a blank.
+  // This used to collapse both to '', so a DSCR loan where someone had
+  // deliberately entered a zero premium was indistinguishable from one nobody
+  // had filled in — and the dashboard flagged it yellow forever, with no way to
+  // clear the warning. A positive value still wins over a zero further down the
+  // chain; '' now means, and only means, nothing on file anywhere.
+  // Mirrored in sla-dashboard.html adaptLoan() — keep the two in step.
+  const tpo = resolveTpoPremium([ex.tpo, ex.tpoPremium, ex.tpoSpread]);
   const status = String(r.status || '').toLowerCase();
   const stage = String(r.processing_stage || '').toLowerCase();
   const disposition = String(ex.disposition || '').toLowerCase();
@@ -86,7 +109,7 @@ function adaptRow(r) {
     Loan_Amount: Number(ex.finalLoanAmount || r.loan_amt) || 0,
     Rate: rateDec,
     Origination_Points: r.points != null ? r.points : (ex.points != null ? ex.points : ''),
-    TPO_Premium: (isFinite(tpo) && tpo > 0) ? tpo : '',
+    TPO_Premium: tpo,
     Origination: String(r.funding_date || ex.fundingDate || '').slice(0, 10),
     Created_Date: String(r.created_at || ex.savedAt || '').slice(0, 10),
     Address_State: extractStateFromName(address),

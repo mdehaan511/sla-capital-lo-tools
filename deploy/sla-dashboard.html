@@ -454,6 +454,38 @@ function tpoPremiumPct(loan) {
   }
   return 0;
 }
+// Deploy 236.933 (Mike): is a TPO premium ON FILE — separate from what it is
+// worth. A deliberate 0 answers the question; only a blank leaves it open.
+//
+// This has to be its own function rather than a tweak to tpoPremiumPct, because
+// the two questions genuinely differ. Revenue wants the VALUE, and a zero
+// premium correctly adds zero revenue. The dashboard warning wants the
+// PRESENCE, and "we checked, it's zero" is not the same fact as "nobody has
+// looked". Collapsing them is what made the warning impossible to clear.
+function hasTpoPremium(loan) {
+  if (!loan) return false;
+  for (var i = 0; i < TPO_PREMIUM_FIELDS.length; i++) {
+    var v = loan[TPO_PREMIUM_FIELDS[i]];
+    if (v === undefined || v === null || v === '') continue;
+    if (isFinite(parseFloat(v))) return true; // 0 counts — it is an answer
+  }
+  return false;
+}
+// The TPO premium on file, keeping "deliberately zero" apart from "not filled
+// in". Number (possibly 0), or '' when nothing is on file anywhere.
+// Mirrored in dashboard-public.mjs resolveTpoPremium() — keep the two in step.
+function resolveTpoPremium(values) {
+  var explicit = null;
+  for (var i = 0; i < values.length; i++) {
+    var v = values[i];
+    if (v === undefined || v === null || v === '') continue;
+    var n = parseFloat(v);
+    if (!isFinite(n)) continue;
+    if (n > 0) return n;                  // a real premium wins outright
+    if (explicit === null) explicit = n;  // a stored zero survives as zero
+  }
+  return explicit === null ? '' : explicit;
+}
 function pointsAsPercent(v) {
   var n = parseFloat(v);
   if (!isFinite(n)) return null;
@@ -592,9 +624,9 @@ function adaptLoan(client, l, ownerKey) {
   // decimal (0.1045). Normalize so the shared renderers agree.
   var rateDec = isFinite(rate) ? (rate > 1 ? rate / 100 : rate) : '';
   var borrower = ((client.firstName || '') + ' ' + (client.lastName || '')).trim();
-  var tpo = parseFloat(l.tpo);
-  if (!isFinite(tpo) || tpo <= 0) tpo = parseFloat(l.tpoPremium);
-  if (!isFinite(tpo) || tpo <= 0) tpo = parseFloat(l.tpoSpread);
+  // Deploy 236.933 (Mike): an explicit 0 is an ANSWER, not a blank. See
+  // resolveTpoPremium — and keep dashboard-public.mjs adaptRow() in step.
+  var tpo = resolveTpoPremium([l.tpo, l.tpoPremium, l.tpoSpread]);
   return {
     Id:   l.slaDisplayId || l.id,
     Name: (l.address || '') || ('(no address — ' + borrower + ')'),
@@ -603,7 +635,7 @@ function adaptLoan(client, l, ownerKey) {
     Loan_Amount: Number(l.finalLoanAmount || l.loanAmt) || 0,
     Rate: rateDec,
     Origination_Points: l.points,
-    TPO_Premium: (isFinite(tpo) && tpo > 0) ? tpo : '',
+    TPO_Premium: tpo,
     Origination: l.fundingDate || '',
     Created_Date: String(l.createdAt || l.savedAt || '').slice(0, 10),
     Address_State: extractStateFromName(l.address || ''),
@@ -1105,7 +1137,11 @@ function _cdmRender() {
       // understating its revenue (estimatedRevenue only adds the premium when
       // it's present). Flag it so the modal's numbers read as "not fully
       // inclusive" instead of silently low. Leads modal has no revenue → skip.
-      noTpo: !isLeads && inferLoanType(l) === 'DSCR' && !(tpoPremiumPct(l) > 0),
+      //
+      // Deploy 236.933 (Mike) — hasTpoPremium, not tpoPremiumPct > 0. A loan
+      // priced with a genuine zero premium has been answered, and a warning you
+      // cannot clear by doing the right thing is just noise.
+      noTpo: !isLeads && inferLoanType(l) === 'DSCR' && !hasTpoPremium(l),
     };
   });
   var BUCKET_ORDER = { 'Won': 0, 'Open': 1, 'On Hold': 2, 'RTL': 0, 'DSCR': 1, 'Unknown': 2 };
