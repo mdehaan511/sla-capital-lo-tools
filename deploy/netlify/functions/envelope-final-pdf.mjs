@@ -12,6 +12,11 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
+// Deploy 236.922 (Mike) — processors download signed docs on other LOs' loans
+// (Elle's "Envelope not found" on a loan-extension download: the isAdmin-only
+// owner override silently ignored her owner= param, so the lookup hit HER
+// namespace). Same 236.880 rule as the extension endpoints: canOverrideOwner.
+import { canOverrideOwner } from './_shared/access.mjs';
 
 export default async (req, context) => {
   try {
@@ -29,7 +34,7 @@ export default async (req, context) => {
     if (!envelopeId) return json(400, { error: 'envelopeId required' });
 
     let owner = normalizeEmail(user.email);
-    if (ownerOverride && isAdmin(user)) owner = normalizeEmail(ownerOverride);
+    if (ownerOverride && canOverrideOwner(user).ok) owner = normalizeEmail(ownerOverride); // Deploy 236.922 — was isAdmin
     const ownerKey = keySafe(owner);
 
     const envStore = getStore({ name: 'envelopes', consistency: 'strong' });
@@ -37,7 +42,7 @@ export default async (req, context) => {
     try { env = await envStore.get(`${ownerKey}/${envelopeId}`, { type: 'json' }); }
     catch (_) { env = null; }
     if (!env) return json(404, { error: 'Envelope not found' });
-    if (env.requesterEmail !== normalizeEmail(user.email) && !isAdmin(user)) {
+    if (env.requesterEmail !== normalizeEmail(user.email) && !canOverrideOwner(user).ok) { // Deploy 236.922 — was isAdmin
       return json(403, { error: 'Not authorized' });
     }
     if (env.status !== 'completed') {
