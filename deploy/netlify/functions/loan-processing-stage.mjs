@@ -31,6 +31,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
+import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 
@@ -234,6 +235,13 @@ async function handle(req, context) {
   // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.930 — past Processing means the LO's auto-created "Run credit +
+  // submit loan" task is done (or moot); close it so the Processing badge
+  // stops counting it. Best-effort, never throws.
+  if (['underwriting', 'pp_approved', 'pp_closed'].includes(newStage)) {
+    await completeAutoTasks({ ownerKey, loanId: loan.id, reason: 'Loan moved to ' + (STAGE_LABELS[newStage] || newStage) });
+  }
 
   // Deploy 236.694 — congratulate the LO when their loan just closed. Best-effort
   // (after the durable write, never blocks the response).

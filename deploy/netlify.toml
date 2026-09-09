@@ -20,6 +20,9 @@
 # Deploy 236.927 -- all-reviews scan + a loan locate per review.
 [functions."loan-review-retype"]
   timeout = 26
+# Deploy 236.930 -- all-tasks + all-reviews walk, a loan locate per task.
+[functions."tasks-auto-sweep"]
+  timeout = 26
 # Deploy 236.779 — Xactus orders wait on a synchronous bureau/flood
 # response (typically 1-3s, occasionally slow); give the full budget.
 # Deploy 236.783 — reassign moves client/loan + side records across owners;
@@ -1442,6 +1445,13 @@
 [[redirects]]
   from = "/api/loan-review-retype"
   to = "/.netlify/functions/loan-review-retype"
+  status = 200
+  force = true
+# Deploy 236.930 -- admin: close the auto-created "Run credit + submit" LO
+# tasks whose loan already shows the work done (see _shared/auto-task-complete).
+[[redirects]]
+  from = "/api/tasks-auto-sweep"
+  to = "/.netlify/functions/tasks-auto-sweep"
   status = 200
   force = true
 # Deploy 236.684 — Resend delivery-failure webhook. On email.bounced of a

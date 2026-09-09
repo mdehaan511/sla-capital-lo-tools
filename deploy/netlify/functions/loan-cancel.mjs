@@ -29,6 +29,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.880
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 
 // Deploy 196: widened from {awaiting_app, approved} to all non-terminal
 // statuses. LOs reported needing to drop dead Quoted leads without
@@ -157,6 +158,9 @@ async function handle(req, context) {
 
   // Deploy 236.426 (D3): quote sweep retired \u2014 /api/quotes renders from
   // loans (D2), so store copies no longer need freshening.
+  // Deploy 236.930 — a cancelled loan has no "run credit + submit" left to do.
+  if (!isRestore) await completeAutoTasks({ ownerKey, loanId: targetLoan.id, reason: 'Loan cancelled' });
+
   const newStatus = targetLoan.status;
 
   return json(200, {

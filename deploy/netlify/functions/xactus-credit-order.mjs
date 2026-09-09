@@ -27,6 +27,7 @@ import {
 } from './_shared/auth.mjs';
 import { decryptField, encryptField, maskSSN } from './_shared/crypto.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { attachPdfToReviewSlug } from './_shared/loan-review-auto-attach.mjs';
@@ -242,6 +243,9 @@ async function handle(req, context) {
     try { await writeClient(ownerKey, client, { clientsStore }); }
     catch (e) { console.warn('xactus-credit-order: client/loan stamp save failed:', e && e.message); }
   }
+  // Deploy 236.930 — credit was just pulled: the LO's auto-created
+  // "Run credit + submit loan" task is done. Best-effort, never throws.
+  if (clientDirty) await completeAutoTasks({ ownerKey, loanId: body.loanId, reason: 'Credit pulled via Xactus' });
 
   // FICO mismatch signal for the caller (computed here so the UI can toast).
   const sizerFico = String((loan && loan.fico) || '');

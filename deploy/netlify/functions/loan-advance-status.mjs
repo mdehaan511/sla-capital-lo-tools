@@ -31,6 +31,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
@@ -176,6 +177,11 @@ async function handle(req, context) {
     await writeClient(ownerKey, client, { clientsStore, allowDemotion: true });
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
+  }
+
+  // Deploy 236.930 — an ended loan has no "run credit + submit" left to do.
+  if (['denied', 'cancelled', 'closed'].includes(String(targetLoan.status || ''))) {
+    await completeAutoTasks({ ownerKey, loanId: targetLoan.id, reason: 'Loan ' + targetLoan.status });
   }
 
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from

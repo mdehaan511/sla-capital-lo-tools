@@ -30,6 +30,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
+import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 // Deploy 236.500 (Phase 3) — AI auto-grab of Underwriting / Lightning Docs
@@ -578,6 +579,12 @@ async function handle(req, context) {
         await reviewStore.setJSON(keySafe(body.reviewId), review);
       } catch (e2) { console.error('loan-review-doc-upload: kickoff-failure cleanup failed:', e2 && e2.message); }
     }
+  }
+
+  // Deploy 236.930 — a Credit Report landing on the review means credit was
+  // run: close the LO's auto-created "Run credit + submit loan" task. Best-effort.
+  if (/^credit_report(__p\d+)?$/.test(String(body.slug || '')) && review.source && review.source.kind === 'existing' && review.source.ownerKey && review.source.loanId) {
+    await completeAutoTasks({ ownerKey: keySafe(review.source.ownerKey), loanId: review.source.loanId, reason: 'Credit report uploaded to the Doc Review' });
   }
 
   return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _bgQueued });
