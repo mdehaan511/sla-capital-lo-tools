@@ -608,7 +608,10 @@ function priceRTL(I) {
           if(zhvi==='200'){ adj+=.0025; adjs.push({l:'Property value >200% ZHVI',v:.0025,c:'pos'}); }
           else if(zhvi==='300'){ adj+=.00375; adjs.push({l:'Property value >300% ZHVI',v:.00375,c:'pos'}); }
           if(purp==='cashout'){ adj+=.0025; adjs.push({l:'Cash-out refinance',v:.0025,c:'pos'}); }
-          if(term===19){ adj+=.00125; adjs.push({l:'Loan term 19–24 months',v:.00125,c:'pos'}); }
+          // Deploy 236.916 — was term===19 (the "19 – 24 months" bucket value);
+          // the select now stores real note terms, so 24 must hit this tier too.
+          // Legacy saved 19s price identically.
+          if(term>=19){ adj+=.00125; adjs.push({l:'Loan term 19–24 months',v:.00125,c:'pos'}); }
           if(sz==='3m'){ adj+=.0025; adjs.push({l:'Loan amount >$3M',v:.0025,c:'pos'}); }
           // Tier-1 baseline = wholesale + adjustments + spread − 0.25% (Tier 1 reduction)
           var tier1Base = cb + adj + SPREAD[fkey] - .0025;

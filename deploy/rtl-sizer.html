@@ -699,10 +699,14 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field">
         <div class="wrap">
           <label>Loan Term <span class="req">*</span></label>
+          <!-- Deploy 236.916 (Mike) — real note terms, not pricing ranges.
+               18 prices in the old 13–18 tier (no adjustment), 24 in the
+               19–24 tier (rtl-pricing term>=19 adjustment). Legacy saved
+               records carrying 13/19 are normalized to 18/24 on restore. -->
           <select id="loanTerm" onchange="autoCalc()">
             <option value="12">12 months</option>
-            <option value="13">13 – 18 months</option>
-            <option value="19">19 – 24 months</option>
+            <option value="18">18 months</option>
+            <option value="24">24 months</option>
           </select>
         </div>
       </div>
@@ -953,7 +957,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
 
 </div><!-- /page -->
 
-<script src="rtl-pricing.js?v=236858"></script>
+<script src="rtl-pricing.js?v=236916"></script>
 <script>
 // Deploy 236.408 (Hardening G1 RTL) — pricing engine extracted to
 // rtl-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -3863,6 +3867,17 @@ function loadRTLQuote(formData) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
   });
+  // Deploy 236.916 (Mike) — the Loan Term select now holds real note terms
+  // (12/18/24). Records saved under the old bucket values (13 = "13 – 18
+  // months", 19 = "19 – 24 months") normalize to the bucket's top so the
+  // select isn't left unset; pricing is unchanged (18 has no adjustment,
+  // 24 hits the term>=19 adjustment exactly like 19 did).
+  var _termEl = document.getElementById('loanTerm');
+  if (_termEl) {
+    if (String(formData.loanTerm) === '13') _termEl.value = '18';
+    else if (String(formData.loanTerm) === '19') _termEl.value = '24';
+    if (!_termEl.value) _termEl.value = '12';
+  }
   // Deploy 197: defensive — legacy quotes saved before Deploy 196 don't
   // have a dutchInterest field at all (skipped by the forEach above so
   // the HTML default stays). Post-Deploy-196 quotes always have a value
