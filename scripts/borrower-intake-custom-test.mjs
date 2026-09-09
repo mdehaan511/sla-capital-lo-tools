@@ -14,6 +14,7 @@
 import {
   BORROWER_TRAY_PREFIX, isBorrowerTray, normalizeTrayLabel,
   findBorrowerTrayByLabel, mintBorrowerTray, borrowerTrayEntries,
+  isBorrowerVisibleTray, borrowerVisibleEntries,
 } from '../deploy/netlify/functions/_shared/borrower-intake-custom.mjs';
 
 let failures = 0;
@@ -87,6 +88,28 @@ console.log('borrower intake custom-tray gate\n');
   check('unknown name → empty', findBorrowerTrayByLabel(docs, 'Lease'), '');
   check('blank name → empty, no throw', findBorrowerTrayByLabel(docs, '   '), '');
   check('normalizeTrayLabel collapses whitespace', normalizeTrayLabel('  a   b  '), 'a b');
+}
+
+// ── 236.920: trays the TEAM requested from the borrower ───────────────────
+{
+  const docs = {
+    custom_1_req:              { label: 'HOA statement', isCustom: true, section: 'loan', borrowerRequested: true, borrowerRequestedAt: '2026-09-09T10:00:00Z', borrowerHint: 'Latest quarter' },
+    custom_2_internal:         { label: 'Internal memo', isCustom: true, section: 'loan' },
+    custom_3_unrequested:      { label: 'Was requested', isCustom: true, borrowerRequested: false },
+    custom_4_hidden:           { label: 'Hidden but requested', isCustom: true, borrowerRequested: true, hidden: true },
+    borrower_1788900000001_ab: { label: 'Gift Letter', createdAt: '2026-09-02', isCustom: true, borrowerAdded: true },
+  };
+  check('a team-requested tray is visible to the borrower', isBorrowerVisibleTray('custom_1_req', docs.custom_1_req), true);
+  check('an unrequested staff tray is NOT', isBorrowerVisibleTray('custom_2_internal', docs.custom_2_internal), false);
+  check('borrowerRequested:false is NOT (un-requesting hides it again)', isBorrowerVisibleTray('custom_3_unrequested', docs.custom_3_unrequested), false);
+  check('a hidden tray is never shown, requested or not', isBorrowerVisibleTray('custom_4_hidden', docs.custom_4_hidden), false);
+  check("the borrower's own tray is still visible", isBorrowerVisibleTray('borrower_1788900000001_ab', docs.borrower_1788900000001_ab), true);
+
+  const vis = borrowerVisibleEntries(docs);
+  check('visible entries = own + requested only', vis.map((e) => e.slug).sort(), ['borrower_1788900000001_ab', 'custom_1_req']);
+  check('each entry says why it is visible', vis.map((e) => e.slug + ':' + e.kind).sort(), ['borrower_1788900000001_ab:own', 'custom_1_req:requested']);
+  check('ordered by when it reached the borrower (own first here)', vis.map((e) => e.slug), ['borrower_1788900000001_ab', 'custom_1_req']);
+  check('a request on a CHECKLIST slug is harmless (status dedupes it)', isBorrowerVisibleTray('appraisal', { borrowerRequested: true }), true);
 }
 
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));

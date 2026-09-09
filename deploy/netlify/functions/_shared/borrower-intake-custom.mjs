@@ -98,3 +98,33 @@ export function borrowerTrayEntries(docs) {
     .sort((a, b) => String(docs[a].createdAt || '').localeCompare(String(docs[b].createdAt || '')))
     .map((slug) => ({ slug, doc: docs[slug] }));
 }
+
+/**
+ * Deploy 236.920 (Mike: "add an additional tray and request it from the
+ * borrower") — the SECOND way a non-checklist tray reaches the borrower's
+ * page: the team flags it `borrowerRequested`. Staff add a category in Doc
+ * Review, click "request from borrower", and it shows up on the borrower's
+ * list with an Upload button (and, optionally, an email).
+ *
+ * Visible to the borrower = they minted it, OR the team requested it.
+ * Everything else the team adds stays internal.
+ */
+export function isBorrowerVisibleTray(slug, doc) {
+  if (!doc || typeof doc !== 'object' || doc.hidden) return false;
+  return isBorrowerTray(slug, doc) || doc.borrowerRequested === true;
+}
+
+/** Visible trays with why they're visible: kind 'own' | 'requested'. Oldest first. */
+export function borrowerVisibleEntries(docs) {
+  return Object.keys(docs || {})
+    .filter((slug) => isBorrowerVisibleTray(slug, docs[slug]))
+    .sort((a, b) => {
+      const ta = String(docs[a].borrowerRequestedAt || docs[a].createdAt || '');
+      const tb = String(docs[b].borrowerRequestedAt || docs[b].createdAt || '');
+      return ta.localeCompare(tb);
+    })
+    .map((slug) => ({
+      slug, doc: docs[slug],
+      kind: isBorrowerTray(slug, docs[slug]) ? 'own' : 'requested',
+    }));
+}

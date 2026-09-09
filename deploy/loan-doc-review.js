@@ -1341,6 +1341,10 @@
     if (d.isCustom) {
       trayNameHtml +=
         '<button class="dr-tray-rename-btn" title="Rename tray" onclick="event.stopPropagation();dr_renameTrayLabel(\'' + escAttr(slug) + '\')">&#x270e;</button>';
+      // Deploy 236.920 (Mike) — ask the borrower for this category. Flagged
+      // trays show on the borrower's document page with an Upload button.
+      trayNameHtml +=
+        '<button class="dr-tray-rename-btn" title="' + (d.borrowerRequested ? 'Requested from the borrower — click to stop requesting' : 'Request this document from the borrower') + '" onclick="event.stopPropagation();dr_toggleBorrowerRequest(\'' + escAttr(slug) + '\')">' + (d.borrowerRequested ? '&#x1F4E8;' : '&#x2709;') + '</button>';
     }
     // Deploy 236.165 — expiration badge. Surfaces when the AI
     // extracted a document/expiration date or when per-slug rules
@@ -1357,6 +1361,12 @@
     // slot; otherwise flag borrower-uploaded docs so the processor knows the
     // source. Accepting the tray (verdict → approved) clears it from the
     // borrower's portal list.
+    // Deploy 236.920 — the team asked the borrower for this tray.
+    var reqBadge = d.borrowerRequested
+      ? '<div class="dr-br-badge" title="' + escAttr(d.borrowerHint ? 'Note to borrower: ' + d.borrowerHint : '') + '">&#x1F4E8; Requested from borrower' +
+          (d.borrowerRequestedAt ? ' · ' + new Date(d.borrowerRequestedAt).toLocaleDateString() : '') +
+          (d.borrowerHint ? ' — “' + escHtml(d.borrowerHint) + '”' : '') + '</div>'
+      : '';
     var mrBadge = d.manualReviewRequested
       ? '<div class="dr-mr-badge" title="' + escAttr(d.manualReviewNote || 'The borrower asked for a manual review of this document.') + '">⚠ Manual review requested by borrower</div>'
       : (d.uploadedByBorrower ? '<div class="dr-br-badge">⬆ Uploaded by borrower</div>' : '');
@@ -1369,6 +1379,7 @@
           expBadge +
           compBadge +
           mrBadge +
+          reqBadge +
         '</div>' +
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
@@ -2216,6 +2227,34 @@
   // currentFilename. The tray's display name (meta.label) lives
   // on docs[slug].label for custom trays; this swaps it inline
   // and patches via SLA.LoanReviews.patch.
+  // Deploy 236.920 (Mike: "add an additional tray and request it from the
+  // borrower") — flag a custom tray as requested. It then shows on the
+  // borrower's document page with an Upload button; optionally email them.
+  global.dr_toggleBorrowerRequest = function(slug) {
+    var d = (_review && _review.docs && _review.docs[slug]) || {};
+    var name = d.label || slug;
+    var requested = !d.borrowerRequested;
+    var hint = '', notify = false;
+    if (requested) {
+      hint = prompt('Request "' + name + '" from the borrower.\n\nOptional note they will see (what it is, why you need it):', d.borrowerHint || '');
+      if (hint === null) return;
+      notify = confirm('Email the borrower about this now?\n\nOK = send the email\nCancel = just add it to their document list');
+    } else if (!confirm('Stop requesting "' + name + '" from the borrower? It will drop off their document page.')) {
+      return;
+    }
+    global.SLA.api('POST', '/api/loan-review-request-borrower', {
+      reviewId: _review.id, slug: slug, requested: requested, hint: hint, notify: notify,
+    }).then(function(r) {
+      if (r && r.review) _review = r.review;
+      var msg = requested
+        ? ('Requested from the borrower' + (notify ? (r && r.emailed ? ' — email sent.' : ' — email NOT sent' + (r && r.emailReason ? ' (' + r.emailReason + ')' : '') + '.') : '.'))
+        : 'No longer requested from the borrower.';
+      showToast(msg, (requested && notify && !(r && r.emailed)) ? 'error' : 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Request failed: ' + (err && err.message || 'Unknown'), 'error');
+    });
+  };
   global.dr_renameTrayLabel = function(slug) {
     var d = _review.docs[slug] || {};
     var nameEl = document.getElementById('dr-tray-name_' + slug);

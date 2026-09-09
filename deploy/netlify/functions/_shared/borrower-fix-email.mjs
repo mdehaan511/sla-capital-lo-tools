@@ -17,6 +17,9 @@ import { findCategory } from './loan-review-checklists.mjs';
 // processor-side tray (appraisal, title, payoff…) must not email the
 // borrower daily about an item their portal doesn't show.
 import { borrowerSlugSet } from './borrower-intake-checklists.mjs';
+// Deploy 236.920 — the borrower can also act on trays they minted and trays
+// the team requested from them; a flag on those must reach them too.
+import { isBorrowerVisibleTray } from './borrower-intake-custom.mjs';
 import { getOwnerReplyTo, logBorrowerSendFromResponse } from './email.mjs';
 // Deploy 236.747 — the cron only emails borrowers who have logged in to the
 // portal at least once (opts.requirePortalLogin).
@@ -31,7 +34,8 @@ export function flaggedDocsOf(review) {
   const docs = (review && review.docs) || {};
   const visible = borrowerSlugSet((review && review.loanType) || 'dscr');
   return Object.keys(docs)
-    .filter((slug) => visible.has(slug) && docs[slug] && docs[slug].verdict === 'issues' && !docs[slug].hidden)
+    .filter((slug) => docs[slug] && (visible.has(slug) || isBorrowerVisibleTray(slug, docs[slug])) &&
+                      docs[slug].verdict === 'issues' && !docs[slug].hidden)
     .map((slug) => {
       const d = docs[slug];
       const cat = findCategory(slug);
@@ -158,6 +162,113 @@ export async function sendFixEmailForReview(review, opts) {
     return { ok: true, sent: true, to: toEmail, flagged };
   } catch (e) {
     console.error('[fix-email] unexpected error:', e && e.message);
+    return { ok: false, sent: false, reason: (e && e.message) || 'unknown' };
+  }
+}
+
+/**
+ * Deploy 236.920 (Mike: "add an additional tray and request it from the
+ * borrower") — email the borrower that the team is asking for document(s)
+ * that were not on the original checklist. Same resolution as the fix email
+ * (live client/loan, borrower address, portal link), no portal-login gate:
+ * this is a processor's deliberate send, not the daily sweep.
+ *
+ * @param review  the loan review
+ * @param slugs   tray slugs being requested (must exist on review.docs)
+ * Zero-throw: returns { ok, sent, reason?, to? }.
+ */
+export async function sendRequestEmailForReview(review, slugs, opts) {
+  opts = opts || {};
+  try {
+    const docs = (review && review.docs) || {};
+    const wanted = (Array.isArray(slugs) ? slugs : [])
+      .filter((slug) => docs[slug] && !docs[slug].hidden)
+      .map((slug) => ({ slug, label: docs[slug].label || slug, hint: docs[slug].borrowerHint || '' }));
+    if (!wanted.length) return { ok: true, sent: false, reason: 'no-trays' };
+
+    const src = review.source || {};
+    if (src.kind !== 'existing' || !src.clientId || !src.loanId || !src.ownerKey) {
+      return { ok: true, sent: false, reason: 'no-loan-source' };
+    }
+    const ownerKey = keySafe(src.ownerKey);
+
+    let client = null, loan = null;
+    try {
+      const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+      client = await clientsStore.get(ownerKey + '/' + keySafe(src.clientId), { type: 'json' });
+      loan = client && Array.isArray(client.loans) ? client.loans.find((l) => l && l.id === src.loanId) : null;
+    } catch (_) {}
+
+    const toEmail = String(
+      (client && client.email) ||
+      (loan && loan.borrowerEmail) ||
+      (loan && loan.formData && loan.formData.borrowerEmail) || ''
+    ).trim().toLowerCase();
+    if (!toEmail || !toEmail.includes('@')) return { ok: true, sent: false, reason: 'no-borrower-email' };
+
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) return { ok: false, sent: false, reason: 'no-resend-key' };
+
+    const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const address = review.address || (loan && loan.address) || '';
+    const link = PORTAL_ORIGIN + '/borrower-intake.html?loanId=' + encodeURIComponent(src.loanId) +
+      '&primaryClientId=' + encodeURIComponent(src.clientId) +
+      '&ownerKey=' + encodeURIComponent(src.ownerKey);
+    const firstName = (client && client.firstName) || '';
+    const n = wanted.length;
+
+    const rows = wanted.map((w) =>
+      '<tr><td style="padding:8px 10px;border-bottom:1px solid #eee7da;font-weight:600">' + esc(w.label) + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #eee7da;color:#5a5348">' + esc(w.hint || 'Please upload this through your portal.') + '</td></tr>'
+    ).join('');
+    const textList = wanted.map((w) => ' - ' + w.label + (w.hint ? ': ' + w.hint : '')).join('\n');
+
+    const subject = 'Action needed: your loan team needs ' + (n === 1 ? 'one more document' : n + ' more documents') +
+      (address ? ' — ' + address : '');
+    const html =
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+      '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+      '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — One More Thing We Need</h1></div>' +
+      '<div style="padding:24px">' +
+      '<p style="font-size:14px">' + (firstName ? 'Hi ' + esc(firstName) + ',' : 'Hello,') + '</p>' +
+      '<p style="font-size:14px">Your loan team has asked for ' + (n === 1 ? 'an additional document' : n + ' additional documents') +
+      (address ? ' for <strong>' + esc(address) + '</strong>' : '') + '. ' +
+      (n === 1 ? 'It has' : 'They have') + ' been added to your document list so you can upload straight from your portal.</p>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px;margin:14px 0">' + rows + '</table>' +
+      '<p style="text-align:center;margin:26px 0">' +
+        '<a href="' + esc(link) + '" style="background:#C8813A;color:#fff;text-decoration:none;padding:12px 26px;border-radius:8px;font-size:14px;font-weight:600">Upload ' + (n === 1 ? 'the document' : 'the documents') + '</a>' +
+      '</p>' +
+      '<p style="font-size:12px;color:#7a7488">Questions? Just reply to this email and your loan officer will help.</p>' +
+      '</div></div></body></html>';
+    const text = 'Your loan team has asked for ' + (n === 1 ? 'an additional document' : n + ' additional documents') +
+      (address ? ' for ' + address : '') + ':\n\n' + textList +
+      '\n\nUpload here: ' + link +
+      '\n\nQuestions? Reply to this email and your loan officer will help.\n\n— SLA Capital';
+
+    const replyTo = await getOwnerReplyTo(ownerKey).catch(() => null);
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'SLA Capital <noreply@leads.slacapital.com>',
+        to: [toEmail],
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        subject, html, text,
+      }),
+    });
+    try {
+      await logBorrowerSendFromResponse(resp, {
+        kind: 'doc-request', reviewId: review.id, loanId: src.loanId, ownerKey, to: toEmail,
+        slugs: wanted.map((w) => w.slug), by: opts.by || '',
+      });
+    } catch (_) { /* logging is best-effort */ }
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      return { ok: false, sent: false, reason: 'resend-' + resp.status + (body ? ': ' + body.slice(0, 200) : ''), to: toEmail };
+    }
+    return { ok: true, sent: true, to: toEmail, count: n };
+  } catch (e) {
+    console.error('[borrower-request-email] failed:', e && e.message);
     return { ok: false, sent: false, reason: (e && e.message) || 'unknown' };
   }
 }

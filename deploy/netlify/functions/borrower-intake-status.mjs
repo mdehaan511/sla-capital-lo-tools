@@ -23,7 +23,7 @@ import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
 // Deploy 236.918 — trays the borrower added themselves (+ the old portal's
 // ad-hoc uploads) show on their list alongside the checklist.
-import { borrowerTrayEntries } from './_shared/borrower-intake-custom.mjs';
+import { borrowerVisibleEntries } from './_shared/borrower-intake-custom.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -142,15 +142,20 @@ async function handle(req, context) {
   });
 
   // Deploy 236.918 — borrower-originated trays (`borrower_` slugs) come after
-  // the checklist. Staff-added custom trays are NOT shown: those are internal
-  // categories unless the team asks the borrower for them.
+  // the checklist. Deploy 236.920 — so do trays the TEAM requested from the
+  // borrower (borrowerRequested). Staff-added custom trays that were NOT
+  // requested stay internal.
   const shownSlugs = new Set(items.map((i) => i.slug));
-  for (const { slug, doc } of borrowerTrayEntries(docs)) {
+  for (const { slug, doc, kind } of borrowerVisibleEntries(docs)) {
     if (shownSlugs.has(slug)) continue;
     const s = _itemState(doc);
+    const requested = kind === 'requested';
     items.push({
-      slug, label: doc.label || 'Additional document', hint: 'You added this document.',
-      optional: true, multi: true, templateUrl: '', custom: true,
+      slug, label: doc.label || 'Additional document',
+      hint: requested
+        ? ('Requested by your loan team' + (doc.borrowerHint ? ' — ' + doc.borrowerHint : ''))
+        : 'You added this document.',
+      optional: !requested, multi: true, templateUrl: '', custom: !requested, requested,
       status: s.status, accepted: s.accepted, uploaded: s.uploaded, uploadedCount: s.uploadedCount,
       manualReviewRequested: !!doc.manualReviewRequested,
       aiVerdict: doc.aiVerdict || '',

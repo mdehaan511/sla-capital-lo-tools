@@ -22,7 +22,7 @@ import { canReadLoan } from './_shared/access.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
 import { borrowerSlugSet, borrowerItem } from './_shared/borrower-intake-checklists.mjs';
 // Deploy 236.918 — uploads may also target a tray the borrower added.
-import { isBorrowerTray } from './_shared/borrower-intake-custom.mjs';
+import { isBorrowerVisibleTray } from './_shared/borrower-intake-custom.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -98,7 +98,8 @@ async function handle(req, context) {
   // tray the borrower added themselves (Deploy 236.918). Staff-added custom
   // trays stay off-limits: the borrower can't see them, so they can't
   // upload into them either.
-  const ownTray = !!(review && review.docs && isBorrowerTray(slug, review.docs[slug]));
+  // Deploy 236.920 — or a tray the team REQUESTED from them (borrowerRequested).
+  const ownTray = !!(review && review.docs && isBorrowerVisibleTray(slug, review.docs[slug]));
   if (!borrowerSlugSet(loanType).has(slug) && !ownTray) {
     return json(400, { error: 'That document is not on your submission list.' });
   }
@@ -253,11 +254,19 @@ async function handle(req, context) {
   // the rebuilt docState would otherwise drop the flags that put it on the
   // borrower's list and under Borrower for staff.
   if (ownTray && prior) {
-    docState.isCustom = true;
-    docState.borrowerAdded = prior.borrowerAdded !== false;
+    docState.isCustom = !!prior.isCustom;
+    docState.borrowerAdded = !!prior.borrowerAdded;
     docState.section = prior.section || 'borrower';
     if (!docState.conditions) docState.conditions = prior.conditions || '';
     if (prior.createdAt) docState.createdAt = prior.createdAt;
+    // Deploy 236.920 — a team-requested tray stays requested after the upload,
+    // with the note the borrower was shown.
+    if (prior.borrowerRequested) {
+      docState.borrowerRequested = true;
+      docState.borrowerHint = prior.borrowerHint || '';
+      docState.borrowerRequestedAt = prior.borrowerRequestedAt || '';
+      docState.borrowerRequestedBy = prior.borrowerRequestedBy || '';
+    }
   }
   review.docs[slug] = docState;
   review.updatedAt = now;

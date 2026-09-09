@@ -336,6 +336,7 @@
     var pill = it.status === 'needs_fix' ? '<span class="pill needs_fix">Needs fix</span>'
              : it.status === 'manual_review' ? '<span class="pill manual_review">Manual review</span>'
              : it.status === 'submitted' ? '<span class="pill submitted">Submitted</span>'
+             : it.requested ? '<span class="pill todo">Requested by your team</span>'
              : it.custom ? '<span class="pill optional">Added by you</span>'
              : (it.optional ? '<span class="pill optional">If applicable</span>' : '<span class="pill todo">Needed</span>');
     var msg = '';
