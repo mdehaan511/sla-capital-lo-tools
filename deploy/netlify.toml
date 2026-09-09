@@ -17,6 +17,9 @@
   timeout = 26
 [functions."borrower2-auth-sign"]
   timeout = 26
+# Deploy 236.927 -- all-reviews scan + a loan locate per review.
+[functions."loan-review-retype"]
+  timeout = 26
 # Deploy 236.779 — Xactus orders wait on a synchronous bureau/flood
 # response (typically 1-3s, occasionally slow); give the full budget.
 # Deploy 236.783 — reassign moves client/loan + side records across owners;
@@ -1431,6 +1434,14 @@
 [[redirects]]
   from = "/api/loan-review-sync-categories"
   to = "/.netlify/functions/loan-review-sync-categories"
+  status = 200
+  force = true
+# Deploy 236.927 -- admin: flip a Doc Review's checklist (loanType) to match
+# its loan's toolType. Reviews started before 236.702 on DSCR sizer loans were
+# created as RTL; this is the deliberate fix (never automatic on page open).
+[[redirects]]
+  from = "/api/loan-review-retype"
+  to = "/.netlify/functions/loan-review-retype"
   status = 200
   force = true
 # Deploy 236.684 — Resend delivery-failure webhook. On email.bounced of a
