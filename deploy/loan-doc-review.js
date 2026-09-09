@@ -1157,6 +1157,21 @@
       conditions: d.conditions || '',
       section:    d.section    || 'loan',
     };
+    // Deploy 236.924 (Mike: "reduce all the secondary text in the buckets for
+    // those different properties in Collateral Docs") -- a per-property tray
+    // (<base>__p<i>) is self-describing and carries the FULL checklist rubric
+    // as its conditions, so a portfolio's Collateral section showed a
+    // paragraph under every tray where a single-property review shows the
+    // DOC_META one-liner. Show the base slug's one-liner instead; the rubric
+    // stays on the tray and still drives the AI review server-side.
+    var _pBase = /__p\d+$/.test(slug) ? slug.replace(/__p\d+$/, '') : '';
+    if (_pBase && DOC_META[_pBase]) {
+      meta = {
+        label:      meta.label   || DOC_META[_pBase].label,
+        conditions: DOC_META[_pBase].conditions || '',
+        section:    meta.section || DOC_META[_pBase].section || 'collateral',
+      };
+    }
     var verdict = d.verdict || 'pending';
     var hasDoc = !!d.currentDocId;
     // Deploy 236.161 — Awaiting Review: when a doc has been uploaded
