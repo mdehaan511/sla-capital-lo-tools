@@ -719,10 +719,14 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field">
         <div class="wrap">
           <label>Loan Term <span class="req">*</span></label>
+          <!-- Deploy 236.917 (Mike) — real note terms, not pricing ranges
+               (matches rtl-sizer 236.916). 18 prices in the old 13–18 tier,
+               24 in the 19–24 tier (guc-pricing term>=19). Legacy saved
+               13/19 normalize to 18/24 on restore. -->
           <select id="loanTerm" onchange="autoCalc()">
             <option value="12">12 months</option>
-            <option value="13">13 – 18 months</option>
-            <option value="19">19 – 24 months</option>
+            <option value="18">18 months</option>
+            <option value="24">24 months</option>
           </select>
         </div>
       </div>
@@ -982,7 +986,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
 <!-- Deploy 236.702 — versioned so an in-flight pricing change (this module is
      new + iterating) can't be served stale from the unversioned /*.js cache.
      Bump the ?v= whenever guc-pricing.js changes. -->
-<script src="guc-pricing.js?v=236858"></script>
+<script src="guc-pricing.js?v=236917"></script>
 <script>
 // Deploy 236.408 (Hardening G1 RTL) — pricing engine extracted to
 // rtl-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -3894,6 +3898,15 @@ function loadRTLQuote(formData) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
   });
+  // Deploy 236.917 (Mike) — Loan Term select now holds real note terms
+  // (12/18/24); legacy bucket values normalize to the bucket's top (see
+  // rtl-sizer 236.916 for rationale).
+  var _termEl = document.getElementById('loanTerm');
+  if (_termEl) {
+    if (String(formData.loanTerm) === '13') _termEl.value = '18';
+    else if (String(formData.loanTerm) === '19') _termEl.value = '24';
+    if (!_termEl.value) _termEl.value = '12';
+  }
   // Deploy 236.700 — re-apply the currency mask to the dollar fields the
   // restore just set from plain numeric strings.
   _MONEY_FIELDS.forEach(_maskMoneyId);

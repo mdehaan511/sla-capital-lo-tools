@@ -284,7 +284,7 @@ var RTL_FIELDS = [
   { k:'fr',    l:'FICO',             t:'sel',   o:FICO_RTL, def:'740' },
   { k:'exp',   l:'Experience',       t:'sel',   o:[['8','8+ projects'],['5','4–7 projects'],['1','0–3 projects']] },
   { k:'pt',    l:'Property Type',    t:'sel',   o:[['sfr','SFR / 1–4 Units'],['mfr','Multi-Family 5–20 Units']] },
-  { k:'term',  l:'Term',             t:'sel',   o:[['12','12 months'],['13','13–18 months'],['19','19–24 months']] },
+  { k:'term',  l:'Term',             t:'sel',   o:[['12','12 months'],['18','18 months'],['24','24 months']] }, // Deploy 236.917 — real note terms (server prices 24 via rtl-pricing term>=19)
   { k:'state', l:'State',            t:'sel',   o:stateOpts(), def:'WA' }
 ];
 
@@ -295,7 +295,7 @@ var GUC_FIELDS = [
   { k:'fr',        l:'FICO',                  t:'sel',   o:FICO_RTL, def:'740' },
   { k:'exp',       l:'Experience',            t:'sel',   o:[['8','8+ projects'],['5','4–7 projects'],['1','0–3 projects']] },
   { k:'pt',        l:'Property Type',         t:'sel',   o:[['sfr','SFR / 1–4 Units'],['mfr','Multi-Family 5–20 Units']] },
-  { k:'term',      l:'Term',                  t:'sel',   o:[['12','12 months'],['13','13–18 months'],['19','19–24 months']] },
+  { k:'term',      l:'Term',                  t:'sel',   o:[['12','12 months'],['18','18 months'],['24','24 months']] }, // Deploy 236.917 — real note terms
   { k:'ownLand',   l:'Owns the Land',         t:'sel',   o:[['no','No'],['yes','Yes']] },
   { k:'landDebt',  l:'Existing Land Debt',    t:'money', def:'0' },
   { k:'state',     l:'State',                 t:'sel',   o:stateOpts(), def:'WA' }
