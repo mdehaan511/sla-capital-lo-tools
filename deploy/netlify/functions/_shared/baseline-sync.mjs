@@ -53,7 +53,18 @@ import { setNativeLink } from './baseline-upsert.mjs';
 
 const DEFAULT_BASE_URL = 'https://production.baselinesoftware.com/production/api';
 
+// Deploy 236.912 (Mike: "get rid of loans being pushed to baseline ... we
+// are now migrating exclusively to SLA") — the SLA → Baseline push is
+// RETIRED in code, not just by env var. Every push entry point
+// (syncOnApproval, syncLoanToBaseline, baselineStatus) already gates on
+// isEnabled(), so this one constant is the whole switch: they all report
+// mode 'disabled' / reason 'baseline_disabled' and touch nothing. An env
+// var could be flipped back by accident; this cannot. Reads FROM Baseline
+// (mirror, discover, migrate) are separate modules and unaffected.
+const PUSH_RETIRED = true;
+
 function isEnabled() {
+  if (PUSH_RETIRED) return false;
   if (process.env.BASELINE_ENABLED === '0') return false;
   return !!process.env.BASELINE_API_KEY;
 }

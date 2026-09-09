@@ -659,6 +659,12 @@
     // Ports Performance Stats + Upcoming Closings + Loans by State
     // + Loans table from /dashboard.html but reads /api/dashboard-
     // public (open to all staff; per-loan commission fields stripped).
+    //
+    // Deploy 236.912 (Mike) — /api/dashboard-public now serves SLA's own
+    // loans (Postgres), not the Baseline mirror, in the same field shape.
+    // Rows carry _finScope (sla-dashboard's 236.786 rule: processing
+    // pipeline + closed book, never the Leads pipeline) and _slaLoanId /
+    // _ownerKey so the table can link straight to Loan Details.
     // Everything below is self-contained — leaderboard code above is
     // untouched.
 
@@ -702,6 +708,11 @@
       });
     }
 
+    // Deploy 236.912 — same financial scope as sla-dashboard.html's
+    // finLoans(); rows without the flag (older responses) pass through.
+    function dashFinLoans() {
+      return (_dashLoans || []).filter(function(l) { return l && l._finScope !== false; });
+    }
     function renderDashboard() {
       renderDashPerf();
       renderDashUpcoming();
@@ -839,14 +850,14 @@
     // exactly. Active Pipeline $, Won $, Est. Revenue, Total Mirrored
     // (count, excludes archived).
     function renderDashPerf() {
-      var loans = _dashLoans || [];
+      var loans = dashFinLoans();
       var openLoans   = loans.filter(dashIsOpen);
       var wonLoans    = loans.filter(dashIsWon);
       var openAmount  = openLoans.reduce(function(s, l) { return s + dashAmount(l); }, 0);
       var wonSum      = wonLoans.reduce(function(s, l) { return s + dashAmount(l); }, 0);
       var revSum      = wonLoans.reduce(function(s, l) { return s + dashEstRevenue(l); }, 0);
       var nonArchived = loans.filter(function(l) { return !dashIsArchived(l); }).length;
-      document.getElementById('perfMeta').textContent = loans.length.toLocaleString() + ' mirrored';
+      document.getElementById('perfMeta').textContent = loans.length.toLocaleString() + ' SLA loans';
       document.getElementById('dashPerfBody').innerHTML =
         '<div class="perf-tiles">' +
           '<div class="perf-tile"><div class="n">' + fmtMoneyShort(openAmount) + '</div><div class="l">Active Pipeline</div></div>' +
@@ -861,7 +872,7 @@
     // (archived skipped), close date = l.Origination, parsed via
     // dashParseDate. Weeks bucketed by Monday.
     function renderDashUpcoming() {
-      var loans = _dashLoans || [];
+      var loans = dashFinLoans();
       var today = new Date(); today.setHours(0,0,0,0);
       var todayMs = today.getTime();
       var buckets = {}; // mondayMs → { start, count, volume, dscrCount, dscrTotal, rtlCount, rtlTotal }
@@ -914,7 +925,7 @@
     // archived excluded, active+closed both counted. State falls
     // back to the address regex when Address_State is empty.
     function renderDashState() {
-      var loans = _dashLoans || [];
+      var loans = dashFinLoans();
       var byState = {};
       loans.forEach(function(l) {
         if (dashIsArchived(l)) return;
@@ -1000,7 +1011,7 @@
       // Deploy 236.336 — Mike's rule: "show all except Closed, Sold,
       // In Servicing, or Archived". isClosed covers won (sold /
       // closed / funded / in_servicing) + liquidated. Keeps on-hold.
-      var loans = (_dashLoans || []).filter(function(l) {
+      var loans = dashFinLoans().filter(function(l) {
         return !dashIsClosed(l) && !dashIsArchived(l);
       });
       var q = (_dashLoanSearch || '').toLowerCase().trim();
@@ -1030,8 +1041,12 @@
         var ptsHtml = '—';
         var ptsPct = dashPointsPct(l.Origination_Points);
         if (ptsPct != null) ptsHtml = ptsPct.toFixed(2) + '%';
+        // Deploy 236.912 — SLA rows know their loan, so the name is a link.
+        var nameCell = l._slaLoanId
+          ? '<a href="/loan-details/' + encodeURIComponent(l._slaLoanId) + '?owner=' + encodeURIComponent(l._ownerKey || '') + '" style="color:inherit">' + escH(l.Name || '—') + '</a>'
+          : escH(l.Name || '—');
         return '<tr>' +
-          '<td>' + escH(l.Name || '—') + '</td>' +
+          '<td>' + nameCell + '</td>' +
           '<td>' + escH(l.Address_State || dashExtractState(l.Name) || '—') + '</td>' +
           '<td class="status-cell"><span class="status-pill ' + bucket + '">' + escH(l.Status || '—') + '</span></td>' +
           '<td>' + escH(l.Substatus || '—') + '</td>' +
@@ -1042,7 +1057,7 @@
         '</tr>';
       }).join('') + '</tbody>';
       var footer = loans.length > 200
-        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 of ' + loans.length.toLocaleString() + ' in-flight loans. Open <a href="dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
+        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 of ' + loans.length.toLocaleString() + ' in-flight loans. Open <a href="sla-dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
         : (loans.length === 0
             ? '<div style="padding:12px;font-size:12px;color:var(--muted);text-align:center">No in-flight loans.</div>'
             : '');

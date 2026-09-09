@@ -37,7 +37,9 @@ import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 // advances a loan to approved (the safety-valve path for when the
 // borrower-info auto-advance silently bailed). Same helper as
 // advanceQuoteToInProcessing uses.
-import { syncOnApproval as _baselineSyncOnApproval } from './_shared/baseline-sync.mjs';
+// Deploy 236.912 — the Baseline push on approval is retired (SLA is the
+// system of record); the import and call are gone rather than left as a
+// no-op so nobody reads this as "still syncs".
 // Deploy 226 — auto-write a "status" entry to the loan's audit log.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.311 — Slack notification when a loan advances to
@@ -146,18 +148,9 @@ async function handle(req, context) {
     _enteredProcessing = true;
   }
 
-  // Deploy 222 (Phase 3) — auto-fire Baseline sync when this manual
-  // advance lands at 'approved'. Same helper as the borrower-info
-  // auto-advance path. Mutates targetLoan in place so the single
-  // setJSON below persists both the status change and the Baseline
-  // refs atomically. Never throws.
-  if (body.newStatus === 'approved') {
-    try {
-      await _baselineSyncOnApproval(client, targetLoan, ownerKey, selfEmail);
-    } catch (e) {
-      console.error('loan-advance-status: baseline sync threw, ignoring:', e && e.message);
-    }
-  }
+  // Deploy 222 (Phase 3) used to push the loan to Baseline here on
+  // 'approved'. Deploy 236.912 — retired: SLA is the system of record and
+  // nothing is written to Baseline any more (see baseline-sync PUSH_RETIRED).
 
   // Deploy 236.803 — first entry into the Processing Pipeline: auto-invite
   // the borrower to the portal + create the LO's run-credit/submit task.

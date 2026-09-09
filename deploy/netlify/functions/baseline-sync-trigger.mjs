@@ -57,6 +57,13 @@ export default async (req, context) => {
   const ownerKey = keySafe(ownerEmail);
 
   // ── Load the client and locate the loan ────────────────────────
+  // Deploy 236.912 — the SLA → Baseline push is retired; SLA is the system
+  // of record. Answer plainly rather than run six steps that all no-op.
+  return json(410, {
+    error: 'Baseline sync is retired — SLA is now the system of record and loans are no longer pushed to Baseline.',
+    retired: true,
+  });
+  // eslint-disable-next-line no-unreachable
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const clientKey = ownerKey + '/' + keySafe(body.clientId);
 

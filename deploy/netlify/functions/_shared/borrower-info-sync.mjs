@@ -26,7 +26,7 @@ import { getStore } from '@netlify/blobs';
 // approved. Imported here so the same flip-to-approved code path that
 // moves the loan to "In Processing" also pushes the record to Baseline.
 // The helper is fire-and-await but never throws to the caller.
-import { syncOnApproval as _baselineSyncOnApproval } from './baseline-sync.mjs';
+// Deploy 236.912 — Baseline push on approval retired; see baseline-sync.mjs.
 // Deploy 226 — audit log: write "app_received" + "status" entries when
 // the long app comes back and the loan flips awaiting_app → approved.
 import { appendNoteEntry } from './notes-log.mjs';
@@ -562,11 +562,9 @@ export async function advanceQuoteToInProcessing(record) {
     // Deploy 236.764 — guarded on advancedLoan: loanUpdated can now be
     // true from the rate-lock stamp alone (no status advance).
     if (advancedLoan) {
-    try {
-      await _baselineSyncOnApproval(client, advancedLoan, record.ownerKey, record.advancedBy || 'auto:borrower-info-complete');
-    } catch (e) {
-      console.error('advanceQuoteToInProcessing: baseline sync threw, ignoring:', e && e.message);
-    }
+    // Deploy 236.912 — the Baseline push that used to fire here on approval
+    // is retired (SLA is the system of record). The auto-attach below is
+    // unchanged.
     // Deploy 236.160 — auto-attach signed Loan App + latest Rate
     // Sheet to the loan's Doc Review (if one exists). Best-effort
     // and zero-throw: the helper swallows + logs every failure so
