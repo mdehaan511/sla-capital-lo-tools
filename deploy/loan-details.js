@@ -1680,7 +1680,17 @@ function render() {
   // Penalty dropdown removed — it already shows in Loan Financials.
   var _ltOrig     = String(l.fundingDate || l.originationDate || '');
   var _ltFirstPay = _computeFirstPayment(_ltOrig) || '';
-  var _ltMaturity = _computeMaturity(_ltOrig, parseInt(_ltTerm, 10)) || ''; // Deploy 236.913 — 1st-of-following-month convention
+  var _ltAutoMaturity = _computeMaturity(_ltOrig, parseInt(_ltTerm, 10)) || ''; // Deploy 236.913 — 1st-of-following-month convention
+  // Deploy 236.929 (Elle: changed the Maturity Date in Servicing, "the updated
+  // date does not show/reflect" here) — a maturity set in Servicing (a manual
+  // edit, or a signed extension the servicer accepted) is the loan's REAL
+  // maturity; the computed date is only the default. Show the stored value
+  // when there is one, and remember what this card was rendered from so a
+  // save recomputes maturity only when the Closing Date or Term changed —
+  // before this, ANY Loan Terms save silently reverted a Servicing maturity.
+  var _ltMaturity = String(l.maturityDate || '') || _ltAutoMaturity;
+  var _ltMatFromServicing = !!(l.maturityDate && l.maturityDate !== _ltAutoMaturity);
+  _ltLoaded = { orig: _ltOrig, term: parseInt(_ltTerm, 10) };
 
   html += '<div class="section" id="loanTermsSection">' +
     '<div class="section-head"><h2>Loan Terms</h2><span class="section-tag tag-editable">Editable</span></div>' +
@@ -1722,7 +1732,7 @@ function render() {
       // from Closing Date + Loan Term by recalcTermDates(). Kept as disabled date
       // inputs so their .value is still readable in JS but the user can't edit.
       '<div class="field"><label>First Payment Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(_ltFirstPay) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
-      '<div class="field"><label>Maturity Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
+      '<div class="field"><label>Maturity Date <span style="text-transform:none;font-weight:400;color:var(--muted)">' + (_ltMatFromServicing ? '(from Servicing)' : '(auto)') + '</span></label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" disabled title="' + (_ltMatFromServicing ? 'Set in Servicing (manual edit or accepted extension). Changing the Closing Date or Loan Term recomputes it.' : 'Calculated from Closing Date + Loan Term') + '" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
       // Deploy 236.647 — Holdback (= Rehab Budget, already in Financials), Initial
       // Advance, and Down Payment removed from Loan Terms; Initial Advance + Down
       // Payment now live in the Loan Financials grid.
@@ -7517,6 +7527,16 @@ function _computeMaturity(ymd, termMonths) {
   var bump = d.getDate() > 1 ? 1 : 0;
   return _ldToYmd(new Date(d.getFullYear(), d.getMonth() + termMonths + bump, 1, 12, 0, 0));
 }
+// Deploy 236.929 — the maturity a Loan Terms save should carry: the stored
+// (Servicing) date while Closing Date + Term are what the card loaded with,
+// the recomputed convention date the moment either of them changes.
+var _ltLoaded = null;
+function _ltEffectiveMaturity(closing, term) {
+  var t = parseInt(term, 10);
+  var same = !!(_ltLoaded && String(closing || '') === String(_ltLoaded.orig || '') && t === _ltLoaded.term);
+  var stored = String((_loan && _loan.maturityDate) || '');
+  return (same && stored) ? stored : (_computeMaturity(closing, t) || '');
+}
 // Deploy 236.644 — keep the non-editable First Payment + Maturity fields in
 // sync with the current Closing Date + Loan Term inputs (wired to their oninput).
 function recalcTermDates() {
@@ -7525,7 +7545,7 @@ function recalcTermDates() {
   var fp = document.getElementById('lt-firstPaymentDate');
   var mt = document.getElementById('lt-maturityDate');
   if (fp) fp.value = _computeFirstPayment(closing) || '';
-  if (mt) mt.value = _computeMaturity(closing, parseInt(term, 10)) || '';
+  if (mt) mt.value = _ltEffectiveMaturity(closing, term);
 }
 
 function _ldOwnerOverride() {
@@ -7695,7 +7715,7 @@ function saveLoanTerms() {
     lienPosition:     _ldVal('lt-lienPosition'),
     originationDate:  _closing,
     firstPaymentDate: _computeFirstPayment(_closing) || '',
-    maturityDate:     _computeMaturity(_closing, parseInt(_termN, 10)) || '', // Deploy 236.913 — 1st-of-following-month convention
+    maturityDate:     _ltEffectiveMaturity(_closing, _termN), // Deploy 236.913 convention; 236.929 keeps a Servicing-set maturity unless Closing/Term changed
     // Deploy 236.641 — Loan Purpose / Closing Date / Description moved into
     // the Loan Terms box from the retired Property & Application section.
     loanPurpose:        _ldVal('af-loanPurpose'),
