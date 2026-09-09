@@ -155,11 +155,24 @@ const firstPaymentOf = (l) => {
 // FOLLOWING funding + term — the lender-standard convention (Deploy 236.913,
 // Dan Austin). Matches fci-boarding.mjs maturityOf and the Loan Terms UI; a
 // loan funding exactly on the 1st gets no bump.
+// Term in months. Priority: servicing `term` → Loan Terms `loanTerm` → the
+// sizer's formData.loanTerm, which is a pricing BUCKET (13 = "13 – 18 months",
+// 19 = "19 – 24 months" — the note is written for the bucket's TOP) → 12.
+// Deploy 236.914 (Mike): "look at the loan term in the sizer", not a flat 12.
+const termOf = (l) => {
+  const t = num(l.term) || num(l.loanTerm);
+  if (t) return t;
+  const fd = num(l.formData && l.formData.loanTerm);
+  if (fd === 13) return 18;
+  if (fd === 19) return 24;
+  if (fd) return fd;
+  return String(l.toolType || '').toLowerCase() === 'dscr' ? 360 : 12;
+};
 const maturityOf = (l) => {
   if (l.maturityDate) return dstr(l.maturityDate);
   const f = dparts(l.fundingDate);
   if (!f) return '';
-  const t = num(l.term) || 12;
+  const t = termOf(l);
   let m = f.m + t, y = f.y;
   if (f.d > 1) m += 1;
   while (m > 12) { m -= 12; y += 1; }
@@ -237,7 +250,7 @@ const COLCHIS_TRADE_COLS = [
   ['Origination Date', (c) => dstr(c.loan.fundingDate)],
   ['Date of First Payment', (c) => firstPaymentOf(c.loan)],
   ['Original Maturity Date', (c) => maturityOf(c.loan)],
-  ['Term (Mo.)', (c) => num(c.loan.term) || 12],
+  ['Term (Mo.)', (c) => termOf(c.loan)],
   ['Total Loan Amount', (c) => totalAmt(c.loan) || ''],
   ['Balance At Submission', (c) => num(c.loan.upb) || totalAmt(c.loan) || ''],
   ['Initial Loan Amount', (c) => { const t = totalAmt(c.loan); return t == null ? '' : t - rehabAmt(c.loan); }],
@@ -564,7 +577,7 @@ const STRIDE_RTL_COLS = [
   ['Next Due', (c) => firstPaymentOf(c.loan)], // pre-funding: next due IS first due
   ['First Due', (c) => firstPaymentOf(c.loan)],
   ['Maturity Date', (c) => maturityOf(c.loan)],
-  ['Term', (c) => (num(c.loan.term) || 12) + ' months'],
+  ['Term', (c) => termOf(c.loan) + ' months'],
   ['Purchase/Refi', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? 'PURCHASE' : (c.loan.loanPurpose ? 'REFI' : ''))],
   // Sample uses "Note" where interest accrues on the full note (our Dutch).
   ['Accrual Type', (c) => { const d = dutchLabel(c.loan); return d === 'Dutch' ? 'Note' : (d === 'Non-Dutch' ? 'As Disbursed' : ''); }],

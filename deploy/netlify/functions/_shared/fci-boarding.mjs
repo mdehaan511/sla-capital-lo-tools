@@ -131,7 +131,12 @@ const maturityOf = (l) => {
   if (l.maturityDate) return mdY(l.maturityDate);
   const f = dparts(l.fundingDate);
   if (!f) return '';
-  const t = num(l.term) || 12;
+  // Deploy 236.914 (Mike) — term from servicing `term`, else Loan Terms
+  // `loanTerm`, else the sizer's formData.loanTerm bucket (13 = "13 – 18
+  // months" → 18, 19 = "19 – 24 months" → 24), else 12.
+  const fdT = num(l.formData && l.formData.loanTerm);
+  const t = num(l.term) || num(l.loanTerm)
+    || (fdT === 13 ? 18 : fdT === 19 ? 24 : fdT) || 12;
   let m = f.m + t, y = f.y;
   while (m > 12) { m -= 12; y += 1; }
   if (f.d > 1) { m += 1; if (m > 12) { m -= 12; y += 1; } }

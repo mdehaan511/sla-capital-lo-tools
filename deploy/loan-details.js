@@ -1667,7 +1667,13 @@ function render() {
   if (_lien === '1' || _lien === '1st') _lien = 'first';
   if (_lien === '2' || _lien === '2nd') _lien = 'second';
   if (!_lien) _lien = 'first';
-  var _ltTerm     = String(l.loanTerm || (isDscr ? '360' : '12'));
+  // Deploy 236.914 (Mike) — a blank Loan Term defaults from the SIZER's term,
+  // not a flat 12: the RTL/GUC sizer saves formData.loanTerm as a pricing
+  // BUCKET (12, 13 = "13 – 18 months", 19 = "19 – 24 months") and the note is
+  // written for the bucket's top, so 13 → 18 and 19 → 24. DSCR has no sizer
+  // term (30-year product) → 360. The field stays editable — this is only the
+  // default the maturity math starts from.
+  var _ltTerm     = String(l.loanTerm || _sizerTermMonths(l) || (isDscr ? '360' : '12'));
   // Deploy 236.644 — Origination Date === Closing Date (no separate field), and
   // First Payment + Maturity are non-editable, ALWAYS derived from the Closing
   // Date + Loan Term (recomputed live by recalcTermDates + on save). Prepayment
@@ -7493,6 +7499,18 @@ function _computeFirstPayment(ymd) {
 // boarding sheet already uses (_shared/fci-boarding.mjs maturityOf, verified
 // against FCI's own samples), and it lines up with First Payment: first
 // payment + (term − 1) months = maturity.
+// Deploy 236.914 (Mike) — the RTL/GUC sizer's Loan Term select is a pricing
+// BUCKET, not a month count: 12 = "12 months", 13 = "13 – 18 months",
+// 19 = "19 – 24 months". The note term for a bucket is its TOP (18 / 24).
+// Any other stored value is treated as literal months.
+function _sizerTermMonths(l) {
+  var fd = (l && l.formData) || {};
+  var t = parseInt(fd.loanTerm, 10);
+  if (!isFinite(t) || t <= 0) return null;
+  if (t === 13) return 18;
+  if (t === 19) return 24;
+  return t;
+}
 function _computeMaturity(ymd, termMonths) {
   var d = _ldParseYmd(ymd);
   if (!d || !isFinite(termMonths)) return '';
