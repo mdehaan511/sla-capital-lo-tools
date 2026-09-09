@@ -21,6 +21,9 @@ import { loadRecord } from './_shared/borrower-info-keys.mjs';
 // hitting borrower-portal-loans). Staff emails in the store are harmless —
 // the cron checks the BORROWER's email against it.
 import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
+// Deploy 236.918 — trays the borrower added themselves (+ the old portal's
+// ad-hoc uploads) show on their list alongside the checklist.
+import { borrowerTrayEntries } from './_shared/borrower-intake-custom.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -137,6 +140,24 @@ async function handle(req, context) {
       findings: s.findings,
     };
   });
+
+  // Deploy 236.918 — borrower-originated trays (`borrower_` slugs) come after
+  // the checklist. Staff-added custom trays are NOT shown: those are internal
+  // categories unless the team asks the borrower for them.
+  const shownSlugs = new Set(items.map((i) => i.slug));
+  for (const { slug, doc } of borrowerTrayEntries(docs)) {
+    if (shownSlugs.has(slug)) continue;
+    const s = _itemState(doc);
+    items.push({
+      slug, label: doc.label || 'Additional document', hint: 'You added this document.',
+      optional: true, multi: true, templateUrl: '', custom: true,
+      status: s.status, accepted: s.accepted, uploaded: s.uploaded, uploadedCount: s.uploadedCount,
+      manualReviewRequested: !!doc.manualReviewRequested,
+      aiVerdict: doc.aiVerdict || '',
+      message: s.message,
+      findings: s.findings,
+    });
+  }
 
   return json(200, {
     ok: true,

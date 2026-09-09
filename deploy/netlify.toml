@@ -1492,6 +1492,13 @@
   to = "/.netlify/functions/borrower-intake-upload"
   status = 200
   force = true
+# Deploy 236.918 — a borrower adds a document category of their own (no
+# rubric → manual review); shows on their list and under Borrower for staff.
+[[redirects]]
+  from = "/api/borrower-intake-add-category"
+  to = "/.netlify/functions/borrower-intake-add-category"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/borrower-intake-manual-review"
   to = "/.netlify/functions/borrower-intake-manual-review"

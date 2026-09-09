@@ -128,6 +128,23 @@
     <div class="main-cols">
       <div class="docs-col">
         <div id="itemsContainer"></div>
+        <!-- Deploy 236.918 — the borrower can add a document we didn't ask for.
+             It becomes a tray of its own (no rubric → manual review by the team). -->
+        <div class="item" id="addCatBlock" style="border-style:dashed">
+          <div class="item-head"><div><div class="item-name">Have something we didn’t ask for?</div>
+            <div class="item-hint">Add it here and upload the file — your loan team will review it.</div></div></div>
+          <div class="item-actions">
+            <button class="btn ghost" id="addCatOpen" onclick="toggleAddCategory(true)">+ Add a document</button>
+          </div>
+          <div id="addCatForm" style="display:none;margin-top:10px">
+            <input class="vend-in" id="addCatName" type="text" maxlength="120" placeholder="What is it? e.g. Gift letter, HOA statement" onkeydown="if(event.key==='Enter'){submitAddCategory();}" />
+            <div class="item-actions" style="margin-top:8px">
+              <button class="btn primary" onclick="submitAddCategory()">Add</button>
+              <button class="btn ghost" onclick="toggleAddCategory(false)">Cancel</button>
+              <span id="addCatStatus" style="font-size:12px;color:var(--muted)"></span>
+            </div>
+          </div>
+        </div>
         <div class="done-note" id="doneNote"></div>
       </div>
       <aside class="side-col">
@@ -285,10 +302,41 @@
     box.style.display = '';
   }
 
+  // Deploy 236.918 — borrower-added categories.
+  function toggleAddCategory(show){
+    var f = document.getElementById('addCatForm'); if (f) f.style.display = show ? 'block' : 'none';
+    var o = document.getElementById('addCatOpen'); if (o) o.style.display = show ? 'none' : '';
+    var st = document.getElementById('addCatStatus'); if (st && show) st.textContent = '';
+    if (show){ var i = document.getElementById('addCatName'); if (i){ i.value = ''; i.focus(); } }
+  }
+  function submitAddCategory(){
+    var name = String((document.getElementById('addCatName') || {}).value || '').trim();
+    var st = document.getElementById('addCatStatus');
+    if (name.length < 2){ if (st) st.textContent = 'Give the document a name.'; return; }
+    if (st) st.textContent = 'Adding…';
+    _borrowerJwt().then(function(token){
+      return fetch('/api/borrower-intake-add-category', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loanId: _loanId, primaryClientId: _clientId, ownerKey: _owner, label: name }),
+      });
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(d){ if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; });
+    }).then(function(d){
+      toggleAddCategory(false);
+      var o = document.getElementById('addCatStatus');
+      // Re-pull the list so the new tray shows up with its own Upload button.
+      loadStatus();
+      if (o) o.textContent = d.existing ? 'You already added that one — it’s in your list.' : 'Added — upload the file above.';
+    }).catch(function(e){
+      if (st) st.textContent = 'Couldn’t add: ' + (e && e.message || 'unknown');
+    });
+  }
   function renderItem(it){
     var pill = it.status === 'needs_fix' ? '<span class="pill needs_fix">Needs fix</span>'
              : it.status === 'manual_review' ? '<span class="pill manual_review">Manual review</span>'
              : it.status === 'submitted' ? '<span class="pill submitted">Submitted</span>'
+             : it.custom ? '<span class="pill optional">Added by you</span>'
              : (it.optional ? '<span class="pill optional">If applicable</span>' : '<span class="pill todo">Needed</span>');
     var msg = '';
     if (it.message){

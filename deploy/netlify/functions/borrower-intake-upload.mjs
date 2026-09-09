@@ -21,6 +21,8 @@ import {
 import { canReadLoan } from './_shared/access.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
 import { borrowerSlugSet, borrowerItem } from './_shared/borrower-intake-checklists.mjs';
+// Deploy 236.918 — uploads may also target a tray the borrower added.
+import { isBorrowerTray } from './_shared/borrower-intake-custom.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -92,8 +94,12 @@ async function handle(req, context) {
   } catch (e) { console.warn('[borrower-intake-upload] review lookup failed:', e && e.message); }
 
   const loanType = String((review && review.loanType) || (loan && loan.loanType) || '').toLowerCase();
-  // Only allow uploads to slugs on the borrower's own checklist.
-  if (!borrowerSlugSet(loanType).has(slug)) {
+  // Only allow uploads to slugs on the borrower's own checklist — or to a
+  // tray the borrower added themselves (Deploy 236.918). Staff-added custom
+  // trays stay off-limits: the borrower can't see them, so they can't
+  // upload into them either.
+  const ownTray = !!(review && review.docs && isBorrowerTray(slug, review.docs[slug]));
+  if (!borrowerSlugSet(loanType).has(slug) && !ownTray) {
     return json(400, { error: 'That document is not on your submission list.' });
   }
 
@@ -116,7 +122,8 @@ async function handle(req, context) {
   const now   = new Date().toISOString();
   const docId = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   let mimeType    = String(body.mimeType || 'application/pdf');
-  const item      = borrowerItem(loanType, slug) || { label: slug };
+  const item      = borrowerItem(loanType, slug)
+    || { label: (ownTray && review.docs[slug].label) || slug, conditions: (ownTray && review.docs[slug].conditions) || '' };
   let finalName   = String(body.filename || (item.label + '.pdf')).slice(0, 160);
 
   // Deploy 236.673 — auto-convert HEIC/HEIF (iPhone ID / citizenship photos) to JPEG
@@ -242,6 +249,16 @@ async function handle(req, context) {
   }
   docState.borrowerStatus = borrowerStatus;
 
+  // Deploy 236.918 — a borrower-added tray keeps its identity across uploads;
+  // the rebuilt docState would otherwise drop the flags that put it on the
+  // borrower's list and under Borrower for staff.
+  if (ownTray && prior) {
+    docState.isCustom = true;
+    docState.borrowerAdded = prior.borrowerAdded !== false;
+    docState.section = prior.section || 'borrower';
+    if (!docState.conditions) docState.conditions = prior.conditions || '';
+    if (prior.createdAt) docState.createdAt = prior.createdAt;
+  }
   review.docs[slug] = docState;
   review.updatedAt = now;
   review.lastEditedBy = normalizeEmail(user.email);
