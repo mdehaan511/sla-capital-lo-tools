@@ -11,7 +11,9 @@
     that LO's plan:
 
       model   — the full-time comp model (Sara, Carl):
-                tier bps by MARGIN: <1.5 pts → 35 · <2.5 → 50 · <3.5 → 65 · 3.5+ → 70
+                tier bps by MARGIN, by CLOSE DATE (Deploy 236.951, Mike):
+                  closed on/after 9/10/26: <1.5 → 35 · 1.5–2.24 → 50 · 2.25–2.74 → 58.75 · 2.75–3.49 → 65 · 3.5–4.49 → 70 · 4.5+ → 85
+                  closed before 9/10/26:   <1.5 → 35 · <2.5 → 50 · <3.5 → 65 · 3.5+ → 70   (the original sheet; already-closed loans never move)
                 margin = points + TPO spread (DSCR)
                        = points + (sold rate − SIZER base rate) (RTL/GUC; 236.941 — investor buyRate never affects comp)
                 company-sourced first loan → tier bps × 0.5
@@ -132,7 +134,8 @@
     <h2>Comp Model Reference</h2>
     <div class="sub">FROM SLA_FULL_TIME_LO_COMPENSATION_MODEL.XLSX</div>
     <div style="font-size:12.5px;line-height:1.8">
-      Tier bps by margin: <strong>&lt;1.5 pts → 35</strong> · <strong>1.5–2.49 → 50</strong> · <strong>2.5–3.49 → 65</strong> · <strong>3.5+ → 70</strong><br/>
+      Tier bps by margin, closings <strong>from Sep 10, 2026</strong>: <strong>&lt;1.5 pts → 35</strong> · <strong>1.5–2.24 → 50</strong> · <strong>2.25–2.74 → 58.75</strong> · <strong>2.75–3.49 → 65</strong> · <strong>3.5–4.49 → 70</strong> · <strong>4.5+ → 85</strong><br/>
+      <span style="color:var(--muted)">Closed before Sep 10, 2026: &lt;1.5 → 35 · 1.5–2.49 → 50 · 2.5–3.49 → 65 · 3.5+ → 70 (unchanged for loans already closed)</span><br/>
       Company-sourced first loan → tier bps × 0.5 · Repeat borrower +$250 · Borrower referral +$250 ·
       Production bonus $5,000 per full $10M funded per quarter.<br/>
       Margin: DSCR = points + TPO spread · RTL/GUC = points + (note rate − buy/base rate).
@@ -258,12 +261,27 @@ function isClosedWon(l) {
 }
 
 // The comp model's tier lookup (Assumptions sheet).
-function tierBps(margin) {
+// Deploy 236.951 (Mike: "add another tier to get a .5875 bps comp at 2.25-2.75%
+// and then the .65bps will kick in at 2.75-3.49. lets also add a .85 level at
+// 4.5+ ... This only applies to future closings not ones that have already
+// closed.") — the schedule is chosen by the loan's CLOSE DATE, newest first;
+// each tier is [upper bound (exclusive), bps]. A loan that closed before an
+// entry's effective date falls through to the older schedule, so nothing
+// already closed ever reprices. Add a new schedule at the TOP when tiers change.
+var TIER_SCHEDULES = [
+  { effective: '2026-09-10', tiers: [[1.5, 35], [2.25, 50], [2.75, 58.75], [3.5, 65], [4.5, 70], [Infinity, 85]] },
+  { effective: '0000-00-00', tiers: [[1.5, 35], [2.5, 50], [3.5, 65], [Infinity, 70]] },   // the original sheet
+];
+function tierScheduleFor(closeDate) {
+  var d = String(closeDate || '').slice(0, 10);
+  for (var i = 0; i < TIER_SCHEDULES.length; i++) if (d >= TIER_SCHEDULES[i].effective) return TIER_SCHEDULES[i];
+  return TIER_SCHEDULES[TIER_SCHEDULES.length - 1];
+}
+function tierBps(margin, closeDate) {
   if (!isFinite(margin)) return 0;
-  if (margin < 1.5) return 35;
-  if (margin < 2.5) return 50;
-  if (margin < 3.5) return 65;
-  return 70;
+  var tiers = tierScheduleFor(closeDate).tiers;
+  for (var i = 0; i < tiers.length; i++) if (margin < tiers[i][0]) return tiers[i][1];
+  return tiers[tiers.length - 1][1];
 }
 
 // Margin per Mike: DSCR = points + TPO spread; RTL/GUC = points + (rate − buy rate).
@@ -481,7 +499,7 @@ function computeRow(r, plan) {
     out.total = out.base;
     return out;
   }
-  out.tier = tierBps(r.margin);
+  out.tier = tierBps(r.margin, r.closeDate);   // 236.951 — schedule by close date
   out.applied = r.source === 'company' ? out.tier * 0.5 : out.tier;
   out.base = r.amount * out.applied / 10000;
   out.bonus = (r.isRepeat ? 250 : 0) + (r.referral ? 250 : 0);
