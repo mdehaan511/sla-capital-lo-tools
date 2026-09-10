@@ -10,7 +10,7 @@
 import { PDFDocument } from '../deploy/node_modules/pdf-lib/cjs/index.js';
 import {
   FORMS, formForSlug, formById, slugsWithForms, prefillFor, validateAnswers, scrubAnswers,
-  renderFormPdf, filedName, commitmentLetterText, loadW9Template, ESIGN_CONSENT_VERSION,
+  renderFormPdf, filedName, commitmentLetterText, loadW9Template, loadLogo, ESIGN_CONSENT_VERSION,
 } from '../deploy/netlify/functions/_shared/borrower-forms.mjs';
 import { getChecklist } from '../deploy/netlify/functions/_shared/loan-review-checklists.mjs';
 
@@ -85,6 +85,7 @@ const ctx = {
 {
   const sig = { name: 'Jamie Q. Sample', email: 'jamie@example.com', signedAt: '2026-09-10T18:22:00.000Z', ip: '203.0.113.7', seal: 'abcdef0123456789', consentVersion: ESIGN_CONSENT_VERSION };
   check('W-9 template is in the bundle', loadW9Template().length > 40000, true);
+  check('letterhead logo is in the bundle (236.950)', (loadLogo() || []).length > 5000, true);
   const answers = {
     w9: { name: 'Hawthorne Holdings LLC', taxClass: 'llc', llcClass: 'P', foreignPartners: true, address: '108 E Maryland St', cityStateZip: 'Evansville, IN 47711', tinType: 'ein', tin: '123456789' },
     pm_questionnaire: { borrowerName: 'Jamie Sample', propertyAddress: ctx.loan.address, yearsSelfManaged: '6 years', unitsSelfManaged: '14', sameArea: 'yes', distance: 'About 4 miles' },

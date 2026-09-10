@@ -232,14 +232,44 @@ async function _fonts(pdf) {
     sig:  await pdf.embedFont(StandardFonts.TimesRomanItalic),
   };
 }
-function _header(page, F, title) {
+// Deploy 236.950 (Mike: "make sure all of the documents have the company
+// logo/letterhead at the top" — except the W-9, a government form). The logo
+// is a 720px copy of SLA_Capital_Logo_2_1.png bundled at _templates/sla-logo.png;
+// a missing file falls back to the wordmark so a document never fails to render.
+export function loadLogo() {
+  const candidates = [
+    join(_funcDir, '..', '_templates', 'sla-logo.png'),
+    join(_funcDir, '_templates', 'sla-logo.png'),
+    join(process.cwd(), 'netlify', 'functions', '_templates', 'sla-logo.png'),
+    join(process.cwd(), 'deploy', 'netlify', 'functions', '_templates', 'sla-logo.png'),
+  ];
+  for (const p of candidates) { try { return readFileSync(p); } catch (_) {} }
+  return null;
+}
+const LOGO_H = 46;   // points; the mark is 2000x1609 so this is ~57pt wide
+// Letterhead: logo top-left, gold rule, then the document title. Returns the
+// y where body text may start. `logo` is the embedded PDFImage or null.
+function _letterhead(page, F, logo, title) {
   const { width, height } = page.getSize();
-  page.drawText('SLA Capital', { x: 54, y: height - 58, size: 18, font: F.bold, color: PLUM });
-  page.drawLine({ start: { x: 54, y: height - 68 }, end: { x: width - 54, y: height - 68 }, thickness: 1.2, color: GOLD });
-  const lines = _wrap(title, F.bold, 13, width - 108);
-  let y = height - 92;
-  for (const ln of lines) { page.drawText(ln, { x: 54, y, size: 13, font: F.bold, color: TEXT }); y -= 17; }
-  return y - 6;
+  const top = height - 50;
+  if (logo) {
+    const w = LOGO_H * (logo.width / logo.height);
+    page.drawImage(logo, { x: 54, y: top - LOGO_H, width: w, height: LOGO_H });
+  } else {
+    page.drawText('SLA Capital', { x: 54, y: top - 20, size: 18, font: F.bold, color: PLUM });
+  }
+  const rule = top - LOGO_H - 12;
+  page.drawLine({ start: { x: 54, y: rule }, end: { x: width - 54, y: rule }, thickness: 1.2, color: GOLD });
+  let y = rule - 26;
+  if (title) {
+    for (const ln of _wrap(title, F.bold, 13, width - 108)) { page.drawText(ln, { x: 54, y, size: 13, font: F.bold, color: TEXT }); y -= 17; }
+    y -= 6;
+  }
+  return y;
+}
+async function _embedLogo(pdf) {
+  try { const bytes = loadLogo(); return bytes ? await pdf.embedPng(bytes) : null; }
+  catch (e) { console.warn('borrower-forms: logo embed failed:', e && e.message); return null; }
 }
 function _paragraph(page, F, text, x, y, size, maxWidth, color) {
   for (const ln of _wrap(text, F.helv, size, maxWidth)) { page.drawText(ln, { x, y, size, font: F.helv, color: color || TEXT }); y -= size * 1.45; }
@@ -275,7 +305,7 @@ async function _renderSimpleForm(form, answers, ctx, signature) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   const F = await _fonts(pdf);
-  let y = _header(page, F, form.title);
+  let y = _letterhead(page, F, await _embedLogo(pdf), form.title);
   const loan = (ctx && ctx.loan) || {};
   if (loan.address) { page.drawText('Loan: ' + loan.address, { x: 54, y, size: 9.5, font: F.helv, color: MUTED }); y -= 16; }
   if (form.intro) y = _paragraph(page, F, form.intro, 54, y, 10, 504, TEXT) - 8;
@@ -317,12 +347,11 @@ async function _renderCommitmentLetter(form, staffValues, ctx, signature) {
     [client.firstName, client.lastName].map((s) => String(s || '').trim()).filter(Boolean).join(' ') || 'Borrower';
   const address = String(loan.address || '').trim() || '[property address]';
   const { width, height } = page.getSize();
-  page.drawText('SLA Capital', { x: 54, y: height - 58, size: 18, font: F.bold, color: PLUM });
-  page.drawLine({ start: { x: 54, y: height - 68 }, end: { x: width - 54, y: height - 68 }, thickness: 1.2, color: GOLD });
-  page.drawText('LOAN COMMITMENT LETTER', { x: 54, y: height - 96, size: 14, font: F.bold, color: TEXT });
-  page.drawText('Financing Confirmation', { x: 54, y: height - 112, size: 10.5, font: F.helv, color: MUTED });
-  let y = height - 140;
-  const P = (t, gap) => { y = _paragraph(page, F, t, 54, y, 10, 504) - (gap == null ? 8 : gap); };
+  let y = _letterhead(page, F, await _embedLogo(pdf), '');
+  page.drawText('LOAN COMMITMENT LETTER', { x: 54, y, size: 14, font: F.bold, color: TEXT });
+  page.drawText('Financing Confirmation', { x: 54, y: y - 16, size: 10.5, font: F.helv, color: MUTED });
+  y -= 42;
+  const P = (t, gap) => { y = _paragraph(page, F, t, 54, y, 10, 504) - (gap == null ? 7 : gap); };
   P('Date: ' + _fmtDate(sv.letterDate), 4);
   P('To: Borrower, Seller, Listing Agent, and/or Other Interested Parties', 4);
   P('Re: Financing commitment for ' + address, 12);
@@ -344,12 +373,12 @@ async function _renderCommitmentLetter(form, staffValues, ctx, signature) {
   page.drawText('Closing Requirements', { x: 54, y, size: 11, font: F.bold, color: TEXT }); y -= 16;
   P('This commitment is based on the information currently provided and remains subject to satisfactory completion of customary lender due diligence and closing requirements, including property valuation/appraisal, acceptable title and lien position, insurance, required borrower or entity documentation, funds to close, and execution of final loan documents. A material change to the borrower, property, or transaction may require reevaluation.', 10);
   P('This letter confirms SLA Capital\'s current lending commitment for the transaction described above and is not a substitute for the definitive loan documents executed at closing.', 10);
-  P('This commitment is valid through ' + _fmtDate(sv.expirationDate) + ', unless extended by SLA Capital in writing.', 16);
-  page.drawText('Sincerely,', { x: 54, y, size: 10, font: F.helv, color: TEXT }); y -= 26;
+  P('This commitment is valid through ' + _fmtDate(sv.expirationDate) + ', unless extended by SLA Capital in writing.', 12);
+  page.drawText('Sincerely,', { x: 54, y, size: 10, font: F.helv, color: TEXT }); y -= 24;
   page.drawText(String(sv.repName || ''), { x: 54, y, size: 13, font: F.sig, color: PLUM }); y -= 14;
   page.drawText([String(sv.repTitle || ''), 'SLA Capital'].filter(Boolean).join(' | '), { x: 54, y, size: 9.5, font: F.helv, color: TEXT }); y -= 12;
-  page.drawText([String(sv.repPhone || ''), String(sv.repEmail || '')].filter(Boolean).join(' | '), { x: 54, y, size: 9.5, font: F.helv, color: MUTED }); y -= 26;
-  y = Math.min(y, 150);
+  page.drawText([String(sv.repPhone || ''), String(sv.repEmail || '')].filter(Boolean).join(' | '), { x: 54, y, size: 9.5, font: F.helv, color: MUTED }); y -= 24;
+  y = Math.min(y - 4, 140);
   _signatureBlock(page, F, y, signature, 'Acknowledged and accepted by Borrower');
   _auditLine(page, F, signature);
   return pdf.save();
