@@ -172,6 +172,10 @@ export const DSCR_DOCS = [
     conditions: 'Receipt showing borrower provided EMD to the title company.', purchaseOnly: true },
   { slug: 'invoice', label: 'Invoice', section: 'closing',
     conditions: 'Third-party fees invoiced (appraisal, PCA, environmental, etc.).', optional: true },
+  // Deploy 236.945 (Mike) — SLA's commitment letter, generated + sent from the tray
+  // for the borrower's acknowledgment; storage-only (see _shared/borrower-forms.mjs).
+  { slug: 'commitment_letter', label: 'Loan Commitment Letter', section: 'loan',
+    conditions: '', optional: true, noReview: true },
   // Deploy 236.752 — record-keeping vault for the executed/signed closing package.
   // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
   // required-missing doc. Backfilled onto existing reviews by sync-categories.
@@ -294,6 +298,14 @@ export const RTL_DOCS = [
     conditions: 'Insured name matches the title company; coverage at least $1,000,000 per occurrence; policy effective through the note date.' },
   { slug: 'wire_instructions', label: 'Wire Instructions', section: 'closing',
     conditions: 'Wire instructions for the title company; verified against the CPL / title commitment.' },
+  // Deploy 236.945 (Mike) — the borrower's own account for construction draws;
+  // sent from the tray as a borrower form (see _shared/borrower-forms.mjs).
+  { slug: 'draw_wire_form', label: 'Construction Draw Wire Information', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  // Deploy 236.945 (Mike) — SLA's commitment letter, generated + sent from the tray
+  // for the borrower's acknowledgment; storage-only (see _shared/borrower-forms.mjs).
+  { slug: 'commitment_letter', label: 'Loan Commitment Letter', section: 'loan',
+    conditions: '', optional: true, noReview: true },
   // Deploy 236.752 — record-keeping vault for the executed/signed closing package.
   // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
   // required-missing doc. Backfilled onto existing reviews by sync-categories.

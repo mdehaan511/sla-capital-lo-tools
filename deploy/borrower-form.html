@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Complete a Form — SLA Capital</title>
+  <!-- Deploy 236.945 (Mike) — public, token-keyed page where a borrower
+       completes + signs a form the processing team sent from a Doc Review
+       tray (W-9, PM questionnaire, draw wire info, commitment letter
+       acknowledgment). /api/borrower-form-info renders it, /api/borrower-form-
+       submit files the signed PDF straight into the tray. The token IS the
+       auth. ES5 only — this page is opened on whatever the borrower has. -->
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#f4f1ea; --card:#fff; --text:#1a1520; --dark:#261a36; --muted:#7a7488; --border:#e4dfd4; --gold:#c8813a; --gold-dark:#b5712d; --danger:#b3261e; --green:#2e7d4f; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:'DM Sans', sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:24px 16px 56px; }
+    .wrap { max-width:680px; margin:0 auto; }
+    .brand { font-family:'Lora', serif; font-size:22px; font-weight:600; color:var(--dark); margin-bottom:4px; }
+    .hdr h1 { font-family:'Lora', serif; font-size:22px; font-weight:600; color:var(--dark); margin:14px 0 4px; line-height:1.3; }
+    .hdr p { margin:0 0 18px; color:var(--muted); font-size:14px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px 22px; margin-bottom:16px; }
+    .intro { font-size:14.5px; line-height:1.55; margin:0 0 6px; }
+    .note { background:#fbf8f2; border:1px solid var(--border); border-radius:8px; padding:10px 14px; font-size:14px; line-height:1.5; margin:0 0 14px; }
+    .field { margin-bottom:14px; }
+    .field label { display:block; font-size:12.5px; font-weight:600; color:var(--dark); margin-bottom:5px; line-height:1.4; }
+    .field label .req { color:var(--gold-dark); }
+    .field input[type=text], .field input[type=date], .field select { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:15px; background:#fff; color:var(--text); }
+    .field input:focus, .field select:focus { outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(200,129,58,0.15); }
+    .field.err input, .field.err select { border-color:var(--danger); }
+    .field .msg { font-size:12px; color:var(--danger); margin-top:4px; }
+    .check { display:flex; gap:10px; align-items:flex-start; font-size:14px; line-height:1.45; }
+    .check input { margin-top:3px; width:17px; height:17px; flex:none; }
+    .notice { background:#fbf3e7; border:1px solid rgba(200,129,58,0.45); border-radius:8px; padding:10px 14px; font-size:13.5px; line-height:1.5; margin:4px 0 14px; }
+    .letter { white-space:pre-wrap; font-size:14px; line-height:1.6; background:#fbf8f2; border:1px solid var(--border); border-radius:8px; padding:16px 18px; }
+    h2 { font-family:'Lora', serif; font-size:16px; font-weight:600; color:var(--dark); margin:0 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+    .consent { font-size:13px; line-height:1.55; color:var(--muted); margin:0 0 12px; }
+    .sig input { width:100%; font-family:"Brush Script MT","Lucida Handwriting",cursive; font-size:28px; padding:8px 12px; border:0; border-bottom:1.5px solid #888; background:transparent; color:var(--dark); }
+    .sig input:focus { outline:none; border-bottom-color:var(--gold); }
+    .sig .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+    .btn { padding:12px 24px; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; font-family:inherit; border:1px solid var(--gold-dark); background:var(--gold-dark); color:#fff; }
+    .btn:disabled { opacity:0.6; cursor:default; }
+    .status { font-size:13px; margin-top:10px; min-height:18px; }
+    .status.err { color:var(--danger); } .status.ok { color:var(--green); }
+    .done { background:#eef6f0; border:1px solid rgba(46,125,79,0.35); border-radius:10px; padding:18px 20px; font-size:15px; line-height:1.55; }
+    .err-page { background:#fff; border:1px solid var(--border); border-radius:10px; padding:20px; font-size:15px; line-height:1.5; }
+    .loading { color:var(--muted); font-size:14px; padding:20px 0; }
+    .meta { font-size:12.5px; color:var(--muted); margin:0 0 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">SLA Capital</div>
+    <div id="root"><div class="loading">Loading…</div></div>
+  </div>
+<script>
+'use strict';
+var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+var DATA = null;
+var ANSWERS = {};
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escA(s) { return escH(s).replace(/"/g,'&quot;'); }
+function $(id) { return document.getElementById(id); }
+
+function load() {
+  if (!TOKEN) { $('root').innerHTML = '<div class="err-page">This link is missing its key. Please open the link exactly as it was sent to you.</div>'; return; }
+  fetch('/api/borrower-form-info?t=' + encodeURIComponent(TOKEN))
+    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+    .then(function(x) {
+      if (!x.ok) { $('root').innerHTML = '<div class="err-page">' + escH(x.body.error || 'Could not load this form.') + '</div>'; return; }
+      DATA = x.body;
+      (DATA.form.fields || []).forEach(function(f) { if (f.value != null && f.value !== '') ANSWERS[f.key] = f.value; });
+      render();
+    })
+    .catch(function(e) { $('root').innerHTML = '<div class="err-page">Failed to load: ' + escH(e && e.message || 'network error') + '</div>'; });
+}
+
+function visible(f) {
+  if (!f.showIf) return true;
+  return Object.keys(f.showIf).every(function(k) { return String(ANSWERS[k] || '') === String(f.showIf[k]); });
+}
+function fmtTin(digits) {
+  var d = String(digits || '').replace(/[^0-9]/g, '').slice(0, 9);
+  if (String(ANSWERS.tinType || '') === 'ein') return d.length > 2 ? d.slice(0, 2) + '-' + d.slice(2) : d;
+  if (d.length > 5) return d.slice(0, 3) + '-' + d.slice(3, 5) + '-' + d.slice(5);
+  if (d.length > 3) return d.slice(0, 3) + '-' + d.slice(3);
+  return d;
+}
+function fieldHtml(f) {
+  var req = f.required ? ' <span class="req">*</span>' : '';
+  var v = ANSWERS[f.key];
+  var html = '<div class="field" id="fw-' + escA(f.key) + '"><label for="f-' + escA(f.key) + '">' + escH(f.label) + req + '</label>';
+  if (f.type === 'select') {
+    html += '<select id="f-' + escA(f.key) + '" onchange="onChange(\'' + escA(f.key) + '\', this.value)">' +
+      (f.required ? '<option value="">Select…</option>' : '') +
+      (f.options || []).map(function(o) { return '<option value="' + escA(o[0]) + '"' + (String(v || '') === String(o[0]) ? ' selected' : '') + '>' + escH(o[1]) + '</option>'; }).join('') +
+      '</select>';
+  } else if (f.type === 'checkbox') {
+    html = '<div class="field" id="fw-' + escA(f.key) + '"><label class="check"><input type="checkbox" id="f-' + escA(f.key) + '"' + (v ? ' checked' : '') + ' onchange="onChange(\'' + escA(f.key) + '\', this.checked)" /><span>' + escH(f.label) + req + '</span></label>';
+  } else if (f.type === 'tin') {
+    html += '<input type="text" id="f-' + escA(f.key) + '" inputmode="numeric" autocomplete="off" placeholder="' + (String(ANSWERS.tinType || '') === 'ein' ? '12-3456789' : '123-45-6789') + '" value="' + escA(fmtTin(v)) + '" oninput="onTin(this)" />';
+  } else if (f.type === 'digits') {
+    html += '<input type="text" id="f-' + escA(f.key) + '" inputmode="numeric" autocomplete="off" maxlength="' + (f.max || 20) + '" value="' + escA(v || '') + '" oninput="this.value=this.value.replace(/[^0-9]/g,\'\');onChange(\'' + escA(f.key) + '\', this.value)" />';
+  } else if (f.type === 'date') {
+    html += '<input type="date" id="f-' + escA(f.key) + '" value="' + escA(v || '') + '" onchange="onChange(\'' + escA(f.key) + '\', this.value)" />';
+  } else {
+    html += '<input type="text" id="f-' + escA(f.key) + '" maxlength="' + (f.max || 200) + '" value="' + escA(v || '') + '" oninput="onChange(\'' + escA(f.key) + '\', this.value)" />';
+  }
+  return html + '<div class="msg" id="fe-' + escA(f.key) + '"></div></div>';
+}
+function onChange(key, val) {
+  ANSWERS[key] = val;
+  // A field that controls what else is shown re-renders the field list.
+  var controls = (DATA.form.fields || []).some(function(f) { return f.showIf && Object.prototype.hasOwnProperty.call(f.showIf, key); }) || key === 'tinType';
+  if (controls) renderFields();
+}
+function onTin(el) {
+  var digits = el.value.replace(/[^0-9]/g, '').slice(0, 9);
+  ANSWERS.tin = digits;
+  el.value = fmtTin(digits);
+}
+function renderFields() {
+  var host = $('fields'); if (!host) return;
+  host.innerHTML = (DATA.form.fields || []).filter(visible).map(fieldHtml).join('');
+}
+
+function render() {
+  var f = DATA.form;
+  var html = '<div class="hdr"><h1>' + escH(f.title) + '</h1>' +
+    '<p>' + (DATA.loan && DATA.loan.address ? 'For your loan at <strong>' + escH(DATA.loan.address) + '</strong>' : '') + '</p></div>';
+  if (DATA.status === 'completed') {
+    html += '<div class="done"><strong>Thank you — this form was submitted' + (DATA.completedAt ? ' on ' + escH(new Date(DATA.completedAt).toLocaleString()) : '') + '.</strong><br>Your loan team has it on file. Nothing else is needed from you for this form.</div>';
+    $('root').innerHTML = html; return;
+  }
+  html += '<div class="card">';
+  if (DATA.note) html += '<div class="note"><strong>Note from ' + escH(DATA.senderName || 'your loan team') + ':</strong> ' + escH(DATA.note) + '</div>';
+  if (f.intro) html += '<p class="intro">' + escH(f.intro) + '</p>';
+  if (DATA.letter) html += '<div class="letter" style="margin-top:12px">' + escH(DATA.letter.join('\n')) + '</div>';
+  if ((f.fields || []).length) html += '<div id="fields" style="margin-top:14px"></div>';
+  if (f.notice) html += '<div class="notice">' + escH(f.notice) + '</div>';
+  html += '</div>';
+  if (f.signature) {
+    html += '<div class="card"><h2>' + (f.acknowledge ? 'Acknowledge and sign' : 'Sign and submit') + '</h2>' +
+      '<p class="consent">' + escH(DATA.consent.text) + '</p>' +
+      '<label class="check" style="margin-bottom:14px"><input type="checkbox" id="consent" /><span>I agree to sign this form electronically.</span></label>' +
+      '<div class="field sig"><label for="signer">Type your full legal name to sign <span class="req">*</span></label>' +
+      '<input type="text" id="signer" placeholder="' + escA(DATA.borrower && DATA.borrower.name || 'Your full name') + '" autocomplete="name" />' +
+      '<div class="hint">Your typed name is your electronic signature. The signed form is dated automatically.</div></div>' +
+      '<button type="button" class="btn" id="submitBtn" onclick="submitForm()">' + (f.acknowledge ? 'Sign & Acknowledge' : 'Sign & Submit') + '</button>' +
+      '<div class="status" id="status"></div></div>';
+  } else {
+    html += '<div class="card"><button type="button" class="btn" id="submitBtn" onclick="submitForm()">Submit</button><div class="status" id="status"></div></div>';
+  }
+  $('root').innerHTML = html;
+  renderFields();
+}
+
+function submitForm() {
+  var f = DATA.form, st = $('status'), btn = $('submitBtn');
+  var errors = {};
+  (f.fields || []).filter(visible).forEach(function(fd) {
+    var v = ANSWERS[fd.key];
+    if (fd.type === 'checkbox') { if (fd.required && !v) errors[fd.key] = 'Required'; return; }
+    v = String(v == null ? '' : v).trim();
+    if (fd.required && !v) errors[fd.key] = 'Required';
+    else if (fd.type === 'tin' && v && v.replace(/[^0-9]/g, '').length !== 9) errors[fd.key] = 'Enter all 9 digits';
+    else if (fd.type === 'digits' && v && fd.min && v.length < fd.min) errors[fd.key] = 'Must be ' + (fd.min === fd.max ? 'exactly ' + fd.min : fd.min + '-' + fd.max) + ' digits';
+  });
+  var body = { t: TOKEN, answers: ANSWERS };
+  if (f.signature) {
+    var signer = String(($('signer') || {}).value || '').trim();
+    if (!$('consent').checked) { st.className = 'status err'; st.textContent = 'Please check the box to agree to sign electronically.'; return; }
+    if (signer.length < 3) { st.className = 'status err'; st.textContent = 'Please type your full legal name to sign.'; $('signer').focus(); return; }
+    body.signerName = signer; body.consentAccepted = true; body.consentVersion = DATA.consent.version;
+  }
+  showErrors(errors);
+  if (Object.keys(errors).length) { st.className = 'status err'; st.textContent = 'Please complete the highlighted fields.'; return; }
+  btn.disabled = true; btn.textContent = 'Submitting…'; st.className = 'status'; st.textContent = '';
+  fetch('/api/borrower-form-submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+    .then(function(x) {
+      if (x.ok) { load(); window.scrollTo(0, 0); return; }
+      btn.disabled = false; btn.textContent = f.acknowledge ? 'Sign & Acknowledge' : 'Sign & Submit';
+      showErrors(x.body && x.body.errors || {});
+      st.className = 'status err'; st.textContent = (x.body && x.body.error) || 'Submit failed.';
+    })
+    .catch(function(e) { btn.disabled = false; btn.textContent = 'Sign & Submit'; st.className = 'status err'; st.textContent = 'Submit failed: ' + (e && e.message || 'network error'); });
+}
+function showErrors(errors) {
+  (DATA.form.fields || []).forEach(function(fd) {
+    var w = $('fw-' + fd.key), m = $('fe-' + fd.key);
+    if (!w) return;
+    var e = errors[fd.key] || '';
+    w.className = 'field' + (e ? ' err' : '');
+    if (m) m.textContent = e;
+  });
+  var first = Object.keys(errors)[0];
+  if (first && $('f-' + first)) $('f-' + first).scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+load();
+</script>
+</body>
+</html>

@@ -101,6 +101,8 @@
     // Deploy 236.838 — post-closing record-keeping trays (Mike): storage-only.
     executed_ach_form:     { label: 'Executed ACH Form',     section: 'closing', conditions: '', noReview: true },
     closing_w9:            { label: 'Closing W9',            section: 'closing', conditions: '', noReview: true },
+    draw_wire_form:        { label: 'Construction Draw Wire Information', section: 'closing', conditions: '', noReview: true }, // Deploy 236.945
+    commitment_letter:     { label: 'Loan Commitment Letter', section: 'loan', conditions: '', noReview: true },             // Deploy 236.945
     executed_deed:         { label: 'Executed Deed',         section: 'closing', conditions: '', noReview: true },
     original_doc_tracking: { label: 'Original Doc Tracking', section: 'closing', conditions: '', noReview: true },
   };
@@ -235,6 +237,18 @@
       '.dr-root .dr-invite-btn.secondary:hover { background:#faf3ea; }',
       '.dr-root .dr-mr-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#1e40af; background:rgba(30,64,175,0.10); border:1px solid rgba(30,64,175,0.25); border-radius:20px; padding:2px 9px; }',
       '.dr-root .dr-br-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); background:var(--bg, #f7f5f1); border:1px solid var(--border); border-radius:20px; padding:2px 9px; }',
+      // Deploy 236.945 — borrower-form status chip + its inline actions.
+      '.dr-root .dr-form-badge { display:inline-block; margin-top:6px; font-size:10.5px; font-weight:600; color:var(--muted); background:var(--bg, #f7f5f1); border:1px solid var(--border); border-radius:20px; padding:2px 9px; }',
+      '.dr-root .dr-form-badge.done { color:var(--dr-green-text, #1f6b3a); border-color:var(--dr-green-border, #bfe0c9); background:rgba(46,125,79,0.08); }',
+      '.dr-root .dr-form-act { cursor:pointer; text-decoration:underline; margin-left:8px; color:var(--gold-mid); }',
+      '.dr-modal-wrap { position:fixed; inset:0; background:rgba(26,21,32,0.45); z-index:9000; display:flex; align-items:center; justify-content:center; padding:20px; }',
+      '.dr-modal { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:90vh; overflow:auto; padding:20px 22px; box-shadow:0 18px 50px rgba(0,0,0,0.25); font-size:13px; }',
+      '.dr-modal h3 { margin:0 0 12px; font-size:16px; }',
+      '.dr-modal label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); margin:10px 0 4px; }',
+      '.dr-modal input, .dr-modal textarea { width:100%; padding:8px 10px; border:1.5px solid var(--border,#E4DFD4); border-radius:6px; font-family:inherit; font-size:13px; box-sizing:border-box; }',
+      '.dr-modal .dr-modal-btns { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }',
+      '.dr-modal button { padding:8px 14px; border-radius:6px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border,#E4DFD4); background:#fff; }',
+      '.dr-modal button.primary { background:var(--gold-mid, #C8813A); border-color:var(--gold-mid, #C8813A); color:#fff; }',
       // Deploy 236.501 — per-section "Other Documents" area: a subtle
       // dashed-top band that separates catch-all docs from the checklist.
       '.dr-root .dr-other-block { margin-top:14px; padding-top:12px; border-top:1px dashed var(--border); }',
@@ -1361,6 +1375,15 @@
       trayNameHtml +=
         '<button class="dr-tray-rename-btn" title="' + (d.borrowerRequested ? 'Requested from the borrower — click to stop requesting' : 'Request this document from the borrower') + '" onclick="event.stopPropagation();dr_toggleBorrowerRequest(\'' + escAttr(slug) + '\')">' + (d.borrowerRequested ? '&#x1F4E8;' : '&#x2709;') + '</button>';
     }
+    // Deploy 236.945 (Mike) — trays that have a borrower form (W-9, PM
+    // questionnaire, draw wire info, commitment letter) get a send button:
+    // the borrower completes + signs it on a token page and the signed PDF
+    // files itself into this tray.
+    var _bf = _borrowerFormFor(slug);
+    if (_bf && !d.hidden) {
+      trayNameHtml +=
+        '<button class="dr-tray-rename-btn" title="Send the ' + escAttr(_bf.label) + ' to the borrower to complete and sign" onclick="event.stopPropagation();dr_sendBorrowerForm(\'' + escAttr(slug) + '\')">&#x1F4DD;</button>';
+    }
     // Deploy 236.165 — expiration badge. Surfaces when the AI
     // extracted a document/expiration date or when per-slug rules
     // computed a stale-by date. Red = past due; amber = within
@@ -1382,6 +1405,16 @@
           (d.borrowerRequestedAt ? ' · ' + new Date(d.borrowerRequestedAt).toLocaleDateString() : '') +
           (d.borrowerHint ? ' — “' + escHtml(d.borrowerHint) + '”' : '') + '</div>'
       : '';
+    // Deploy 236.945 — where the borrower form stands.
+    var _bfs = d.borrowerForm;
+    var formBadge = '';
+    if (_bfs && _bfs.status === 'sent') {
+      formBadge = '<div class="dr-form-badge">&#x1F4DD; Form sent ' + (_bfs.sentAt ? new Date(_bfs.sentAt).toLocaleDateString() : '') + ' to ' + escHtml(_bfs.to || '') + ' — awaiting the borrower' +
+        '<span class="dr-form-act" onclick="event.stopPropagation();dr_copyBorrowerFormLink(\'' + escAttr(slug) + '\')">Copy link</span>' +
+        '<span class="dr-form-act" onclick="event.stopPropagation();dr_voidBorrowerForm(\'' + escAttr(slug) + '\')">Cancel</span></div>';
+    } else if (_bfs && _bfs.status === 'completed') {
+      formBadge = '<div class="dr-form-badge done">&#x1F4DD; Completed and signed by the borrower ' + (_bfs.completedAt ? new Date(_bfs.completedAt).toLocaleDateString() : '') + '</div>';
+    }
     var mrBadge = d.manualReviewRequested
       ? '<div class="dr-mr-badge" title="' + escAttr(d.manualReviewNote || 'The borrower asked for a manual review of this document.') + '">⚠ Manual review requested by borrower</div>'
       : (d.uploadedByBorrower ? '<div class="dr-br-badge">⬆ Uploaded by borrower</div>' : '');
@@ -1395,6 +1428,7 @@
           compBadge +
           mrBadge +
           reqBadge +
+          formBadge +
         '</div>' +
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
@@ -2245,6 +2279,82 @@
   // Deploy 236.920 (Mike: "add an additional tray and request it from the
   // borrower") — flag a custom tray as requested. It then shows on the
   // borrower's document page with an Upload button; optionally email them.
+  // Deploy 236.945 (Mike) — borrower forms: which trays have one, the send
+  // modal, copy-link and cancel. Server side: borrower-form-send.mjs.
+  var BORROWER_FORMS = {
+    closing_w9: 'Form W-9',
+    property_mgmt_questionnaire: 'Property Management Questionnaire',
+    draw_wire_form: 'Construction Draw Wire Information Form',
+    commitment_letter: 'Loan Commitment Letter',
+  };
+  function _borrowerFormFor(slug) {
+    var base = String(slug || '').replace(/__p\d+$/, '');
+    return BORROWER_FORMS[base] ? { label: BORROWER_FORMS[base] } : null;
+  }
+  function _drModal(title, bodyHtml, submitLabel, onSubmit) {
+    var wrap = document.createElement('div');
+    wrap.className = 'dr-modal-wrap';
+    wrap.innerHTML = '<div class="dr-modal"><h3>' + escHtml(title) + '</h3>' + bodyHtml +
+      '<div class="dr-modal-btns"><button type="button" class="dr-modal-cancel">Cancel</button>' +
+      '<button type="button" class="primary dr-modal-ok">' + escHtml(submitLabel) + '</button></div></div>';
+    document.body.appendChild(wrap);
+    wrap.querySelector('.dr-modal-cancel').onclick = function() { wrap.remove(); };
+    wrap.addEventListener('click', function(e) { if (e.target === wrap) wrap.remove(); });
+    var ok = wrap.querySelector('.dr-modal-ok');
+    ok.onclick = function() { onSubmit(wrap, ok); };
+    return wrap;
+  }
+  global.dr_sendBorrowerForm = function(slug) {
+    var bf = _borrowerFormFor(slug);
+    if (!bf || !_review) return;
+    var d = (_review.docs && _review.docs[slug]) || {};
+    global.SLA.api('POST', '/api/borrower-form-send', { reviewId: _review.id, slug: slug, prepare: true }).then(function(p) {
+      var body = '<div style="font-size:12.5px;color:var(--muted);margin-bottom:6px">The borrower gets an email with a private link, completes the form online, and types their name to sign. The signed PDF lands in this tray.</div>';
+      if (d.borrowerForm && d.borrowerForm.status === 'sent') body += '<div style="font-size:12px;color:var(--gold-mid);margin-bottom:6px">A request is already out (sent ' + escHtml(new Date(d.borrowerForm.sentAt).toLocaleDateString()) + '). Sending again replaces it.</div>';
+      body += '<label>Send to</label><input type="email" id="bfm-email" value="' + escAttr((p.recipient && p.recipient.email) || '') + '" placeholder="borrower@example.com" />';
+      (p.staffFields || []).forEach(function(f) {
+        body += '<label>' + escHtml(f.label) + (f.required ? ' *' : '') + '</label><input type="' + (f.type === 'date' ? 'date' : 'text') + '" id="bfm-sf-' + escAttr(f.key) + '" value="' + escAttr(f.value == null ? '' : f.value) + '" />';
+      });
+      body += '<label>Note to the borrower (optional)</label><textarea id="bfm-note" rows="2" placeholder="Anything they should know"></textarea>';
+      _drModal('Send ' + bf.label + ' to the borrower', body, 'Send', function(wrap, btn) {
+        var email = String((document.getElementById('bfm-email') || {}).value || '').trim();
+        if (email.indexOf('@') < 1) { showToast('Enter the borrower\'s email address', 'error'); return; }
+        var staffValues = {};
+        (p.staffFields || []).forEach(function(f) { staffValues[f.key] = String((document.getElementById('bfm-sf-' + f.key) || {}).value || '').trim(); });
+        btn.disabled = true; btn.textContent = 'Sending…';
+        global.SLA.api('POST', '/api/borrower-form-send', {
+          reviewId: _review.id, slug: slug, email: email, note: String((document.getElementById('bfm-note') || {}).value || ''), staffValues: staffValues,
+        }).then(function(r) {
+          wrap.remove();
+          if (r && r.review) _review = r.review;
+          showToast(bf.label + (r && r.emailed ? ' sent to ' + email + '.' : ' created — the email did NOT go out; use Copy link.'), (r && r.emailed) ? 'success' : 'error');
+          render();
+        }).catch(function(err) {
+          btn.disabled = false; btn.textContent = 'Send';
+          var msg = (err && err.message) || 'Unknown';
+          if (err && err.data && err.data.errors) msg += ' (' + Object.keys(err.data.errors).join(', ') + ')';
+          showToast('Send failed: ' + msg, 'error');
+        });
+      });
+    }).catch(function(err) { showToast('Could not prepare the form: ' + ((err && err.message) || 'Unknown'), 'error'); });
+  };
+  global.dr_copyBorrowerFormLink = function(slug) {
+    var d = (_review && _review.docs && _review.docs[slug]) || {};
+    var link = d.borrowerForm && d.borrowerForm.link;
+    if (!link) { showToast('No open request on this tray', 'error'); return; }
+    var done = function() { showToast('Link copied — send it to the borrower any way you like.', 'success'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, function() { prompt('Copy this link:', link); });
+    else prompt('Copy this link:', link);
+  };
+  global.dr_voidBorrowerForm = function(slug) {
+    var bf = _borrowerFormFor(slug);
+    if (!bf || !_review || !confirm('Cancel the ' + bf.label + ' request? The borrower\'s link will stop working.')) return;
+    global.SLA.api('POST', '/api/borrower-form-send', { reviewId: _review.id, slug: slug, void: true }).then(function(r) {
+      if (r && r.review) _review = r.review;
+      showToast('Request cancelled.', 'success');
+      render();
+    }).catch(function(err) { showToast('Cancel failed: ' + ((err && err.message) || 'Unknown'), 'error'); });
+  };
   global.dr_toggleBorrowerRequest = function(slug) {
     var d = (_review && _review.docs && _review.docs[slug]) || {};
     var name = d.label || slug;
