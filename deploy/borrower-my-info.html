@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>My Information — SLA Capital</title>
+  <!--
+    Deploy 236.957 (Mike) — My Information as its OWN PAGE (was a modal on
+    the portal): profile fields, the ENTITY VAULT (unlimited LLCs, each with
+    Operating Agreement / EIN Letter / Certificate of Formation kept on
+    file), and links to the profile-level worksheets (Track Record now, PFS
+    when Mike's reworked template lands). The long application's saved-entity
+    dropdown + auto-filing these docs onto a loan is the next slice.
+  -->
+  <script src="/sla-api.js"></script>
+  <script src="/sla-forms.js"></script>
+  <style>
+    :root { --gold:#C8813A; --gold-mid:#b5712d; --dark:#261a36; --bg:#f0ece5; --surface:#fff;
+      --text:#1a1520; --muted:#7a7488; --border:#ddd8d0; --success:#256940; --warn:#7a5218; --danger:#7c1f1f; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { background:var(--bg); color:var(--text); font-family:'DM Sans',system-ui,sans-serif; line-height:1.5; }
+    .top { background:var(--dark); padding:14px 20px; display:flex; align-items:center; gap:14px; }
+    .top img { height:30px; }
+    .top a { color:#e8e2d8; font-size:13px; text-decoration:none; }
+    .page { max-width:880px; margin:24px auto 80px; padding:0 16px; }
+    h1 { font-size:22px; color:var(--dark); margin-bottom:4px; }
+    h2 { font-size:16px; color:var(--dark); margin-bottom:10px; }
+    .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+    label { font-size:11px; color:var(--muted); display:block; margin-bottom:2px; }
+    input[type=text],input[type=tel] { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:13px; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .btn { padding:9px 16px; border:1px solid var(--border); background:#fff; border-radius:8px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; color:var(--dark); }
+    .btn.primary { background:var(--gold); border-color:var(--gold); color:#fff; }
+    .btn.small { padding:5px 10px; font-size:11.5px; }
+    .btn.danger { color:var(--danger); }
+    .btn:disabled { opacity:0.5; cursor:wait; }
+    .status { font-size:12.5px; margin-left:8px; }
+    .status.ok { color:var(--success); } .status.err { color:var(--danger); }
+    .ent { border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+    .ent-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    .ent-name { font-weight:700; font-size:14.5px; color:var(--dark); }
+    .ent-meta { font-size:12px; color:var(--muted); }
+    .docrow { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; border-top:1px dashed var(--border); font-size:12.5px; flex-wrap:wrap; }
+    .docrow .nm { font-weight:600; }
+    .docrow .st { color:var(--muted); font-size:11.5px; }
+    .docrow .st.on { color:var(--success); }
+    .links a { display:block; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--surface); text-decoration:none; color:inherit; margin-bottom:10px; }
+    .links a strong { color:var(--dark); }
+    .links .soon { opacity:0.55; }
+    @media (max-width:640px){ .grid2 { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="top">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  <a href="/borrower-portal.html">&larr; Back to portal</a>
+</div>
+<div class="page">
+  <h1>My Information</h1>
+  <div class="sub">Keep your contact details, entities and reusable documents current — they carry into every loan so you never re-send the basics.</div>
+
+  <div class="card">
+    <h2>Contact Details</h2>
+    <div class="grid2">
+      <div><label>Phone</label><input type="tel" id="pfPhone" /></div>
+      <div><label>Home Address</label><input type="text" id="pfAddress" data-sla-autocomplete /></div>
+    </div>
+    <div style="margin-top:12px">
+      <button type="button" class="btn primary" id="pfSave" onclick="saveProfile()">Save Contact Details</button>
+      <span class="status" id="pfStatus"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Your Entities</h2>
+    <div class="sub" style="margin-bottom:12px">Add every LLC you lend through. We keep the formation documents on file so new loans don’t start from scratch.</div>
+    <div id="entList"><div class="sub">Loading…</div></div>
+    <div style="border:1px dashed var(--border);border-radius:10px;padding:12px 14px;margin-top:6px">
+      <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:8px">Add an entity</div>
+      <div class="grid2">
+        <div><label>Entity Name *</label><input type="text" id="neName" /></div>
+        <div><label>EIN</label><input type="text" id="neEin" placeholder="XX-XXXXXXX" /></div>
+        <div><label>State of Formation</label><input type="text" id="neState" /></div>
+        <div><label>Entity Address</label><input type="text" id="neAddress" data-sla-autocomplete /></div>
+      </div>
+      <div style="margin-top:10px">
+        <button type="button" class="btn" onclick="addEntity()">+ Add Entity</button>
+        <span class="status" id="neStatus"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card links">
+    <h2>Reusable Worksheets</h2>
+    <a href="borrower-worksheets.html?kind=track"><strong>📈 Track Record</strong><div class="sub" style="margin:2px 0 0">Your completed projects — reused on every loan, refreshed every 6 months.</div></a>
+    <a class="soon" href="#" onclick="return false"><strong>📄 Personal Financial Statement</strong><div class="sub" style="margin:2px 0 0">Coming soon — we’re rebuilding this form.</div></a>
+  </div>
+</div>
+
+<input type="file" id="docFile" accept="application/pdf,image/*" style="display:none" />
+
+<script>
+var _entities=[], _docTypes={}, _readOnly=false, _pendingUpload=null;
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function api(path, body){
+  return SLA.getToken().then(function(t){
+    return fetch(path, { method:'POST', headers:{ 'Authorization':'Bearer '+t, 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j; }); });
+}
+function entApi(body){ return api('/api/borrower-entities', body); }
+
+// ── Contact details (existing borrower-profile endpoint) ─────────
+function loadProfile(){
+  SLA.getToken().then(function(t){
+    return fetch('/api/borrower-profile', { headers:{ 'Authorization':'Bearer '+t } });
+  }).then(function(r){ return r.json(); }).then(function(j){
+    var p=(j&&j.profile)||{};
+    document.getElementById('pfPhone').value=p.phone||'';
+    var ha=p.homeAddress||{};
+    document.getElementById('pfAddress').value=typeof ha==='string'?ha:[ha.street,ha.city,ha.state,ha.zip].filter(Boolean).join(', ');
+    if(window.SLAForms&&SLAForms.reformatExisting) SLAForms.reformatExisting(document);
+  }).catch(function(){});
+}
+function saveProfile(){
+  var st=document.getElementById('pfStatus');
+  st.textContent='Saving…'; st.className='status';
+  api('/api/borrower-profile', {
+    phone: document.getElementById('pfPhone').value,
+    homeAddress: document.getElementById('pfAddress').value,
+  }).then(function(){ st.textContent='Saved ✓'; st.className='status ok'; })
+    .catch(function(e){ st.textContent='Save failed: '+(e&&e.message||'unknown'); st.className='status err'; });
+}
+
+// ── Entity vault ─────────────────────────────────────────────────
+function renderEntities(){
+  var host=document.getElementById('entList');
+  if(!_entities.length){ host.innerHTML='<div class="sub">No entities yet — add your first below.</div>'; return; }
+  host.innerHTML=_entities.map(function(e){
+    var rows=Object.keys(_docTypes).map(function(dt){
+      var d=e.docs&&e.docs[dt];
+      return '<div class="docrow"><div><span class="nm">'+esc(_docTypes[dt])+'</span> '+
+        (d?'<span class="st on">✓ '+esc(d.filename)+' · '+esc(String(d.uploadedAt||'').slice(0,10))+'</span>':'<span class="st">not on file</span>')+'</div>'+
+        '<div>'+
+          (d?'<button type="button" class="btn small" onclick="downloadDoc(\''+esc(e.id)+'\',\''+dt+'\')">View</button> ':'')+
+          (_readOnly?'':'<button type="button" class="btn small" onclick="pickDoc(\''+esc(e.id)+'\',\''+dt+'\')">'+(d?'Replace':'Upload')+'</button>')+
+        '</div></div>';
+    }).join('');
+    return '<div class="ent"><div class="ent-head">'+
+      '<div><div class="ent-name">'+esc(e.name)+'</div>'+
+      '<div class="ent-meta">'+[e.ein?'EIN '+e.ein:'',e.state,e.address].filter(Boolean).map(esc).join(' · ')+'</div></div>'+
+      (_readOnly?'':'<button type="button" class="btn small danger" onclick="removeEntity(\''+esc(e.id)+'\')">Remove</button>')+
+      '</div>'+rows+'</div>';
+  }).join('');
+}
+function loadEntities(){
+  entApi({ action:'list' }).then(function(r){
+    _entities=r.entities||[]; _docTypes=r.docTypes||{}; _readOnly=!!r.readOnly;
+    renderEntities();
+  }).catch(function(e){ document.getElementById('entList').innerHTML='<div class="sub" style="color:var(--danger)">Failed to load: '+esc(e&&e.message||'unknown')+'</div>'; });
+}
+function addEntity(){
+  var st=document.getElementById('neStatus');
+  var name=document.getElementById('neName').value.trim();
+  if(!name){ st.textContent='Entity name is required.'; st.className='status err'; return; }
+  st.textContent='Adding…'; st.className='status';
+  entApi({ action:'save', entity:{
+    name:name, ein:document.getElementById('neEin').value,
+    state:document.getElementById('neState').value, address:document.getElementById('neAddress').value,
+  }}).then(function(r){
+    _entities=r.entities||[];
+    ['neName','neEin','neState','neAddress'].forEach(function(id){ document.getElementById(id).value=''; });
+    st.textContent='Added ✓'; st.className='status ok';
+    renderEntities();
+  }).catch(function(e){ st.textContent=(e&&e.message)||'Failed'; st.className='status err'; });
+}
+function removeEntity(id){
+  var e=null; for(var i=0;i<_entities.length;i++) if(_entities[i].id===id) e=_entities[i];
+  if(!e) return;
+  if(!confirm('Remove '+e.name+' and its documents from your profile?\n\nLoans that already received these documents keep their copies.')) return;
+  entApi({ action:'remove', entityId:id }).then(function(r){ _entities=r.entities||[]; renderEntities(); })
+    .catch(function(err){ alert('Remove failed: '+(err&&err.message||'unknown')); });
+}
+function pickDoc(entityId, docType){
+  _pendingUpload={ entityId:entityId, docType:docType };
+  var f=document.getElementById('docFile');
+  f.value=''; f.click();
+}
+document.getElementById('docFile').addEventListener('change', function(){
+  var f=this.files&&this.files[0];
+  if(!f||!_pendingUpload) return;
+  if(f.size>4*1024*1024){ alert('File must be under 4MB.'); return; }
+  var up=_pendingUpload; _pendingUpload=null;
+  var reader=new FileReader();
+  reader.onload=function(){
+    entApi({ action:'upload', entityId:up.entityId, docType:up.docType,
+      filename:f.name, mimeType:f.type||'application/pdf',
+      dataB64:String(reader.result).split(',')[1]||'' })
+      .then(function(r){
+        for(var i=0;i<_entities.length;i++) if(_entities[i].id===up.entityId) _entities[i]=r.entity;
+        renderEntities();
+      }).catch(function(e){ alert('Upload failed: '+(e&&e.message||'unknown')); });
+  };
+  reader.readAsDataURL(f);
+});
+function downloadDoc(entityId, docType){
+  entApi({ action:'doc', entityId:entityId, docType:docType }).then(function(r){
+    var bin=atob(r.dataB64), arr=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    var blob=new Blob([arr],{type:r.mimeType||'application/pdf'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=r.filename||'document.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+  }).catch(function(e){ alert('Download failed: '+(e&&e.message||'unknown')); });
+}
+
+loadProfile();
+loadEntities();
+// Google Places for the address fields (same runtime pattern as apply.html).
+(function(){
+  fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg){
+    if(!cfg.googleMapsKey) return;
+    window._slaMapsReady=function(){ if(window.SLAForms&&SLAForms.reformatExisting){ try{ SLAForms.reformatExisting(document); }catch(_){} } };
+    var s=document.createElement('script');
+    s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(cfg.googleMapsKey)+'&libraries=places&callback=_slaMapsReady';
+    s.async=true; s.defer=true;
+    document.head.appendChild(s);
+  }).catch(function(){});
+})();
+</script>
+</body>
+</html>

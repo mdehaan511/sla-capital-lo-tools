@@ -157,7 +157,7 @@ export async function attachPdfToReviewSlug(args) {
   return attachFileToReviewSlug({ ...args, mimeType: 'application/pdf' });
 }
 
-export async function attachFileToReviewSlug({ ownerKey, clientId, loanId, address, slug, bytes, filename, mimeType, sourceNote, actorEmail, documentDate, staleByDate }) {
+export async function attachFileToReviewSlug({ ownerKey, clientId, loanId, address, slug, bytes, filename, mimeType, sourceNote, actorEmail, documentDate, staleByDate, aiNote }) {
   try {
     if (!bytes || !bytes.length) return { ok: false, reason: 'no-bytes' };
     const mt = mimeType || 'application/pdf';
@@ -170,6 +170,16 @@ export async function attachFileToReviewSlug({ ownerKey, clientId, loanId, addre
     const ds = review.docs[slug];
     if (documentDate) ds.documentDate = documentDate;
     if (staleByDate)  ds.staleByDate  = staleByDate;
+    // Deploy 236.957 — a doc GENERATED from structured, already-validated
+    // data (SOW / Track Record tools) doesn't need — and being an xlsx,
+    // can't get — an AI read. Mark the AI side satisfied; the processor's
+    // Approve click is still required, exactly like every other tray.
+    if (aiNote) {
+      ds.aiVerdict = 'approved';
+      ds.aiNotes = aiNote;
+      ds.aiReviewedAt = new Date().toISOString();
+      ds.aiError = '';
+    }
     await docsStore.set(keySafe(review.id) + '/' + ds.currentDocId, bytes, {
       metadata: {
         reviewId: review.id, slug, filename, mimeType: mt,
@@ -452,6 +462,24 @@ function _attachToSlug({ review, slug, bytes, filename, mimeType, sourceNote, ac
   const docState = review.docs[slug];
   if (!docState) return;
 
+  // Deploy 236.957 (Mike's "docId is not a live document" bug) — maintain the
+  // 236.689 documents[] registry the way loan-review-doc-upload does. This
+  // helper only set the current* scalars, so an auto-attached doc (generated
+  // SOW xlsx, signed apps, credit reports…) was invisible to any consumer
+  // that validates against the live-documents array — the AI-retry endpoint
+  // rejected the tray's own current doc.
+  if (!Array.isArray(docState.documents)) docState.documents = [];
+  if (docState.currentDocId && !docState.documents.some((d) => d && d.docId === docState.currentDocId)) {
+    docState.documents.unshift({
+      docId: docState.currentDocId,
+      filename: docState.currentFilename || '',
+      size: docState.currentSize || 0,
+      mimeType: docState.currentMimeType || 'application/pdf',
+      uploadedAt: docState.currentUploadedAt || '',
+      hidden: false,
+    });
+  }
+
   if (docState.currentDocId) {
     const histEntry = {
       docId:          docState.currentDocId,
@@ -465,10 +493,17 @@ function _attachToSlug({ review, slug, bytes, filename, mimeType, sourceNote, ac
       approvedBy:     docState.approvedBy || '',
     };
     docState.history = Array.isArray(docState.history) ? docState.history.concat([histEntry]) : [histEntry];
+    // 236.957 — the replaced doc leaves the live registry (history keeps it).
+    docState.documents = docState.documents.filter((d) => d && d.docId !== docState.currentDocId);
   }
 
   const now = new Date().toISOString();
   docState.currentDocId       = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  // 236.957 — new doc enters the live registry as primary.
+  docState.documents.unshift({
+    docId: docState.currentDocId, filename: filename, size: bytes.length,
+    mimeType: mimeType || 'application/pdf', uploadedAt: now, hidden: false,
+  });
   docState.currentFilename    = filename;
   docState.currentSize        = bytes.length;
   docState.currentMimeType    = mimeType;

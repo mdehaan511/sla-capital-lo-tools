@@ -2124,3 +2124,9 @@
   to = "/.netlify/functions/borrower-worksheets"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/api/borrower-entities"
+  to = "/.netlify/functions/borrower-entities"
+  status = 200
+  force = true

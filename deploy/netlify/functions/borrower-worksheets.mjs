@@ -164,7 +164,41 @@ async function handle(req, context) {
         customPending: rows.length ? undefined : priorT.customPending, // 236.954
       };
       await store.setJSON(trackKey(email), rec);
-      return json(200, { ok: true, kind, email, rows: rows.length, updatedAt: now });
+      // Deploy 236.957 (Mike) — like the SOW, a saved Track Record files an
+      // .xlsx into the loan's track_record tray WHEN the page was opened from
+      // a loan (loanId present + borrower holds the grant). Best-effort.
+      let filedT = false;
+      const tLoanId = String(body.loanId || '');
+      if (rows.length && tLoanId && (await assertLoanAccess(tLoanId))) {
+        try {
+          const { buildXlsx } = await import('./_shared/xlsx-write.mjs');
+          const { attachFileToReviewSlug } = await import('./_shared/loan-review-auto-attach.mjs');
+          const xrows = [['Vested Owner Name', 'Guarantor(s) Name', 'Property Address', 'Exit Strategy',
+            'Purchase Date', 'Sale/Refi Date', 'Purchase Price', 'Rehab Costs',
+            'Sale Price/Refi Appraised Value', 'Lender Used', 'Gross Profit']];
+          for (const rr of rows) {
+            xrows.push([rr.owner || '', rr.guarantors || '', rr.address || '', rr.exitStrategy || '',
+              rr.purchaseDate || '', rr.saleDate || '', rr.purchasePrice === '' ? '' : rr.purchasePrice,
+              rr.rehabCosts === '' ? '' : rr.rehabCosts, rr.salePrice === '' ? '' : rr.salePrice,
+              rr.lender || '', trackGrossProfit(rr) == null ? '' : trackGrossProfit(rr)]);
+          }
+          const xlsx = await buildXlsx([{ name: 'Track Record', rows: xrows }]);
+          const r = await attachFileToReviewSlug({
+            loanId: tLoanId, address: String(body.address || ''),
+            slug: 'track_record',
+            bytes: Buffer.from(xlsx),
+            filename: 'Track Record - ' + email.replace(/@.*$/, '') + ' - ' + now.slice(0, 10) + '.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            sourceNote: 'borrower Track Record tool',
+            actorEmail: normalizeEmail(user.email),
+            documentDate: now.slice(0, 10),
+            aiNote: 'Generated from the structured Track Record tool — ' + rows.length +
+              ' projects on file. Data validated in-app; no AI review needed.',
+          });
+          filedT = !!(r && r.attached);
+        } catch (e) { console.warn('borrower-worksheets: track tray attach failed (non-fatal):', e && e.message); }
+      }
+      return json(200, { ok: true, kind, email, rows: rows.length, updatedAt: now, filedToTray: filedT });
     }
     const loanId = String(body.loanId || '');
     if (!loanId) return json(400, { error: 'loanId required for sow' });
@@ -224,6 +258,9 @@ async function handle(req, context) {
           sourceNote: 'borrower SOW tool',
           actorEmail: normalizeEmail(user.email),
           documentDate: now.slice(0, 10),
+          // 236.957 — generated from validated structured data; no AI pass.
+          aiNote: 'Generated from the structured SOW tool — ' + items.length + ' line items totaling $' +
+            Math.round(sowTotal(items)).toLocaleString() + '. Totals validated in-app; no AI review needed.',
         });
         filed = !!(r && r.attached);
       } catch (e) { console.warn('borrower-worksheets: SOW tray attach failed (non-fatal):', e && e.message); }

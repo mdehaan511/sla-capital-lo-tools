@@ -47,7 +47,13 @@
     .item-hint{ font-size:12px; color:var(--muted); margin-top:2px; }
     .pill{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:3px 9px; border-radius:20px; white-space:nowrap; }
     .pill.todo{ color:var(--muted); background:var(--bg); border:1px solid var(--border); }
-    .pill.submitted{ color:var(--gold-mid); background:var(--amber-bg); border:1px solid rgba(200,129,58,.28); }
+    /* Deploy 236.957 (Mike) — submitted reads GREEN, and submitted items live
+       in their own tab instead of lingering in the to-do list. */
+    .pill.submitted{ color:var(--green); background:var(--green-bg); border:1px solid rgba(21,101,52,.28); }
+    .pill.accepted{ color:#fff; background:var(--green); border:1px solid var(--green); }
+    .doc-tabs{ display:flex; gap:8px; margin:0 0 14px; }
+    .doc-tab{ font-size:13px; font-weight:600; padding:7px 16px; border-radius:20px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer; }
+    .doc-tab.active{ background:var(--gold-mid); border-color:var(--gold-mid); color:#fff; }
     .pill.needs_fix{ color:var(--red); background:var(--red-bg); border:1px solid rgba(124,31,31,.28); }
     .pill.manual_review{ color:#1e40af; background:rgba(30,64,175,.08); border:1px solid rgba(30,64,175,.25); }
     .pill.optional{ color:var(--muted); background:transparent; border:1px dashed var(--border); }
@@ -266,24 +272,43 @@
     });
   }
 
+  // Deploy 236.957 (Mike) — two tabs: To Do vs Submitted. Anything uploaded
+  // (submitted / under review / accepted) moves to Submitted with a green
+  // pill; needs_fix stays in To Do. The SOW / Track Record TOOL cards bucket
+  // by their worksheet state and stay clickable to edit from either tab.
+  // (Still no completion bar — 236.909 standing rule.)
+  var _docTab = 'todo';
+  function setDocTab(t){ _docTab = t; render(); }
+  function _toolDone(slug){
+    if (slug === 'sow') return !!(_ws.sow && _ws.sow.data && (_ws.sow.data.items || []).length);
+    if (slug === 'track_record'){ var t = _ws.track; return !!(t && (t.rows || []).length && !t.stale); }
+    return false;
+  }
   function render(){
     var c = document.getElementById('itemsContainer');
-    // Accepted items drop off the list.
-    var active = _items.filter(function(it){ return it.status !== 'accepted'; });
-    var accepted = _items.filter(function(it){ return it.status === 'accepted'; });
-    // Deploy 236.909 — no completion bar (see the markup comment): additional
-    // documents can be requested later, so "N of M" implied a total we
-    // don't actually have.
-
-    if (!active.length){
-      c.innerHTML = '<div class="empty"><div style="font-size:28px">✓</div><div style="margin-top:8px;font-weight:600;color:var(--green)">All documents received.</div><div style="margin-top:4px">Thanks! Your loan team has everything they need for now.</div></div>';
-      document.getElementById('doneNote').textContent = '';
-      return;
+    var todo = [], done = [];
+    var SUB = { submitted: 1, manual_review: 1, accepted: 1 };
+    _items.forEach(function(it){
+      if (it.slug === 'sow' || it.slug === 'track_record'){ (_toolDone(it.slug) ? done : todo).push(it); return; }
+      (SUB[it.status] ? done : todo).push(it);
+    });
+    var tabs = '<div class="doc-tabs">' +
+      '<button type="button" class="doc-tab' + (_docTab === 'todo' ? ' active' : '') + '" onclick="setDocTab(\'todo\')">To Do (' + todo.length + ')</button>' +
+      '<button type="button" class="doc-tab' + (_docTab === 'done' ? ' active' : '') + '" onclick="setDocTab(\'done\')">Submitted (' + done.length + ')</button>' +
+    '</div>';
+    var list = _docTab === 'done' ? done : todo;
+    var body;
+    if (!list.length){
+      body = _docTab === 'done'
+        ? '<div class="empty">Nothing submitted yet — uploads will appear here.</div>'
+        : '<div class="empty"><div style="font-size:28px">✓</div><div style="margin-top:8px;font-weight:600;color:var(--green)">All caught up.</div><div style="margin-top:4px">Everything requested has been submitted — check the Submitted tab to review.</div></div>';
+    } else {
+      body = list.map(renderItem).join('');
     }
-    c.innerHTML = active.map(renderItem).join('');
-    document.getElementById('doneNote').textContent = accepted.length
-      ? (accepted.length + ' document' + (accepted.length===1?'':'s') + ' already accepted and cleared from this list.') : '';
+    c.innerHTML = tabs + body;
+    document.getElementById('doneNote').textContent = '';
   }
+  window.setDocTab = setDocTab;
 
   // Deploy 236.743 — Your SLA Team card: First / Last / Email / Role for
   // everyone assigned to the loan (LO + processors/closer/manager).
@@ -368,9 +393,10 @@
       var pendS = _ws.sow && _ws.sow.data && _ws.sow.data.customPending;
       title = '🛠 Scope of Work (Rehab Budget)';
       hint = 'Required for this loan — enter your repair items and budget, or attach your own Excel SOW inside.';
-      chip = items.length ? '<span class="pill submitted">' + items.length + ' items · on file ✓</span>'
+      chip = items.length ? '<span class="pill submitted">Submitted ✓</span>'
            : pendS ? '<span class="pill manual_review">Custom sheet under review</span>'
            : '<span class="pill todo">Needed</span>';
+      if (items.length) extra = '<div class="item-hint" style="margin-top:4px">' + items.length + ' line item' + (items.length===1?'':'s') + ' on file — tap to open and edit.</div>';
     } else {
       var t = _ws.track;
       var rows = (t && t.rows) || [];
@@ -392,8 +418,9 @@
     if (it.slug === 'sow') return _wsCard('sow', it);
     if (it.slug === 'track_record') return _wsCard('track', it);
     var pill = it.status === 'needs_fix' ? '<span class="pill needs_fix">Needs fix</span>'
-             : it.status === 'manual_review' ? '<span class="pill manual_review">Manual review</span>'
-             : it.status === 'submitted' ? '<span class="pill submitted">Submitted</span>'
+             : it.status === 'accepted' ? '<span class="pill accepted">Accepted ✓</span>' // 236.957 — visible on the Submitted tab
+             : it.status === 'manual_review' ? '<span class="pill manual_review">Under review</span>'
+             : it.status === 'submitted' ? '<span class="pill submitted">Submitted ✓</span>'
              : it.requested ? '<span class="pill todo">Requested by your team</span>'
              : it.custom ? '<span class="pill optional">Added by you</span>'
              : (it.optional ? '<span class="pill optional">If applicable</span>' : '<span class="pill todo">Needed</span>');

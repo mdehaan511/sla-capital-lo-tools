@@ -35,7 +35,7 @@
     .top img { height:30px; }
     .top a { color:#e8e2d8; font-size:13px; text-decoration:none; }
     .page { max-width:960px; margin:24px auto 80px; padding:0 16px; }
-    .page.wide { max-width:1460px; } /* 236.955 — track record + address fit a laptop */
+    .page.wide { max-width:none; margin-left:22px; margin-right:22px; } /* 236.957 — track record uses the FULL screen */
     td select { width:100%; padding:7px 6px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:12.5px; min-width:120px; }
     td input[type=month] { min-width:118px; }
     td input[data-sla-autocomplete] { min-width:230px; }
@@ -414,6 +414,9 @@ function saveAll(){
     };
   } else {
     payload.data={ rows:_rows };
+    // 236.957 — when opened from a loan, the save also files an .xlsx into
+    // that loan's Track Record tray.
+    if(_loanId){ payload.loanId=_loanId; payload.address=_addr; }
   }
   api(payload).then(function(res){
     btn.disabled=false;
