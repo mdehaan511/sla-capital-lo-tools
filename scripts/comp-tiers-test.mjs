@@ -43,6 +43,9 @@ check('a datetime close stamp still resolves by its date', tierBps(4.6, '2026-09
 check('DSCR margin = points + TPO spread', marginOf({ toolType: 'dscr', points: 1, tpoSpread: 1.5 }).margin, 2.5);
 check('RTL margin = points + (sold rate − sizer base)', marginOf({ toolType: 'rtl', points: 2, rate: 11.25, _pricingOverrideOriginal: { rate: 11 } }).margin, 2.25);
 check('RTL at the sizer rate → just the points', marginOf({ toolType: 'rtl', points: 2, rate: 10.5 }).margin, 2);
+// Deploy 236.963 — Mike: "10.5 and 1.5 base ... change it to 10% 1.5 points then its 1 point for the comp multiplier"
+check('RTL sold UNDER the sizer base: 10.0 vs 10.5 at 1.5 pts → margin 1.0 (35 bps), not floored', (() => { const m = marginOf({ toolType: 'rtl', points: 1.5, rate: 0.10, _pricingOverrideOriginal: { rate: 0.105 } }); return [Math.round(m.margin * 100) / 100, m.parts, tierBps(m.margin, '2026-09-15')]; })(), [1, '1.50 pts − 0.50 under sizer base', 35]);
+check('RTL sold OVER the sizer base still adds', marginOf({ toolType: 'rtl', points: 1.5, rate: 0.11, _pricingOverrideOriginal: { rate: 0.105 } }).parts, '1.50 pts + 0.50 over sizer base');
 
 // ── Rows ───────────────────────────────────────────────────────────────────
 const byOwner = { 'sara.s@slacapital.com': [

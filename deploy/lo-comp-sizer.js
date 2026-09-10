@@ -65,16 +65,25 @@
     var tool = String(p.tool || '').toUpperCase() || '?';
     var amount = num(p.amount), ratePct = pct(p.ratePct), basePct = pct(p.basePct);
     var points = num(p.points), tpo = num(p.tpoSpread);
+    // Deploy 236.963 (Mike: "if they lower the interest rate before the base
+    // rate on the sizer ... it reduces the multiplier used for the comp.
+    // Example 10.5 and 1.5 base ... 10% 1.5 points then its 1 point") — the
+    // rate spread over the sizer's engine rate is SIGNED and moves the margin
+    // point for point in both directions (matches lo-comp.js marginOf on the
+    // closed book). DSCR: applied on top of the assumed TPO the same way.
+    var spread = (basePct > 0 && ratePct > 0) ? ratePct - basePct : 0;
     var margin, parts;
     if (tool === 'DSCR') {
-      margin = points + tpo;
-      parts = points.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + (p.tpoAssumed ? ' (assumed — set at closing)' : '');
+      margin = points + tpo + spread;
+      parts = points.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + (p.tpoAssumed ? ' (assumed — set at closing)' : '') +
+        (spread > 0 ? ' + ' + spread.toFixed(2) + ' over sizer base' : spread < 0 ? ' − ' + Math.abs(spread).toFixed(2) + ' under sizer base' : '');
     } else {
-      var spread = (basePct > 0 && ratePct > 0) ? Math.max(0, ratePct - basePct) : 0;
       margin = points + spread;
       parts = spread > 0
         ? points.toFixed(2) + ' pts + ' + spread.toFixed(2) + ' over sizer base'
-        : points.toFixed(2) + ' pts (at the sizer rate — no markup)';
+        : spread < 0
+          ? points.toFixed(2) + ' pts − ' + Math.abs(spread).toFixed(2) + ' under sizer base'
+          : points.toFixed(2) + ' pts (at the sizer rate — no markup)';
     }
     return {
       tool: tool, amount: amount, ratePct: ratePct, points: points, tpoSpread: tpo,

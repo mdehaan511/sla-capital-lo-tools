@@ -108,8 +108,13 @@
     var baseRaw = (orig && orig.rate != null) ? num(orig.rate) : num(l.compBaseRate);
     var basePct = baseRaw > 1 ? baseRaw : baseRaw * 100;
     if (basePct > 0 && ratePct > 0) {
-      var spread = Math.max(0, ratePct - basePct);
-      return { margin: pts + spread, parts: pts.toFixed(2) + ' pts + ' + spread.toFixed(2) + ' over sizer base', missing: false };
+      // Deploy 236.963 (Mike: "if they lower the interest rate before the base
+      // rate on the sizer ... it reduces the multiplier used for the comp.
+      // Example 10.5 and 1.5 base ... 10% 1.5 points then its 1 point") — the
+      // spread is signed: selling UNDER the sizer base takes the difference
+      // off the points, point for point. (It used to floor at 0.)
+      var spread = ratePct - basePct;
+      return { margin: pts + spread, parts: spreadParts(pts, spread), missing: false };
     }
     var overridden = !!(l._pricingOverrideAt || (l.formData && (l.formData._pricingOverrideAt || l.formData._rateOverride)));
     if (overridden) {
@@ -118,6 +123,14 @@
       return { margin: pts, parts: pts.toFixed(2) + ' pts (rate overridden — sizer base unknown)', missing: true };
     }
     return { margin: pts, parts: pts.toFixed(2) + ' pts (sold at sizer rate — no markup)', missing: false };
+  }
+
+  // "2.00 pts + 0.25 over sizer base" / "1.50 pts − 0.50 under sizer base" /
+  // "2.00 pts (sold at sizer rate — no markup)". Shared with lo-comp-sizer.js.
+  function spreadParts(pts, spread) {
+    if (spread > 0) return pts.toFixed(2) + ' pts + ' + spread.toFixed(2) + ' over sizer base';
+    if (spread < 0) return pts.toFixed(2) + ' pts − ' + Math.abs(spread).toFixed(2) + ' under sizer base';
+    return pts.toFixed(2) + ' pts (sold at sizer rate — no markup)';
   }
 
   // Closed/won — same rule as the SLA dashboard's Won bucket.
@@ -329,7 +342,7 @@
     DEFAULT_PLANS: DEFAULT_PLANS, PLAN_LABEL: PLAN_LABEL, SALARY_PLAN_NOTE: SALARY_PLAN_NOTE,
     num: num, money: money, shortDate: shortDate,
     TIER_SCHEDULES: TIER_SCHEDULES, tierScheduleFor: tierScheduleFor, tierBps: tierBps,
-    marginOf: marginOf, isClosedWon: isClosedWon, buildRows: buildRows,
+    marginOf: marginOf, spreadParts: spreadParts, isClosedWon: isClosedWon, buildRows: buildRows,
     clientIsBrokerFor: clientIsBrokerFor, repeatKeyOf: repeatKeyOf,
     isPendingApproved: isPendingApproved, buildPendingRows: buildPendingRows, STAGE_LABEL: STAGE_LABEL, todayISO: todayISO,
     computeRow: computeRow, payoutState: payoutState,

@@ -30,7 +30,9 @@ const rtl = S.rowFrom({ tool: 'rtl', amount: 500000, ratePct: 0.1125, basePct: 0
 check('RTL: decimal rates normalized, margin = points + (rate − engine base)', [rtl.ratePct, r2(rtl.margin), rtl.marginParts], [11.25, 2.25, '2.00 pts + 0.25 over sizer base']);
 const flat = S.rowFrom({ tool: 'guc', amount: 500000, ratePct: 0.11, basePct: 0.11, points: 2 });
 check('RTL at the engine rate: no markup, says so', [flat.margin, flat.marginParts], [2, '2.00 pts (at the sizer rate — no markup)']);
-check('a rate BELOW the engine rate never produces a negative markup', S.rowFrom({ tool: 'rtl', amount: 1, ratePct: 0.105, basePct: 0.11, points: 2 }).margin, 2);
+// Deploy 236.963 — Mike: "10.5 and 1.5 base ... change it to 10% 1.5 points then its 1 point for the comp multiplier"
+check('a rate BELOW the engine rate REDUCES the margin point for point (10.5 → 10.0 at 1.5 pts = 1.0)', (() => { const r = S.rowFrom({ tool: 'rtl', amount: 1, ratePct: 0.10, basePct: 0.105, points: 1.5 }); return [r2(r.margin), r.marginParts]; })(), [1, '1.50 pts − 0.50 under sizer base']);
+check('DSCR: a rate below the engine rate comes off the assumed TPO the same way', (() => { const r = S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 6.75, basePct: 7.0, points: 1, tpoSpread: 1, tpoAssumed: true }); return [r2(r.margin), r.marginParts]; })(), [1.75, '1.00 pts + 1.00 TPO (assumed — set at closing) − 0.25 under sizer base']);
 check('source / referral stamps pass through; repeat is never guessed', (() => { const r = S.rowFrom({ tool: 'dscr', amount: 1, points: 1, tpoSpread: 1, source: 'company', referral: true }); return [r.source, r.referral, r.isRepeat]; })(), ['company', true, false]);
 
 // ── summarize = computeRow on that row: same number as the commissions page ─
@@ -47,6 +49,13 @@ check('source / referral stamps pass through; repeat is never guessed', (() => {
     { id: 'l', status: 'closed', fundingDate: C.todayISO(), toolType: 'rtl', loanAmt: 500000, rate: 0.1125, points: 2, _pricingOverrideOriginal: { rate: 0.11 } },
   ] }] })[0], 'model');
   check('model, RTL 500k @ 2 pts sold 11.25 over an 11.00 engine rate: sizer box == commissions page (58.75 bps)', [sizer.tier, r2(sizer.total), r2(page.total)], [58.75, 2937.5, 2937.5]);
+}
+{
+  const sizer = S.summarize({ tool: 'rtl', amount: 500000, ratePct: 0.10, basePct: 0.105, points: 1.5 }, 'model').calc;
+  const page = C.computeRow(C.buildRows({ 'lo@slacapital.com': [{ id: 'c', email: 'b@x.com', loans: [
+    { id: 'l', status: 'closed', fundingDate: C.todayISO(), toolType: 'rtl', loanAmt: 500000, rate: 0.10, points: 1.5, _pricingOverrideOriginal: { rate: 0.105 } },
+  ] }] })[0], 'model');
+  check('model, RTL 500k sold 10.00 under a 10.50 engine rate at 1.5 pts: margin 1.0 → 35 bps on BOTH pages ($1,750)', [sizer.tier, r2(sizer.total), page.tier, r2(page.total)], [35, 1750, 35, 1750]);
 }
 check('company-sourced halves the tier', r2(S.summarize({ tool: 'dscr', amount: 300000, points: 1, tpoSpread: 1.5, source: 'company' }, 'model').calc.total), 881.25);
 check('flat50', r2(S.summarize({ tool: 'dscr', amount: 300000, points: 1, tpoSpread: 1 }, 'flat50').calc.total), 1500);
