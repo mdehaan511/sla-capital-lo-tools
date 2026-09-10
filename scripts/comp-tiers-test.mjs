@@ -12,7 +12,7 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const C = require('../deploy/lo-comp.js');
-const { tierBps, tierScheduleFor, computeRow, buildRows, payoutState, marginOf, clientIsBrokerFor, repeatKeyOf } = C;
+const { tierBps, tierScheduleFor, computeRow, buildRows, payoutState, marginOf, clientIsBrokerFor, repeatKeyOf, buildPendingRows, isPendingApproved, todayISO } = C;
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -82,6 +82,36 @@ check('BILL stamps ride along', [rows[0].billId, rows[0].payStatus, rows[0].paid
   const other = buildRows({ 'carl.davis@slacapital.com': [{ id: 'c1', email: 'z@z.com', loans: [{ id: 'm1', status: 'closed', fundingDate: '2026-01-01', loanAmt: 1, toolType: 'dscr' }] }],
                             'sara.s@slacapital.com':     [{ id: 'c2', email: 'z@z.com', loans: [{ id: 'm2', status: 'closed', fundingDate: '2026-06-01', loanAmt: 1, toolType: 'dscr' }] }] });
   check('repeat is per LO: the same borrower closing with a DIFFERENT LO is that LO\'s first', other.map((r) => r.isRepeat), [false, false]);
+}
+
+// ── Pending commissions (236.960) ──────────────────────────────────────────
+{
+  const mk = (id, extra) => Object.assign({ id, address: id, toolType: 'dscr', loanAmt: 100000, points: 1, tpoSpread: 1.5 }, extra);
+  check('approved + no stage → pending', isPendingApproved(mk('a', { status: 'approved' })), true);
+  check('processing stages → pending', ['new_loan', 'processing', 'underwriting', 'pp_approved'].map((s) => isPendingApproved(mk('b', { status: 'approved', processingStage: s }))), [true, true, true, true]);
+  check('closed / pp_closed / disposition → NOT pending', [isPendingApproved(mk('c', { status: 'closed' })), isPendingApproved(mk('c', { status: 'approved', processingStage: 'pp_closed' })), isPendingApproved(mk('c', { status: 'approved', disposition: 'sold' }))], [false, false, false]);
+  check('on hold / denied / cancelled / active / submitted → NOT pending', ['on_hold', 'denied', 'cancelled', 'active', 'submitted'].map((s) => isPendingApproved(mk('d', { status: s }))), [false, false, false, false, false]);
+  const book = { 'sara.s@slacapital.com': [
+    { id: 'c1', email: 'ann@one.com', firstName: 'Ann', lastName: 'One', loans: [
+      mk('closed1', { status: 'closed', fundingDate: '2026-06-02', finalLoanAmount: 250000 }),
+      mk('pend1', { status: 'approved', processingStage: 'underwriting', loanAmt: 200000, expectedCloseDate: '2026-10-15' }),
+    ] },
+    { id: 'c2', email: 'bob@two.com', firstName: 'Bob', lastName: 'Two', loans: [
+      mk('pend2', { status: 'approved', loanAmt: 300000, commissionReferral: 'yes' }),
+      mk('hold', { status: 'on_hold', loanAmt: 1 }),
+    ] },
+  ] };
+  const pend = buildPendingRows(book);
+  const byId = {}; pend.forEach((r) => { byId[r.loanId] = r; });
+  check('only approved-not-closed loans become pending rows', pend.map((r) => r.loanId).sort(), ['pend1', 'pend2']);
+  check('pending rows are flagged and carry the stage label', [byId.pend1.pending, byId.pend1.stage, byId.pend2.stage], [true, 'Underwriting', 'Approved']);
+  check('closeDate = expected close date, else today (tier schedule in force at closing)', [byId.pend1.closeDate, byId.pend2.closeDate === todayISO()], ['2026-10-15', true]);
+  check('amount = loanAmt (nothing final yet)', [byId.pend1.amount, byId.pend2.amount], [200000, 300000]);
+  check('repeat = the borrower already CLOSED with this LO', [byId.pend1.isRepeat, byId.pend2.isRepeat], [true, false]);
+  check('no payout stamps on a pending row', [byId.pend1.billId, byId.pend1.payStatus, payoutState(byId.pend1).key], ['', '', 'unbilled']);
+  const c1 = computeRow(byId.pend1, 'model');
+  check('pending row prices on the NEW schedule: margin 2.5 → 58.75 bps + $250 repeat', [c1.tier, r2(c1.base), c1.bonus, r2(c1.total)], [58.75, 1175, 250, 1425]);
+  check('closed rows still come only from buildRows', buildRows(book).map((r) => r.loanId), ['closed1']);
 }
 
 // ── Per-row math ───────────────────────────────────────────────────────────

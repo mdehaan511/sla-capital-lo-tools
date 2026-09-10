@@ -492,6 +492,9 @@
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
 <script src="mf-pricing.js?v=236944"></script>
+<!-- Deploy 236.960 -- "Your expected commission" box under the results (shared comp model + sizer adapter). -->
+<script src="lo-comp.js?v=236960"></script>
+<script src="lo-comp-sizer.js?v=236960"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -5264,5 +5267,10 @@ netlifyIdentity.on('init', function(user) {
   .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
+<script>
+  // Deploy 236.960 (Mike) -- expected commission for the signed-in LO, from the
+  // same model as the LO Commissions page; follows every recalculation.
+  try { if (window.SLA_COMP_SIZER) SLA_COMP_SIZER.attach({ family: 'dscr', tool: 'dscr' }); } catch (e) { console.warn('[SLA] comp box:', e); }
+</script>
 </body>
 </html>

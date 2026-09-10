@@ -33,7 +33,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:wght@500;600&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
-  <script src="lo-comp.js?v=236953"></script>
+  <script src="lo-comp.js?v=236960"></script>
   <script src="sla-nav.js" defer></script>
   <style>
     :root {
@@ -147,6 +147,7 @@
 <script>
 var _user = null;
 var _rows = [];          // every closed loan: computed commission row
+var _pending = [];       // 236.960 — approved-in-processing loans: expected commission rows
 var _loNames = {};
 var _plans = {};         // email -> 'model' | 'flat50' | 'revenue'
 var _allLoEmails = [];   // from directory
@@ -256,6 +257,7 @@ function loadAll(fresh) {
 
     // Deploy 236.952 — rows come from the shared model (repeat-borrower detection included).
     _rows = SLA_COMP.buildRows((cj && cj.byOwner) || {});
+    _pending = SLA_COMP.buildPendingRows((cj && cj.byOwner) || {}); // 236.960
     buildPeriodSelect();
     render();
     renderPlans();
@@ -329,14 +331,23 @@ function render() {
   var rows = _rows.filter(inPeriod).filter(inStatus); // 236.935 — status + period
   var byLo = {};
   rows.forEach(function(r) { (byLo[r.owner] = byLo[r.owner] || []).push(r); });
-  var owners = Object.keys(byLo).sort(function(a, b) { return loName(a).localeCompare(loName(b)); });
+  // Deploy 236.960 (Mike) — pending commissions: approved-in-processing loans
+  // per LO, shown under the closed table regardless of the period/status
+  // filters (they are what is coming, not what closed). An LO with only
+  // pending loans still gets a card.
+  var pendByLo = {};
+  _pending.forEach(function(r) { (pendByLo[r.owner] = pendByLo[r.owner] || []).push(r); });
+  var ownerSet = {};
+  Object.keys(byLo).forEach(function(o) { ownerSet[o] = 1; });
+  Object.keys(pendByLo).forEach(function(o) { ownerSet[o] = 1; });
+  var owners = Object.keys(ownerSet).sort(function(a, b) { return loName(a).localeCompare(loName(b)); });
 
   var q = periodQuarter();
-  var totalPayout = 0, totalVolume = 0, totalLoans = 0;
+  var totalPayout = 0, totalVolume = 0, totalLoans = 0, totalPending = 0, pendingCount = 0;
   var html = '';
   owners.forEach(function(owner) {
     var plan = planOf(owner);
-    var list = byLo[owner].slice().sort(function(a, b) { return String(a.closeDate).localeCompare(String(b.closeDate)); });
+    var list = (byLo[owner] || []).slice().sort(function(a, b) { return String(a.closeDate).localeCompare(String(b.closeDate)); });
     var loBase = 0, loBonus = 0, loVol = 0;
     var bodyRows = list.map(function(r) {
       var c = computeRow(r, plan);
@@ -420,6 +431,42 @@ function render() {
     var loTotal = plan === 'revenue' ? 0 : loBase + loBonus + prodBonus;
     totalPayout += loTotal; totalVolume += loVol; totalLoans += list.length;
 
+    // Deploy 236.960 — pending block for this LO.
+    var pend = (pendByLo[owner] || []).slice().sort(function(a, b) { return String(a.closeDate).localeCompare(String(b.closeDate)); });
+    var pendTotal = 0, pendVol = 0;
+    var pendRows = pend.map(function(r) {
+      var c = computeRow(r, plan);
+      pendTotal += (plan === 'revenue' ? 0 : c.base + c.bonus); pendVol += r.amount;
+      var href = '/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner);
+      return '<tr>' +
+        '<td><a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' +
+          '<div style="font-size:10.5px;color:var(--muted)">' + escH(r.borrower) + '</div></td>' +
+        '<td>' + escH(r.tool) + '</td>' +
+        '<td>' + escH(r.stage) + '</td>' +
+        '<td class="num">' + money(r.amount) + '</td>' +
+        '<td>' + (r.expectedCloseDate ? escH(r.expectedCloseDate) : '<span style="color:var(--muted)">not set</span>') + '</td>' +
+        '<td class="num">' + (plan === 'model' ? '<span title="' + escH(r.marginParts) + '">' + r.margin.toFixed(2) + (r.marginMissing ? ' ⚠' : '') + '</span>' : '—') + '</td>' +
+        '<td style="text-align:center">' + (plan === 'model' ? (r.isRepeat ? 'Yes' : 'No') : '—') + '</td>' +
+        '<td class="num">' + (plan === 'revenue' ? '—' : c.applied.toFixed(1)) + '</td>' +
+        '<td class="num" style="font-weight:700">' + (plan === 'revenue' ? '—' : money(c.base + c.bonus)) + '</td>' +
+      '</tr>';
+    }).join('');
+    totalPending += pendTotal; pendingCount += pend.length;
+    var pendNote = pend.length
+      ? '<div style="margin-top:14px;padding:10px 12px;border:1px dashed var(--border);border-radius:8px;background:rgba(38,26,54,0.02)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px">' +
+            '<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold-mid)">Pending — approved, not yet closed</span>' +
+            '<span style="font-size:12px">' + pend.length + ' loan' + (pend.length === 1 ? '' : 's') + ' · ' + money(pendVol) +
+              (plan === 'revenue' ? '' : ' · <strong style="color:var(--dark)">expected ' + money(pendTotal) + '</strong>') + '</span>' +
+          '</div>' +
+          '<div style="overflow-x:auto"><table><thead><tr>' +
+            '<th>Loan</th><th>Type</th><th>Stage</th><th class="num">Amount</th><th>Expected Close</th><th class="num">Margin</th>' +
+            '<th style="text-align:center">Repeat</th><th class="num">Bps</th><th class="num">Expected</th>' +
+          '</tr></thead><tbody>' + pendRows + '</tbody></table></div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:6px">Estimated from the loan as priced today (amount, points, rate); it settles at closing. Not affected by the period / status filters above.</div>' +
+        '</div>'
+      : '';
+
     // Deploy 236.808 — one-button BILL creation for this LO's UNBILLED
     // loans in the period (auto-creates the vendor in BILL if needed).
     // Deploy 236.926 — manually-marked-paid rows are settled: they must not
@@ -454,15 +501,17 @@ function render() {
         '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' + billBtn +
         '<div class="lo-total">' + (plan === 'revenue'
           ? '<span style="color:var(--muted);font-weight:500">' + list.length + ' closed · ' + money(loVol) + ' · paid off total revenue</span>'
-          : list.length + ' closed · ' + money(loVol) + ' · payout ' + money(loTotal)) + '</div></div>' +
+          : list.length + ' closed · ' + money(loVol) + ' · payout ' + money(loTotal) +
+            (pend.length ? ' <span style="color:var(--muted);font-weight:500">· pending ' + money(pendTotal) + '</span>' : '')) + '</div></div>' +
       '</div>' +
       (plan === 'salary' ? '<div style="font-size:11.5px;color:var(--muted);margin:-4px 0 8px">' + SALARY_PLAN_NOTE + '</div>' : '') + // 236.937
       '<div style="overflow-x:auto"><table><thead><tr>' +
         '<th>Loan</th><th>Type</th><th class="num">Amount</th><th>Closed</th><th class="num">Margin</th>' +
         '<th>Source</th><th style="text-align:center">Repeat</th><th style="text-align:center">Referral</th>' +
         '<th class="num">Bps</th><th class="num">Base</th><th class="num">Bonuses</th><th class="num">Total</th><th>Paid Out</th>' +
-      '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>' +
+      '</tr></thead><tbody>' + (bodyRows || '<tr><td colspan="13" style="color:var(--muted);font-size:12px">No loans closed in this period.</td></tr>') + '</tbody></table></div>' +
       prodNote +
+      pendNote +   // 236.960
     '</div>';
   });
 
@@ -471,6 +520,7 @@ function render() {
     '<div class="stat-card"><div class="stat-label">Closed Loans</div><div class="stat-value">' + totalLoans + '</div><div class="stat-sub">in period</div></div>' +
     '<div class="stat-card"><div class="stat-label">Closed Volume</div><div class="stat-value">' + money(totalVolume) + '</div><div class="stat-sub">funded amount</div></div>' +
     '<div class="stat-card"><div class="stat-label">Total Payout</div><div class="stat-value">' + money(totalPayout) + '</div><div class="stat-sub">model + flat plans (revenue-based excluded)</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Pending Payout</div><div class="stat-value">' + money(totalPending) + '</div><div class="stat-sub">' + pendingCount + ' approved, not yet closed (est.)</div></div>' + // 236.960
     (missingDates ? '<div class="stat-card"><div class="stat-label" style="color:var(--warn)">No Close Date</div><div class="stat-value">' + missingDates + '</div><div class="stat-sub">closed loans missing fundingDate — not in any period</div></div>' : '');
 
   document.getElementById('loSections').innerHTML = html ||

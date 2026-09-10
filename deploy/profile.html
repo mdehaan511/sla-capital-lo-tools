@@ -6,7 +6,7 @@
   <title>Profile — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
-  <script src="lo-comp.js?v=236953"></script>
+  <script src="lo-comp.js?v=236960"></script>
   <script src="sla-nav.js"></script>
 <script src="/sla-search.js"></script>
   <script src="sla-notifications.js"></script>
@@ -613,7 +613,7 @@ function loadStats() {
 // (lo-comp.js): plan from /api/lo-comp-plan, rows from the LO's own client
 // list (the commission stamps BILL / the admin page leave on each loan ride
 // along in the summary projection).
-var _myComm = { rows: [], plan: null, quarters: [] };
+var _myComm = { rows: [], plan: null, quarters: [], pending: [] }; // 236.960 — pending = approved, not yet closed
 function loadMyCommissions() {
   if (!window.SLA_COMP || !_user) return;
   var email = String(_user.email || '').toLowerCase();
@@ -626,11 +626,12 @@ function loadMyCommissions() {
     var clients = cj.clients || (cj.byOwner && cj.byOwner[email]) || [];
     var byOwner = {}; byOwner[email] = clients;
     _myComm.rows = SLA_COMP.buildRows(byOwner).sort(function(a, b) { return String(b.closeDate || '').localeCompare(String(a.closeDate || '')); });
+    _myComm.pending = SLA_COMP.buildPendingRows(byOwner).sort(function(a, b) { return String(a.closeDate || '').localeCompare(String(b.closeDate || '')); }); // 236.960
     _myComm.plan = plan;
     var card = document.getElementById('myCommCard');
     if (!card) return;
-    // Nothing closed and no plan on file (processors, admins without a book) — no card.
-    if (!_myComm.rows.length && !plan.configured) { card.style.display = 'none'; return; }
+    // Nothing closed or pending and no plan on file (processors, admins without a book) — no card.
+    if (!_myComm.rows.length && !_myComm.pending.length && !plan.configured) { card.style.display = 'none'; return; }
     card.style.display = 'block';
     var qs = {};
     _myComm.rows.forEach(function(r) { var q = commQuarter(r.closeDate); if (q) qs[q] = 1; });
@@ -688,19 +689,46 @@ function renderMyCommissions() {
     });
     html += '</tbody></table></div>';
   }
+  // Deploy 236.960 (Mike) — pending: approved in processing, not yet closed,
+  // priced through the same model so the LO can anticipate future earnings.
+  var pendTotal = 0, pendVol = 0, pendHtml = '';
+  if (_myComm.pending.length) {
+    pendHtml = '<div style="margin-top:16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold-mid)">Pending — approved, not yet closed</div>' +
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px">' +
+      '<thead><tr style="text-align:left;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em">' +
+      '<th style="padding:6px 8px">Stage</th><th style="padding:6px 8px">Loan</th><th style="padding:6px 8px">Expected close</th><th style="padding:6px 8px;text-align:right">Amount</th>' +
+      '<th style="padding:6px 8px">Margin</th><th style="padding:6px 8px;text-align:right">Bps</th><th style="padding:6px 8px;text-align:right">Expected</th></tr></thead><tbody>';
+    _myComm.pending.forEach(function(r) {
+      var c = C.computeRow(r, plan.plan);
+      pendVol += r.amount; if (!isRevenue) pendTotal += c.total;
+      var href = '/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner);
+      var bonus = c.bonus ? '<div style="font-size:11px;color:var(--muted)">' + (r.isRepeat ? '+$250 repeat ' : '') + (r.referral ? '+$250 referral' : '') + '</div>' : '';
+      pendHtml += '<tr style="border-top:1px solid var(--border)">' +
+        '<td style="padding:8px;white-space:nowrap">' + escH(r.stage) + '</td>' +
+        '<td style="padding:8px"><a href="' + escH(href) + '" style="color:inherit;text-decoration:none;font-weight:600">' + escH(r.address) + '</a><div style="font-size:11px;color:var(--muted)">' + escH(r.tool) + ' · ' + escH(r.borrower) + '</div></td>' +
+        '<td style="padding:8px;white-space:nowrap">' + (r.expectedCloseDate ? escH(C.shortDate(r.expectedCloseDate)) : '<span style="color:var(--muted)">not set</span>') + '</td>' +
+        '<td style="padding:8px;text-align:right;white-space:nowrap">' + escH(C.money(r.amount)) + '</td>' +
+        '<td style="padding:8px;font-size:11.5px;color:var(--muted)">' + escH(r.marginParts) + '</td>' +
+        '<td style="padding:8px;text-align:right">' + (isRevenue ? '—' : escH(String(c.applied))) + '</td>' +
+        '<td style="padding:8px;text-align:right;font-weight:600;white-space:nowrap">' + (isRevenue ? '—' : escH(C.money(c.total))) + bonus + '</td></tr>';
+    });
+    pendHtml += '</tbody></table></div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:6px">Estimated from each loan as priced today; it settles at closing.</div>';
+  }
   var tiles = '';
   if (!isRevenue) {
     tiles = '<div class="stats-grid" style="margin-bottom:14px">' +
       statCell('Paid', fmtMoney(paid), 'success') +
       statCell('Billed, awaiting payment', fmtMoney(awaiting), 'gold') +
       statCell('Not yet billed', fmtMoney(unbilled), null) +
+      statCell('Pending (in processing)', fmtMoney(pendTotal), 'gold') +   // 236.960
       statCell('Volume', fmtMoney(vol), null) +
       (/^\d{4}-Q\d$/.test(p) && plan.plan === 'model'
         ? statCell('Production bonus ' + p.replace('-', ' '), fmtMoney(Math.floor(vol / 10000000) * 5000), 'gold') : '') +
       '</div>';
   }
   var note = plan.note ? '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">' + escH(plan.note) + '</div>' : '';
-  body.innerHTML = note + tiles + html +
+  body.innerHTML = note + tiles + html + pendHtml +   // 236.960
     '<div style="font-size:11px;color:var(--muted);margin-top:12px">Payout status comes from BILL (bill.com) as bills are created and paid, refreshed nightly. Questions about a specific loan: reply to your commission email or ask an admin.</div>';
 }
 

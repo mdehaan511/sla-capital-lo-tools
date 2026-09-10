@@ -987,6 +987,9 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
      new + iterating) can't be served stale from the unversioned /*.js cache.
      Bump the ?v= whenever guc-pricing.js changes. -->
 <script src="guc-pricing.js?v=236917"></script>
+<!-- Deploy 236.960 -- "Your expected commission" box under the results (shared comp model + sizer adapter). -->
+<script src="lo-comp.js?v=236960"></script>
+<script src="lo-comp-sizer.js?v=236960"></script>
 <script>
 // Deploy 236.408 (Hardening G1 RTL) — pricing engine extracted to
 // rtl-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -5996,6 +5999,11 @@ function initAutocomplete() {
     document.head.appendChild(s);
   }).catch(function(){});
 })();
+</script>
+<script>
+  // Deploy 236.960 (Mike) -- expected commission for the signed-in LO, from the
+  // same model as the LO Commissions page; follows every recalculation.
+  try { if (window.SLA_COMP_SIZER) SLA_COMP_SIZER.attach({ family: 'rtl', tool: 'guc' }); } catch (e) { console.warn('[SLA] comp box:', e); }
 </script>
 </body>
 </html>

@@ -176,7 +176,12 @@
       });
       byBorrower[be].forEach(function (x, i) { x.isRepeat = i > 0; });
     });
-    return closed.map(function (x) {
+    return closed.map(baseRow);
+  }
+
+  // One row from { owner, client, loan } — shared by the closed book and the
+  // pending (approved, not yet closed) book so both compute the same way.
+  function baseRow(x) {
       var l = x.loan;
       var m = marginOf(l);
       return {
@@ -214,6 +219,59 @@
         // covered this loan, so "where's my money" has an answer.
         payRef: String(l.commissionPaymentRef || ''),
       };
+  }
+
+  // ── Pending commissions (Deploy 236.960) ──────────────────────────
+  // Mike: "show Pending Commissions for loans they have that have been approved
+  // in the processing pipeline but havent closed yet … so they can anticipate
+  // their future earnings." Same membership rule as the Processing Pipeline
+  // board's columnFor(): approved / in a processing stage, not paused or dead,
+  // and not yet in the closed book.
+  var STAGE_LABEL = { new_loan: 'New Loan', processing: 'Processing', underwriting: 'Underwriting', pp_approved: 'Approved' };
+  function isPendingApproved(l) {
+    if (!l || isClosedWon(l)) return false;
+    var s = String(l.status || '').toLowerCase().trim();
+    if (s === 'on_hold' || s === 'denied' || s === 'cancelled' || s === 'sold' || s === 'liquidated' || s === 'closed') return false;
+    var stage = String(l.processingStage || '').toLowerCase().trim();
+    if (stage === 'processing' || stage === 'underwriting' || stage === 'pp_approved' || stage === 'new_loan') return true;
+    return s === 'approved';
+  }
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  // Rows for every approved-not-closed loan, in the closed-row shape plus
+  // { pending: true, stage, expectedCloseDate }. closeDate is the expected
+  // close date or today — the loan closes in the future, so the tier schedule
+  // in force NOW (or then) applies, never the pre-9/10/26 one. Repeat = the
+  // same borrower already CLOSED with this LO (pending deals don't count yet).
+  function buildPendingRows(byOwner) {
+    var closedKeys = {};
+    var pending = [];
+    Object.keys(byOwner || {}).forEach(function (owner) {
+      var o = String(owner).toLowerCase();
+      (byOwner[owner] || []).forEach(function (c) {
+        ((c && c.loans) || []).forEach(function (l) {
+          if (!l || !l.id) return;
+          if (isClosedWon(l)) { var k = repeatKeyOf(c, l); if (k) closedKeys[o + '|' + k] = true; return; }
+          if (isPendingApproved(l)) pending.push({ owner: o, client: c, loan: l });
+        });
+      });
+    });
+    var today = todayISO();
+    return pending.map(function (x) {
+      var l = x.loan;
+      var r = baseRow(x);
+      var k = repeatKeyOf(x.client, l);
+      var stage = String(l.processingStage || '').toLowerCase().trim();
+      r.pending = true;
+      r.amount = num(l.loanAmt) || r.amount;           // nothing is final yet
+      r.expectedCloseDate = String(l.expectedCloseDate || '');
+      r.closeDate = r.expectedCloseDate || today;
+      r.stage = STAGE_LABEL[stage] || (stage ? stage : 'Approved');
+      r.isRepeat = !!(k && closedKeys[x.owner + '|' + k]);
+      r.billId = ''; r.billedAt = ''; r.payStatus = ''; r.paidAt = ''; r.payRef = '';
+      return r;
     });
   }
 
@@ -273,6 +331,7 @@
     TIER_SCHEDULES: TIER_SCHEDULES, tierScheduleFor: tierScheduleFor, tierBps: tierBps,
     marginOf: marginOf, isClosedWon: isClosedWon, buildRows: buildRows,
     clientIsBrokerFor: clientIsBrokerFor, repeatKeyOf: repeatKeyOf,
+    isPendingApproved: isPendingApproved, buildPendingRows: buildPendingRows, STAGE_LABEL: STAGE_LABEL, todayISO: todayISO,
     computeRow: computeRow, payoutState: payoutState,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = SLA_COMP;

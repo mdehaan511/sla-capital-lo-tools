@@ -231,6 +231,9 @@ const LOAN_SUMMARY_FIELDS = [
   // detection on these so a broker's second deal is never a "repeat". Keep in
   // sync with clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
   'borrowerName', 'borrowerEmail',
+  // Deploy 236.960 — pending-commission rows show when an approved loan is
+  // expected to close (and pick the tier schedule by it). Keep in sync.
+  'expectedCloseDate',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
