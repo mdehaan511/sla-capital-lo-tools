@@ -492,8 +492,15 @@ function render() {
       var refCell = plan === 'model'
         ? '<input type="checkbox"' + (r.referral ? ' checked' : '') + ' onchange="setReferral(this, \'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')" title="$250 borrower-referral bonus" />'
         : '—';
+      // Deploy 236.940 (Mike) — a ⚠ margin (no base rate on file) is CLICKABLE:
+      // enter the base note rate and the row saves loan.buyRate (the same
+      // Funding Plan field) and recomputes margin = points + (sold − base).
       var marginCell = plan === 'model'
-        ? '<span title="' + escH(r.marginParts) + '"' + (r.marginMissing ? ' class="warn-note"' : '') + '>' + r.margin.toFixed(2) + (r.marginMissing ? ' ⚠' : '') + '</span>'
+        ? (r.marginMissing
+            ? '<span class="warn-note" style="cursor:pointer;text-decoration:underline dotted"' +
+              ' title="No base rate on file — margin shows points only. Click to enter the base note rate (%)."' +
+              ' onclick="setBaseRate(\'' + escH(r.loanId) + '\')">' + r.margin.toFixed(2) + ' ⚠</span>'
+            : '<span title="' + escH(r.marginParts) + '">' + r.margin.toFixed(2) + '</span>')
         : '—';
       var href = '/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner);
       // Deploy 236.808 — billed badge (a bill for this loan exists in BILL).
@@ -743,6 +750,32 @@ function markCommissionPaid(loanId, clientId, owner) {
     commissionPaymentRef: 'manual',
   });
 }
+// Deploy 236.940 (Mike) — fill the missing base rate straight from the ⚠
+// margin cell (402-1 Plymouth: sold 1.5 pts at 11.25% over an 11% base, but
+// no buyRate on file left the margin at points-only 1.50 instead of 1.75).
+// Saves loan.buyRate — the exact Funding Plan field marginOf reads — via
+// loan-fields-save, then recomputes the row like marginOf would.
+function setBaseRate(loanId) {
+  var r = null;
+  for (var i = 0; i < _rows.length; i++) if (_rows[i].loanId === loanId) { r = _rows[i]; break; }
+  if (!r) return;
+  var v = prompt('Base note rate (%) for ' + r.address + '.\n\nSold rate is ' + r.ratePct.toFixed(2) +
+    '% at ' + r.points.toFixed(2) + ' pts — margin becomes points + (sold rate − base rate).', '');
+  if (v === null) return;
+  var base = parseFloat(String(v).replace(/[%\s]/g, ''));
+  if (!isFinite(base) || base <= 0 || base > 20) { alert('Enter the base rate as a percent, e.g. 11 or 11.25'); return; }
+  SLA.api('POST', '/api/loan-fields-save', {
+    clientId: r.clientId, loanId: r.loanId, owner: r.owner, fields: { buyRate: base },
+  }).then(function() {
+    var spread = Math.max(0, r.ratePct - base);           // mirrors marginOf
+    r.margin = r.points + spread;
+    r.marginParts = r.points.toFixed(2) + ' pts + ' + spread.toFixed(2) + ' over base';
+    r.marginMissing = false;
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    render();
+  }).catch(function(err) { alert('Save failed: ' + (err && err.message || 'unknown')); });
+}
+
 // Deploy 236.939 (Mike) — bulk manual mark: same write as markCommissionPaid,
 // one row at a time (sequential; the endpoint is per-loan), same date on all.
 // Only rows visible under the CURRENT filters, with no bill and not paid.
