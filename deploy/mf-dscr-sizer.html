@@ -2390,7 +2390,7 @@ function _generateRateSheetPDF(opts) {
   opts = opts || {};
   var r = calculate();
   if (r.error) {
-    // Deploy 236.963 (Sarah) — stash the real pricing error for the
+    // Deploy 236.965 (Sarah) — stash the real pricing error for the
     // signature-mode handoff (see dscr-sizer.html).
     if (opts.mode === 'base64') { window._lastRateSheetError = r.error; return null; }
     alert('Please fix errors first: '+r.error);
@@ -4504,7 +4504,7 @@ netlifyIdentity.on('init', function(user) {
           try {
             var result = getRateSheetForSignature(1);
             if (!result || !result.pdfBase64) {
-              // Deploy 236.963 (Sarah) — surface the actual pricing error.
+              // Deploy 236.965 (Sarah) — surface the actual pricing error.
               var why = window._lastRateSheetError
                 ? window._lastRateSheetError + ' — open the loan in the sizer, fill in the missing field, and Save, then send again.'
                 : 'PDF generation returned null. Check that the quote loaded and all required fields are filled.';

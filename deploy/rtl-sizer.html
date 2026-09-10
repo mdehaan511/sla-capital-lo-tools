@@ -4094,7 +4094,7 @@ netlifyIdentity.on('init', function(user) {
         try {
           var result = getRTLRateSheetForSignature(1);
           if (!result || !result.pdfBase64) {
-            // Deploy 236.963 (Sarah) — surface the actual pricing error.
+            // Deploy 236.965 (Sarah) — surface the actual pricing error.
             var why = window._lastRateSheetError
               ? window._lastRateSheetError + ' — open the loan in the sizer, fix it, and Save, then send again.'
               : 'PDF generation returned null. Check that the quote loaded and all required fields are filled.';
@@ -5210,7 +5210,7 @@ function _generateRTLRateSheetPDF(opts) {
   if (!document.getElementById('results').innerHTML || 
       document.getElementById('results').querySelector('.placeholder') ||
       document.getElementById('results').querySelector('.inelig')) {
-    // Deploy 236.963 (Sarah) — in signature mode, stash WHY pricing failed
+    // Deploy 236.965 (Sarah) — in signature mode, stash WHY pricing failed
     // (the ineligibility text if the engine rendered one) so the Send modal
     // shows the real problem instead of a generic null.
     if (opts.mode === 'base64') {
