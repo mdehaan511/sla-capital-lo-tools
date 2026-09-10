@@ -27,10 +27,33 @@ import {
 import { roleOf } from './_shared/access.mjs';
 import { resolveViewAs } from './_shared/portal-view-as.mjs';
 import { hasLoanGrant } from './_shared/loan-access-store.mjs';
+import { getStore } from '@netlify/blobs';
+import { keySafe } from './_shared/auth.mjs';
 import {
-  WORKSHEET_DEFS, TRACK_FRESH_DAYS, worksheetStore, trackKey, sowKey,
+  WORKSHEET_DEFS, TRACK_FRESH_DAYS, SOW_DEFAULT_ITEMS, worksheetStore, trackKey, sowKey,
   parseUploadGrid, mapGridToRows, trackGrossProfit, sowTotal, trackAgeDays,
 } from './_shared/worksheets.mjs';
+
+// Deploy 236.954 (Mike) — suggest the SOW "Borrower Name" from the loan:
+// vesting LLC first, else entity, else the guarantor / primary client name.
+// Location comes from the borrower's GRANT (trusted), never from the body.
+async function suggestSowNames(grant, loanId) {
+  try {
+    if (!grant || !grant.ownerKey || !grant.primaryClientId) return null;
+    const clients = getStore({ name: 'clients', consistency: 'strong' });
+    const client = await clients.get(keySafe(grant.ownerKey) + '/' + keySafe(grant.primaryClientId), { type: 'json' });
+    if (!client) return null;
+    const loan = (client.loans || []).find((l) => l && l.id === loanId) || {};
+    const g0 = (Array.isArray(loan.guarantors) && loan.guarantors[0]) || null;
+    const borrowerName =
+      (Array.isArray(loan.vestingLLCs) && loan.vestingLLCs[0] && loan.vestingLLCs[0].name) ||
+      loan.entityName || client.entityName ||
+      loan.borrowerName ||
+      (g0 && ((g0.firstName || '') + ' ' + (g0.lastName || '')).trim()) ||
+      ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || '';
+    return { borrowerName: String(borrowerName).trim(), propertyAddress: String(loan.address || '') };
+  } catch (_) { return null; }
+}
 
 const MAX_UPLOAD = 4 * 1024 * 1024; // matches the single-POST body ceiling
 
@@ -66,6 +89,15 @@ async function handle(req, context) {
     if (staff && !view.viewingAs) return true;
     return hasLoanGrant(selfEmail, loanId);
   }
+  // Deploy 236.954 — the grant record carries primaryClientId + ownerKey,
+  // which the name-suggest uses. Best-effort.
+  async function grantFor(loanId) {
+    try {
+      const { listAccessibleLoans } = await import('./_shared/loan-access-store.mjs');
+      const grants = await listAccessibleLoans(selfEmail);
+      return grants.find((g) => g && g.loanId === loanId) || null;
+    } catch (_) { return null; }
+  }
 
   const store = worksheetStore();
 
@@ -88,9 +120,18 @@ async function handle(req, context) {
     if (!loanId) return json(400, { error: 'loanId required for sow' });
     if (!(await assertLoanAccess(loanId))) return json(403, { error: 'No access to this loan' });
     const rec = (await store.get(sowKey(loanId), { type: 'json' }).catch(() => null)) || null;
+    // Deploy 236.954 — a fresh SOW gets the template's item list pre-seeded
+    // (deletable) and a suggested Borrower Name (vesting LLC / guarantor).
+    let suggest = null;
+    if (!rec || !(rec.items || []).length) {
+      const grant = staff ? null : await grantFor(loanId);
+      suggest = await suggestSowNames(grant, loanId);
+    }
     return json(200, {
       kind, loanId, def: WORKSHEET_DEFS.sow,
       data: rec,
+      defaultItems: SOW_DEFAULT_ITEMS,
+      suggest,
       total: sowTotal(rec && rec.items),
       readOnly: !!view.viewingAs,
     });
@@ -103,9 +144,11 @@ async function handle(req, context) {
     if (kind === 'track') {
       const email = (staff && body.email) ? normalizeEmail(body.email) : selfEmail;
       const rows = (Array.isArray(data.rows) ? data.rows : []).slice(0, 500).map(cleanRow);
+      const priorT = (await store.get(trackKey(email), { type: 'json' }).catch(() => null)) || {};
       const rec = {
         rows, updatedAt: now, updatedBy: normalizeEmail(user.email),
         source: String(data.source || 'form').slice(0, 20),
+        customPending: rows.length ? undefined : priorT.customPending, // 236.954
       };
       await store.setJSON(trackKey(email), rec);
       return json(200, { ok: true, kind, email, rows: rows.length, updatedAt: now });
@@ -116,12 +159,21 @@ async function handle(req, context) {
     const items = (Array.isArray(data.items) ? data.items : []).slice(0, 300).map((it) => ({
       item: String((it && it.item) || '').slice(0, 200),
       budget: (it && it.budget !== '' && it.budget != null && isFinite(parseFloat(it.budget))) ? Math.round(parseFloat(it.budget) * 100) / 100 : '',
-    })).filter((it) => it.item || it.budget !== '');
+      description: String((it && it.description) || '').slice(0, 500), // 236.954
+    })).filter((it) => it.item || it.budget !== '' || it.description);
+    // Prior record's customPending flag survives a normal save only if the
+    // borrower hasn't completed the tool (items present = reviewed).
+    const prior = (await store.get(sowKey(loanId), { type: 'json' }).catch(() => null)) || {};
     const rec = {
       borrowerName: String(data.borrowerName || '').slice(0, 120),
       propertyAddress: String(data.propertyAddress || '').slice(0, 200),
+      // Deploy 236.954 — square-footage change question.
+      sqftChange: data.sqftChange === 'yes' ? 'yes' : (data.sqftChange === 'no' ? 'no' : ''),
+      sqftCurrent: data.sqftChange === 'yes' ? String(data.sqftCurrent || '').slice(0, 12) : '',
+      sqftPost: data.sqftChange === 'yes' ? String(data.sqftPost || '').slice(0, 12) : '',
       items, updatedAt: now, updatedBy: normalizeEmail(user.email),
       source: String(data.source || 'form').slice(0, 20),
+      customPending: items.length ? undefined : prior.customPending,
     };
     await store.setJSON(sowKey(loanId), rec);
     return json(200, { ok: true, kind, loanId, items: items.length, total: sowTotal(items), updatedAt: now });
@@ -144,6 +196,32 @@ async function handle(req, context) {
       computed: kind === 'track' ? rows.map((r) => ({ grossProfit: trackGrossProfit(r) })) : undefined,
       total: kind === 'sow' ? sowTotal(rows.map((r) => ({ budget: r.budget }))) : undefined,
     });
+  }
+
+  // Deploy 236.954 — a borrower attached a CUSTOM Excel/CSV that our parser
+  // could not map. The raw file already landed in the loan's doc tray (the
+  // page uploads it via borrower-intake-upload first); this stamps the
+  // worksheet record so the staff summary on Loan Details says the sheet
+  // needs a manual read instead of looking like nothing was submitted.
+  if (action === 'flag-custom') {
+    if (view.viewingAs) return json(403, { error: 'View-as is read-only' });
+    const filename = String(body.filename || 'custom sheet').slice(0, 120);
+    const now = new Date().toISOString();
+    const flag = { filename, uploadedAt: now, by: normalizeEmail(user.email) };
+    if (kind === 'track') {
+      const email = (staff && body.email) ? normalizeEmail(body.email) : selfEmail;
+      const rec = (await store.get(trackKey(email), { type: 'json' }).catch(() => null)) || { rows: [] };
+      rec.customPending = flag;
+      await store.setJSON(trackKey(email), rec);
+      return json(200, { ok: true });
+    }
+    const loanId = String(body.loanId || '');
+    if (!loanId) return json(400, { error: 'loanId required' });
+    if (!(await assertLoanAccess(loanId))) return json(403, { error: 'No access to this loan' });
+    const rec = (await store.get(sowKey(loanId), { type: 'json' }).catch(() => null)) || { items: [] };
+    rec.customPending = flag;
+    await store.setJSON(sowKey(loanId), rec);
+    return json(200, { ok: true });
   }
 
   return json(400, { error: 'Unknown action' });

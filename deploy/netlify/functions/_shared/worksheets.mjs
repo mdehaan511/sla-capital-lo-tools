@@ -50,11 +50,28 @@ export const WORKSHEET_DEFS = {
   sow: {
     label: 'Scope of Work (Rehab Budget)',
     columns: [
-      { key: 'item',   label: 'Repair item', type: 'text',  aliases: ['repair item', 'item', 'description', 'work item', 'line item', 'scope'] },
-      { key: 'budget', label: 'Budget',      type: 'money', aliases: ['budget', 'cost', 'amount', 'price', 'estimate'] },
+      { key: 'item',        label: 'Repair item', type: 'text',  aliases: ['repair item', 'item', 'work item', 'line item', 'scope'] },
+      { key: 'budget',      label: 'Budget',      type: 'money', aliases: ['budget', 'cost', 'amount', 'price', 'estimate'] },
+      // Deploy 236.954 (Mike) — optional per-line description, third column.
+      { key: 'description', label: 'Description', type: 'text',  aliases: ['description', 'description - provide detailed description for each line item', 'details', 'notes'], optional: true },
     ],
   },
 };
+
+// Deploy 236.954 (Mike) — the SOW template's own repair-item list, seeded
+// into a fresh SOW so borrowers delete what doesn't apply instead of typing
+// the common lines. Order follows the template (its three 'Other' rows are
+// dropped — borrowers add their own rows for those).
+export const SOW_DEFAULT_ITEMS = [
+  'Permits & Plans', 'Demo & Junk Out',
+  'Roof', 'Siding', 'Exterior Paint', 'Windows', 'Foundation', 'Landscaping',
+  'Framing', 'Insulation', 'Egress Windows', 'Drywall', 'Electrical',
+  'Plumbing', 'Sewer Line', 'HVAC', 'Hot Water Tank',
+  'Kitchen Cabinets', 'Kitchen Countertops', 'Appliances',
+  'Bathroom 1', 'Bathroom 2', 'Bathroom 3',
+  'Hard Surface Flooring', 'Carpet', 'Doors', 'Trim', 'Interior Paint',
+  'Contingencies (5%-10% recommended)',
+];
 
 export function worksheetStore() {
   return getStore({ name: 'borrower_worksheets', consistency: 'strong' });

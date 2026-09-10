@@ -5028,7 +5028,13 @@ function _ldLoadWorksheets() {
     fetchOne({ action: 'get', kind: 'track', email: bEmail }, function (r) {
       _ldWorksheetCache.track = r;
       var n = (r.rows || []).length;
-      if (!n) { parts.push('📈 Track Record: <span style="color:var(--warn)">none on file</span>'); return; }
+      var pendT = r.data && r.data.customPending;
+      if (!n) {
+        parts.push('📈 Track Record: ' + (pendT
+          ? '<span style="color:var(--warn);font-weight:700">⚠ custom sheet uploaded (' + escH(pendT.filename || '') + ') — needs manual review</span>'
+          : '<span style="color:var(--warn)">none on file</span>'));
+        return;
+      }
       var age = r.ageDays != null ? r.ageDays : '?';
       parts.push('📈 Track Record: ' + n + ' project' + (n === 1 ? '' : 's') + ' · updated ' + age + 'd ago' +
         (r.stale ? ' <span style="color:var(--warn);font-weight:700">⚠ over 6 months old</span>' : ' ✓') +
@@ -5039,8 +5045,16 @@ function _ldLoadWorksheets() {
     fetchOne({ action: 'get', kind: 'sow', loanId: _loanId }, function (r) {
       _ldWorksheetCache.sow = r;
       var items = (r.data && r.data.items) || [];
-      if (!items.length) { parts.push('🛠 Scope of Work: <span style="color:var(--warn)">not submitted</span> (required on RTL)'); return; }
+      var pendS = r.data && r.data.customPending;
+      if (!items.length) {
+        parts.push('🛠 Scope of Work: ' + (pendS
+          ? '<span style="color:var(--warn);font-weight:700">⚠ custom sheet uploaded (' + escH(pendS.filename || '') + ') — needs manual review, see the SOW tray</span>'
+          : '<span style="color:var(--warn)">not submitted</span> (required on RTL)'));
+        return;
+      }
       var line = '🛠 Scope of Work: ' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' · total $' + Math.round(r.total).toLocaleString();
+      // Deploy 236.954 — sqft add/remove answer surfaces to staff.
+      if (r.data.sqftChange === 'yes') line += ' · <span style="color:var(--warn)">sqft change: ' + escH(r.data.sqftCurrent || '?') + ' → ' + escH(r.data.sqftPost || '?') + '</span>';
       var rb = parseFloat(_loan.rehabBudget);
       if (isFinite(rb) && rb > 0) {
         var delta = Math.round(r.total - rb);
@@ -5066,10 +5080,10 @@ function ldWorksheetCsv(kind) {
     });
     name = 'Track Record - ' + ((_client && (_client.firstName + ' ' + _client.lastName)) || 'borrower') + '.csv';
   } else {
-    lines = ['Repair item,Budget'];
+    lines = ['Repair item,Budget,Description'];
     (((r.data && r.data.items) || [])).forEach(function (it) {
-      var v = String(it.item || '');
-      lines.push((/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v) + ',' + (it.budget != null ? it.budget : ''));
+      var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      lines.push(q(it.item) + ',' + (it.budget != null ? it.budget : '') + ',' + q(it.description)); // 236.954 — description column
     });
     lines.push('Total,' + r.total);
     name = 'SOW - ' + String(_loan.address || _loanId).split(',')[0] + '.csv';

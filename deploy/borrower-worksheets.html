@@ -5,15 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Worksheets — SLA Capital</title>
   <!--
-    Deploy 236.947 (Mike) — borrower-facing structured worksheets, replacing
-    the hand-filled Excel templates:
-      ?kind=track                      RTL Track Record (profile-level, kept
-                                       fresh every ~6 months, reused on every
-                                       new submission)
-      ?kind=sow&loanId=...&address=... Scope of Work (per-loan, every RTL)
-    Grid entry + "Import from Excel/CSV" (server parses the uploaded file and
-    returns mapped rows for PREVIEW before anything is saved). PFS/REO is
-    deliberately deferred — Mike is reworking that template.
+    Deploy 236.947 — borrower-facing structured worksheets (Track Record +
+    Scope of Work). Deploy 236.954 (Mike's revision pass):
+      · SOW: Borrower Name auto-suggested (vesting LLC / guarantor), sqft
+        add/remove question with Current + Post-Reno boxes, template repair
+        items pre-seeded (deletable), optional Description third column, no
+        per-row running total (bottom Total only).
+      · ONE upload button — "Attach Custom Excel/CSV for review": the raw
+        file lands in the loan's doc tray (borrower-intake-upload), then we
+        TRY to parse it into the grid for review; unparseable sheets flag
+        the record for processor review instead.
+      · Enter-key flow: Enter moves to the next box; Enter in a SOW
+        Description adds a row. Download CSV removed from the borrower side.
+      · Track Record page is wide enough for the whole grid on a laptop.
     NO completion meter on borrower pages (standing rule).
   -->
   <script src="/sla-api.js"></script>
@@ -26,6 +30,7 @@
     .top img { height:30px; }
     .top a { color:#e8e2d8; font-size:13px; text-decoration:none; }
     .page { max-width:960px; margin:24px auto 80px; padding:0 16px; }
+    .page.wide { max-width:1240px; } /* 236.954 — track record fits a laptop */
     h1 { font-size:22px; color:var(--dark); margin-bottom:4px; }
     .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
     .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -49,34 +54,50 @@
     .hdr-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
     .hdr-grid label { font-size:11px; color:var(--muted); display:block; }
     .hdr-grid input { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:13px; }
+    .sqft-q { margin:2px 0 14px; padding:12px 14px; border:1px solid var(--border); border-radius:8px; background:rgba(200,129,58,0.04); }
+    .sqft-q .q { font-size:13px; font-weight:600; color:var(--dark); margin-bottom:6px; }
+    .sqft-q label.opt { font-size:13px; margin-right:16px; cursor:pointer; }
+    .sqft-boxes { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; max-width:420px; }
+    .sqft-boxes label { font-size:11px; color:var(--muted); display:block; }
+    .sqft-boxes input { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:13px; }
     .gridwrap { overflow-x:auto; }
     #previewModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:50; align-items:center; justify-content:center; padding:16px; }
-    #previewModal .inner { background:#fff; border-radius:12px; max-width:860px; width:100%; max-height:85vh; overflow:auto; padding:18px; }
+    #previewModal .inner { background:#fff; border-radius:12px; max-width:900px; width:100%; max-height:85vh; overflow:auto; padding:18px; }
     .status { font-size:12.5px; margin-left:6px; }
     .status.ok { color:var(--success); } .status.err { color:var(--danger); }
-    @media (max-width:640px){ .hdr-grid { grid-template-columns:1fr; } }
+    @media (max-width:640px){ .hdr-grid, .sqft-boxes { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
 <div class="top">
   <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-  <a href="/borrower-portal.html">&larr; Back to portal</a>
+  <a href="#" id="backLink">&larr; Back</a>
 </div>
-<div class="page">
+<div class="page" id="pageEl">
   <h1 id="title">Loading…</h1>
   <div class="sub" id="subtitle"></div>
   <div id="staleBanner"></div>
   <div class="card">
-    <div class="hdr-grid" id="sowHeader" style="display:none">
-      <div><label>Borrower Name</label><input type="text" id="sowBorrower" /></div>
-      <div><label>Property Address</label><input type="text" id="sowAddress" /></div>
+    <div id="sowExtras" style="display:none">
+      <div class="hdr-grid">
+        <div><label>Borrower Name</label><input type="text" id="sowBorrower" /></div>
+        <div><label>Property Address</label><input type="text" id="sowAddress" /></div>
+      </div>
+      <div class="sqft-q">
+        <div class="q">Are you adding or removing any square footage?</div>
+        <label class="opt"><input type="radio" name="sqftChange" value="yes" onchange="sqftToggle()" /> Yes</label>
+        <label class="opt"><input type="radio" name="sqftChange" value="no" onchange="sqftToggle()" /> No</label>
+        <div class="sqft-boxes" id="sqftBoxes" style="display:none">
+          <div><label>Current SqFt</label><input type="text" id="sqftCurrent" inputmode="numeric" /></div>
+          <div><label>Post Reno SqFt</label><input type="text" id="sqftPost" inputmode="numeric" /></div>
+        </div>
+      </div>
     </div>
     <div class="gridwrap"><table><thead id="gridHead"></thead><tbody id="gridBody"></tbody></table></div>
     <div class="bar">
-      <button type="button" class="btn" onclick="addRow({})">+ Add row</button>
-      <button type="button" class="btn" onclick="document.getElementById('fileInput').click()">Import from Excel / CSV</button>
-      <input type="file" id="fileInput" accept=".xlsx,.xlsm,.csv" style="display:none" onchange="importFile(this)" />
-      <button type="button" class="btn" onclick="downloadCsv()">Download CSV</button>
+      <button type="button" class="btn" onclick="addRow({}, true)">+ Add row</button>
+      <button type="button" class="btn" id="customBtn" style="display:none" onclick="document.getElementById('fileInput').click()">Attach Custom Excel/CSV for review</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm,.csv" style="display:none" onchange="customUpload(this)" />
       <span class="tots" id="totals"></span>
     </div>
     <div class="bar">
@@ -89,11 +110,11 @@
 
 <div id="previewModal" onclick="if(event.target===this)closePreview()">
   <div class="inner">
-    <h3 style="color:var(--dark);margin-bottom:6px">Import preview</h3>
+    <h3 style="color:var(--dark);margin-bottom:6px">We read your sheet — review before saving</h3>
     <div class="sub" id="previewWarnings"></div>
     <div class="gridwrap"><table><thead id="pvHead"></thead><tbody id="pvBody"></tbody></table></div>
     <div class="bar">
-      <button type="button" class="btn primary" onclick="applyImport('replace')">Replace my rows</button>
+      <button type="button" class="btn primary" onclick="applyImport('replace')">Use these rows</button>
       <button type="button" class="btn" onclick="applyImport('append')">Add to my rows</button>
       <button type="button" class="btn" onclick="closePreview()">Cancel</button>
     </div>
@@ -104,11 +125,18 @@
 var _params = new URLSearchParams(window.location.search);
 var _kind = _params.get('kind') === 'sow' ? 'sow' : 'track';
 var _loanId = _params.get('loanId') || '';
+var _clientId = _params.get('clientId') || '';
+var _owner = _params.get('owner') || '';
 var _addr = _params.get('address') || '';
-var _def = null;       // column defs from the server
-var _rows = [];        // live row objects
-var _pending = null;   // parsed import awaiting confirm
+var _def = null;
+var _rows = [];
+var _pending = null;
 var _readOnly = false;
+
+document.getElementById('backLink').href = _loanId
+  ? 'borrower-intake.html?loanId=' + encodeURIComponent(_loanId) + '&clientId=' + encodeURIComponent(_clientId) + '&owner=' + encodeURIComponent(_owner)
+  : '/borrower-portal.html';
+if (_kind === 'track') document.getElementById('pageEl').className = 'page wide';
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function money(n){ n=parseFloat(n); if(!isFinite(n)) return '—';
@@ -122,7 +150,6 @@ function api(body){
   }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j; }); });
 }
 
-// Visible (non-derived) columns for the entry grid.
 function gridCols(){
   var out=[]; (_def.columns||[]).forEach(function(c){ if(!c.derived) out.push(c); });
   return out;
@@ -135,83 +162,131 @@ function calcFor(r){
 }
 function renderHead(el){
   var h='<tr>';
-  gridCols().forEach(function(c){ h+='<th>'+esc(c.label)+'</th>'; });
+  gridCols().forEach(function(c){ h+='<th'+(c.key==='description'?' style="min-width:220px"':'')+'>'+esc(c.label)+(c.key==='description'?' <span style="text-transform:none;font-weight:400">(optional)</span>':'')+'</th>'; });
   if(_kind==='track') h+='<th style="text-align:right">Gross Profit</th>';
-  if(_kind==='sow')   h+='<th style="text-align:right">Running Total</th>';
   h+='<th></th></tr>';
   document.getElementById(el).innerHTML=h;
 }
-function render(){
+function render(focusRow){
   renderHead('gridHead');
   var body='';
-  var running=0;
   for(var i=0;i<_rows.length;i++){
     var r=_rows[i];
     body+='<tr>';
     gridCols().forEach(function(c){
       var v=r[c.key]!=null?r[c.key]:'';
       var type=c.type==='date'?'date':(c.type==='money'?'number':'text');
-      body+='<td><input type="'+type+'"'+(c.type==='money'?' step="0.01" inputmode="decimal"':'')+
-        ' value="'+esc(v)+'" oninput="setCell('+i+',\''+c.key+'\',this.value)"'+(_readOnly?' disabled':'')+' /></td>';
+      body+='<td'+(c.key==='description'?' style="min-width:220px"':'')+'><input type="'+type+'"'+(c.type==='money'?' step="0.01" inputmode="decimal"':'')+
+        ' data-row="'+i+'" data-key="'+c.key+'" value="'+esc(v)+'" oninput="setCell('+i+',\''+c.key+'\',this.value)"'+
+        ' onkeydown="gridKey(event,this)"'+(_readOnly?' disabled':'')+' /></td>';
     });
     if(_kind==='track'){
       var g=calcFor(r);
       body+='<td class="calc'+(g!=null&&g<0?' neg':'')+'">'+(g!=null?money(g):'—')+'</td>';
-    } else {
-      running+= (isFinite(parseFloat(r.budget))?parseFloat(r.budget):0);
-      body+='<td class="calc">'+money(running)+'</td>';
     }
     body+='<td>'+(_readOnly?'':'<button type="button" class="rowx" title="Remove row" onclick="delRow('+i+')">✕</button>')+'</td></tr>';
   }
   document.getElementById('gridBody').innerHTML = body ||
-    '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--muted)">No rows yet — add one, or import your Excel file.</td></tr>';
+    '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--muted)">No rows yet — add one, or attach your Excel/CSV.</td></tr>';
+  refreshTotals();
+  if(focusRow!=null){
+    var inp=document.querySelector('input[data-row="'+focusRow+'"][data-key="'+gridCols()[0].key+'"]');
+    if(inp) inp.focus();
+  }
+}
+function refreshTotals(){
   var tot=document.getElementById('totals');
   if(_kind==='sow'){
     var t=0; _rows.forEach(function(r){ var n=parseFloat(r.budget); if(isFinite(n)) t+=n; });
     tot.textContent='Total budget: '+money(t);
   } else {
-    var gp=0, n=0;
-    _rows.forEach(function(r){ var g=calcFor(r); if(g!=null){ gp+=g; n++; } });
-    tot.textContent=_rows.length+' project'+(_rows.length===1?'':'s')+(n?' · total gross profit '+money(gp):'');
+    var gp=0,c=0;
+    _rows.forEach(function(r){ var g=calcFor(r); if(g!=null){gp+=g;c++;} });
+    tot.textContent=_rows.length+' project'+(_rows.length===1?'':'s')+(c?' · total gross profit '+money(gp):'');
   }
 }
 function setCell(i,k,v){
   _rows[i][k]=v;
-  // Re-render only the computed cells cheaply: full render loses focus, so
-  // update totals + this row's calc cell in place.
-  var tr=document.getElementById('gridBody').rows[i];
-  if(tr){
-    var cell=tr.cells[gridCols().length];
-    if(_kind==='track'&&cell){ var g=calcFor(_rows[i]); cell.textContent=g!=null?money(g):'—'; cell.className='calc'+(g!=null&&g<0?' neg':''); }
+  if(_kind==='track'){
+    var tr=document.getElementById('gridBody').rows[i];
+    if(tr){ var cell=tr.cells[gridCols().length];
+      if(cell){ var g=calcFor(_rows[i]); cell.textContent=g!=null?money(g):'—'; cell.className='calc'+(g!=null&&g<0?' neg':''); } }
   }
-  if(_kind==='sow'){ // running totals need the full column — rebuild totals text only
-    var t=0; _rows.forEach(function(r){ var n=parseFloat(r.budget); if(isFinite(n)) t+=n; });
-    document.getElementById('totals').textContent='Total budget: '+money(t);
-  } else {
-    var gp=0,c=0; _rows.forEach(function(r){ var g=calcFor(r); if(g!=null){gp+=g;c++;} });
-    document.getElementById('totals').textContent=_rows.length+' project'+(_rows.length===1?'':'s')+(c?' · total gross profit '+money(gp):'');
-  }
+  refreshTotals();
 }
-function addRow(r){ _rows.push(r||{}); render(); }
+// Deploy 236.954 — Enter moves to the next box (row-major, wrapping to the
+// next row). In a SOW Description, Enter ADDS a row and lands in it.
+function gridKey(e, el){
+  if(e.key!=='Enter') return;
+  e.preventDefault();
+  var row=parseInt(el.getAttribute('data-row'),10);
+  var key=el.getAttribute('data-key');
+  if(_kind==='sow' && key==='description'){
+    _rows.splice(row+1,0,{});
+    render(row+1);
+    return;
+  }
+  var cols=gridCols();
+  var idx=-1;
+  for(var i=0;i<cols.length;i++) if(cols[i].key===key){ idx=i; break; }
+  var nextRow=row, nextKey=null;
+  if(idx<cols.length-1){ nextKey=cols[idx+1].key; }
+  else if(row<_rows.length-1){ nextRow=row+1; nextKey=cols[0].key; }
+  else { _rows.push({}); render(_rows.length-1); return; }
+  var inp=document.querySelector('input[data-row="'+nextRow+'"][data-key="'+nextKey+'"]');
+  if(inp){ inp.focus(); if(inp.select) inp.select(); }
+}
+function addRow(r, focus){ _rows.push(r||{}); render(focus?_rows.length-1:null); }
 function delRow(i){ _rows.splice(i,1); render(); }
 
-function importFile(input){
+function sqftToggle(){
+  var yes=document.querySelector('input[name="sqftChange"][value="yes"]');
+  document.getElementById('sqftBoxes').style.display=(yes&&yes.checked)?'grid':'none';
+}
+
+// Deploy 236.954 — ONE button: the raw file lands in the loan's doc tray for
+// the processors, and we ALSO try to read it into the grid. If the parse
+// works the borrower reviews + saves (tool complete); if not, the record is
+// flagged so staff know the custom sheet needs a manual read.
+function customUpload(input){
   var f=input.files&&input.files[0];
   input.value='';
   if(!f) return;
   if(f.size>4*1024*1024){ alert('File must be under 4MB.'); return; }
+  var st=document.getElementById('saveStatus');
+  st.textContent='Uploading your sheet…'; st.className='status';
   var reader=new FileReader();
   reader.onload=function(){
     var b64=String(reader.result).split(',')[1]||'';
-    api({ action:'parse', kind:_kind, filename:f.name, dataB64:b64 }).then(function(res){
-      if(!res.rows||!res.rows.length){
-        alert((res.warnings&&res.warnings.length)?res.warnings.join('\n'):'No rows found in that file.');
-        return;
+    var mime=f.type||(/\.csv$/i.test(f.name)?'text/csv':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    var slug=_kind==='sow'?'sow':'track_record';
+    SLA.getToken().then(function(t){
+      // 1) File the raw sheet into the loan's document tray.
+      return fetch('/api/borrower-intake-upload', { method:'POST',
+        headers:{ 'Authorization':'Bearer '+t, 'Content-Type':'application/json' },
+        body: JSON.stringify({ loanId:_loanId, primaryClientId:_clientId, ownerKey:_owner,
+          slug:slug, filename:f.name, mimeType:mime, contentBase64:b64 }) })
+        .then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok) throw new Error(d.error||('upload HTTP '+r.status)); }); });
+    }).then(function(){
+      // 2) Try to read it into the tool.
+      return api({ action:'parse', kind:_kind, filename:f.name, dataB64:b64 });
+    }).then(function(res){
+      if(res.rows&&res.rows.length){
+        st.textContent='Sheet uploaded ✓ — we read '+res.rows.length+' row'+(res.rows.length===1?'':'s')+'. Review below.';
+        st.className='status ok';
+        _pending=res;
+        renderPreview(res);
+        document.getElementById('previewModal').style.display='flex';
+      } else {
+        // Couldn't map it — leave the note for the processor.
+        return api({ action:'flag-custom', kind:_kind, loanId:_loanId, filename:f.name }).then(function(){
+          st.textContent='Sheet uploaded ✓ — our team will review your custom format.';
+          st.className='status ok';
+        });
       }
-      _pending=res;
-      renderPreview(res);
-      document.getElementById('previewModal').style.display='flex';
-    }).catch(function(e){ alert('Import failed: '+(e&&e.message||'unknown')); });
+    }).catch(function(e){
+      st.textContent='Upload failed: '+(e&&e.message||'unknown'); st.className='status err';
+    });
   };
   reader.readAsDataURL(f);
 }
@@ -226,7 +301,6 @@ function renderPreview(res){
     gridCols().forEach(function(c){ b+='<td style="padding:6px 8px">'+esc(r[c.key]!=null?r[c.key]:'')+'</td>'; });
     if(_kind==='track'){ var g=res.computed&&res.computed[idx]?res.computed[idx].grossProfit:null;
       b+='<td class="calc">'+(g!=null?money(g):'—')+'</td>'; }
-    if(_kind==='sow') b+='<td></td>';
     b+='<td></td></tr>';
   });
   document.getElementById('pvBody').innerHTML=b;
@@ -234,42 +308,39 @@ function renderPreview(res){
 function applyImport(mode){
   if(!_pending) return;
   var incoming=_pending.rows.map(function(r){
-    if(_kind==='sow') return { item:r.item||'', budget:r.budget!=null?r.budget:'' };
+    if(_kind==='sow') return { item:r.item||'', budget:r.budget!=null?r.budget:'', description:r.description||'' };
     return r;
   });
-  _rows = mode==='append' ? _rows.concat(incoming) : incoming;
+  if(mode==='append'){ _rows=_rows.concat(incoming); }
+  else {
+    // Replace — but on SOW keep only the imported rows (drop unfilled seeds).
+    _rows=incoming;
+  }
   closePreview();
   render();
-  document.getElementById('saveStatus').textContent='Imported — review below, then Save.';
+  document.getElementById('saveStatus').textContent='Imported — review, then Save.';
   document.getElementById('saveStatus').className='status ok';
 }
 function closePreview(){ _pending=null; document.getElementById('previewModal').style.display='none'; }
-
-function downloadCsv(){
-  var cols=gridCols();
-  var lines=[cols.map(function(c){return c.label;}).join(',')];
-  _rows.forEach(function(r){
-    lines.push(cols.map(function(c){
-      var v=String(r[c.key]!=null?r[c.key]:'');
-      return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
-    }).join(','));
-  });
-  var blob=new Blob([lines.join('\n')],{type:'text/csv'});
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=(_kind==='sow'?'Scope of Work':'Track Record')+'.csv';
-  document.body.appendChild(a); a.click(); a.remove();
-}
 
 function saveAll(){
   var btn=document.getElementById('saveBtn'), st=document.getElementById('saveStatus');
   btn.disabled=true; st.textContent='Saving…'; st.className='status';
   var payload={ action:'save', kind:_kind };
   if(_kind==='sow'){
+    var sq=document.querySelector('input[name="sqftChange"]:checked');
     payload.loanId=_loanId;
-    payload.data={ borrowerName:document.getElementById('sowBorrower').value,
+    payload.data={
+      borrowerName:document.getElementById('sowBorrower').value,
       propertyAddress:document.getElementById('sowAddress').value,
-      items:_rows.map(function(r){ return { item:r.item||'', budget:r.budget!=null?r.budget:'' }; }) };
+      sqftChange:sq?sq.value:'',
+      sqftCurrent:document.getElementById('sqftCurrent').value,
+      sqftPost:document.getElementById('sqftPost').value,
+      // Unfilled seeded items (no budget, no description) are dropped at
+      // save so the record reflects the actual scope, not the template.
+      items:_rows.filter(function(r){ return (r.budget!==''&&r.budget!=null)||r.description||!_seeded||!_seedSet[r.item]; })
+        .map(function(r){ return { item:r.item||'', budget:r.budget!=null?r.budget:'', description:r.description||'' }; }),
+    };
   } else {
     payload.data={ rows:_rows };
   }
@@ -281,30 +352,45 @@ function saveAll(){
   });
 }
 
+var _seeded=false, _seedSet={};
 function load(){
   var body={ action:'get', kind:_kind };
   if(_kind==='sow') body.loanId=_loanId;
   api(body).then(function(res){
     _def=res.def; _readOnly=!!res.readOnly;
+    if(_loanId&&_clientId&&_owner&&!_readOnly) document.getElementById('customBtn').style.display='';
     if(_kind==='sow'){
       document.getElementById('title').textContent='Scope of Work — Rehab Budget';
-      document.getElementById('subtitle').textContent='List each repair item and its budget for '+(_addr||'this project')+'. Your lender uses this to verify the rehab plan and fund draws.';
-      document.getElementById('sowHeader').style.display='';
+      document.getElementById('subtitle').textContent='For '+(_addr||'your project')+'. Delete any lines that don’t apply, and add your own. Your lender uses this to verify the rehab plan and fund draws.';
+      document.getElementById('sowExtras').style.display='';
       var d=res.data||{};
-      document.getElementById('sowBorrower').value=d.borrowerName||'';
-      document.getElementById('sowAddress').value=d.propertyAddress||_addr||'';
-      _rows=(d.items||[]).map(function(it){ return { item:it.item, budget:it.budget }; });
-      document.getElementById('hint').textContent='Tip: you can import the SOW Excel template instead of typing — the numbers land in the grid for review before saving.';
+      var sg=res.suggest||{};
+      document.getElementById('sowBorrower').value=d.borrowerName||sg.borrowerName||'';
+      document.getElementById('sowAddress').value=d.propertyAddress||_addr||sg.propertyAddress||'';
+      if(d.sqftChange){ var rb=document.querySelector('input[name="sqftChange"][value="'+d.sqftChange+'"]'); if(rb) rb.checked=true; }
+      document.getElementById('sqftCurrent').value=d.sqftCurrent||'';
+      document.getElementById('sqftPost').value=d.sqftPost||'';
+      sqftToggle();
+      if(d.items&&d.items.length){
+        _rows=d.items.map(function(it){ return { item:it.item, budget:it.budget, description:it.description||'' }; });
+      } else {
+        // Deploy 236.954 — seed the template's repair items; borrowers delete
+        // what doesn't apply. Only rows they actually fill (or that aren't
+        // seeds) persist on Save.
+        _seeded=true;
+        _rows=(res.defaultItems||[]).map(function(name){ _seedSet[name]=true; return { item:name, budget:'', description:'' }; });
+      }
+      document.getElementById('hint').textContent='Enter moves to the next box; Enter in a Description adds a new row. Prefer your own spreadsheet? Attach it above — we’ll file it for your loan team and read it into the grid when we can.';
     } else {
       document.getElementById('title').textContent='Your Track Record';
       document.getElementById('subtitle').textContent='Completed fix & flip / rental projects. Saved to your profile and reused on every new loan — we’ll ask you to confirm it’s current every 6 months.';
       _rows=(res.rows||[]).slice();
       if(res.stale){
         document.getElementById('staleBanner').innerHTML='<div class="banner warn">It’s been over 6 months since this was updated. Please review it, add any new projects, and hit Save to confirm it’s current.</div>';
-      } else if(res.data&&res.data.updatedAt){
+      } else if(res.data&&res.data.updatedAt&&(res.rows||[]).length){
         document.getElementById('staleBanner').innerHTML='<div class="banner ok">Last updated '+esc(String(res.data.updatedAt).slice(0,10))+' — current ✓</div>';
       }
-      document.getElementById('hint').textContent='Tip: import your own Excel track record — we match columns by their headers, so extra columns are fine.';
+      document.getElementById('hint').textContent='Enter moves to the next box. Prefer your own spreadsheet? Attach it above — we match columns by their headers, so extra columns are fine.';
     }
     if(_readOnly){ document.getElementById('saveBtn').style.display='none';
       document.getElementById('staleBanner').innerHTML='<div class="banner warn">Viewing as this borrower — read-only.</div>'; }

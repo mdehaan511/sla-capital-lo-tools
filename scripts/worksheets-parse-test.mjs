@@ -64,6 +64,16 @@ ok(sMap.rows.length === 3, 'sow: 3 items — got ' + sMap.rows.length);
 ok((sMap.rows[0] || {}).budget === 12500, 'sow: "$12,500" → 12500');
 ok(sowTotal(sMap.rows) === 12500 + 18000 + 4200.5, 'sow: total = ' + sowTotal(sMap.rows));
 
+// ── SOW with the Description column (236.954) ──────────────────────────────
+const sowCsv2 = [
+  'Repair item,Budget,Description',
+  'Roof,9000,"Tear-off, new architectural shingles"',
+  'HVAC,7500,',
+].join('\n');
+const sMap2 = mapGridToRows(await parseUploadGrid(Buffer.from(sowCsv2, 'utf-8'), 'sow2.csv'), 'sow');
+ok(sMap2.rows.length === 2, 'sow: description-column sheet parses');
+ok((sMap2.rows[0] || {}).description === 'Tear-off, new architectural shingles', 'sow: description mapped');
+
 // ── header not found ────────────────────────────────────────────────────────
 const junk = mapGridToRows([['hello', 'world'], ['1', '2']], 'track');
 ok(junk.rows.length === 0 && junk.warnings.length === 1, 'no header → 0 rows + explanation');

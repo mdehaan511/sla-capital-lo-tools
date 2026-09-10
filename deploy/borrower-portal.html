@@ -668,10 +668,8 @@
           '<a class="intake-cta" href="borrower-intake.html?loanId=' + encodeURIComponent(loan.loanId) +
             '&clientId=' + encodeURIComponent(loan.primaryClientId || '') +
             '&owner=' + encodeURIComponent(loan.ownerKey || '') + '">📄 Submit Documents for This Loan &rarr;</a>') +
-        // Deploy 236.947 (Mike) — profile-level Track Record: filled once,
-        // reused on every submission, re-confirmed every ~6 months. One link
-        // per card keeps it discoverable next to the loan it supports.
-        '<a href="borrower-worksheets.html?kind=track" style="display:inline-block;margin-top:8px;font-size:12.5px;color:var(--gold-mid,#b5712d);text-decoration:none">📈 Update Your Track Record &rarr;</a>' +
+        // Deploy 236.954 — the Track Record link moved into the Your
+        // Documents page as a tray-style tool card (Mike's revision).
       '</div>';
     }
     // Denied + closed loans are archived — hidden from the Active tab and

@@ -256,26 +256,10 @@
       _items = (data && data.items) || [];
       document.getElementById('pageSub').textContent = (data.address ? data.address + ' · ' : '') + (String(data.loanType||'').toUpperCase()) + ' loan';
       render();
-      // Deploy 236.947 (Mike) — Scope of Work is required on every RTL-family
-      // loan. Link the structured worksheet (grid entry or Excel import)
-      // above the doc list rather than asking for a spreadsheet upload.
-      var lt = String(data.loanType || '').toLowerCase();
-      if (lt === 'rtl' || lt === 'guc') {
-        var sowEl = document.getElementById('sowCard');
-        if (!sowEl) {
-          sowEl = document.createElement('div');
-          sowEl.id = 'sowCard';
-          var host = document.getElementById('itemsContainer');
-          host.parentNode.insertBefore(sowEl, host);
-        }
-        sowEl.innerHTML =
-          '<a href="borrower-worksheets.html?kind=sow&loanId=' + encodeURIComponent(_loanId) +
-            '&address=' + encodeURIComponent(data.address || '') + '"' +
-            ' style="display:block;margin:0 0 14px;padding:12px 16px;border:1px solid var(--border,#ddd8d0);border-radius:10px;background:#fff;text-decoration:none;color:inherit">' +
-            '<strong style="color:#261a36">🛠 Scope of Work (Rehab Budget)</strong>' +
-            '<div style="font-size:12.5px;color:#7a7488;margin-top:2px">Required for this loan — enter your repair items and budget, or import your Excel SOW.</div>' +
-          '</a>';
-      }
+      // Deploy 236.954 — the SOW + Track Record trays render as tool cards
+      // (see _wsCard); fetch the worksheet statuses and re-render with them.
+      _wsAddress = data.address || '';
+      loadWorksheetStatus();
       renderTeam((data && data.team) || []);
     }).catch(function(err){
       c.innerHTML = '<div class="err-box">Couldn’t load your documents: ' + escH(err && err.message || 'unknown') + '</div>';
@@ -352,7 +336,61 @@
       if (st) st.textContent = 'Couldn’t add: ' + (e && e.message || 'unknown');
     });
   }
+  // Deploy 236.954 (Mike) — the SOW + Track Record trays are TOOLS, not
+  // uploads: the card opens the structured worksheet (which itself accepts a
+  // custom Excel/CSV that lands in this tray). Status comes from the
+  // worksheet record: SOW = items on file; Track = on file / needs update
+  // (6-month clock) / needed.
+  var _ws = { sow: null, track: null };
+  function _wsUrl(kind){
+    return 'borrower-worksheets.html?kind=' + kind + '&loanId=' + encodeURIComponent(_loanId) +
+      '&clientId=' + encodeURIComponent(_clientId) + '&owner=' + encodeURIComponent(_owner) +
+      '&address=' + encodeURIComponent(_wsAddress || '');
+  }
+  var _wsAddress = '';
+  function loadWorksheetStatus(){
+    _borrowerJwt().then(function(token){
+      function get(body){
+        return fetch('/api/borrower-worksheets', { method:'POST',
+          headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+          body: JSON.stringify(body) }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+      }
+      return Promise.all([ get({ action:'get', kind:'sow', loanId:_loanId }), get({ action:'get', kind:'track' }) ]);
+    }).then(function(res){
+      _ws.sow = res[0]; _ws.track = res[1];
+      render();
+    }).catch(function(){});
+  }
+  function _wsCard(kind, it){
+    var title, hint, chip, extra = '';
+    if (kind === 'sow'){
+      var items = (_ws.sow && _ws.sow.data && _ws.sow.data.items) || [];
+      var pendS = _ws.sow && _ws.sow.data && _ws.sow.data.customPending;
+      title = '🛠 Scope of Work (Rehab Budget)';
+      hint = 'Required for this loan — enter your repair items and budget, or attach your own Excel SOW inside.';
+      chip = items.length ? '<span class="pill submitted">' + items.length + ' items · on file ✓</span>'
+           : pendS ? '<span class="pill manual_review">Custom sheet under review</span>'
+           : '<span class="pill todo">Needed</span>';
+    } else {
+      var t = _ws.track;
+      var rows = (t && t.rows) || [];
+      var pendT = t && t.data && t.data.customPending;
+      title = '📈 Track Record';
+      hint = (it && it.hint) || 'Your completed projects — filled once, reused on every loan.';
+      chip = !rows.length ? (pendT ? '<span class="pill manual_review">Custom sheet under review</span>' : '<span class="pill todo">Needed</span>')
+           : t.stale ? '<span class="pill needs_fix">This needs to be updated</span>'
+           : '<span class="pill submitted">We already have this on file ✓</span>';
+      if (rows.length && !t.stale) extra = '<div class="item-hint" style="margin-top:4px">' + rows.length + ' project' + (rows.length===1?'':'s') + ' on file — open to review or add.</div>';
+    }
+    return '<a class="item" id="item-' + kind + '" href="' + _wsUrl(kind) + '" style="display:block;text-decoration:none;color:inherit;cursor:pointer">' +
+      '<div class="item-head"><div><div class="item-name">' + title + '</div>' +
+        '<div class="item-hint">' + escH(hint) + '</div>' + extra + '</div>' + chip + '</div>' +
+    '</a>';
+  }
   function renderItem(it){
+    // Deploy 236.954 — these two checklist trays are replaced by the tools.
+    if (it.slug === 'sow') return _wsCard('sow', it);
+    if (it.slug === 'track_record') return _wsCard('track', it);
     var pill = it.status === 'needs_fix' ? '<span class="pill needs_fix">Needs fix</span>'
              : it.status === 'manual_review' ? '<span class="pill manual_review">Manual review</span>'
              : it.status === 'submitted' ? '<span class="pill submitted">Submitted</span>'
