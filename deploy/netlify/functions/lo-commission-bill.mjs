@@ -71,6 +71,17 @@ function _tag(s) {
  * Re-numbering an LO whose bills already went through would make BILL stop
  * recognising them as duplicates and let the same period be billed twice.
  */
+// Deploy 236.943 — per-loan invoice number for single-loan bills. FNV-1a over
+// the loan id, base36 (up to 7 chars) → "COMM-L-xxxxxxx" ≤ 14 chars, well
+// under BILL's 21. Deterministic, so re-billing the same loan collides in
+// BILL (allowDuplicateInvoiceNumber stays false) — that's the idempotency.
+export function loanInvoiceNumber(loanId) {
+  const s = String(loanId || '');
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return 'COMM-L-' + (h >>> 0).toString(36);
+}
+
 export function billInvoiceNumber(period, loEmail) {
   const lo = String(loEmail || '').replace(/@.*$/, '');
   const full = ('COMM-' + period + '-' + lo).replace(/[^A-Za-z0-9._-]/g, '');
@@ -412,7 +423,15 @@ async function handle(req, context) {
   const today = new Date();
   const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-  const invoiceNumber = billInvoiceNumber(period, loEmail);
+  // Deploy 236.943 (Mike) — a SINGLE-loan bill gets its own per-loan invoice
+  // number ("COMM-L-<loan tag>"): the period+LO invoice number is the batch's
+  // idempotency key, and reusing it here would make BILL reject whichever of
+  // the single bill / later batch bill came second as a duplicate. The loan
+  // tag keeps single-loan idempotency instead — re-billing the SAME loan
+  // still collides (on top of the commissionBillId stamp check above).
+  const invoiceNumber = (body.singleLoan && items.length === 1)
+    ? loanInvoiceNumber(items[0].loanId)
+    : billInvoiceNumber(period, loEmail);
   const total = billable.reduce((s, b) => s + b.amount, 0);
 
   // Deploy 236.815 — fail fast on the two things BILL rejects with an opaque

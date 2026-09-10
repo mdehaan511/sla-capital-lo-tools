@@ -224,7 +224,15 @@ function paidCell(r) {
       return '<span onclick="unmarkCommissionPaid(\'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')"' +
         ' title="Marked paid manually (outside BILL). Click to un-mark." style="white-space:nowrap;cursor:pointer">' + escH(mLbl) + ' ✓</span>';
     }
-    return '<button type="button" onclick="markCommissionPaid(\'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')"' +
+    // Deploy 236.943 — per-loan BILL button beside "mark paid" (Mike: bill
+    // one loan without sending the LO's whole unbilled set). Revenue plans
+    // have nothing to bill; billOneLoan itself guards $0 rows.
+    var oneBill = planOf(r.owner) === 'revenue' ? '' :
+      '<button type="button" onclick="billOneLoan(\'' + escH(r.loanId) + '\')"' +
+      ' title="Create a BILL bill for just this loan"' +
+      ' style="font-size:10.5px;padding:2px 8px;border:1px solid var(--gold-border);background:transparent;border-radius:5px;cursor:pointer;color:var(--gold-mid);margin-right:4px">→ BILL</button>';
+    return oneBill +
+      '<button type="button" onclick="markCommissionPaid(\'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')"' +
       ' title="This commission was paid outside BILL — record the payout date"' +
       ' style="font-size:10.5px;padding:2px 8px;border:1px solid var(--border);background:transparent;border-radius:5px;cursor:pointer;color:var(--muted)">mark paid</button>';
   }
@@ -676,21 +684,14 @@ function sendToBill(owner) {
   var items = [];
   var total = 0;
   rows.forEach(function(r) {
-    var c = computeRow(r, plan);
-    var amt = Math.round((c.base + c.bonus) * 100) / 100;
-    if (amt <= 0) return;
-    total += amt;
-    var desc = r.address + ' — ' + r.tool + ' ' + money(r.amount) + ', closed ' + (r.closeDate || 'n/a') +
-      (plan === 'model'
-        ? ' — ' + c.applied.toFixed(1) + ' bps (margin ' + r.margin.toFixed(2) + ', ' + (r.source === 'company' ? 'company-sourced 1st' : 'LO-sourced') + ')' +
-          (c.bonus ? ' + $' + c.bonus + ' bonuses' : '')
-        : plan === 'salary'
-        ? ' — salary structure: ' + c.applied.toFixed(1) + ' bps base' + (c.bonus ? ' + ' + money(c.bonus) + ' point split' : '') // 236.937
-        : ' — flat 50 bps');
-    items.push({ clientId: r.clientId, loanId: r.loanId, owner: r.owner, amount: amt, description: desc });
+    var item = _billItemFor(r, plan); // 236.943 — shared with billOneLoan
+    if (!item) return;
+    total += item.amount;
+    items.push(item);
   });
   if (!items.length) { alert('Nothing unbilled for this LO in the selected period.'); return; }
   var msg = 'Create a bill in BILL for ' + loName(owner) + '?\n\n' +
+
     items.length + ' loan' + (items.length === 1 ? '' : 's') + ' · total ' + money(total) +
     '\nPeriod: ' + period + '\n\nThe bill lands in BILL as Unpaid — payment still needs your approval there.' +
     '\n(Quarterly production bonuses are NOT included.)';
@@ -765,6 +766,54 @@ function markCommissionPaid(loanId, clientId, owner) {
     commissionPaymentRef: 'manual',
   });
 }
+// Deploy 236.943 (Mike) — one BILL line item for a row, shared by the per-LO
+// batch (sendToBill) and the per-loan button (billOneLoan) so the two can
+// never drift. Returns null when the computed commission is zero or negative
+// (BILL can't take those lines).
+function _billItemFor(r, plan) {
+  var c = computeRow(r, plan);
+  var amt = Math.round((c.base + c.bonus) * 100) / 100;
+  if (amt <= 0) return null;
+  var desc = r.address + ' — ' + r.tool + ' ' + money(r.amount) + ', closed ' + (r.closeDate || 'n/a') +
+    (plan === 'model'
+      ? ' — ' + c.applied.toFixed(1) + ' bps (margin ' + r.margin.toFixed(2) + ', ' + (r.source === 'company' ? 'company-sourced 1st' : 'LO-sourced') + ')' +
+        (c.bonus ? ' + $' + c.bonus + ' bonuses' : '')
+      : plan === 'salary'
+      ? ' — salary structure: ' + c.applied.toFixed(1) + ' bps base' + (c.bonus ? ' + ' + money(c.bonus) + ' point split' : '')
+      : ' — flat 50 bps');
+  return { clientId: r.clientId, loanId: r.loanId, owner: r.owner, amount: amt, description: desc };
+}
+
+// Deploy 236.943 (Mike) — bill ONE loan to BILL without pulling the LO's
+// whole unbilled set along. Same endpoint; the server gives a single-loan
+// bill its own per-loan invoice number so it never collides with (or blocks)
+// a later batch bill for the same LO + period.
+function billOneLoan(loanId) {
+  var r = null;
+  for (var i = 0; i < _rows.length; i++) if (_rows[i].loanId === loanId) { r = _rows[i]; break; }
+  if (!r) return;
+  var plan = planOf(r.owner);
+  if (plan === 'revenue') { alert('Revenue-based plan — no per-loan commission to bill.'); return; }
+  var item = _billItemFor(r, plan);
+  if (!item) { alert('This loan computes a $0 (or negative) commission — nothing to bill.'); return; }
+  if (!confirm('Create a BILL bill for this ONE loan?\n\n' + loName(r.owner) + ' — ' + money(item.amount) +
+    '\n' + r.address + '\n\nThe bill lands in BILL as Unpaid — payment still needs your approval there.')) return;
+  SLA.api('POST', '/api/lo-commission-bill', {
+    action: 'create', loEmail: r.owner, loName: loName(r.owner),
+    period: periodOfDate(r.closeDate) || 'all', // the bill memo reads this; the invoice key comes from singleLoan
+    items: [item], singleLoan: true,
+  }).then(function(res) {
+    r.billId = res.billId || res.invoiceNumber || 'billed';
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    alert('Bill created in BILL ✓\n\n' + loName(r.owner) + ' — ' + money(res.amount) + '\nInvoice: ' + res.invoiceNumber +
+      (res.vendorCreated ? '\n\nNOTE: ' + loName(r.owner) + ' was auto-added as a new BILL vendor — have them connect their bank info in BILL before paying.' : ''));
+    render();
+  }).catch(function(err) {
+    alert('BILL error: ' + (err && err.message || 'unknown'));
+    render();
+  });
+}
+
 // Deploy 236.940 (Mike) — fill the missing base rate straight from the ⚠
 // margin cell (402-1 Plymouth: sold 1.5 pts at 11.25% over an 11% base, but
 // no buyRate on file left the margin at points-only 1.50 instead of 1.75).
