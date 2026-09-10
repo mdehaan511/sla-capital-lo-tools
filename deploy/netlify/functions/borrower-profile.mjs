@@ -29,6 +29,8 @@ import { encryptField } from './_shared/crypto.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.895 — admin "view as a borrower" (read-only).
 import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
+// Deploy 236.961 — email-change requests actively notify the owning LO.
+import { resolveOwnerEmail } from './_shared/email.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -138,6 +140,85 @@ async function handle(req, context) {
         });
         if (cid !== clientId) await writeClient(ok2, c2, { clientsStore: store });
       } catch (_) { /* best-effort per client */ }
+    }
+
+    // Deploy 236.961 (Mike) — the banner/notes alone were PASSIVE (seen only
+    // when someone opened the client page). Now each owning LO also gets:
+    //   1. an email (Resend) with the old -> new addresses + a client link,
+    //   2. a task assigned to them, due today, which the notification bell
+    //      surfaces. The task id is DETERMINISTIC per client so a repeat
+    //      click updates/re-opens the same task instead of stacking dupes.
+    // Best-effort — a notify failure never fails the request itself.
+    const borrowerName = (((client.firstName || '') + ' ' + (client.lastName || '')).trim()) || email;
+    const tasksStore = getStore({ name: 'tasks', consistency: 'strong' });
+    const today = stamp.at.slice(0, 10);
+    const notified = {};
+    for (const g of (grants || [])) {
+      if (!g || !g.ownerKey || !g.primaryClientId || notified[g.ownerKey]) continue;
+      notified[g.ownerKey] = true;
+      try {
+        const loEmail = await resolveOwnerEmail({ ownerKey: g.ownerKey });
+        const detailLine = borrowerName + ' asked to change their portal login email: ' +
+          email + ' -> ' + newEmail + '. Update their login on the admin side; ' +
+          'they will confirm by signing in at the new address.';
+
+        // Task — written straight to the tasks store, same record shape as
+        // tasks-save.mjs creates (kept in sync by hand; there is no shared
+        // task-create helper). Re-request flips a completed task back open.
+        const taskId = 't_emailchg_' + keySafe(g.primaryClientId);
+        const task = {
+          id: taskId, clientId: g.primaryClientId, loanId: g.loanId || '',
+          ownerKey: g.ownerKey,
+          title: 'Borrower requested a login email change',
+          dueDate: today,
+          assignedTo: loEmail, assignedToName: '',
+          description: detailLine,
+          completed: false, completedAt: '', completedBy: '', completedByName: '',
+          createdAt: stamp.at, createdBy: email, createdByName: 'Borrower Portal',
+          updatedAt: stamp.at, updatedBy: email,
+          autoKind: 'email_change_request',
+        };
+        await tasksStore.setJSON(g.ownerKey + '/' + keySafe(taskId), task);
+
+        // Email the LO. reply_to is the borrower's CURRENT address so the LO
+        // can hit Reply to verify the request with them directly.
+        const apiKey = process.env.RESEND_API_KEY;
+        if (apiKey && loEmail) {
+          const clientUrl = 'https://portal.slacapital.ai/client-details.html?clientId=' +
+            encodeURIComponent(g.primaryClientId);
+          const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const resp = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'SLA Capital <noreply@leads.slacapital.com>',
+              to: [loEmail],
+              subject: 'Email change request — ' + borrowerName,
+              text: detailLine + '\n\nClient page: ' + clientUrl + '\n\nSLA Capital',
+              html: '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+                '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+                  '<div style="background:#261A36;padding:20px">' +
+                    '<h1 style="color:#C8813A;margin:0;font-size:17px">Borrower Email Change Request</h1>' +
+                  '</div>' +
+                  '<div style="padding:22px;color:#1A1520">' +
+                    '<p style="font-size:15px;line-height:1.6"><strong>' + escH(borrowerName) + '</strong> asked to change their portal login email:</p>' +
+                    '<p style="font-size:15px;line-height:1.6"><code>' + escH(email) + '</code> &rarr; <code>' + escH(newEmail) + '</code></p>' +
+                    '<p style="font-size:14px;line-height:1.6;color:#7A7488">Update their login on the admin side; they will confirm by signing in at the new address. There is a banner with a &ldquo;Mark handled&rdquo; link on their client page.</p>' +
+                    '<p style="font-size:14px"><a href="' + escH(clientUrl) + '" style="color:#B5712D">Open their client page &rarr;</a></p>' +
+                  '</div>' +
+                '</div>' +
+                '</body></html>',
+              reply_to: email,
+            }),
+          });
+          if (!resp.ok) {
+            const t = await resp.text().catch(() => '');
+            console.warn('borrower-profile: email-change notify Resend ' + resp.status, t.slice(0, 200));
+          }
+        }
+      } catch (e) {
+        console.warn('borrower-profile: email-change notify failed for ' + g.ownerKey + ':', e && e.message);
+      }
     }
   }
 

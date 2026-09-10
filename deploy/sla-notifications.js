@@ -33,6 +33,15 @@
   var _lastPaFetch = 0;
   var PA_TTL = 5 * 60 * 1000; // refetch processing alerts at most every 5 min
 
+  // Deploy 236.961 (Mike) — tasks assigned to me that are due (today or past)
+  // show in the bell too. First consumer: the "Borrower requested a login
+  // email change" task borrower-profile.mjs files for the LO. tasks-list
+  // scans the caller's own store prefix, so like the processing alerts we
+  // cache and refetch at most every TASK_TTL rather than on every 60s poll.
+  var _taskCache = [];
+  var _lastTaskFetch = 0;
+  var TASK_TTL = 5 * 60 * 1000;
+
   // Resolve the caller's role once so refresh() knows whether to fetch the
   // processing-alerts feed. Kicks a prompt refresh the moment we learn we're
   // a processor (so the section appears without waiting for the next poll).
@@ -196,10 +205,33 @@
       fetchPa = Promise.resolve([]);
     }
 
-    return Promise.all([fetchReminders, fetchQuotes, fetchPa]).then(function(results) {
+    // Deploy 236.961 — my due tasks (throttled like the processing alerts).
+    var fetchTasks;
+    if (SLA.api) {
+      var taskStale = !_lastTaskFetch || (Date.now() - _lastTaskFetch) > TASK_TTL;
+      if (taskStale) {
+        fetchTasks = trackAuth(SLA.api('GET', '/api/tasks-list?assignedTo=me')).then(function(r) {
+          _taskCache = (r && r.tasks) || [];
+          _lastTaskFetch = Date.now();
+          return _taskCache;
+        }).catch(function(){ return _taskCache; });
+      } else {
+        fetchTasks = Promise.resolve(_taskCache);
+      }
+    } else {
+      fetchTasks = Promise.resolve([]);
+    }
+
+    return Promise.all([fetchReminders, fetchQuotes, fetchPa, fetchTasks]).then(function(results) {
       var reminders = (results[0] && results[0].reminders) || [];
       var quotes    = (results[1] && results[1].quotes)    || [];
       var procList  = results[2] || [];
+      // Open tasks assigned to me, due today or overdue.
+      var todayT = todayStr();
+      var dueTasks = (results[3] || []).filter(function(t) {
+        return t && !t.completed && t.dueDate && t.dueDate <= todayT;
+      });
+      dueTasks.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
       // Hide alerts the user snoozed today (localStorage; re-surfaces after 12h).
       var procAlerts = procList.filter(function(a){ return a && a.id && !isPaSnoozed(a.id); });
       // Loan-app-received notifications: quotes that transitioned to
@@ -226,7 +258,7 @@
         // Hide events the user has already dismissed (persisted in localStorage)
         return !isDismissed(ev.id);
       });
-      render(reminders, loanAppEvents, procAlerts);
+      render(reminders, loanAppEvents, procAlerts, dueTasks);
     }).catch(function() { /* silent */ });
   }
 
@@ -282,9 +314,10 @@
     return !!ts && (Date.now() - ts) < PA_SNOOZE_MS;
   }
 
-  function render(reminders, loanAppEvents, procAlerts) {
+  function render(reminders, loanAppEvents, procAlerts, dueTasks) {
     loanAppEvents = loanAppEvents || [];
     procAlerts = procAlerts || [];
+    dueTasks = dueTasks || []; // Deploy 236.961
     var today = todayStr();
     var due = [];
     var future = [];
@@ -299,8 +332,8 @@
 
     // The bell glows red if there's anything due, a fresh loan-app event, or
     // an actionable processing alert.
-    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0;
-    var alertCount = due.length + loanAppEvents.length + procAlerts.length;
+    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0 || dueTasks.length > 0;
+    var alertCount = due.length + loanAppEvents.length + procAlerts.length + dueTasks.length;
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');
@@ -320,6 +353,11 @@
       html += '<div class="sla-notif-hdr"><span>Processing</span><span class="count">' + procAlerts.length + '</span></div>';
       procAlerts.forEach(function(a){ html += renderProcItem(a); });
     }
+    // Deploy 236.961 — my due tasks (e.g. a borrower's email-change request).
+    if (dueTasks.length) {
+      html += '<div class="sla-notif-hdr"><span>Tasks Due</span><span class="count">' + dueTasks.length + '</span></div>';
+      dueTasks.forEach(function(t){ html += renderTaskItem(t); });
+    }
     if (loanAppEvents.length) {
       html += '<div class="sla-notif-hdr"><span>Loan Apps Received</span><span class="count">' + loanAppEvents.length + '</span></div>';
       loanAppEvents.forEach(function(ev){ html += renderEventItem(ev); });
@@ -332,11 +370,11 @@
       html += '<div class="sla-notif-hdr"><span>Upcoming</span><span>' + future.length + '</span></div>';
       future.forEach(function(r){ html += renderItem(r, 'future'); });
     }
-    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length) {
-      html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders and loan-app completions will appear here.</span></div>';
+    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length && !dueTasks.length) {
+      html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders, tasks and loan-app completions will appear here.</span></div>';
     }
     // Footer: Clear All button (only if there's anything actionable)
-    if (due.length || loanAppEvents.length || procAlerts.length) {
+    if (due.length || loanAppEvents.length || procAlerts.length || dueTasks.length) {
       html += '<div class="sla-notif-footer">' +
         '<button class="sla-notif-clear-all" onclick="window.__slaNotifClearAll()">Clear all notifications</button>' +
       '</div>';
@@ -385,6 +423,27 @@
         '</div>' +
       '</a>' +
       '<button class="sla-notif-done" data-pa-id="' + esc(a.id) + '" title="Snooze until tomorrow" onclick="window.__slaNotifSnoozePa(this)">✓</button>' +
+    '</div>';
+  }
+
+  // Deploy 236.961 — one due task. Links to the loan when the task has one
+  // (owner-scoped so admin/processor links keep working), else the Tasks
+  // page. ✓ completes the task server-side, same as ticking it on tasks.html.
+  function renderTaskItem(t) {
+    var href = (t.loanId && window.SLA && SLA.urls && SLA.urls.loanDetails)
+      ? SLA.urls.loanDetails(t.loanId, { owner: t.ownerKey })
+      : 'tasks.html';
+    var meta = (t.address ? t.address + '  ·  ' : '') + fmtDate(t.dueDate);
+    return '<div class="sla-notif-item due">' +
+      '<a href="' + esc(href) + '" class="sla-notif-link">' +
+        '<div class="pin"></div>' +
+        '<div class="body">' +
+          '<div class="title">📌 ' + esc(t.title || 'Task') + '</div>' +
+          '<div class="meta">' + esc(meta) + '</div>' +
+          (t.description ? '<div class="note">' + esc(t.description) + '</div>' : '') +
+        '</div>' +
+      '</a>' +
+      '<button class="sla-notif-done" data-task-id="' + esc(t.id || '') + '" data-task-client="' + esc(t.clientId || '') + '" data-task-loan="' + esc(t.loanId || '') + '" data-task-owner="' + esc(t.ownerKey || '') + '" title="Mark complete" onclick="window.__slaNotifCompleteTask(this)">✓</button>' +
     '</div>';
   }
 
@@ -453,6 +512,31 @@
     });
   };
 
+  // Deploy 236.961 — complete a task from the bell (tasks-save; passing
+  // owner is a no-op when it's the caller's own key, and lets processors/
+  // admins complete tasks that live under another LO's prefix).
+  window.__slaNotifCompleteTask = function(btn) {
+    if (!window.SLA || !SLA.api) return;
+    var id = btn.getAttribute('data-task-id');
+    if (!id) return;
+    btn.disabled = true; btn.textContent = '…';
+    SLA.api('POST', '/api/tasks-save', {
+      taskId: id,
+      clientId: btn.getAttribute('data-task-client') || '',
+      loanId: btn.getAttribute('data-task-loan') || '',
+      completed: true,
+      owner: btn.getAttribute('data-task-owner') || '',
+    }).then(function() {
+      var row = btn.closest('.sla-notif-item');
+      if (row) row.remove();
+      _lastTaskFetch = 0; // bust the 5-min cache so the count updates now
+      refresh();
+    }).catch(function(err) {
+      btn.disabled = false; btn.textContent = '✓';
+      console.warn('Task complete failed:', err);
+    });
+  };
+
   // Dismiss a single loan-app event (localStorage only — events are derived
   // from quote status, no server delete needed).
   window.__slaNotifDismissLoanApp = function(btn) {
@@ -485,6 +569,7 @@
     var reminderBtns = drop.querySelectorAll('button[data-reminder-id]');
     var loanAppBtns  = drop.querySelectorAll('button[data-loanapp-id]');
     var paBtns       = drop.querySelectorAll('button[data-pa-id]');
+    var taskBtns     = drop.querySelectorAll('button[data-task-id]'); // Deploy 236.961
     // Dismiss loan-app events first (synchronous)
     var loanAppIds = Array.from(loanAppBtns).map(function(b) { return b.getAttribute('data-loanapp-id'); });
     if (loanAppIds.length) dismissAllVisible(loanAppIds);
@@ -501,7 +586,18 @@
       }
       return SLA.Reminders.save(payload).catch(function(){});
     });
-    Promise.all(promises).then(function() { refresh(); });
+    // Complete each due task too (Deploy 236.961).
+    Array.from(taskBtns).forEach(function(b) {
+      if (!window.SLA || !SLA.api) return;
+      promises.push(SLA.api('POST', '/api/tasks-save', {
+        taskId: b.getAttribute('data-task-id'),
+        clientId: b.getAttribute('data-task-client') || '',
+        loanId: b.getAttribute('data-task-loan') || '',
+        completed: true,
+        owner: b.getAttribute('data-task-owner') || '',
+      }).catch(function(){}));
+    });
+    Promise.all(promises).then(function() { _lastTaskFetch = 0; refresh(); });
   };
 
   // Public refresh hook — Pipeline can call this after a reminder is
