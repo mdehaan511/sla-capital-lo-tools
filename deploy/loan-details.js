@@ -3024,7 +3024,16 @@ function refreshBorrowerInfoPanes() {
       var c = byId[id];
       if (!c) {
         pane.classList.remove('loading');
-        pane.innerHTML = '<div style="padding:10px 12px;background:#fff;border:1px solid var(--border, #ddd8d0);border-radius:6px;font-size:12px;color:var(--muted)">Borrower record ' + escH(id) + ' not found (may belong to another LO).</div>';
+        // Deploy 236.962 (Mike) — a guarantor id whose client record no longer
+        // exists (deleted/merged after linking) used to render as a dead "NOT
+        // FOUND" tab with no way out. Offer the unlink right there: the remove
+        // endpoint is safe for ghosts — with no resolvable identity it just
+        // prunes guarantorClientIds/guarantorOwnership/the flat entry and
+        // SKIPS the application re-sign reset (transformData matches nobody).
+        pane.innerHTML = '<div style="padding:10px 12px;background:#fff;border:1px solid var(--border, #ddd8d0);border-radius:6px;font-size:12px;color:var(--muted)">' +
+          'Borrower record ' + escH(id) + ' not found — it was likely deleted or merged after being linked here. ' +
+          '<a href="#" onclick="removeGuarantorFromLoan(\'' + escAttr(id) + '\');return false" style="color:var(--danger,#7c1f1f);font-weight:600">Remove this ghost guarantor from the loan</a>' +
+          '</div>';
         if (tab) {
           var sub = tab.querySelector('.bw-tab-sub');
           if (sub) sub.textContent = 'Not found';
