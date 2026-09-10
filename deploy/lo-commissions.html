@@ -171,7 +171,14 @@ var SALARY_PLAN_NOTE = 'Salary Commission Structure — plus $48,000/yr salary p
 
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[$,%]/g, '')); return isFinite(n) ? n : 0; }
-function money(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+// Deploy 236.938 (Mike) — a value WITH cents always shows both digits
+// ($857.90, not $857.9); whole dollars stay clean ($864, not $864.00).
+// minimumFractionDigits:0 was trimming the trailing zero off .X0 cents.
+function money(n) {
+  var r = Math.round(n * 100) / 100;
+  var hasCents = Math.abs(Math.round(r * 100)) % 100 !== 0;
+  return '$' + r.toLocaleString(undefined, { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 });
+}
 
 // Deploy 236.818 — the billed/paid badge. A bill existing and a bill being PAID
 // are different facts; before this, everything with a bill read "BILLED ✓"
