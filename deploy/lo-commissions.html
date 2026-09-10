@@ -72,6 +72,7 @@
     .plan-model   { background: rgba(200,129,58,0.14); color: var(--gold-mid); }
     .plan-flat50  { background: rgba(38,26,54,0.08); color: var(--dark); }
     .plan-revenue { background: rgba(120,116,136,0.14); color: var(--muted); }
+    .plan-salary  { background: rgba(37,105,64,0.12); color: var(--success); } /* 236.937 */
     .warn-note { font-size: 11px; color: var(--warn); }
     .btn { padding: 8px 16px; border: 1px solid var(--border); background: #fff; border-radius: var(--r-xs); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; color: var(--dark); }
     .btn-primary { background: var(--gold); border-color: var(--gold); color: #fff; }
@@ -152,7 +153,21 @@ var DEFAULT_PLANS = {
   'chance@slacapital.com': 'revenue',
   'jeremy@slacapital.com': 'revenue',
 };
-var PLAN_LABEL = { model: 'Comp Model', flat50: 'Flat 50 bps', revenue: 'Revenue-based' };
+// Deploy 236.937 (Mike) — 'salary' = Salary Commission Structure (Jeremy).
+// Ported from his comp sheet, formula-for-formula:
+//   base       = 25 bps of loan amount
+//   multiplier = RTL/GUC only, stepped by NOTE RATE: 10%→0.8, 10.5%→0.9,
+//                11%→1.0, 11.5%→1.1, 12%→1.2, 12.5%→1.3, 13%→1.4 (off-step
+//                rates snap to the nearest half point, clamped 10–13 — matches
+//                the sheet's hand-fixed rows: 10.25→0.9, 10.99→1.0). DSCR = 1.
+//   point split (50/50 above the floor):
+//     RTL:  (points − 1.5)/100 × amount ÷ 2, never below 0
+//     DSCR: (points + TPO spread − 1.5)/100 × amount ÷ 2 — deficits are
+//           NEGATIVE and net against the payout (the sheet keeps them)
+//   total = (base + point split) × multiplier
+//   + $48,000/yr salary via payroll — displayed as a note, never in totals.
+var PLAN_LABEL = { model: 'Comp Model', flat50: 'Flat 50 bps', revenue: 'Revenue-based', salary: 'Salary + Commission' };
+var SALARY_PLAN_NOTE = 'Salary Commission Structure — plus $48,000/yr salary paid via payroll (not included in these totals).';
 
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[$,%]/g, '')); return isFinite(n) ? n : 0; }
@@ -321,6 +336,12 @@ function loadAll(fresh) {
         address: l.address || '(no address)',
         tool: String(l.toolType || '').toUpperCase() || '?',
         amount: num(l.finalLoanAmount) || num(l.loanAmt),
+        // Deploy 236.936 — the salary plan needs the raw pricing pieces, not
+        // just the blended margin. Rate normalized to a percent-number
+        // (0.105 and 10.5 both → 10.5); TPO spread resolved like marginOf.
+        ratePct: (function() { var rr = num(l.rate); return rr > 1 ? rr : rr * 100; })(),
+        points: num(l.points),
+        tpoSpread: num(l.tpoSpread) || num(l.tpo) || num(l.tpoPremium),
         closeDate: l.fundingDate || '',
         margin: m.margin, marginParts: m.parts, marginMissing: m.missing,
         source: (String(l.commissionSource || '').toLowerCase() === 'company') ? 'company' : 'lo',
@@ -407,6 +428,23 @@ function periodQuarter() {
 function computeRow(r, plan) {
   var out = { tier: 0, applied: 0, base: 0, bonus: 0, total: 0 };
   if (plan === 'revenue') return out;
+  if (plan === 'salary') {
+    // See the PLAN_LABEL comment for the sheet this ports, line by line.
+    var isDscr = r.tool === 'DSCR';
+    var mult = 1;
+    if (!isDscr && r.ratePct > 0) {
+      var snapped = Math.min(13, Math.max(10, Math.round(r.ratePct * 2) / 2));
+      mult = Math.round((1 + (snapped - 11) * 0.2) * 10) / 10;
+    }
+    var split = isDscr
+      ? (r.points + r.tpoSpread - 1.5) / 100 * r.amount / 2
+      : (r.points > 1.5 ? (r.points - 1.5) / 100 * r.amount / 2 : 0);
+    out.applied = Math.round(25 * mult * 10) / 10;   // effective bps on the base
+    out.base = r.amount * 0.0025 * mult;
+    out.bonus = split * mult;
+    out.total = out.base + out.bonus;
+    return out;
+  }
   if (plan === 'flat50') {
     out.applied = 50;
     out.base = r.amount * 50 / 10000;
@@ -471,7 +509,7 @@ function render() {
         '<td style="text-align:center">' + refCell + '</td>' +
         '<td class="num">' + (plan === 'revenue' ? '—' : c.applied.toFixed(1)) + '</td>' +
         '<td class="num">' + (plan === 'revenue' ? '—' : money(c.base)) + '</td>' +
-        '<td class="num">' + (plan === 'model' ? money(c.bonus) : '—') + '</td>' +
+        '<td class="num">' + ((plan === 'model' || plan === 'salary') ? money(c.bonus) : '—') + '</td>' + // 236.937 — salary shows the point split here
         '<td class="num" style="font-weight:700">' + (plan === 'revenue' ? '—' : money(c.base + c.bonus)) + '</td>' +
         // Deploy 236.821 - per-loan payout date from BILL's payment record.
         '<td>' + paidCell(r) + '</td>' +
@@ -534,6 +572,7 @@ function render() {
           ? '<span style="color:var(--muted);font-weight:500">' + list.length + ' closed · ' + money(loVol) + ' · paid off total revenue</span>'
           : list.length + ' closed · ' + money(loVol) + ' · payout ' + money(loTotal)) + '</div></div>' +
       '</div>' +
+      (plan === 'salary' ? '<div style="font-size:11.5px;color:var(--muted);margin:-4px 0 8px">' + SALARY_PLAN_NOTE + '</div>' : '') + // 236.937
       '<div style="overflow-x:auto"><table><thead><tr>' +
         '<th>Loan</th><th>Type</th><th class="num">Amount</th><th>Closed</th><th class="num">Margin</th>' +
         '<th>Source</th><th style="text-align:center">Repeat</th><th style="text-align:center">Referral</th>' +
@@ -604,6 +643,8 @@ function sendToBill(owner) {
       (plan === 'model'
         ? ' — ' + c.applied.toFixed(1) + ' bps (margin ' + r.margin.toFixed(2) + ', ' + (r.source === 'company' ? 'company-sourced 1st' : 'LO-sourced') + ')' +
           (c.bonus ? ' + $' + c.bonus + ' bonuses' : '')
+        : plan === 'salary'
+        ? ' — salary structure: ' + c.applied.toFixed(1) + ' bps base' + (c.bonus ? ' + ' + money(c.bonus) + ' point split' : '') // 236.937
         : ' — flat 50 bps');
     items.push({ clientId: r.clientId, loanId: r.loanId, owner: r.owner, amount: amt, description: desc });
   });
@@ -709,6 +750,7 @@ function renderPlans() {
         '<option value="flat50"' + (p === 'flat50' ? ' selected' : '') + '>Flat 50 bps</option>' +
         '<option value="model"' + (p === 'model' ? ' selected' : '') + '>Comp Model (tiered)</option>' +
         '<option value="revenue"' + (p === 'revenue' ? ' selected' : '') + '>Revenue-based (no per-loan comp)</option>' +
+        '<option value="salary"' + (p === 'salary' ? ' selected' : '') + '>Salary Commission Structure</option>' + // 236.937
       '</select></td>' +
     '</tr>';
   });
