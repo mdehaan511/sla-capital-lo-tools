@@ -2292,6 +2292,8 @@
     return BORROWER_FORMS[base] ? { label: BORROWER_FORMS[base] } : null;
   }
   function _drModal(title, bodyHtml, submitLabel, onSubmit) {
+    // Deploy 236.949 — one panel at a time (a double-click stacked two).
+    Array.prototype.forEach.call(document.querySelectorAll('.dr-modal-wrap'), function(w) { w.remove(); });
     var wrap = document.createElement('div');
     wrap.className = 'dr-modal-wrap';
     wrap.innerHTML = '<div class="dr-modal"><h3>' + escHtml(title) + '</h3>' + bodyHtml +
