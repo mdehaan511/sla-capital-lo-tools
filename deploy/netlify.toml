@@ -1478,6 +1478,12 @@
   to = "/.netlify/functions/borrower-form-submit"
   status = 200
   force = true
+# Deploy 236.952 -- an LO's own comp plan (for the My Commissions card on profile.html).
+[[redirects]]
+  from = "/api/lo-comp-plan"
+  to = "/.netlify/functions/lo-comp-plan"
+  status = 200
+  force = true
 # Deploy 236.684 — Resend delivery-failure webhook. On email.bounced of a
 # borrower loan application / rate sheet, notify the loan officer.
 [[redirects]]
