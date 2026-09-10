@@ -98,6 +98,49 @@ async function handle(req, context) {
     };
   }
 
+  // Deploy 236.959 (Mike) — mailing address, same object shape. Writes to
+  // the client record like everything here, so the SLA client page and the
+  // borrower portal always agree.
+  if (body.mailingAddress && typeof body.mailingAddress === 'object') {
+    const m = body.mailingAddress;
+    client.mailingAddress = {
+      street: String(m.street || '').trim(),
+      city:   String(m.city   || '').trim(),
+      state:  String(m.state  || '').trim(),
+      zip:    String(m.zip    || '').trim(),
+    };
+  }
+
+  // Deploy 236.959 (Mike) — "request to change my email". The LOGIN email is
+  // identity (Supabase + loan grants key off it), so the borrower can't flip
+  // it self-service: this stamps a request on EVERY granted client record +
+  // drops a notesLog entry so the LO/admin sees it, performs the change on
+  // the admin side, and the borrower re-confirms by signing in at the new
+  // address (magic link = inherent confirmation).
+  if (body.requestEmailChange !== undefined) {
+    const newEmail = normalizeEmail(String(body.requestEmailChange || ''));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(newEmail)) {
+      return json(400, { error: 'Enter a valid email address.' });
+    }
+    const stamp = { requested: newEmail, from: email, at: new Date().toISOString() };
+    for (const cid of clientIds) {
+      try {
+        const ok2 = clientMap[cid];
+        const c2 = (cid === clientId) ? client : await store.get(ok2 + '/' + keySafe(cid), { type: 'json' });
+        if (!c2) continue;
+        c2._emailChangeRequest = stamp;
+        c2.notesLog = Array.isArray(c2.notesLog) ? c2.notesLog : [];
+        c2.notesLog.push({
+          id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          at: stamp.at, kind: 'status', author: 'Borrower Portal', authorEmail: email,
+          text: 'Borrower requested a LOGIN EMAIL change: ' + email + ' -> ' + newEmail +
+            '. Update their login on the admin side; they will confirm by signing in at the new address.',
+        });
+        if (cid !== clientId) await writeClient(ok2, c2, { clientsStore: store });
+      } catch (_) { /* best-effort per client */ }
+    }
+  }
+
   // SSN — write-only. Only a full 9-digit value replaces what's on file; a
   // blank/partial value leaves the existing ssn_enc untouched (a borrower can
   // never accidentally WIPE their SSN from here). Raw digits are never stored.
@@ -139,7 +182,12 @@ async function handle(req, context) {
 // only what the borrower needs to see/edit their own info.
 function _sanitize(c, clientId, clientIds) {
   const h = (c && c.homeAddress) || {};
+  const m = (c && c.mailingAddress) || {}; // 236.959
   return {
+    mailingAddress: {
+      street: m.street || '', city: m.city || '', state: m.state || '', zip: m.zip || '',
+    },
+    emailChangeRequest: (c && c._emailChangeRequest) || null,
     clientId: clientId,
     clientIds: clientIds,                 // all profiles this borrower can edit (usually 1)
     firstName: c.firstName || '',

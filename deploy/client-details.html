@@ -409,6 +409,18 @@ function render() {
     '</div>' +
   '</div>';
 
+  // Deploy 236.959 (Mike) — borrower requested a LOGIN EMAIL change from the
+  // portal. Surface it loudly: the admin performs the change, the borrower
+  // confirms by signing in at the new address.
+  if (c._emailChangeRequest && c._emailChangeRequest.requested) {
+    html += '<div class="section" style="border:1px solid rgba(200,129,58,0.5);background:rgba(200,129,58,0.06)">' +
+      '<div class="section-body" style="font-size:13px;color:var(--warn,#7a5218)"><strong>✉ Email change requested:</strong> ' +
+      'the borrower asked to switch their login from <strong>' + escH(c._emailChangeRequest.from || c.email || '') + '</strong> to <strong>' +
+      escH(c._emailChangeRequest.requested) + '</strong> on ' + escH(String(c._emailChangeRequest.at || '').slice(0, 10)) +
+      '. Update their login on the admin side; they confirm by signing in at the new address. ' +
+      '<a href="#" onclick="clearEmailChangeRequest();return false">Mark handled</a></div></div>';
+  }
+
   // Companies / Vesting Entities section (item #2 — was missing entirely)
   html += '<div class="section">' +
     '<div class="section-head">' +
@@ -416,7 +428,12 @@ function render() {
       '<button class="save-profile-btn" style="padding:6px 14px;font-size:12px" onclick="addCompany()">+ Add Company</button>' +
     '</div>' +
     '<div class="section-body" id="companiesBody">' + renderCompanies(c.companies || []) + '</div>' +
+    // Deploy 236.959 — the borrower's PROFILE VAULT (entity formation docs +
+    // track record), filled async; edits made here or in the portal show in
+    // both places (companies mirror two-way, docs live on the profile).
+    '<div class="section-body" id="borrowerVaultBody" style="font-size:12px;color:var(--muted);border-top:1px dashed var(--border,#ddd);padding-top:10px"></div>' +
   '</div>';
+  setTimeout(_cdLoadBorrowerVault, 0);
 
   // Deploy 236.779 — Credit (Xactus) section: pull a report for THIS person
   // without a loan context (uses the SSN/address captured by guarantor
@@ -758,6 +775,60 @@ function refreshGuarantorOnLoans(backrefs) {
 }
 
 // ── Companies helpers (item #2) ─────────────────────────
+// Deploy 236.959 (Mike) — staff view of the borrower's PROFILE VAULT: entity
+// formation docs (Operating Agreement / EIN Letter / Cert of Formation) and
+// the profile-level Track Record, keyed by the client's email. Same data the
+// borrower manages at /borrower-my-info.html.
+function _cdLoadBorrowerVault() {
+  var host = document.getElementById('borrowerVaultBody');
+  if (!host || !_client || !_client.email) { if (host) host.style.display = 'none'; return; }
+  var email = String(_client.email).toLowerCase();
+  var parts = [];
+  var pending = 2;
+  function done() {
+    pending--;
+    if (pending) return;
+    host.innerHTML = parts.length
+      ? '<strong style="color:var(--dark);font-size:11px;text-transform:uppercase;letter-spacing:0.05em">Borrower Profile Vault</strong><br>' + parts.join('<br>')
+      : '';
+    if (!parts.length) host.style.display = 'none';
+  }
+  SLA.api('POST', '/api/borrower-entities', { action: 'list', email: email }).then(function (r) {
+    (r.entities || []).forEach(function (e) {
+      if (e.fromClientPage) return; // that IS this page's companies list
+      var docs = Object.keys(r.docTypes || {}).map(function (dt) {
+        var d = e.docs && e.docs[dt];
+        return d
+          ? '<a href="#" onclick="cdVaultDoc(\'' + escH(email) + '\',\'' + escH(e.id) + '\',\'' + dt + '\');return false">' + escH(r.docTypes[dt]) + ' ✓</a>'
+          : '<span style="opacity:0.55">' + escH(r.docTypes[dt]) + ' —</span>';
+      }).join(' · ');
+      parts.push('🏢 ' + escH(e.name) + ': ' + docs);
+    });
+  }).catch(function () {}).then(done);
+  SLA.api('POST', '/api/borrower-worksheets', { action: 'get', kind: 'track', email: email }).then(function (r) {
+    var n = (r.rows || []).length;
+    if (n) parts.push('📈 Track Record: ' + n + ' project' + (n === 1 ? '' : 's') + ' · updated ' + (r.ageDays != null ? r.ageDays + 'd ago' : '?') + (r.stale ? ' <span style="color:var(--warn,#7a5218);font-weight:700">⚠ over 6 months old</span>' : ' ✓'));
+  }).catch(function () {}).then(done);
+}
+function cdVaultDoc(email, entityId, docType) {
+  SLA.api('POST', '/api/borrower-entities', { action: 'doc', email: email, entityId: entityId, docType: docType }).then(function (r) {
+    var bin = atob(r.dataB64), arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    var blob = new Blob([arr], { type: r.mimeType || 'application/pdf' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = r.filename || 'document.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+  }).catch(function (e) { showToast('Download failed: ' + (e && e.message || 'unknown')); });
+}
+function clearEmailChangeRequest() {
+  if (!_client) return;
+  if (!confirm('Mark the email-change request handled?\n\nDo this AFTER updating their login on the admin side.')) return;
+  delete _client._emailChangeRequest;
+  var saveRec = _client;
+  if (_loEmail && _user && _loEmail !== _user.email) saveRec = Object.assign({}, _client, { _owner: _loEmail });
+  SLA.Clients.save(saveRec).then(function () { showToast('Request cleared'); render(); })
+    .catch(function (e) { showToast('Failed: ' + (e && e.message || 'unknown')); });
+}
 function renderCompanies(companies) {
   if (!companies || !companies.length) {
     return '<div class="empty-state" style="padding:18px"><p>No companies on file. Add one to use as a vesting entity.</p></div>';

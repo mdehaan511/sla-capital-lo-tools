@@ -62,13 +62,36 @@
 
   <div class="card">
     <h2>Contact Details</h2>
-    <div class="grid2">
+    <div class="sub" style="margin-bottom:10px">Changes here update your file with your loan team instantly.</div>
+    <div class="grid2" style="margin-bottom:10px">
       <div><label>Phone</label><input type="tel" id="pfPhone" /></div>
-      <div><label>Home Address</label><input type="text" id="pfAddress" data-sla-autocomplete /></div>
+    </div>
+    <!-- Deploy 236.959 — Places autocomplete with companion fields: picking a
+         suggestion fills street/city/state/zip so the record saves as the
+         structured address the SLA client page uses. -->
+    <label style="font-weight:700;color:var(--dark);margin-bottom:4px">Home Address</label>
+    <div class="grid2" style="grid-template-columns:2fr 1fr 0.6fr 0.8fr;margin-bottom:12px">
+      <div><label>Street</label><input type="text" id="haStreet" data-sla-autocomplete data-sla-ac-city="haCity" data-sla-ac-state="haState" data-sla-ac-zip="haZip" /></div>
+      <div><label>City</label><input type="text" id="haCity" /></div>
+      <div><label>State</label><input type="text" id="haState" /></div>
+      <div><label>Zip</label><input type="text" id="haZip" /></div>
+    </div>
+    <label style="font-weight:700;color:var(--dark);margin-bottom:4px">Mailing Address <span style="font-weight:400;color:var(--muted)">(if different)</span></label>
+    <div class="grid2" style="grid-template-columns:2fr 1fr 0.6fr 0.8fr">
+      <div><label>Street</label><input type="text" id="maStreet" data-sla-autocomplete data-sla-ac-city="maCity" data-sla-ac-state="maState" data-sla-ac-zip="maZip" /></div>
+      <div><label>City</label><input type="text" id="maCity" /></div>
+      <div><label>State</label><input type="text" id="maState" /></div>
+      <div><label>Zip</label><input type="text" id="maZip" /></div>
     </div>
     <div style="margin-top:12px">
       <button type="button" class="btn primary" id="pfSave" onclick="saveProfile()">Save Contact Details</button>
       <span class="status" id="pfStatus"></span>
+    </div>
+    <!-- Deploy 236.959 — login-email change goes through the loan team. -->
+    <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)">
+      <div id="emailReqLine" class="sub" style="margin-bottom:8px"></div>
+      <button type="button" class="btn" onclick="requestEmailChange()">Request Email Change</button>
+      <span class="status" id="ecStatus"></span>
     </div>
   </div>
 
@@ -111,14 +134,35 @@ function api(path, body){
 function entApi(body){ return api('/api/borrower-entities', body); }
 
 // ── Contact details (existing borrower-profile endpoint) ─────────
+var _myEmail='';
+function _fillAddr(prefix, a){
+  a=a||{};
+  document.getElementById(prefix+'Street').value=a.street||'';
+  document.getElementById(prefix+'City').value=a.city||'';
+  document.getElementById(prefix+'State').value=a.state||'';
+  document.getElementById(prefix+'Zip').value=a.zip||'';
+}
+function _readAddr(prefix){
+  return {
+    street:document.getElementById(prefix+'Street').value,
+    city:document.getElementById(prefix+'City').value,
+    state:document.getElementById(prefix+'State').value,
+    zip:document.getElementById(prefix+'Zip').value,
+  };
+}
 function loadProfile(){
   SLA.getToken().then(function(t){
     return fetch('/api/borrower-profile', { headers:{ 'Authorization':'Bearer '+t } });
   }).then(function(r){ return r.json(); }).then(function(j){
     var p=(j&&j.profile)||{};
+    _myEmail=p.email||'';
     document.getElementById('pfPhone').value=p.phone||'';
-    var ha=p.homeAddress||{};
-    document.getElementById('pfAddress').value=typeof ha==='string'?ha:[ha.street,ha.city,ha.state,ha.zip].filter(Boolean).join(', ');
+    _fillAddr('ha', p.homeAddress);
+    _fillAddr('ma', p.mailingAddress);
+    var er=p.emailChangeRequest;
+    document.getElementById('emailReqLine').textContent = er&&er.requested
+      ? 'Email change requested to '+er.requested+' on '+String(er.at||'').slice(0,10)+' — pending with your loan team.'
+      : 'Your login email is '+(_myEmail||'on file')+'. Need to change it? Your loan team updates it, then you confirm by signing in at the new address.';
     if(window.SLAForms&&SLAForms.reformatExisting) SLAForms.reformatExisting(document);
   }).catch(function(){});
 }
@@ -127,9 +171,24 @@ function saveProfile(){
   st.textContent='Saving…'; st.className='status';
   api('/api/borrower-profile', {
     phone: document.getElementById('pfPhone').value,
-    homeAddress: document.getElementById('pfAddress').value,
-  }).then(function(){ st.textContent='Saved ✓'; st.className='status ok'; })
+    homeAddress: _readAddr('ha'),
+    mailingAddress: _readAddr('ma'),
+  }).then(function(){ st.textContent='Saved ✓ — your loan team sees the update too.'; st.className='status ok'; })
     .catch(function(e){ st.textContent='Save failed: '+(e&&e.message||'unknown'); st.className='status err'; });
+}
+// Deploy 236.959 — request a login-email change (the team performs it; the
+// borrower confirms by signing in at the new address).
+function requestEmailChange(){
+  var v=prompt('What email address would you like to use going forward?', '');
+  if(v===null) return;
+  v=String(v).trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)){ alert('Enter a valid email address.'); return; }
+  var st=document.getElementById('ecStatus');
+  st.textContent='Sending request…'; st.className='status';
+  api('/api/borrower-profile', { requestEmailChange: v }).then(function(){
+    st.textContent='Request sent ✓'; st.className='status ok';
+    document.getElementById('emailReqLine').textContent='Email change requested to '+v+' — pending with your loan team. You\'ll confirm by signing in at the new address once it\'s switched.';
+  }).catch(function(e){ st.textContent=(e&&e.message)||'Failed'; st.className='status err'; });
 }
 
 // ── Entity vault ─────────────────────────────────────────────────
@@ -148,8 +207,9 @@ function renderEntities(){
     }).join('');
     return '<div class="ent"><div class="ent-head">'+
       '<div><div class="ent-name">'+esc(e.name)+'</div>'+
-      '<div class="ent-meta">'+[e.ein?'EIN '+e.ein:'',e.state,e.address].filter(Boolean).map(esc).join(' · ')+'</div></div>'+
-      (_readOnly?'':'<button type="button" class="btn small danger" onclick="removeEntity(\''+esc(e.id)+'\')">Remove</button>')+
+      '<div class="ent-meta">'+[e.ein?'EIN '+e.ein:'',e.state,e.address].filter(Boolean).map(esc).join(' · ')+
+      (e.fromClientPage?' · <span style="color:var(--gold-mid)">from your loan file</span>':'')+'</div></div>'+
+      (_readOnly||e.fromClientPage?'':'<button type="button" class="btn small danger" onclick="removeEntity(\''+esc(e.id)+'\')">Remove</button>')+
       '</div>'+rows+'</div>';
   }).join('');
 }
@@ -193,13 +253,24 @@ document.getElementById('docFile').addEventListener('change', function(){
   var up=_pendingUpload; _pendingUpload=null;
   var reader=new FileReader();
   reader.onload=function(){
-    entApi({ action:'upload', entityId:up.entityId, docType:up.docType,
-      filename:f.name, mimeType:f.type||'application/pdf',
-      dataB64:String(reader.result).split(',')[1]||'' })
-      .then(function(r){
-        for(var i=0;i<_entities.length;i++) if(_entities[i].id===up.entityId) _entities[i]=r.entity;
-        renderEntities();
-      }).catch(function(e){ alert('Upload failed: '+(e&&e.message||'unknown')); });
+    var b64=String(reader.result).split(',')[1]||'';
+    // 236.959 — a "from your loan file" company promotes into the vault on
+    // first upload (the server mints a real id and re-links the client page
+    // company to it), then the upload proceeds.
+    var ent=null; for(var i=0;i<_entities.length;i++) if(_entities[i].id===up.entityId) ent=_entities[i];
+    var pre = (ent&&ent.fromClientPage)
+      ? entApi({ action:'save', entity:{ id:ent.id, name:ent.name, ein:ent.ein, state:ent.state, address:ent.address } })
+          .then(function(r){ up.entityId=r.entity.id; _entities=r.entities||_entities; return null; })
+      : Promise.resolve(null);
+    pre.then(function(){
+      return entApi({ action:'upload', entityId:up.entityId, docType:up.docType,
+        filename:f.name, mimeType:f.type||'application/pdf', dataB64:b64 });
+    }).then(function(r){
+      var found=false;
+      for(var i=0;i<_entities.length;i++) if(_entities[i].id===up.entityId){ _entities[i]=r.entity; found=true; }
+      if(!found) return loadEntities();
+      renderEntities();
+    }).catch(function(e){ alert('Upload failed: '+(e&&e.message||'unknown')); });
   };
   reader.readAsDataURL(f);
 });

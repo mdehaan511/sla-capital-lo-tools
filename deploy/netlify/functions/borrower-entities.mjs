@@ -28,6 +28,85 @@ import {
 } from './_shared/auth.mjs';
 import { roleOf } from './_shared/access.mjs';
 import { resolveViewAs } from './_shared/portal-view-as.mjs';
+import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
+import { writeClient } from './_shared/client-write.mjs';
+import { keySafe } from './_shared/auth.mjs';
+
+// Deploy 236.959 (Mike) — the vault and the SLA client page must agree.
+// Vault entities mirror into client.companies on every granted client
+// record (upsert linked by co._vaultId, name-matched on first touch), and
+// `list` merges back any client-page company the vault doesn't know yet, so
+// an LO adding an LLC on Client Details shows up in the borrower's portal.
+async function grantedClients(email) {
+  const grants = await listAccessibleLoans(email).catch(() => []);
+  const map = {};
+  for (const g of (grants || [])) if (g && g.primaryClientId && g.ownerKey) map[g.primaryClientId] = g.ownerKey;
+  return map;
+}
+async function mirrorEntityToClients(email, entity) {
+  const map = await grantedClients(email);
+  const clients = getStore({ name: 'clients', consistency: 'strong' });
+  for (const cid of Object.keys(map)) {
+    try {
+      const c = await clients.get(keySafe(map[cid]) + '/' + keySafe(cid), { type: 'json' });
+      if (!c) continue;
+      c.companies = Array.isArray(c.companies) ? c.companies : [];
+      let co = c.companies.find((x) => x && x._vaultId === entity.id) ||
+               c.companies.find((x) => x && String(x.name || '').toLowerCase().trim() === entity.name.toLowerCase());
+      if (!co) { co = { id: 'co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) }; c.companies.push(co); }
+      co._vaultId = entity.id;
+      co.name = entity.name;
+      if (entity.ein) co.ein = entity.ein;
+      if (entity.state) co.state = entity.state;
+      if (entity.address) co.address = entity.address;
+      c.updatedAt = new Date().toISOString();
+      await writeClient(map[cid], c, { clientsStore: clients });
+    } catch (e) { console.warn('borrower-entities: company mirror failed for ' + cid + ':', e && e.message); }
+  }
+}
+async function removeEntityFromClients(email, entityId) {
+  const map = await grantedClients(email);
+  const clients = getStore({ name: 'clients', consistency: 'strong' });
+  for (const cid of Object.keys(map)) {
+    try {
+      const c = await clients.get(keySafe(map[cid]) + '/' + keySafe(cid), { type: 'json' });
+      if (!c || !Array.isArray(c.companies)) continue;
+      const before = c.companies.length;
+      c.companies = c.companies.filter((x) => !(x && x._vaultId === entityId));
+      if (c.companies.length !== before) {
+        c.updatedAt = new Date().toISOString();
+        await writeClient(map[cid], c, { clientsStore: clients });
+      }
+    } catch (e) { console.warn('borrower-entities: company un-mirror failed for ' + cid + ':', e && e.message); }
+  }
+}
+async function clientPageCompanies(email, vaultEntities) {
+  // Companies on granted client records that no vault entity covers —
+  // surfaced read-mostly; saving/uploading against one promotes it.
+  const map = await grantedClients(email);
+  const clients = getStore({ name: 'clients', consistency: 'strong' });
+  const known = {};
+  (vaultEntities || []).forEach((e) => { if (e && e.name) known[e.name.toLowerCase().trim()] = true; });
+  const out = [];
+  for (const cid of Object.keys(map)) {
+    try {
+      const c = await clients.get(keySafe(map[cid]) + '/' + keySafe(cid), { type: 'json' });
+      for (const co of (c && c.companies) || []) {
+        if (!co || !co.name) continue;
+        const nk = String(co.name).toLowerCase().trim();
+        if (known[nk] || co._vaultId) continue;
+        known[nk] = true;
+        out.push({
+          id: 'co:' + nk.replace(/[^a-z0-9]/g, '_').slice(0, 60),
+          name: co.name, ein: co.ein || '', state: co.state || '',
+          address: [co.address, co.city, co.state, co.zip].filter(Boolean).join(', '),
+          docs: {}, fromClientPage: true,
+        });
+      }
+    } catch (_) {}
+  }
+  return out;
+}
 
 const DOC_TYPES = {
   operating_agreement:   'Operating Agreement',
@@ -69,7 +148,8 @@ async function handle(req, context) {
   const readOnly = !!view.viewingAs;
 
   if (action === 'list') {
-    return json(200, { entities: rec.entities || [], docTypes: DOC_TYPES, readOnly });
+    const extra = await clientPageCompanies(email, rec.entities); // 236.959
+    return json(200, { entities: (rec.entities || []).concat(extra), docTypes: DOC_TYPES, readOnly });
   }
 
   if (readOnly && action !== 'doc') return json(403, { error: 'View-as is read-only' }); // downloads are reads
@@ -77,8 +157,12 @@ async function handle(req, context) {
   if (action === 'save') {
     const e = body.entity || {};
     const now = new Date().toISOString();
+    // 236.959 — a "co:" id is a client-page company being PROMOTED into the
+    // vault: mint a real vault id; the mirror re-links by name.
+    const suppliedId = String(e.id || '');
     const clean = {
-      id: String(e.id || ('ent_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8))),
+      id: (suppliedId && !suppliedId.startsWith('co:')) ? suppliedId
+        : ('ent_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
       name: String(e.name || '').trim().slice(0, 150),
       ein: String(e.ein || '').trim().slice(0, 20),
       state: String(e.state || '').trim().slice(0, 30),
@@ -98,6 +182,7 @@ async function handle(req, context) {
     }
     if (rec.entities.length > 50) return json(400, { error: 'Entity limit reached' });
     await store.setJSON(key, rec);
+    await mirrorEntityToClients(email, clean); // 236.959 — client page stays in step
     return json(200, { ok: true, entity: clean, entities: rec.entities });
   }
 
@@ -110,6 +195,7 @@ async function handle(req, context) {
     for (const dt of Object.keys(DOC_TYPES)) {
       try { await docStore.delete(key + '/' + id + '/' + dt); } catch (_) {}
     }
+    await removeEntityFromClients(email, id); // 236.959
     return json(200, { ok: true, entities: rec.entities });
   }
 
