@@ -34,14 +34,22 @@ import {
   parseUploadGrid, mapGridToRows, trackGrossProfit, sowTotal, trackAgeDays,
 } from './_shared/worksheets.mjs';
 
-// Deploy 236.954 (Mike) — suggest the SOW "Borrower Name" from the loan:
-// vesting LLC first, else entity, else the guarantor / primary client name.
-// Location comes from the borrower's GRANT (trusted), never from the body.
-async function suggestSowNames(grant, loanId) {
+// Deploy 236.954 (Mike) — loan context for the SOW page: suggested "Borrower
+// Name" (vesting LLC → entity → guarantor / primary client name), address,
+// and (236.955) the loan's REHAB BUDGET from the sizer, so the page can show
+// it up top and warn when the line items don't add up to it. Location comes
+// from the borrower's GRANT (trusted), never from the body; staff fall back
+// to the indexed cross-namespace lookup.
+async function sowLoanContext(grant, loanId, staffRef) {
   try {
-    if (!grant || !grant.ownerKey || !grant.primaryClientId) return null;
+    let client = null;
     const clients = getStore({ name: 'clients', consistency: 'strong' });
-    const client = await clients.get(keySafe(grant.ownerKey) + '/' + keySafe(grant.primaryClientId), { type: 'json' });
+    if (grant && grant.ownerKey && grant.primaryClientId) {
+      client = await clients.get(keySafe(grant.ownerKey) + '/' + keySafe(grant.primaryClientId), { type: 'json' });
+    } else if (staffRef && staffRef.ownerKey && staffRef.clientId) {
+      // Staff callers (Loan Details) pass the loan's clientId + owner.
+      client = await clients.get(keySafe(staffRef.ownerKey) + '/' + keySafe(staffRef.clientId), { type: 'json' });
+    }
     if (!client) return null;
     const loan = (client.loans || []).find((l) => l && l.id === loanId) || {};
     const g0 = (Array.isArray(loan.guarantors) && loan.guarantors[0]) || null;
@@ -51,7 +59,12 @@ async function suggestSowNames(grant, loanId) {
       loan.borrowerName ||
       (g0 && ((g0.firstName || '') + ' ' + (g0.lastName || '')).trim()) ||
       ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || '';
-    return { borrowerName: String(borrowerName).trim(), propertyAddress: String(loan.address || '') };
+    const rb = parseFloat(loan.rehabBudget);
+    return {
+      borrowerName: String(borrowerName).trim(),
+      propertyAddress: String(loan.address || ''),
+      rehabBudget: (isFinite(rb) && rb > 0) ? rb : null,
+    };
   } catch (_) { return null; }
 }
 
@@ -120,18 +133,18 @@ async function handle(req, context) {
     if (!loanId) return json(400, { error: 'loanId required for sow' });
     if (!(await assertLoanAccess(loanId))) return json(403, { error: 'No access to this loan' });
     const rec = (await store.get(sowKey(loanId), { type: 'json' }).catch(() => null)) || null;
-    // Deploy 236.954 — a fresh SOW gets the template's item list pre-seeded
-    // (deletable) and a suggested Borrower Name (vesting LLC / guarantor).
-    let suggest = null;
-    if (!rec || !(rec.items || []).length) {
-      const grant = staff ? null : await grantFor(loanId);
-      suggest = await suggestSowNames(grant, loanId);
-    }
+    // Deploy 236.954/955 — loan context: suggested Borrower Name for a fresh
+    // SOW, plus the sizer's rehab budget for the top-of-page figure and the
+    // save-time mismatch warning. Best-effort.
+    const grant = staff ? null : await grantFor(loanId);
+    const ctx = await sowLoanContext(grant, loanId,
+      staff ? { ownerKey: normalizeEmail(body.owner || ''), clientId: String(body.clientId || '') } : null);
     return json(200, {
       kind, loanId, def: WORKSHEET_DEFS.sow,
       data: rec,
       defaultItems: SOW_DEFAULT_ITEMS,
-      suggest,
+      suggest: (!rec || !(rec.items || []).length) ? ctx : null,
+      loanRehabBudget: ctx ? ctx.rehabBudget : null,
       total: sowTotal(rec && rec.items),
       readOnly: !!view.viewingAs,
     });

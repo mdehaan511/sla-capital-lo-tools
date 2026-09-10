@@ -32,19 +32,27 @@ export const TRACK_FRESH_DAYS = 183; // ~6 months, per Mike
 export const WORKSHEET_DEFS = {
   track: {
     label: 'RTL Track Record',
+    // Deploy 236.955 (Mike) — reordered: identity → address → exit → dates →
+    // money → lender. Dates are MONTH precision ("hard to remember days");
+    // Sale columns renamed to cover refis; Exit Strategy select (only Sold /
+    // Refinanced count toward pricing experience); optional Lender Used.
     columns: [
       { key: 'owner',         label: 'Vested Owner Name',  type: 'text',  aliases: ['vested owner name', 'vested owner', 'owner', 'entity'] },
       { key: 'guarantors',    label: 'Guarantor(s) Name',  type: 'text',  aliases: ['guarantor(s) name', 'guarantors name', 'guarantor', 'guarantors'] },
-      { key: 'purchaseDate',  label: 'Purchase Date',      type: 'date',  aliases: ['purchase date', 'buy date', 'acquired'] },
-      { key: 'saleDate',      label: 'Sale Date',          type: 'date',  aliases: ['sale date', 'sold date', 'sold'] },
+      { key: 'address',       label: 'Property Address',   type: 'text',  aliases: ['property address', 'address', 'property'], ac: true },
+      { key: 'exitStrategy',  label: 'Exit Strategy',      type: 'select', optional: true,
+        options: [['sell', 'Sell'], ['refinance', 'Refinance'], ['in_progress', 'Still In Progress']],
+        aliases: ['exit strategy', 'exit', 'strategy', 'disposition'] },
+      { key: 'purchaseDate',  label: 'Purchase Date',      type: 'month', aliases: ['purchase date', 'buy date', 'acquired'] },
+      { key: 'saleDate',      label: 'Sale/Refi Date',     type: 'month', aliases: ['sale/refi date', 'sale refi date', 'sale date', 'sold date', 'sold', 'refi date'] },
       { key: 'purchasePrice', label: 'Purchase Price',     type: 'money', aliases: ['purchase price', 'purchase $', 'buy price'] },
       { key: 'rehabCosts',    label: 'Rehab Costs',        type: 'money', aliases: ['rehab costs', 'rehab cost', 'rehab', 'rehab budget'] },
-      { key: 'salePrice',     label: 'Sale Price',         type: 'money', aliases: ['sale price', 'sold price', 'sales price'] },
+      { key: 'salePrice',     label: 'Sale Price/Refi Appraised Value', type: 'money',
+        aliases: ['sale price/refi appraised value', 'sale price', 'sold price', 'sales price', 'refi appraised value', 'appraised value'] },
+      { key: 'lender',        label: 'Lender Used',        type: 'text',  optional: true, aliases: ['lender used', 'lender'] },
       // Recognized so an imported template's column doesn't read as "extra",
       // but the VALUE is always recomputed (sale − purchase − rehab).
       { key: '_grossProfit',  label: 'Gross Profit',       type: 'money', aliases: ['gross profit', 'profit'], derived: true },
-      // Common extra column on borrowers' own sheets — capture when present.
-      { key: 'address',       label: 'Property Address',   type: 'text',  aliases: ['property address', 'address', 'property'], optional: true },
     ],
   },
   sow: {
@@ -94,6 +102,30 @@ export function serialToYmd(n) {
   if (!isFinite(n) || n < 20000 || n > 60000) return null;
   const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
   return d.toISOString().slice(0, 10);
+}
+// Deploy 236.955 — MONTH precision ("hard to remember days"): YYYY-MM.
+// Accepts serials, ISO dates, MM/YYYY, MM/DD/YYYY, YYYY-MM.
+export function coerceMonth(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{1,2}$/.test(s)) {
+    const [y, m] = s.split('-');
+    return y + '-' + m.padStart(2, '0');
+  }
+  const my = s.match(/^(\d{1,2})[\/.-](\d{4})$/);           // MM/YYYY
+  if (my) return my[2] + '-' + my[1].padStart(2, '0');
+  const full = coerceDate(s);                                // serials, ISO, MM/DD/YYYY
+  if (/^\d{4}-\d{2}-\d{2}/.test(full)) return full.slice(0, 7);
+  return s;
+}
+// Deploy 236.955 — normalize an imported Exit Strategy cell to our keys.
+export function coerceExit(v) {
+  const s = String(v == null ? '' : v).toLowerCase();
+  if (!s.trim()) return '';
+  if (s.indexOf('refi') >= 0) return 'refinance';
+  if (s.indexOf('progress') >= 0 || s.indexOf('hold') >= 0 || s.indexOf('own') >= 0) return 'in_progress';
+  if (s.indexOf('sell') >= 0 || s.indexOf('sold') >= 0 || s.indexOf('sale') >= 0 || s.indexOf('flip') >= 0) return 'sell';
+  return '';
 }
 export function coerceDate(v) {
   const s = String(v == null ? '' : v).trim();
@@ -210,6 +242,11 @@ export function mapGridToRows(grid, kind) {
         else row[col.key] = n;
       } else if (col.type === 'date') {
         row[col.key] = coerceDate(raw);
+      } else if (col.type === 'month') {           // 236.955
+        row[col.key] = coerceMonth(raw);
+      } else if (col.type === 'select') {          // 236.955
+        const norm2 = coerceExit(raw);
+        if (norm2) row[col.key] = norm2;
       } else {
         row[col.key] = String(raw).trim().slice(0, 200);
       }

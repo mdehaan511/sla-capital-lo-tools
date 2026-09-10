@@ -21,6 +21,11 @@
     NO completion meter on borrower pages (standing rule).
   -->
   <script src="/sla-api.js"></script>
+  <!-- Deploy 236.955 — Google Places autocomplete for the Track Record's
+       Property Address column. sla-forms owns the pac-container handling
+       (three-layer fix — do not hand-roll); Maps loads at runtime with the
+       public key from /api/config, same as apply.html. -->
+  <script src="/sla-forms.js"></script>
   <style>
     :root { --gold:#C8813A; --gold-mid:#b5712d; --dark:#261a36; --bg:#f0ece5; --surface:#fff;
       --text:#1a1520; --muted:#7a7488; --border:#ddd8d0; --success:#256940; --warn:#7a5218; --danger:#7c1f1f; }
@@ -30,7 +35,10 @@
     .top img { height:30px; }
     .top a { color:#e8e2d8; font-size:13px; text-decoration:none; }
     .page { max-width:960px; margin:24px auto 80px; padding:0 16px; }
-    .page.wide { max-width:1240px; } /* 236.954 — track record fits a laptop */
+    .page.wide { max-width:1460px; } /* 236.955 — track record + address fit a laptop */
+    td select { width:100%; padding:7px 6px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:12.5px; min-width:120px; }
+    td input[type=month] { min-width:118px; }
+    td input[data-sla-autocomplete] { min-width:230px; }
     h1 { font-size:22px; color:var(--dark); margin-bottom:4px; }
     .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
     .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -83,6 +91,9 @@
         <div><label>Borrower Name</label><input type="text" id="sowBorrower" /></div>
         <div><label>Property Address</label><input type="text" id="sowAddress" /></div>
       </div>
+      <!-- Deploy 236.955 (Mike) — the loan's rehab budget from the sizer,
+           shown up front; Save warns when the line items don't add to it. -->
+      <div id="rehabBudgetLine" style="display:none;font-size:13px;font-weight:600;color:var(--dark);margin:2px 0 10px;padding:9px 12px;border:1px solid rgba(200,129,58,0.3);border-radius:8px;background:rgba(200,129,58,0.07)"></div>
       <div class="sqft-q">
         <div class="q">Are you adding or removing any square footage?</div>
         <label class="opt"><input type="radio" name="sqftChange" value="yes" onchange="sqftToggle()" /> Yes</label>
@@ -104,6 +115,7 @@
       <button type="button" class="btn primary" id="saveBtn" onclick="saveAll()">Save</button>
       <span class="status" id="saveStatus"></span>
     </div>
+    <div id="exitNote"></div>
     <div class="hint" id="hint"></div>
   </div>
 </div>
@@ -175,9 +187,21 @@ function render(focusRow){
     body+='<tr>';
     gridCols().forEach(function(c){
       var v=r[c.key]!=null?r[c.key]:'';
-      var type=c.type==='date'?'date':(c.type==='money'?'number':'text');
+      // Deploy 236.955 — select columns (Exit Strategy), month-precision
+      // dates, and the Places-bound address column.
+      if(c.type==='select'){
+        var opts='<option value=""></option>';
+        (c.options||[]).forEach(function(o){ opts+='<option value="'+esc(o[0])+'"'+(v===o[0]?' selected':'')+'>'+esc(o[1])+'</option>'; });
+        body+='<td><select data-row="'+i+'" data-key="'+c.key+'" onchange="setCell('+i+',\''+c.key+'\',this.value)"'+
+          ' onkeydown="gridKey(event,this)"'+(_readOnly?' disabled':'')+'>'+opts+'</select></td>';
+        return;
+      }
+      var type=c.type==='month'?'month':(c.type==='date'?'date':(c.type==='money'?'number':'text'));
+      if(c.type==='month') v=String(v).slice(0,7); // legacy YYYY-MM-DD → YYYY-MM
       body+='<td'+(c.key==='description'?' style="min-width:220px"':'')+'><input type="'+type+'"'+(c.type==='money'?' step="0.01" inputmode="decimal"':'')+
+        (c.ac?' data-sla-autocomplete':'')+
         ' data-row="'+i+'" data-key="'+c.key+'" value="'+esc(v)+'" oninput="setCell('+i+',\''+c.key+'\',this.value)"'+
+        ' onchange="setCell('+i+',\''+c.key+'\',this.value)"'+ // Places fills via a change event
         ' onkeydown="gridKey(event,this)"'+(_readOnly?' disabled':'')+' /></td>';
     });
     if(_kind==='track'){
@@ -189,6 +213,8 @@ function render(focusRow){
   document.getElementById('gridBody').innerHTML = body ||
     '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--muted)">No rows yet — add one, or attach your Excel/CSV.</td></tr>';
   refreshTotals();
+  // Deploy 236.955 — bind Places autocomplete (and masks) on the new inputs.
+  if(window.SLAForms&&SLAForms.reformatExisting){ try{ SLAForms.reformatExisting(document); }catch(_){} }
   if(focusRow!=null){
     var inp=document.querySelector('input[data-row="'+focusRow+'"][data-key="'+gridCols()[0].key+'"]');
     if(inp) inp.focus();
@@ -200,9 +226,12 @@ function refreshTotals(){
     var t=0; _rows.forEach(function(r){ var n=parseFloat(r.budget); if(isFinite(n)) t+=n; });
     tot.textContent='Total budget: '+money(t);
   } else {
-    var gp=0,c=0;
-    _rows.forEach(function(r){ var g=calcFor(r); if(g!=null){gp+=g;c++;} });
+    var gp=0,c=0,prog=0;
+    _rows.forEach(function(r){ var g=calcFor(r); if(g!=null){gp+=g;c++;} if(r.exitStrategy==='in_progress') prog++; });
     tot.textContent=_rows.length+' project'+(_rows.length===1?'':'s')+(c?' · total gross profit '+money(gp):'');
+    // Deploy 236.955 — in-progress projects don't count toward pricing.
+    var en=document.getElementById('exitNote');
+    if(en) en.innerHTML=prog?'<div class="banner warn" style="margin-top:10px">We can only count Sold or Refinanced projects in your experience for pricing — "Still In Progress" rows are kept on file but don\'t add to your project count.</div>':'';
   }
 }
 function setCell(i,k,v){
@@ -233,8 +262,8 @@ function gridKey(e, el){
   if(idx<cols.length-1){ nextKey=cols[idx+1].key; }
   else if(row<_rows.length-1){ nextRow=row+1; nextKey=cols[0].key; }
   else { _rows.push({}); render(_rows.length-1); return; }
-  var inp=document.querySelector('input[data-row="'+nextRow+'"][data-key="'+nextKey+'"]');
-  if(inp){ inp.focus(); if(inp.select) inp.select(); }
+  var inp=document.querySelector('input[data-row="'+nextRow+'"][data-key="'+nextKey+'"], select[data-row="'+nextRow+'"][data-key="'+nextKey+'"]');
+  if(inp){ inp.focus(); if(inp.select&&inp.tagName==='INPUT') inp.select(); }
 }
 function addRow(r, focus){ _rows.push(r||{}); render(focus?_rows.length-1:null); }
 function delRow(i){ _rows.splice(i,1); render(); }
@@ -323,8 +352,18 @@ function applyImport(mode){
 }
 function closePreview(){ _pending=null; document.getElementById('previewModal').style.display='none'; }
 
+var _loanRehabBudget=null;
 function saveAll(){
   var btn=document.getElementById('saveBtn'), st=document.getElementById('saveStatus');
+  // Deploy 236.955 — warn when the SOW total doesn't match the loan's rehab
+  // budget from the application/sizer. A warning, not a block: the borrower
+  // can proceed, and the delta also shows to staff on Loan Details.
+  if(_kind==='sow'&&_loanRehabBudget>0){
+    var t=0; _rows.forEach(function(r){ var n=parseFloat(r.budget); if(isFinite(n)) t+=n; });
+    if(Math.abs(t-_loanRehabBudget)>0.5){
+      if(!confirm('Heads up: your line items total '+money(t)+', but your loan application shows a rehab budget of '+money(_loanRehabBudget)+'.\n\nIf that\'s intentional, tap OK to save anyway — otherwise Cancel and adjust your line items.')) return;
+    }
+  }
   btn.disabled=true; st.textContent='Saving…'; st.className='status';
   var payload={ action:'save', kind:_kind };
   if(_kind==='sow'){
@@ -365,6 +404,12 @@ function load(){
       document.getElementById('sowExtras').style.display='';
       var d=res.data||{};
       var sg=res.suggest||{};
+      _loanRehabBudget=(res.loanRehabBudget&&res.loanRehabBudget>0)?res.loanRehabBudget:null;
+      if(_loanRehabBudget){
+        var rbl=document.getElementById('rehabBudgetLine');
+        rbl.style.display='';
+        rbl.textContent='Rehab budget on your loan application: '+money(_loanRehabBudget)+' — your line items below should add up to this.';
+      }
       document.getElementById('sowBorrower').value=d.borrowerName||sg.borrowerName||'';
       document.getElementById('sowAddress').value=d.propertyAddress||_addr||sg.propertyAddress||'';
       if(d.sqftChange){ var rb=document.querySelector('input[name="sqftChange"][value="'+d.sqftChange+'"]'); if(rb) rb.checked=true; }
@@ -401,6 +446,18 @@ function load(){
   });
 }
 load();
+// Deploy 236.955 — Google Maps (Places) at runtime, public key from
+// /api/config; on load, bind any already-rendered address inputs.
+(function(){
+  fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg){
+    if(!cfg.googleMapsKey) return;
+    window._slaMapsReady=function(){ if(window.SLAForms&&SLAForms.reformatExisting){ try{ SLAForms.reformatExisting(document); }catch(_){} } };
+    var s=document.createElement('script');
+    s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(cfg.googleMapsKey)+'&libraries=places&callback=_slaMapsReady';
+    s.async=true; s.defer=true;
+    document.head.appendChild(s);
+  }).catch(function(){});
+})();
 </script>
 </body>
 </html>

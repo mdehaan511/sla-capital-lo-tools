@@ -43,10 +43,10 @@ const r0 = tMap.rows[0] || {};
 ok(r0.owner === 'Alpha LLC', 'track: owner mapped despite column order');
 ok(r0.purchasePrice === 180000, 'track: "$180,000" → 180000');
 ok(r0.rehabCosts === 15000, 'track: "15,000" → 15000');
-ok(/^\d{4}-\d{2}-\d{2}$/.test(r0.purchaseDate || ''), 'track: serial purchase date → ISO (' + r0.purchaseDate + ')');
+ok(/^\d{4}-\d{2}$/.test(r0.purchaseDate || ''), 'track: serial purchase date → YYYY-MM (' + r0.purchaseDate + ')'); // 236.955 month precision
 ok(trackGrossProfit(r0) === 250000 - 180000 - 15000, 'track: gross profit derived = ' + trackGrossProfit(r0));
 const r1 = tMap.rows[1] || {};
-ok(r1.purchaseDate === '2026-01-15', 'track: US-format date → ISO');
+ok(r1.purchaseDate === '2026-01', 'track: US-format date → YYYY-MM');
 ok(Math.abs(trackGrossProfit(r1) - (310500.5 - 200000 - 20000)) < 0.01, 'track: fractional sale price survives');
 
 // ── SOW: csv with the template's own headers ────────────────────────────────
@@ -73,6 +73,21 @@ const sowCsv2 = [
 const sMap2 = mapGridToRows(await parseUploadGrid(Buffer.from(sowCsv2, 'utf-8'), 'sow2.csv'), 'sow');
 ok(sMap2.rows.length === 2, 'sow: description-column sheet parses');
 ok((sMap2.rows[0] || {}).description === 'Tear-off, new architectural shingles', 'sow: description mapped');
+
+// ── Track 236.955 columns: address, exit strategy, MM/YYYY dates, lender ────
+const trackCsv3 = [
+  'Vested Owner Name,Guarantor(s) Name,Property Address,Exit Strategy,Purchase Date,Sale/Refi Date,Purchase Price,Rehab Costs,Sale Price/Refi Appraised Value,Lender Used',
+  'Gamma LLC,Pat Q,"12 Elm St, Toledo, OH",Refi,03/2025,11/2025,120000,30000,210000,Kiavi',
+  'Delta LLC,Sam R,"9 Oak Ave",Still in progress,5/2026,,90000,20000,,',
+].join('\n');
+const tMap3 = mapGridToRows(await parseUploadGrid(Buffer.from(trackCsv3, 'utf-8'), 't3.csv'), 'track');
+ok(tMap3.rows.length === 2, 'track: v2 sheet parses (' + tMap3.rows.length + ')');
+const t30 = tMap3.rows[0] || {}, t31 = tMap3.rows[1] || {};
+ok(t30.address === '12 Elm St, Toledo, OH', 'track: address mapped');
+ok(t30.exitStrategy === 'refinance', 'track: "Refi" → refinance');
+ok(t31.exitStrategy === 'in_progress', 'track: "Still in progress" → in_progress');
+ok(t30.purchaseDate === '2025-03' && t30.saleDate === '2025-11', 'track: MM/YYYY → YYYY-MM');
+ok(t30.lender === 'Kiavi', 'track: lender mapped');
 
 // ── header not found ────────────────────────────────────────────────────────
 const junk = mapGridToRows([['hello', 'world'], ['1', '2']], 'track');

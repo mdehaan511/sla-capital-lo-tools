@@ -5072,10 +5072,11 @@ function ldWorksheetCsv(kind) {
   if (!r) return;
   var lines, name;
   if (kind === 'track') {
-    lines = ['Vested Owner Name,Guarantor(s) Name,Purchase Date,Sale Date,Purchase Price,Rehab Costs,Sale Price,Gross Profit'];
+    // Deploy 236.955 — new column order + exit strategy / lender.
+    lines = ['Vested Owner Name,Guarantor(s) Name,Property Address,Exit Strategy,Purchase Date,Sale/Refi Date,Purchase Price,Rehab Costs,Sale Price/Refi Appraised Value,Lender Used,Gross Profit'];
     (r.rows || []).forEach(function (row, i) {
       var g = (r.computed && r.computed[i]) ? r.computed[i].grossProfit : '';
-      lines.push([row.owner, row.guarantors, row.purchaseDate, row.saleDate, row.purchasePrice, row.rehabCosts, row.salePrice, g]
+      lines.push([row.owner, row.guarantors, row.address, row.exitStrategy, row.purchaseDate, row.saleDate, row.purchasePrice, row.rehabCosts, row.salePrice, row.lender, g]
         .map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','));
     });
     name = 'Track Record - ' + ((_client && (_client.firstName + ' ' + _client.lastName)) || 'borrower') + '.csv';
