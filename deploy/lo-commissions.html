@@ -33,7 +33,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:wght@500;600&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
-  <script src="lo-comp.js?v=236952"></script>
+  <script src="lo-comp.js?v=236953"></script>
   <script src="sla-nav.js" defer></script>
   <style>
     :root {
@@ -137,7 +137,7 @@
     <div style="font-size:12.5px;line-height:1.8">
       Tier bps by margin, closings <strong>from Sep 10, 2026</strong>: <strong>&lt;1.5 pts → 35</strong> · <strong>1.5–2.24 → 50</strong> · <strong>2.25–2.74 → 58.75</strong> · <strong>2.75–3.49 → 65</strong> · <strong>3.5–4.49 → 70</strong> · <strong>4.5+ → 85</strong><br/>
       <span style="color:var(--muted)">Closed before Sep 10, 2026: &lt;1.5 → 35 · 1.5–2.49 → 50 · 2.5–3.49 → 65 · 3.5+ → 70 (unchanged for loans already closed)</span><br/>
-      Company-sourced first loan → tier bps × 0.5 · Repeat borrower +$250 · Borrower referral +$250 ·
+      Company-sourced first loan → tier bps × 0.5 · Repeat borrower +$250 (automatic: the same borrower closed with this LO before — matched on the borrower, so a broker bringing a second deal is never a repeat) · Borrower referral +$250 ·
       Production bonus $5,000 per full $10M funded per quarter.<br/>
       Margin: DSCR = points + TPO spread · RTL/GUC = points + (note rate − buy/base rate).
     </div>

@@ -226,6 +226,11 @@ const LOAN_SUMMARY_FIELDS = [
   // hand-marked past commission). Was read by lo-commissions.html but never
   // projected, so the confirmation tooltip silently never showed.
   'commissionPaymentRef',
+  // Deploy 236.953 — the real borrower on a broker-parented loan (the primary
+  // client is the broker's book record). lo-comp.js keys repeat-borrower
+  // detection on these so a broker's second deal is never a "repeat". Keep in
+  // sync with clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
+  'borrowerName', 'borrowerEmail',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

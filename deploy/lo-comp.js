@@ -129,11 +129,30 @@
     return String(l.processingStage || '').toLowerCase() === 'pp_closed';
   }
 
+  // Deploy 236.953 (Mike: "Its important it doesnt get confused and think a
+  // broker coming back again is a repeat borrower.") On a broker-submitted deal
+  // the loan's primary CLIENT is the broker's book record (_isBroker) and the
+  // real borrower lives on loan.borrowerName / loan.borrowerEmail. Keying repeat
+  // detection on client.email would make every second deal a broker brings a
+  // "repeat borrower". So: the identity for repeat purposes is the BORROWER —
+  // the loan's borrowerEmail when the client acts as a broker for it, else the
+  // client's own email. No borrower email on a broker deal = no key = never a
+  // repeat and never anyone's "first" (a bonus is never guessed).
+  function clientIsBrokerFor(client, loan) {
+    if (!client) return false;
+    if (client._isBroker === true || client._isBrokerPlaceholder === true) return true;
+    var ce = String(client.email || '').toLowerCase().trim();
+    var be = String((loan && loan.brokerEmail) || '').toLowerCase().trim();
+    return !!(ce && be && ce === be);
+  }
+  function repeatKeyOf(client, loan) {
+    if (clientIsBrokerFor(client, loan)) return String((loan && loan.borrowerEmail) || '').toLowerCase().trim();
+    return String((client && client.email) || '').toLowerCase().trim();
+  }
   // One row per closed loan across { ownerEmail: [client, ...] }, with the
-  // repeat-borrower flag (an earlier CLOSED loan for the same borrower email =
-  // every later one is repeat). Repeat detection looks across the whole set it
-  // is given — the admin page passes every LO's book, an LO's own page passes
-  // only theirs, which is the same answer for that LO's borrowers.
+  // repeat-borrower flag: an earlier CLOSED loan for the same borrower WITH THE
+  // SAME LO makes every later one a repeat ("repeat for them" — per LO, so the
+  // admin page and an LO's own page agree whatever scope they are given).
   function buildRows(byOwner) {
     var closed = [];
     Object.keys(byOwner || {}).forEach(function (owner) {
@@ -146,9 +165,10 @@
     });
     var byBorrower = {};
     closed.forEach(function (x) {
-      var be = String(x.client.email || '').toLowerCase();
+      var be = repeatKeyOf(x.client, x.loan);
       if (!be) return;
-      (byBorrower[be] = byBorrower[be] || []).push(x);
+      var k = x.owner + '|' + be;   // 236.953 — per LO
+      (byBorrower[k] = byBorrower[k] || []).push(x);
     });
     Object.keys(byBorrower).forEach(function (be) {
       byBorrower[be].sort(function (a, b) {
@@ -163,7 +183,11 @@
         owner: x.owner,
         clientId: x.client.id,
         loanId: l.id,
-        borrower: ((x.client.firstName || '') + ' ' + (x.client.lastName || '')).trim() || x.client.email || '',
+        // 236.953 — on a broker deal the person is the borrower on the loan, not the broker record.
+        borrower: (clientIsBrokerFor(x.client, l) && (l.borrowerName || l.borrowerEmail))
+          ? String(l.borrowerName || l.borrowerEmail) + ' (via broker)'
+          : (((x.client.firstName || '') + ' ' + (x.client.lastName || '')).trim() || x.client.email || ''),
+        viaBroker: clientIsBrokerFor(x.client, l),
         address: l.address || '(no address)',
         tool: String(l.toolType || '').toUpperCase() || '?',
         amount: num(l.finalLoanAmount) || num(l.loanAmt),
@@ -248,6 +272,7 @@
     num: num, money: money, shortDate: shortDate,
     TIER_SCHEDULES: TIER_SCHEDULES, tierScheduleFor: tierScheduleFor, tierBps: tierBps,
     marginOf: marginOf, isClosedWon: isClosedWon, buildRows: buildRows,
+    clientIsBrokerFor: clientIsBrokerFor, repeatKeyOf: repeatKeyOf,
     computeRow: computeRow, payoutState: payoutState,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = SLA_COMP;

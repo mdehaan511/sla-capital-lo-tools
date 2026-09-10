@@ -12,7 +12,7 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const C = require('../deploy/lo-comp.js');
-const { tierBps, tierScheduleFor, computeRow, buildRows, payoutState, marginOf } = C;
+const { tierBps, tierScheduleFor, computeRow, buildRows, payoutState, marginOf, clientIsBrokerFor, repeatKeyOf } = C;
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -57,6 +57,32 @@ check('only closed loans become rows', rows.map((r) => r.loanId), ['l1', 'l2']);
 check('the second closing for the same borrower is a repeat', rows.map((r) => r.isRepeat), [false, true]);
 check('amount prefers finalLoanAmount', rows.map((r) => r.amount), [200000, 300000]);
 check('BILL stamps ride along', [rows[0].billId, rows[0].payStatus, rows[0].paidAt, rows[1].referral], ['B1', 'PAID', '2026-07-01', true]);
+
+// ── Repeat detection vs brokers (236.953) ──────────────────────────────────
+{
+  const broker = { id: 'b1', email: 'tanner@brokerage.com', firstName: 'Tanner', lastName: 'Broker', _isBroker: true, loans: [
+    { id: 'k1', status: 'closed', fundingDate: '2026-03-01', address: 'A', toolType: 'rtl', loanAmt: 100000, points: 2, borrowerName: 'Ann One', borrowerEmail: 'ann@one.com' },
+    { id: 'k2', status: 'closed', fundingDate: '2026-05-01', address: 'B', toolType: 'rtl', loanAmt: 100000, points: 2, borrowerName: 'Bob Two', borrowerEmail: 'bob@two.com' },
+    { id: 'k3', status: 'closed', fundingDate: '2026-08-01', address: 'C', toolType: 'rtl', loanAmt: 100000, points: 2, borrowerName: 'Ann One', borrowerEmail: 'ANN@one.com' },
+    { id: 'k4', status: 'closed', fundingDate: '2026-08-15', address: 'D', toolType: 'rtl', loanAmt: 100000, points: 2 },   // no borrower on file
+  ] };
+  const direct = { id: 'c9', email: 'ann@one.com', firstName: 'Ann', lastName: 'One', loans: [
+    { id: 'k5', status: 'closed', fundingDate: '2026-09-01', address: 'E', toolType: 'rtl', loanAmt: 100000, points: 2 },
+  ] };
+  const rs = buildRows({ 'carl.davis@slacapital.com': [broker, direct] });
+  const byId = {}; rs.forEach((r) => { byId[r.loanId] = r; });
+  check('broker record is recognised as a broker', [clientIsBrokerFor(broker, broker.loans[0]), clientIsBrokerFor(direct, direct.loans[0])], [true, false]);
+  check('a client whose email equals the loan brokerEmail acts as a broker too', clientIsBrokerFor({ email: 'x@y.com' }, { brokerEmail: 'X@Y.com' }), true);
+  check('repeat key = the borrower on the loan for broker deals, the client email otherwise', [repeatKeyOf(broker, broker.loans[0]), repeatKeyOf(direct, direct.loans[0])], ['ann@one.com', 'ann@one.com']);
+  check('two DIFFERENT borrowers through the same broker are NOT repeats', [byId.k1.isRepeat, byId.k2.isRepeat], [false, false]);
+  check('the same borrower back through the broker IS a repeat (case-insensitive)', byId.k3.isRepeat, true);
+  check('a broker deal with no borrower on file is never a repeat', byId.k4.isRepeat, false);
+  check('the same borrower later on their own direct record is a repeat', byId.k5.isRepeat, true);
+  check('broker-deal rows name the borrower, not the broker', [byId.k1.borrower, byId.k1.viaBroker, byId.k5.borrower], ['Ann One (via broker)', true, 'Ann One']);
+  const other = buildRows({ 'carl.davis@slacapital.com': [{ id: 'c1', email: 'z@z.com', loans: [{ id: 'm1', status: 'closed', fundingDate: '2026-01-01', loanAmt: 1, toolType: 'dscr' }] }],
+                            'sara.s@slacapital.com':     [{ id: 'c2', email: 'z@z.com', loans: [{ id: 'm2', status: 'closed', fundingDate: '2026-06-01', loanAmt: 1, toolType: 'dscr' }] }] });
+  check('repeat is per LO: the same borrower closing with a DIFFERENT LO is that LO\'s first', other.map((r) => r.isRepeat), [false, false]);
+}
 
 // ── Per-row math ───────────────────────────────────────────────────────────
 {

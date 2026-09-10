@@ -133,6 +133,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'commissionPaymentStatus', 'commissionPaidAt',
   // Deploy 236.926 — see clients-list.mjs (payment ref; 'manual' = hand-marked).
   'commissionPaymentRef',
+  // Deploy 236.953 — see clients-list.mjs (borrower identity on broker deals; both ride extra).
+  'borrowerName', 'borrowerEmail',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
