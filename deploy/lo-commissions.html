@@ -94,6 +94,16 @@
       <div id="billStatusLine" style="font-size:11.5px;margin-top:2px;color:var(--muted)">Checking BILL connection…</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <!-- Deploy 236.935 (Mike) — the page opens on ALL unpaid commissions
+           (any period); Period + Status narrow from there. -->
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        Status
+        <select id="statusSelect" onchange="render()" style="font-size:13px;padding:6px 10px">
+          <option value="unpaid" selected>Unpaid</option>
+          <option value="paid">Paid</option>
+          <option value="all">All</option>
+        </select>
+      </label>
       <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
         Period
         <select id="periodSelect" onchange="render()" style="font-size:13px;padding:6px 10px"></select>
@@ -362,9 +372,20 @@ function buildPeriodSelect() {
   });
   html += '<option value="all">All Time</option>';
   sel.innerHTML = html;
-  var nowMo = new Date().toISOString().slice(0, 7);
-  sel.value = prev && sel.querySelector('option[value="' + prev + '"]') ? prev
-    : (months[nowMo] ? nowMo : (moList[0] || 'all'));
+  // Deploy 236.935 (Mike) — default period is ALL TIME: the page opens on
+  // every unpaid commission regardless of when it closed (the Status filter
+  // defaults to Unpaid), and the LO narrows by period from there. A period
+  // the user already picked survives re-renders.
+  sel.value = prev && sel.querySelector('option[value="' + prev + '"]') ? prev : 'all';
+}
+// Deploy 236.935 — payment-status filter. "Unpaid" is anything BILL (or a
+// manual mark) hasn't confirmed PAID: unbilled, billed-pending, scheduled,
+// in-process and part-paid all still need money to move.
+function inStatus(r) {
+  var s = (document.getElementById('statusSelect') || {}).value || 'all';
+  if (s === 'all') return true;
+  var paid = String(r.payStatus || '') === 'PAID';
+  return s === 'paid' ? paid : !paid;
 }
 function inPeriod(r) {
   var p = document.getElementById('periodSelect').value || 'all';
@@ -402,7 +423,7 @@ function computeRow(r, plan) {
 
 // ── Render ────────────────────────────────────────────────────────
 function render() {
-  var rows = _rows.filter(inPeriod);
+  var rows = _rows.filter(inPeriod).filter(inStatus); // 236.935 — status + period
   var byLo = {};
   rows.forEach(function(r) { (byLo[r.owner] = byLo[r.owner] || []).push(r); });
   var owners = Object.keys(byLo).sort(function(a, b) { return loName(a).localeCompare(loName(b)); });
@@ -712,7 +733,7 @@ function exportCsv() {
   var q = periodQuarter();
   var lines = ['LO,Plan,Address,Borrower,Type,Amount,Close Date,Margin,Source,Repeat,Referral,Applied Bps,Base Commission,Bonuses,Total'];
   var esc = function(s) { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  _rows.filter(inPeriod).sort(function(a, b) {
+  _rows.filter(inPeriod).filter(inStatus).sort(function(a, b) { // 236.935 — export matches the view
     return loName(a.owner).localeCompare(loName(b.owner)) || String(a.closeDate).localeCompare(String(b.closeDate));
   }).forEach(function(r) {
     var plan = planOf(r.owner);
