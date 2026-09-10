@@ -4146,9 +4146,13 @@ netlifyIdentity.on('init', function(user) {
         try {
           var result = getRTLRateSheetForSignature(1);
           if (!result || !result.pdfBase64) {
-            console.log('[SLA esign] PDF generation returned null (RTL) — likely calculate() error');
-            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null. Check that the quote loaded and all required fields are filled.' }, '*');
-            if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null. Check that the quote loaded and all required fields are filled.' }, '*');
+            // Deploy 236.963 (Sarah) — surface the actual pricing error.
+            var why = window._lastRateSheetError
+              ? window._lastRateSheetError + ' — open the loan in the sizer, fix it, and Save, then send again.'
+              : 'PDF generation returned null. Check that the quote loaded and all required fields are filled.';
+            console.log('[SLA esign] PDF generation returned null (RTL):', why);
+            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: why }, '*');
+            if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: why }, '*');
             return;
           }
           console.log('[SLA esign] RTL PDF base64 length:', result.pdfBase64.length, 'sigCoords:', result.sigCoords);
@@ -5240,8 +5244,17 @@ function _generateRTLRateSheetPDF(opts) {
   opts = opts || {};
   // Re-run calculate to get fresh values
   if (!document.getElementById('results').innerHTML || 
-      document.getElementById('results').querySelector('.placeholder')) {
-    if (opts.mode === 'base64') return null;
+      document.getElementById('results').querySelector('.placeholder') ||
+      document.getElementById('results').querySelector('.inelig')) {
+    // Deploy 236.963 (Sarah) — in signature mode, stash WHY pricing failed
+    // (the ineligibility text if the engine rendered one) so the Send modal
+    // shows the real problem instead of a generic null.
+    if (opts.mode === 'base64') {
+      var inel = document.getElementById('results').querySelector('.inelig');
+      window._lastRateSheetError = inel ? String(inel.textContent || '').replace(/\s+/g, ' ').trim()
+        : 'Pricing has not been calculated for this loan';
+      return null;
+    }
     alert('Please calculate pricing first.'); return;
   }
 
