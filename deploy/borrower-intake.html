@@ -256,6 +256,26 @@
       _items = (data && data.items) || [];
       document.getElementById('pageSub').textContent = (data.address ? data.address + ' · ' : '') + (String(data.loanType||'').toUpperCase()) + ' loan';
       render();
+      // Deploy 236.947 (Mike) — Scope of Work is required on every RTL-family
+      // loan. Link the structured worksheet (grid entry or Excel import)
+      // above the doc list rather than asking for a spreadsheet upload.
+      var lt = String(data.loanType || '').toLowerCase();
+      if (lt === 'rtl' || lt === 'guc') {
+        var sowEl = document.getElementById('sowCard');
+        if (!sowEl) {
+          sowEl = document.createElement('div');
+          sowEl.id = 'sowCard';
+          var host = document.getElementById('itemsContainer');
+          host.parentNode.insertBefore(sowEl, host);
+        }
+        sowEl.innerHTML =
+          '<a href="borrower-worksheets.html?kind=sow&loanId=' + encodeURIComponent(_loanId) +
+            '&address=' + encodeURIComponent(data.address || '') + '"' +
+            ' style="display:block;margin:0 0 14px;padding:12px 16px;border:1px solid var(--border,#ddd8d0);border-radius:10px;background:#fff;text-decoration:none;color:inherit">' +
+            '<strong style="color:#261a36">🛠 Scope of Work (Rehab Budget)</strong>' +
+            '<div style="font-size:12.5px;color:#7a7488;margin-top:2px">Required for this loan — enter your repair items and budget, or import your Excel SOW.</div>' +
+          '</a>';
+      }
       renderTeam((data && data.team) || []);
     }).catch(function(err){
       c.innerHTML = '<div class="err-box">Couldn’t load your documents: ' + escH(err && err.message || 'unknown') + '</div>';

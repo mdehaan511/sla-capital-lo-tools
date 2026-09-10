@@ -2810,6 +2810,7 @@ function render() {
     // is production-ready.
     if (window.SLA && SLA.isAdmin && SLA.isAdmin(_user)) {
       paneContacts.appendChild(_buildBorrowerAccessSection());
+      _ldLoadWorksheets(); // Deploy 236.947 — async fill of the worksheets summary
     }
 
     // DOCUMENTS tab: placeholder. Real implementation is Phase D
@@ -4998,6 +4999,87 @@ function _onTeamLoChange(sel) {
 // through SLA.BorrowerAccess (loan-access-grant / -revoke) which
 // itself gates on canEditLoan. Invite triggers a Netlify Identity
 // invitation email with role='borrower' pre-set.
+// Deploy 236.947 (Mike) — staff summary of the borrower's structured
+// worksheets: profile-level Track Record (6-month freshness) + per-loan
+// Scope of Work (RTL family). Read-only here; the borrower fills them in
+// the portal (or staff can open the same page — the endpoint allows staff
+// reads and writes). CSV export is client-side from the fetched rows.
+var _ldWorksheetCache = {};
+function _ldLoadWorksheets() {
+  var host = document.getElementById('ldWorksheets');
+  if (!host || !_loan) return;
+  var tool = String(_loan.toolType || '').toLowerCase();
+  var isRtl = tool === 'rtl' || tool === 'guc';
+  var bEmail = String((_client && _client.email) || _loan.borrowerEmail || '').toLowerCase();
+  var parts = [];
+  var pending = 0;
+  function paint() {
+    host.innerHTML = parts.length
+      ? '<strong style="color:var(--dark);font-size:11px;text-transform:uppercase;letter-spacing:0.05em">Worksheets</strong><br>' + parts.join('<br>')
+      : '';
+  }
+  function fetchOne(body, cb) {
+    pending++;
+    SLA.api('POST', '/api/borrower-worksheets', body)
+      .then(cb).catch(function () {})
+      .then(function () { pending--; if (!pending) paint(); });
+  }
+  if (bEmail) {
+    fetchOne({ action: 'get', kind: 'track', email: bEmail }, function (r) {
+      _ldWorksheetCache.track = r;
+      var n = (r.rows || []).length;
+      if (!n) { parts.push('📈 Track Record: <span style="color:var(--warn)">none on file</span>'); return; }
+      var age = r.ageDays != null ? r.ageDays : '?';
+      parts.push('📈 Track Record: ' + n + ' project' + (n === 1 ? '' : 's') + ' · updated ' + age + 'd ago' +
+        (r.stale ? ' <span style="color:var(--warn);font-weight:700">⚠ over 6 months old</span>' : ' ✓') +
+        ' · <a href="#" onclick="ldWorksheetCsv(\'track\');return false">CSV</a>');
+    });
+  }
+  if (isRtl) {
+    fetchOne({ action: 'get', kind: 'sow', loanId: _loanId }, function (r) {
+      _ldWorksheetCache.sow = r;
+      var items = (r.data && r.data.items) || [];
+      if (!items.length) { parts.push('🛠 Scope of Work: <span style="color:var(--warn)">not submitted</span> (required on RTL)'); return; }
+      var line = '🛠 Scope of Work: ' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' · total $' + Math.round(r.total).toLocaleString();
+      var rb = parseFloat(_loan.rehabBudget);
+      if (isFinite(rb) && rb > 0) {
+        var delta = Math.round(r.total - rb);
+        line += delta === 0 ? ' · matches rehab budget ✓'
+          : ' · <span style="color:var(--warn)">' + (delta > 0 ? '+' : '') + '$' + Math.abs(delta).toLocaleString() +
+            (delta > 0 ? ' over' : ' under') + ' the $' + Math.round(rb).toLocaleString() + ' rehab budget</span>';
+      }
+      parts.push(line + ' · <a href="#" onclick="ldWorksheetCsv(\'sow\');return false">CSV</a>');
+    });
+  }
+  if (!pending) paint();
+}
+function ldWorksheetCsv(kind) {
+  var r = _ldWorksheetCache[kind];
+  if (!r) return;
+  var lines, name;
+  if (kind === 'track') {
+    lines = ['Vested Owner Name,Guarantor(s) Name,Purchase Date,Sale Date,Purchase Price,Rehab Costs,Sale Price,Gross Profit'];
+    (r.rows || []).forEach(function (row, i) {
+      var g = (r.computed && r.computed[i]) ? r.computed[i].grossProfit : '';
+      lines.push([row.owner, row.guarantors, row.purchaseDate, row.saleDate, row.purchasePrice, row.rehabCosts, row.salePrice, g]
+        .map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','));
+    });
+    name = 'Track Record - ' + ((_client && (_client.firstName + ' ' + _client.lastName)) || 'borrower') + '.csv';
+  } else {
+    lines = ['Repair item,Budget'];
+    (((r.data && r.data.items) || [])).forEach(function (it) {
+      var v = String(it.item || '');
+      lines.push((/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v) + ',' + (it.budget != null ? it.budget : ''));
+    });
+    lines.push('Total,' + r.total);
+    name = 'SOW - ' + String(_loan.address || _loanId).split(',')[0] + '.csv';
+  }
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
 function _buildBorrowerAccessSection() {
   var section = document.createElement('div');
   section.className = 'section';
@@ -5009,6 +5091,9 @@ function _buildBorrowerAccessSection() {
       // Deploy 236.534 — Supabase invite with Borrower / Broker choice + a status
       // line (recipient · date sent · last sign-in). Same as the doc-review panel.
       '<div id="ldInviteStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.55;min-height:14px"></div>' +
+      // Deploy 236.947 (Mike) — borrower worksheets summary (structured Track
+      // Record + Scope of Work). Filled async by _ldLoadWorksheets().
+      '<div id="ldWorksheets" style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6"></div>' +
       // Deploy 236.590 — borrower invites are gated until the loan is In
       // Processing (see _gateBorrowerInvites): before that there's no rate
       // sheet / signed application to review borrower uploads against, so a
