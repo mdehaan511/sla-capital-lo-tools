@@ -11,6 +11,9 @@
  *   { reviewId, slug, email?, note?, staffValues? }
  *       → mints a token link, stamps the tray, emails the borrower
  *       → { ok, review, link, emailed }
+ *   { reviewId, slug, preview: true, staffValues? }
+ *       → { ok, pdfBase64, filename }   (Deploy 236.948 — the watermarked document
+ *         exactly as the borrower will see it, prefill in, signature blank)
  *   { reviewId, slug, void: true }
  *       → voids the outstanding request → { ok, review }
  *
@@ -25,7 +28,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { locateLoan } from './_shared/loan-locate.mjs';
-import { formForSlug, prefillFor, validateAnswers } from './_shared/borrower-forms.mjs';
+import { formForSlug, prefillFor, validateAnswers, renderFormPdf, filedName } from './_shared/borrower-forms.mjs';
 import { profileName } from './_shared/task-enrich.mjs';
 import { sendBorrowerEmail, escHtml } from './_shared/borrower-invite-core.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
@@ -150,6 +153,16 @@ async function handle(req, context) {
   const ctx = Object.assign(_ctxSnapshot(loan, client), { sender });
   const prefill = prefillFor(form, ctx);
   const borrowerName = [client.firstName, client.lastName].map((s) => String(s || '').trim()).filter(Boolean).join(' ');
+
+  // ── Preview (Deploy 236.948) ──────────────────────────────────────────────────
+  if (body.preview === true) {
+    // Partial staff values are fine for a look: valid ones are normalised,
+    // anything else renders as typed so the processor sees what they entered.
+    const svRaw = Object.assign({}, prefill, body.staffValues || {});
+    const sv = Object.assign({}, svRaw, validateAnswers(form.staffFields || [], svRaw).clean);
+    const pdf = await renderFormPdf(form, { answers: prefill, staffValues: sv, ctx, signature: null, preview: true });
+    return json(200, { ok: true, pdfBase64: Buffer.from(pdf).toString('base64'), filename: filedName(form, ctx, now) });
+  }
 
   // ── Prepare (what the modal shows) ──────────────────────────────────────
   if (body.prepare === true) {

@@ -100,6 +100,11 @@ const ctx = {
   }
   const unsigned = await renderFormPdf(FORMS.pm_questionnaire, { answers: answers.pm_questionnaire, ctx, signature: null });
   check('renders without a signature too', Buffer.from(unsigned.slice(0, 5)).toString(), '%PDF-');
+  const preview = await renderFormPdf(FORMS.commitment_letter, { staffValues, ctx, signature: null, preview: true });
+  const pv = await PDFDocument.load(preview);
+  check('preview (236.948) renders one watermarked page', [Buffer.from(preview.slice(0, 5)).toString(), pv.getPageCount(), preview.length > unsigned.length], ['%PDF-', 1, true]);
+  const w9pv = await renderFormPdf(FORMS.w9, { answers: { name: 'Prefilled LLC', address: '1 Main', cityStateZip: 'X, WA 99201' }, ctx, signature: null, preview: true });
+  check('W-9 preview renders with only the prefilled fields', Buffer.from(w9pv.slice(0, 5)).toString(), '%PDF-');
   check('filed name is safe + descriptive', filedName(FORMS.w9, ctx, '2026-09-10T18:22:00Z'), 'Hawthorne Holdings LLC - Form W-9 - 2026-09-10.pdf');
   const letter = commitmentLetterText(staffValues, ctx).join('\n');
   check('letter text carries the key terms', [/Up to \$206,500/.test(letter), /October 1, 2026/.test(letter), /valid through October 10, 2026/.test(letter), /Jessy Ortiz/.test(letter)], [true, true, true, true]);

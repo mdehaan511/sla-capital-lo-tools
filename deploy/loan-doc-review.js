@@ -2316,7 +2316,11 @@
         body += '<label>' + escHtml(f.label) + (f.required ? ' *' : '') + '</label><input type="' + (f.type === 'date' ? 'date' : 'text') + '" id="bfm-sf-' + escAttr(f.key) + '" value="' + escAttr(f.value == null ? '' : f.value) + '" />';
       });
       body += '<label>Note to the borrower (optional)</label><textarea id="bfm-note" rows="2" placeholder="Anything they should know"></textarea>';
-      _drModal('Send ' + bf.label + ' to the borrower', body, 'Send', function(wrap, btn) {
+      // Deploy 236.948 (Mike) — see the document before it goes out.
+      body += '<div style="margin-top:12px;display:flex;align-items:center;gap:10px"><button type="button" id="bfm-preview-btn">Preview the document</button>' +
+        '<span id="bfm-preview-note" style="font-size:11.5px;color:var(--muted)">Exactly what the borrower will see, with your entries filled in and their fields blank.</span></div>' +
+        '<div id="bfm-preview" style="display:none;margin-top:10px"><iframe id="bfm-preview-frame" title="Preview" style="width:100%;height:62vh;border:1px solid var(--border,#E4DFD4);border-radius:6px;background:#fff"></iframe></div>';
+      var wrapRef = _drModal('Send ' + bf.label + ' to the borrower', body, 'Send', function(wrap, btn) {
         var email = String((document.getElementById('bfm-email') || {}).value || '').trim();
         if (email.indexOf('@') < 1) { showToast('Enter the borrower\'s email address', 'error'); return; }
         var staffValues = {};
@@ -2336,6 +2340,23 @@
           showToast('Send failed: ' + msg, 'error');
         });
       });
+      var pv = wrapRef.querySelector('#bfm-preview-btn');
+      if (pv) pv.onclick = function() {
+        var staffValues = {};
+        (p.staffFields || []).forEach(function(f) { staffValues[f.key] = String((document.getElementById('bfm-sf-' + f.key) || {}).value || '').trim(); });
+        pv.disabled = true; pv.textContent = 'Rendering…';
+        global.SLA.api('POST', '/api/borrower-form-send', { reviewId: _review.id, slug: slug, preview: true, staffValues: staffValues }).then(function(r) {
+          pv.disabled = false; pv.textContent = 'Refresh preview';
+          var bin = atob(r.pdfBase64 || ''), arr = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          var url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
+          var box = wrapRef.querySelector('#bfm-preview'), frame = wrapRef.querySelector('#bfm-preview-frame');
+          frame.src = url + '#toolbar=0&view=FitH';
+          box.style.display = '';
+          wrapRef.querySelector('.dr-modal').style.maxWidth = '900px';
+          wrapRef.querySelector('#bfm-preview-note').textContent = 'Change any entry above and refresh to see it again. The preview is watermarked; the borrower\'s copy is not.';
+        }).catch(function(err) { pv.disabled = false; pv.textContent = 'Preview the document'; showToast('Preview failed: ' + ((err && err.message) || 'Unknown'), 'error'); });
+      };
     }).catch(function(err) { showToast('Could not prepare the form: ' + ((err && err.message) || 'Unknown'), 'error'); });
   };
   global.dr_copyBorrowerFormLink = function(slug) {

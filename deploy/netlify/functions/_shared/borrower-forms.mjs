@@ -26,7 +26,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 
 const PLUM  = rgb(0.149, 0.102, 0.212);   // #261A36
 const GOLD  = rgb(0.784, 0.506, 0.227);   // #C8813A
@@ -419,11 +419,25 @@ async function _renderW9(form, answers, ctx, signature) {
  * Render the filed PDF. `signature` = { name, email, signedAt, ip, seal, consentVersion }.
  * Returns a Uint8Array.
  */
-export async function renderFormPdf(form, { answers, staffValues, ctx, signature }) {
+export async function renderFormPdf(form, { answers, staffValues, ctx, signature, preview }) {
   if (!form) throw new Error('unknown form');
-  if (form.id === 'w9') return _renderW9(form, answers || {}, ctx, signature);
-  if (form.id === 'commitment_letter') return _renderCommitmentLetter(form, staffValues || {}, ctx, signature);
-  return _renderSimpleForm(form, answers || {}, ctx, signature);
+  let bytes;
+  if (form.id === 'w9') bytes = await _renderW9(form, answers || {}, ctx, signature);
+  else if (form.id === 'commitment_letter') bytes = await _renderCommitmentLetter(form, staffValues || {}, ctx, signature);
+  else bytes = await _renderSimpleForm(form, answers || {}, ctx, signature);
+  return preview ? _watermarkPreview(bytes) : bytes;
+}
+// Deploy 236.948 (Mike: "Do the Processors get to see the document before it's
+// sent just to make sure it's correct?") — the send panel previews exactly what
+// the borrower will get, stamped so a preview can never pass for the filed copy.
+async function _watermarkPreview(bytes) {
+  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+  for (const page of pdf.getPages()) {
+    const { width, height } = page.getSize();
+    page.drawText('PREVIEW — NOT SENT', { x: width * 0.12, y: height * 0.32, size: 54, font, color: rgb(0.78, 0.5, 0.23), opacity: 0.22, rotate: degrees(32) });
+  }
+  return pdf.save();
 }
 
 /** The filename the tray shows. */
