@@ -18,6 +18,8 @@ import { canReadLoan } from './_shared/access.mjs';
 import { borrowerChecklist } from './_shared/borrower-intake-checklists.mjs';
 // Deploy 236.743 — read the long-app record for the hasLLC answer (entity-doc gate).
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
+// Deploy 236.956 — cached review lookup (byloan index in front of the walk).
+import { findReviewForLoan } from './_shared/loan-review-auto-attach.mjs';
 // Deploy 236.747 — stamp portal activity (deep links land here without ever
 // hitting borrower-portal-loans). Staff emails in the store are harmless —
 // the cron checks the BORROWER's email against it.
@@ -61,23 +63,14 @@ async function handle(req, context) {
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
 
   // Find the review (best-effort; none yet = everything is "todo").
-  const reviewsStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
+  // Deploy 236.956 (Mike: "make Loading Documents quicker") — the shared
+  // finder, which fronts the full-store walk with a self-healing byloan
+  // cache (2 reads on a hit instead of listing + fetching every review).
+  // Semantics preserved from 236.762: a loanId match ALWAYS beats an
+  // address match, so two loans on one property never cross-wire.
   let review = null;
   try {
-    const { blobs } = await reviewsStore.list();
-    // Deploy 236.762 — a loanId match ALWAYS beats an address match. The old
-    // loop broke on whichever came first, so with two loans on the same
-    // property (RTL refinancing into a DSCR) the borrower could be shown —
-    // and upload into — the other loan's review.
-    let byAddress = null;
-    for (const { key } of blobs) {
-      const r = await reviewsStore.get(key, { type: 'json' });
-      if (!r) continue;
-      if (r.source && r.source.loanId === loanId) { review = r; break; }
-      if (!byAddress && r.address && loan && loan.address &&
-          String(r.address).toLowerCase().trim() === String(loan.address).toLowerCase().trim()) { byAddress = r; }
-    }
-    if (!review) review = byAddress;
+    review = await findReviewForLoan({ ownerKey, clientId: primaryClientId, loanId, address: loan && loan.address });
   } catch (e) { console.warn('[borrower-intake-status] review lookup failed:', e && e.message); }
 
   // Deploy 236.934 — the sizer type (guc/rtl/dscr), never loan.loanType: that is the

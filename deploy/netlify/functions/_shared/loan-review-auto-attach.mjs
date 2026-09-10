@@ -151,21 +151,28 @@ export async function attachSourceDocs({ ownerKey, clientId, loanId, address, re
 // current doc moves to documents[]), stamps documentDate + optional
 // staleByDate so the doc-review expiry badge enforces validity windows,
 // and saves. Returns { ok, attached, reviewId } — zero-throw.
-export async function attachPdfToReviewSlug({ ownerKey, clientId, loanId, address, slug, bytes, filename, sourceNote, actorEmail, documentDate, staleByDate }) {
+export async function attachPdfToReviewSlug(args) {
+  // Deploy 236.956 — thin wrapper; the generic version below takes any mime
+  // (the saved Scope of Work lands in its tray as an .xlsx, for instance).
+  return attachFileToReviewSlug({ ...args, mimeType: 'application/pdf' });
+}
+
+export async function attachFileToReviewSlug({ ownerKey, clientId, loanId, address, slug, bytes, filename, mimeType, sourceNote, actorEmail, documentDate, staleByDate }) {
   try {
     if (!bytes || !bytes.length) return { ok: false, reason: 'no-bytes' };
+    const mt = mimeType || 'application/pdf';
     const review = await _findReviewForLoan({ ownerKey, clientId, loanId, address });
     if (!review) return { ok: true, attached: 0, reason: 'no-review' };
     if (!review.docs || !review.docs[slug]) return { ok: true, attached: 0, reason: 'no-slug' };
     const docsStore   = getStore({ name: 'loan-review-docs', consistency: 'strong' });
     const reviewStore = getStore({ name: 'loan_reviews',     consistency: 'strong' });
-    _attachToSlug({ review, slug, bytes, filename, mimeType: 'application/pdf', sourceNote, actorEmail });
+    _attachToSlug({ review, slug, bytes, filename, mimeType: mt, sourceNote, actorEmail });
     const ds = review.docs[slug];
     if (documentDate) ds.documentDate = documentDate;
     if (staleByDate)  ds.staleByDate  = staleByDate;
     await docsStore.set(keySafe(review.id) + '/' + ds.currentDocId, bytes, {
       metadata: {
-        reviewId: review.id, slug, filename, mimeType: 'application/pdf',
+        reviewId: review.id, slug, filename, mimeType: mt,
         uploadedAt: new Date().toISOString(), uploadedBy: actorEmail || 'auto:xactus',
         source: sourceNote || 'xactus',
       },
@@ -277,20 +284,46 @@ export async function attachExistingVerifications({ ownerKey, loanId, review, ac
 
 async function _findReviewForLoan({ ownerKey, clientId, loanId, address }) {
   const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
+  // Deploy 236.956 (Mike: "make Loading Documents quicker") — a byloan CACHE
+  // in front of the walk. The walk is a full store list + a sequential get
+  // per review until the match; at today's review count that was the bulk of
+  // the borrower portal's "Loading your document list…". The cache maps
+  // loanId → review id (2 reads on a hit), self-heals: verified on read
+  // (stale mapping falls through to the walk) and stamped after every
+  // successful walk, so no migration and no write-through burden on the
+  // dozen review-mutating endpoints.
+  const idx = getStore({ name: 'loan-reviews-byloan', consistency: 'strong' });
+  const idxKey = 'byloan/' + keySafe(String(loanId || ''));
+  if (loanId) {
+    try {
+      const cached = await idx.get(idxKey, { type: 'json' });
+      if (cached && cached.reviewId) {
+        const r = await store.get(keySafe(cached.reviewId), { type: 'json' });
+        if (r && r.source && String(r.source.loanId || '') === String(loanId)) return r;
+      }
+    } catch (_) { /* fall through to the walk */ }
+  }
   // Walk the store; reviews are tiny, this is fine.
   try {
     const { blobs } = await store.list();
+    let byAddress = null;
     for (const { key } of blobs) {
       const r = await store.get(key, { type: 'json' });
       if (!r) continue;
       // Prefer strict loanId match.
-      if (r.source && String(r.source.loanId || '') === String(loanId)) return r;
-      // Fall back to address match (case-insensitive normalized).
-      if (address && r.address &&
-          String(r.address).trim().toLowerCase() === String(address).trim().toLowerCase()) {
+      if (r.source && String(r.source.loanId || '') === String(loanId)) {
+        // Deploy 236.956 — stamp the byloan cache so the next lookup is 2 reads.
+        try { if (loanId && r.id) await idx.setJSON(idxKey, { reviewId: r.id, stampedAt: new Date().toISOString() }); } catch (_) {}
         return r;
       }
+      // Fall back to address match (case-insensitive normalized) — but keep
+      // walking in case a later review matches by loanId (strict wins).
+      if (!byAddress && address && r.address &&
+          String(r.address).trim().toLowerCase() === String(address).trim().toLowerCase()) {
+        byAddress = r;
+      }
     }
+    if (byAddress) return byAddress; // address matches are NOT cached (ambiguous)
   } catch (e) {
     console.warn('[auto-attach] review walk failed:', e && e.message);
   }

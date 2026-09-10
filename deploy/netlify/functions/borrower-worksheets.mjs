@@ -189,7 +189,46 @@ async function handle(req, context) {
       customPending: items.length ? undefined : prior.customPending,
     };
     await store.setJSON(sowKey(loanId), rec);
-    return json(200, { ok: true, kind, loanId, items: items.length, total: sowTotal(items), updatedAt: now });
+    // Deploy 236.956 (Mike) — a SAVED Scope of Work also lands in the loan's
+    // Documents tab: build a real .xlsx behind the scenes and file it as the
+    // SOW tray's current document (the App-generated-docs standing rule), so
+    // processors review it exactly like an uploaded sheet and it's exportable
+    // for trades. Best-effort — a tray failure never blocks the save.
+    let filed = false;
+    if (items.length) {
+      try {
+        const { buildXlsx } = await import('./_shared/xlsx-write.mjs');
+        const { attachFileToReviewSlug } = await import('./_shared/loan-review-auto-attach.mjs');
+        const sqftRow = rec.sqftChange === 'yes'
+          ? ['Sq Ft change', (rec.sqftCurrent || '?') + ' -> ' + (rec.sqftPost || '?')]
+          : ['Sq Ft change', rec.sqftChange === 'no' ? 'No' : ''];
+        const rows = [
+          ['Scope of Work - Rehab Budget'],
+          ['Borrower Name', rec.borrowerName || ''],
+          ['Property Address', rec.propertyAddress || ''],
+          sqftRow,
+          [],
+          ['Repair item', 'Budget', 'Description'],
+        ];
+        for (const it of items) rows.push([it.item, it.budget === '' ? '' : it.budget, it.description || '']);
+        rows.push(['Total', sowTotal(items)]);
+        const xlsx = await buildXlsx([{ name: 'SOW', rows }]);
+        const street = String(rec.propertyAddress || loanId).split(',')[0].trim() || loanId;
+        const r = await attachFileToReviewSlug({
+          loanId,
+          address: rec.propertyAddress || '',
+          slug: 'sow',
+          bytes: Buffer.from(xlsx),
+          filename: street + ' - Scope of Work - ' + now.slice(0, 10) + '.xlsx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          sourceNote: 'borrower SOW tool',
+          actorEmail: normalizeEmail(user.email),
+          documentDate: now.slice(0, 10),
+        });
+        filed = !!(r && r.attached);
+      } catch (e) { console.warn('borrower-worksheets: SOW tray attach failed (non-fatal):', e && e.message); }
+    }
+    return json(200, { ok: true, kind, loanId, items: items.length, total: sowTotal(items), updatedAt: now, filedToTray: filed });
   }
 
   if (action === 'parse') {

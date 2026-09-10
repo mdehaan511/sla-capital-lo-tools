@@ -107,6 +107,7 @@
     <div class="gridwrap"><table><thead id="gridHead"></thead><tbody id="gridBody"></tbody></table></div>
     <div class="bar">
       <button type="button" class="btn" onclick="addRow({}, true)">+ Add row</button>
+      <button type="button" class="btn" id="resetBtn" style="display:none" onclick="resetToDefaults()">Reset to default list</button>
       <button type="button" class="btn" id="customBtn" style="display:none" onclick="document.getElementById('fileInput').click()">Attach Custom Excel/CSV for review</button>
       <input type="file" id="fileInput" accept=".xlsx,.xlsm,.csv" style="display:none" onchange="customUpload(this)" />
       <span class="tots" id="totals"></span>
@@ -235,7 +236,11 @@ function refreshTotals(){
   }
 }
 function setCell(i,k,v){
+  // Deploy 236.956 — hand-editing the Contingencies budget stops the 10% auto.
+  if(_kind==='sow'&&k==='budget'&&isContRow(_rows[i])&&document.activeElement&&
+     document.activeElement.getAttribute&&document.activeElement.getAttribute('data-row')==String(i)) _contAuto=false;
   _rows[i][k]=v;
+  if(_kind==='sow'&&k==='budget') applyContingencyAuto();
   if(_kind==='track'){
     var tr=document.getElementById('gridBody').rows[i];
     if(tr){ var cell=tr.cells[gridCols().length];
@@ -267,6 +272,33 @@ function gridKey(e, el){
 }
 function addRow(r, focus){ _rows.push(r||{}); render(focus?_rows.length-1:null); }
 function delRow(i){ _rows.splice(i,1); render(); }
+// Deploy 236.956 (Mike) — restore the full template list. Destructive, so it
+// confirms first; contingency auto-fill re-arms.
+function resetToDefaults(){
+  if(_kind!=='sow'||!_defaultItems.length) return;
+  if(!confirm('Reset to the default repair-item list?\n\nThis replaces your current line items (budgets and descriptions included) with the full template list.')) return;
+  _seeded=true; _seedSet={}; _contAuto=true;
+  _rows=_defaultItems.map(function(name){ _seedSet[name]=true; return { item:name, budget:'', description:'' }; });
+  render();
+  document.getElementById('saveStatus').textContent='';
+}
+// Deploy 236.956 (Mike) — the Contingencies line auto-fills at 10% of the
+// other items' subtotal, live, until the borrower edits it themselves.
+var _contAuto=false;
+function isContRow(r){ return /^contingenc/i.test(String(r&&r.item||'')); }
+function applyContingencyAuto(){
+  if(_kind!=='sow'||!_contAuto) return;
+  var ci=-1, sub=0;
+  for(var i=0;i<_rows.length;i++){
+    if(ci<0&&isContRow(_rows[i])){ ci=i; continue; }
+    var n=parseFloat(_rows[i].budget); if(isFinite(n)) sub+=n;
+  }
+  if(ci<0) return;
+  var v=Math.round(sub*0.10*100)/100;
+  _rows[ci].budget=v||'';
+  var inp=document.querySelector('input[data-row="'+ci+'"][data-key="budget"]');
+  if(inp&&document.activeElement!==inp) inp.value=v||'';
+}
 
 function sqftToggle(){
   var yes=document.querySelector('input[name="sqftChange"][value="yes"]');
@@ -383,15 +415,17 @@ function saveAll(){
   } else {
     payload.data={ rows:_rows };
   }
-  api(payload).then(function(){
-    btn.disabled=false; st.textContent='Saved ✓'; st.className='status ok';
+  api(payload).then(function(res){
+    btn.disabled=false;
+    st.textContent='Saved ✓'+(res&&res.filedToTray?' — a copy was filed to your loan documents.':'');
+    st.className='status ok';
     document.getElementById('staleBanner').innerHTML='';
   }).catch(function(e){
     btn.disabled=false; st.textContent='Save failed: '+(e&&e.message||'unknown'); st.className='status err';
   });
 }
 
-var _seeded=false, _seedSet={};
+var _seeded=false, _seedSet={}, _defaultItems=[];
 function load(){
   var body={ action:'get', kind:_kind };
   if(_kind==='sow') body.loanId=_loanId;
@@ -423,8 +457,11 @@ function load(){
         // what doesn't apply. Only rows they actually fill (or that aren't
         // seeds) persist on Save.
         _seeded=true;
+        _contAuto=true; // 236.956 — contingency auto-fills at 10% until hand-edited
         _rows=(res.defaultItems||[]).map(function(name){ _seedSet[name]=true; return { item:name, budget:'', description:'' }; });
       }
+      _defaultItems=res.defaultItems||[];
+      if(!_readOnly) document.getElementById('resetBtn').style.display='';
       document.getElementById('hint').textContent='Enter moves to the next box; Enter in a Description adds a new row. Prefer your own spreadsheet? Attach it above — we’ll file it for your loan team and read it into the grid when we can.';
     } else {
       document.getElementById('title').textContent='Your Track Record';
