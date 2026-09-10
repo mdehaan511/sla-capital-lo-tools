@@ -570,6 +570,18 @@ function render() {
     } else if (plan !== 'revenue' && list.length && !unbilled.length) {
       billBtn = '<span style="font-size:12px;color:var(--success);font-weight:600">All billed ✓</span>';
     }
+    // Deploy 236.939 (Mike) — bulk "mark all paid" per LO: every visible row
+    // with no BILL bill and no PAID stamp gets the manual paid mark in one
+    // click (Mike: clear all of Chance's — the revenue plan never bills, so
+    // its rows sat on the Unpaid view forever). Billed rows are untouched;
+    // BILL settles those.
+    var markable = list.filter(function(r) { return !r.billId && r.payStatus !== 'PAID'; });
+    if (markable.length) {
+      billBtn += '<button type="button" class="btn" id="markAllBtn_' + escH(owner.replace(/[^a-z0-9]/gi, '_')) + '"' +
+        ' onclick="markAllPaid(\'' + escH(owner) + '\')" style="font-size:12px;padding:6px 14px"' +
+        ' title="Stamp every listed no-bill row as paid outside BILL (billed rows are left to BILL)">' +
+        '✓ Mark all paid (' + markable.length + ')</button>';
+    }
 
     html += '<div class="card">' +
       '<div class="lo-head">' +
@@ -730,6 +742,44 @@ function markCommissionPaid(loanId, clientId, owner) {
     commissionPaidAt: d,
     commissionPaymentRef: 'manual',
   });
+}
+// Deploy 236.939 (Mike) — bulk manual mark: same write as markCommissionPaid,
+// one row at a time (sequential; the endpoint is per-loan), same date on all.
+// Only rows visible under the CURRENT filters, with no bill and not paid.
+function markAllPaid(owner) {
+  var rows = _rows.filter(function(r) {
+    return r.owner === owner && inPeriod(r) && inStatus(r) && !r.billId && r.payStatus !== 'PAID';
+  });
+  if (!rows.length) { alert('Nothing to mark for this LO under the current filters.'); return; }
+  var today = new Date().toISOString().slice(0, 10);
+  var d = prompt('Mark ' + rows.length + ' commission' + (rows.length === 1 ? '' : 's') + ' for ' + loName(owner) +
+    ' as paid.\n\nDate they were paid (YYYY-MM-DD):', today);
+  if (d === null) return;
+  d = String(d).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { alert('Enter the date as YYYY-MM-DD.'); return; }
+  var btn = document.getElementById('markAllBtn_' + owner.replace(/[^a-z0-9]/gi, '_'));
+  if (btn) { btn.disabled = true; btn.textContent = 'Marking 0/' + rows.length + '…'; }
+  var i = 0, failed = 0;
+  function next() {
+    if (i >= rows.length) {
+      if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+      if (failed) alert(failed + ' of ' + rows.length + ' failed to save — re-open the page and retry those.');
+      loadAll(true);
+      return;
+    }
+    var r = rows[i++];
+    SLA.api('POST', '/api/loan-servicing-update', {
+      clientId: r.clientId, loanId: r.loanId, owner: r.owner,
+      fields: { commissionPaymentStatus: 'PAID', commissionPaidAt: d, commissionPaymentRef: 'manual' },
+    }).then(function() {
+      r.payStatus = 'PAID'; r.paidAt = d; r.payRef = 'manual';
+    }).catch(function() { failed++; })
+      .then(function() {
+        if (btn) btn.textContent = 'Marking ' + i + '/' + rows.length + '…';
+        next();
+      });
+  }
+  next();
 }
 function unmarkCommissionPaid(loanId, clientId, owner) {
   if (!confirm('Un-mark this commission as paid? It will count as unbilled again.')) return;
