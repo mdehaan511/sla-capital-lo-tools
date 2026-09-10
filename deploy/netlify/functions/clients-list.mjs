@@ -204,6 +204,9 @@ const LOAN_SUMMARY_FIELDS = [
   // looked like it reverted. baselineSubstatus is the legacy-import fallback
   // the pill renders when the SLA field is empty.
   'processingSubstatus', 'baselineSubstatus',
+  // Deploy 236.941 — LO-comp margin inputs: the sizer's pre-override pricing
+  // snapshot + the hand-entered fallback for legacy overridden RTLs.
+  '_pricingOverrideAt', '_pricingOverrideOriginal', 'compBaseRate',
   // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields.
   'tpoSpread', 'closingFees', 'activelyTrading',
   // Deploy 236.674 — Funding Plan fields (TPO premium migrated from Baseline as

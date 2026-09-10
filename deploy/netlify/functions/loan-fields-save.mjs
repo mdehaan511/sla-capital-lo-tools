@@ -45,6 +45,11 @@ const FIELDS = {
   // which dropped these — now saved deterministically here). tpo = the manual TPO
   // premium (points) the Funding Plan reads; buyRate = RTL yield.
   fundingSource: 1, fundingSourceOther: 1, investorId: 1, investorName: 1, tpo: 1, buyRate: 1,
+  // Deploy 236.941 — SIZER base rate for LO comp on legacy overridden RTLs
+  // (the sizer's own _pricingOverrideOriginal wins when present; this is the
+  // hand-entered fallback). Deliberately separate from buyRate: investor buy
+  // rate never affects LO comp.
+  compBaseRate: 1,
   // Valuation
   purchasePrice: 1, propValue: 1, aivBpo: 1, arv: 1, arvBpo: 1, currentLoanAmt: 1, rehabBudget: 1,
   // Property

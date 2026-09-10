@@ -108,6 +108,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.925 — Processing Pipeline substatus pill (see clients-list.mjs);
   // both ride in extra JSONB (processing_substatus is not a promoted column).
   'processingSubstatus', 'baselineSubstatus',
+  // Deploy 236.941 — LO-comp margin inputs (see clients-list.mjs); ride extra.
+  '_pricingOverrideAt', '_pricingOverrideOriginal', 'compBaseRate',
   // Deploy 236.616 — servicing-tracking fields (Closed Loans page); all ride in
   // extra. Without these the PG summary dropped disposition + the servicing
   // scalars, so edits reverted on the next list fetch.
