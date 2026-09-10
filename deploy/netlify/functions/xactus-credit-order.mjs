@@ -58,6 +58,13 @@ async function handle(req, context) {
   const body = await readJsonBody(req);
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
   const gIndex = Math.max(0, parseInt(body.gIndex, 10) || 0);
+  // Deploy 236.936 (Raissa: "its not allowing me to pull credit report for the
+  // 2nd guarantor") — a guarantor who is a LINKED CLIENT on the loan
+  // (loan.guarantorClientIds; the PII from their own guarantor sub-form lands
+  // on THAT client record) is addressed by client id, not by an application
+  // slot. Until now only data.guarantors[gIndex] and the primary's profile
+  // were ever read, so such a guarantor could not be pulled at all.
+  const gClientId = String(body.gClientId || '').trim();
   const reportType = body.reportType === 'SoftCheck' ? 'SoftCheck' : 'Merge';
   // Deploy 236.835 — SoftCheck runs on its own Xactus account. Fail loud with
   // the missing var NAMES so a Netlify-dashboard typo is diagnosable.
@@ -79,6 +86,18 @@ async function handle(req, context) {
   const loan = body.loanId && Array.isArray(client.loans)
     ? client.loans.find((l) => l && l.id === body.loanId) : null;
   if (body.loanId && !loan) return json(404, { error: 'Loan not found on client' });
+  let gClient = null;
+  if (gClientId) {
+    if (loan && !(Array.isArray(loan.guarantorClientIds) && loan.guarantorClientIds.includes(gClientId))) {
+      return json(400, { error: 'That guarantor is not linked to this loan' });
+    }
+    gClient = await clientsStore.get(ownerKey + '/' + keySafe(gClientId), { type: 'json' });
+    if (!gClient) return json(404, { error: 'Guarantor client not found' });
+  }
+  const who = gClient || client;                 // whose profile supplies (and receives) the PII
+  const isPrimary = !gClient && gIndex === 0;    // loan-level stamps only for the primary borrower
+  const defaultFirst = (gClient ? gClient.firstName : (gIndex ? '' : client.firstName)) || '';
+  const defaultLast  = (gClient ? gClient.lastName  : (gIndex ? '' : client.lastName))  || '';
 
   // ── Resolve subject PII ─────────────────────────────────────────
   // Deploy 236.780 — an explicit staff-entered subjectOverride (from the
@@ -88,8 +107,8 @@ async function handle(req, context) {
   const ov = (body.subjectOverride && typeof body.subjectOverride === 'object') ? body.subjectOverride : null;
   if (ov && ov.ssn) {
     subject = {
-      firstName: String(ov.firstName || (gIndex === 0 ? client.firstName : '') || '').trim(),
-      lastName:  String(ov.lastName  || (gIndex === 0 ? client.lastName  : '') || '').trim(),
+      firstName: String(ov.firstName || defaultFirst || '').trim(),
+      lastName:  String(ov.lastName  || defaultLast || '').trim(),
       ssn: String(ov.ssn || '').replace(/[^0-9]/g, ''),
       street: String(ov.street || '').trim(), city: String(ov.city || '').trim(),
       state: String(ov.state || '').trim().toUpperCase(), zip: String(ov.zip || '').trim(),
@@ -99,7 +118,7 @@ async function handle(req, context) {
       return json(400, { error: 'A complete current address (street, city, state, zip) is required' });
     }
   }
-  if (!subject && loan) {
+  if (!subject && loan && !gClient) {
     try {
       const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
       const rec = await loadRecord(biStore, ownerKey, body.clientId, body.loanId, client);
@@ -108,36 +127,38 @@ async function handle(req, context) {
         let ssn = '';
         try { ssn = g.ssn || decryptField(g.ssn_enc); } catch (_) {}
         subject = {
-          firstName: g.firstName || (gIndex === 0 ? client.firstName : ''),
-          lastName:  g.lastName  || (gIndex === 0 ? client.lastName  : ''),
+          firstName: g.firstName || defaultFirst,
+          lastName:  g.lastName  || defaultLast,
           ssn: String(ssn || '').replace(/[^0-9]/g, ''),
           street: g.address || '', city: g.city || '', state: g.state || '', zip: g.zip || '',
         };
       }
     } catch (e) { console.warn('xactus-credit-order: borrower_info read failed:', e && e.message); }
   }
-  if ((!subject || !subject.ssn) && gIndex === 0 && client.ssn_enc) {
-    // Client-page path / fallback: PII on the client record itself.
-    // Deploy 236.780 — the client's address lives in client.homeAddress
-    // (guarantor onboarding / the missing-info modal write it there).
+  if ((!subject || !subject.ssn) && (gClient || gIndex === 0) && who.ssn_enc) {
+    // Client-page path / fallback: PII on the client record itself — the
+    // primary's, or (Deploy 236.936) the linked guarantor's, whose sub-form
+    // wrote ssn_enc + homeAddress there.
+    // Deploy 236.780 — the address lives in homeAddress (guarantor onboarding /
+    // the missing-info modal write it there).
     let ssn = '';
-    try { ssn = decryptField(client.ssn_enc); } catch (_) {}
-    const ha = (client.homeAddress && typeof client.homeAddress === 'object') ? client.homeAddress : {};
+    try { ssn = decryptField(who.ssn_enc); } catch (_) {}
+    const ha = (who.homeAddress && typeof who.homeAddress === 'object') ? who.homeAddress : {};
     subject = {
-      firstName: client.firstName || '', lastName: client.lastName || '',
+      firstName: who.firstName || '', lastName: who.lastName || '',
       ssn: String(ssn || '').replace(/[^0-9]/g, ''),
-      street: ha.street || client.address || '', city: ha.city || client.city || '',
-      state: ha.state || client.state || '', zip: ha.zip || client.zip || '',
+      street: ha.street || who.address || '', city: ha.city || who.city || '',
+      state: ha.state || who.state || '', zip: ha.zip || who.zip || '',
     };
   }
   if (!subject || subject.ssn.length !== 9 || !subject.street || !subject.city || !subject.state || !subject.zip) {
     // Structured signal — the UI opens the collect-info modal on this code.
     return json(400, {
-      error: 'Missing SSN and/or current address for this ' + (gIndex === 0 ? 'borrower' : 'guarantor') + ' — enter it to run the report.',
+      error: 'Missing SSN and/or current address for this ' + (isPrimary ? 'borrower' : 'guarantor') + ' — enter it to run the report.',
       code: 'missing_subject_info',
       prefill: {
-        firstName: (subject && subject.firstName) || (gIndex === 0 ? client.firstName : '') || '',
-        lastName:  (subject && subject.lastName)  || (gIndex === 0 ? client.lastName  : '') || '',
+        firstName: (subject && subject.firstName) || defaultFirst || '',
+        lastName:  (subject && subject.lastName)  || defaultLast || '',
         hasSsn: !!(subject && subject.ssn.length === 9),
         street: (subject && subject.street) || '', city: (subject && subject.city) || '',
         state: (subject && subject.state) || '', zip: (subject && subject.zip) || '',
@@ -169,7 +190,7 @@ async function handle(req, context) {
     id: vId, kind: 'credit', status: 'complete',
     orderedAt: nowIso, orderedBy: selfEmail,
     expiresAt: expiresIso,
-    subject: { clientId: body.clientId, gIndex, name: subjectName, ssnLast4: subject.ssn.slice(-4) },
+    subject: { clientId: body.clientId, gIndex, gClientId: gClientId || undefined, name: subjectName, ssnLast4: subject.ssn.slice(-4) },
     loanId: body.loanId || '', address: (loan && loan.address) || '',
     reportType,
     xactusReportId: parsed.reportId,
@@ -202,7 +223,7 @@ async function handle(req, context) {
       });
       attachedToReview = !!(r && r.attached);
     }
-    if (gIndex === 0) {
+    if (isPrimary) {
       loan.creditMidScore = parsed.mid;
       loan.creditPulledAt = nowIso;
       loan.creditReportId = parsed.reportId;
@@ -225,23 +246,29 @@ async function handle(req, context) {
   //     encrypted, address into homeAddress) so it's on file next time.
   // Both only for the PRIMARY (gIndex 0) — additional guarantors' PII
   // lives on the loan application, not this client record.
-  if (gIndex === 0) {
-    client.creditMidScore = parsed.mid;
-    client.creditPulledAt = nowIso;
+  // Deploy 236.936 — `who` is the primary's record OR the linked guarantor's.
+  let gDirty = false;
+  if (isPrimary || gClient) {
+    who.creditMidScore = parsed.mid;
+    who.creditPulledAt = nowIso;
     if (ov) {
-      client.ssn_enc = encryptField(subject.ssn);
-      client.ssnLast4 = subject.ssn.slice(-4);
-      client.hasSSN = true;
-      client.homeAddress = { street: subject.street, city: subject.city, state: subject.state, zip: subject.zip };
-      if (!client.firstName && subject.firstName) client.firstName = subject.firstName;
-      if (!client.lastName && subject.lastName) client.lastName = subject.lastName;
+      who.ssn_enc = encryptField(subject.ssn);
+      who.ssnLast4 = subject.ssn.slice(-4);
+      who.hasSSN = true;
+      who.homeAddress = { street: subject.street, city: subject.city, state: subject.state, zip: subject.zip };
+      if (!who.firstName && subject.firstName) who.firstName = subject.firstName;
+      if (!who.lastName && subject.lastName) who.lastName = subject.lastName;
     }
-    client.updatedAt = nowIso;
-    clientDirty = true;
+    who.updatedAt = nowIso;
+    if (gClient) gDirty = true; else clientDirty = true;
   }
   if (clientDirty) {
     try { await writeClient(ownerKey, client, { clientsStore }); }
     catch (e) { console.warn('xactus-credit-order: client/loan stamp save failed:', e && e.message); }
+  }
+  if (gDirty) {
+    try { await writeClient(ownerKey, gClient, { clientsStore }); }
+    catch (e) { console.warn('xactus-credit-order: guarantor stamp save failed:', e && e.message); }
   }
   // Deploy 236.930 — credit was just pulled: the LO's auto-created
   // "Run credit + submit loan" task is done. Best-effort, never throws.

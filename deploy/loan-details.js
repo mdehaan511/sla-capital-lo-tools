@@ -8962,7 +8962,7 @@ function _handleCreditPullSuccess(r, gIndex) {
 function _postCreditOrder(body, wrap, btn, btnLabel) {
   SLA.api('POST', '/api/xactus-credit-order', body).then(function (r) {
     if (wrap) wrap.remove();
-    _handleCreditPullSuccess(r, body.gIndex || 0);
+    _handleCreditPullSuccess(r, body.gClientId ? -1 : (body.gIndex || 0)); // Deploy 236.936 — a linked guarantor is never the primary
   }).catch(function (e) {
     // Deploy 236.780 — missing SSN/address: collect it in a follow-up
     // modal, run the report with it, and save it to the client profile.
@@ -8992,14 +8992,48 @@ function openCreditPullModal() {
     var g0 = gs[0] || {};
     var g0Name = (((g0.firstName || '') + ' ' + (g0.lastName || '')).trim()) || _primaryName || '—';
     var whoOpts = '<option value="0">Primary Borrower — ' + escH(g0Name) + '</option>';
+    // Deploy 236.936 — remember who the application already covers so a linked
+    // guarantor client isn't offered twice.
+    var seen = { emails: {}, names: {} }, offered = 1;
+    function _mark(first, last, email) {
+      var nm = ((first || '') + ' ' + (last || '')).trim().toLowerCase();
+      if (nm) seen.names[nm] = true;
+      if (email) seen.emails[String(email).toLowerCase()] = true;
+    }
+    _mark(g0.firstName || _client.firstName, g0.lastName || _client.lastName, g0.email || _client.email);
     for (var gi = 1; gi < gs.length; gi++) {
       var g = gs[gi];
       // A real guarantor slot has SOME identity; skip empty padding entries.
       if (!g || !(g.firstName || g.lastName || g.email || g.ssn_enc || g.ssn_masked)) continue;
       var gName = (((g.firstName || '') + ' ' + (g.lastName || '')).trim()) || ('(no name on application)');
       whoOpts += '<option value="' + gi + '">Guarantor ' + (gi + 1) + ' — ' + escH(gName) + '</option>';
+      _mark(g.firstName, g.lastName, g.email); offered += 1;
     }
-    _openCreditPullModalWith(whoOpts);
+    // Deploy 236.936 (Raissa: "its not allowing me to pull credit report for the
+    // 2nd guarantor") — a guarantor added on this page is a LINKED CLIENT
+    // (loan.guarantorClientIds) whose SSN / address came in on their own
+    // guarantor sub-form, not an application slot. Offer them by client id
+    // ("c:<id>"); the credit order reads their client record.
+    var gids = (_loan && Array.isArray(_loan.guarantorClientIds)) ? _loan.guarantorClientIds : [];
+    if (!gids.length) { _openCreditPullModalWith(whoOpts); return; }
+    var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true });
+    p.catch(function () { return null; }).then(function (r) {
+      var pool = [];
+      if (r && r.byOwner) Object.keys(r.byOwner).forEach(function (k) { (r.byOwner[k] || []).forEach(function (c) { pool.push(c); }); });
+      else if (r) pool = r.clients || [];
+      var byId = {};
+      pool.forEach(function (c) { if (c && c.id) byId[c.id] = c; });
+      gids.forEach(function (id) {
+        var c = byId[id];
+        if (!c) return;
+        var em = String(c.email || '').toLowerCase();
+        var nm = ((c.firstName || '') + ' ' + (c.lastName || '')).trim().toLowerCase();
+        if ((em && seen.emails[em]) || (nm && seen.names[nm])) return;   // the application already offers them
+        offered += 1;
+        whoOpts += '<option value="c:' + escAttr(c.id) + '">Guarantor ' + offered + ' — ' + escH(nm ? ((c.firstName || '') + ' ' + (c.lastName || '')).trim() : (c.email || c.id)) + ' (linked guarantor)</option>';
+      });
+      _openCreditPullModalWith(whoOpts);
+    });
   });
 }
 
@@ -9020,11 +9054,14 @@ function _openCreditPullModalWith(whoOpts) {
     'Pull Credit',
     function (wrap, btn) {
       btn.disabled = true; btn.textContent = 'Ordering…';
+      var whoVal = String((document.getElementById('xc-who') || {}).value || '0');
       var body = {
         clientId: _client.id, loanId: _loanId,
-        gIndex: parseInt((document.getElementById('xc-who') || {}).value, 10) || 0,
         reportType: (document.getElementById('xc-type') || {}).value || 'SoftCheck',
       };
+      // Deploy 236.936 — "c:<clientId>" = linked guarantor client; else an application slot.
+      if (whoVal.indexOf('c:') === 0) body.gClientId = whoVal.slice(2);
+      else body.gIndex = parseInt(whoVal, 10) || 0;
       if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
       _postCreditOrder(body, wrap, btn, 'Pull Credit');
     });
