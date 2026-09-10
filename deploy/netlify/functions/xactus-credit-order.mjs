@@ -94,7 +94,7 @@ async function handle(req, context) {
     gClient = await clientsStore.get(ownerKey + '/' + keySafe(gClientId), { type: 'json' });
     if (!gClient) return json(404, { error: 'Guarantor client not found' });
   }
-  const who = gClient || client;                 // whose profile supplies (and receives) the PII
+  let who = gClient || client;                   // whose profile supplies (and receives) the PII
   const isPrimary = !gClient && gIndex === 0;    // loan-level stamps only for the primary borrower
   const defaultFirst = (gClient ? gClient.firstName : (gIndex ? '' : client.firstName)) || '';
   const defaultLast  = (gClient ? gClient.lastName  : (gIndex ? '' : client.lastName))  || '';
@@ -118,11 +118,13 @@ async function handle(req, context) {
       return json(400, { error: 'A complete current address (street, city, state, zip) is required' });
     }
   }
+  let appSlot = null;   // Deploy 236.946 — the application's guarantor entry, SSN or not
   if (!subject && loan && !gClient) {
     try {
       const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
       const rec = await loadRecord(biStore, ownerKey, body.clientId, body.loanId, client);
       const g = rec && rec.data && Array.isArray(rec.data.guarantors) ? rec.data.guarantors[gIndex] : null;
+      appSlot = g || null;
       if (g && (g.ssn_enc || g.ssn)) {
         let ssn = '';
         try { ssn = g.ssn || decryptField(g.ssn_enc); } catch (_) {}
@@ -134,6 +136,22 @@ async function handle(req, context) {
         };
       }
     } catch (e) { console.warn('xactus-credit-order: borrower_info read failed:', e && e.message); }
+  }
+  // Deploy 236.946 (Raissa's actual case on 822 N 5th Pl) — the application slot
+  // names the guarantor but carries no SSN (they deferred it to their own
+  // guarantor sub-form), while the LINKED client record for the same person
+  // has ssn_enc + homeAddress. Borrow that record: it becomes `who`, so the
+  // profile fallback below supplies the PII and the stamps land on it.
+  if ((!subject || !subject.ssn) && gIndex > 0 && !gClient && loan && Array.isArray(loan.guarantorClientIds) && loan.guarantorClientIds.length) {
+    const wantEmail = String((appSlot && appSlot.email) || '').toLowerCase().trim();
+    const wantName = [appSlot && appSlot.firstName, appSlot && appSlot.lastName].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean).join(' ');
+    for (const gid of loan.guarantorClientIds) {
+      const c = await clientsStore.get(ownerKey + '/' + keySafe(gid), { type: 'json' }).catch(() => null);
+      if (!c || !c.ssn_enc) continue;
+      const cEmail = String(c.email || '').toLowerCase().trim();
+      const cName = [c.firstName, c.lastName].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean).join(' ');
+      if ((wantEmail && cEmail === wantEmail) || (wantName && cName === wantName)) { gClient = c; who = c; break; }
+    }
   }
   if ((!subject || !subject.ssn) && (gClient || gIndex === 0) && who.ssn_enc) {
     // Client-page path / fallback: PII on the client record itself — the
