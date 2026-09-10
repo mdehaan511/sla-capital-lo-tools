@@ -74,9 +74,18 @@
     var spread = (basePct > 0 && ratePct > 0) ? ratePct - basePct : 0;
     var margin, parts;
     if (tool === 'DSCR') {
-      margin = points + tpo + spread;
+      // Deploy 236.964 (Mike: "have it scale to the TPO sensitivity") — on DSCR a
+      // rate move changes the investor's premium, not the points, and the
+      // engine says how much: HIDDEN_TPO_PCT of premium per HIDDEN_TPO_ADJ of
+      // rate (1.00 / 0.320 = 3.125 pts per 1%). fromDscr() passes that ratio
+      // as tpoPerRate; without it the move counts point for point.
+      var k = (num(p.tpoPerRate) > 0) ? num(p.tpoPerRate) : 1;
+      var tpoDelta = spread * k;
+      margin = points + tpo + tpoDelta;
       parts = points.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + (p.tpoAssumed ? ' (assumed — set at closing)' : '') +
-        (spread > 0 ? ' + ' + spread.toFixed(2) + ' over sizer base' : spread < 0 ? ' − ' + Math.abs(spread).toFixed(2) + ' under sizer base' : '');
+        (spread > 0 ? ' + ' + tpoDelta.toFixed(2) + ' TPO for ' + spread.toFixed(2) + ' over sizer base'
+          : spread < 0 ? ' − ' + Math.abs(tpoDelta).toFixed(2) + ' TPO for ' + Math.abs(spread).toFixed(2) + ' under sizer base' : '') +
+        ((spread !== 0 && k !== 1) ? ' (' + k.toFixed(2) + ' pts per 1%)' : '');
     } else {
       margin = points + spread;
       parts = spread > 0
@@ -118,12 +127,26 @@
     var tpo = (typeof calc.netHiddenTpoPct === 'number' && calc.netHiddenTpoPct > 0) ? calc.netHiddenTpoPct : DEFAULT_DSCR_TPO;
     return withLoanStamps({
       tool: tool || 'dscr',
+      tpoPerRate: dscrTpoPerRate(),
       amount: (eff.loan != null) ? eff.loan : calc.loan,
       ratePct: (eff.finalRate != null) ? eff.finalRate : calc.finalRate,
       basePct: calc.finalRate,
       points: (o.points != null) ? o.points : (1 + (num(calc.buydown) || 0)),
       tpoSpread: tpo, tpoAssumed: true,
     });
+  }
+  // Deploy 236.964 — points of TPO premium per 1% of rate, from the DSCR engine
+  // the page loaded (the MF sizer prices through SLA_DSCR too). Honours a
+  // historical sheet when activePricing() exposes one; falls back to DIYA.
+  function dscrTpoPerRate() {
+    var eng = root && root.SLA_DSCR;
+    if (!eng) return 0;
+    var d = null;
+    try { if (typeof eng.activePricing === 'function') d = eng.activePricing(); } catch (_) { d = null; }
+    if (!d || !(num(d.HIDDEN_TPO_ADJ) > 0)) d = eng.DIYA || null;
+    if (!d) return 0;
+    var adj = num(d.HIDDEN_TPO_ADJ), pctv = num(d.HIDDEN_TPO_PCT);
+    return (adj > 0 && pctv > 0) ? pctv / adj : 0;
   }
   function fromRtl(tool) {
     var calc = root._rtlLastCalc;
@@ -249,7 +272,7 @@
   }
 
   var API = { attach: attach, mount: mount, update: update, load: load, refresh: refresh,
-              rowFrom: rowFrom, summarize: summarize, fromDscr: fromDscr, fromRtl: fromRtl,
+              rowFrom: rowFrom, summarize: summarize, fromDscr: fromDscr, fromRtl: fromRtl, dscrTpoPerRate: dscrTpoPerRate,
               DEFAULT_DSCR_TPO: DEFAULT_DSCR_TPO, _state: STATE };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   if (root) root.SLA_COMP_SIZER = API;

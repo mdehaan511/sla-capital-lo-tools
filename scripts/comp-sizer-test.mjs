@@ -32,7 +32,11 @@ const flat = S.rowFrom({ tool: 'guc', amount: 500000, ratePct: 0.11, basePct: 0.
 check('RTL at the engine rate: no markup, says so', [flat.margin, flat.marginParts], [2, '2.00 pts (at the sizer rate — no markup)']);
 // Deploy 236.963 — Mike: "10.5 and 1.5 base ... change it to 10% 1.5 points then its 1 point for the comp multiplier"
 check('a rate BELOW the engine rate REDUCES the margin point for point (10.5 → 10.0 at 1.5 pts = 1.0)', (() => { const r = S.rowFrom({ tool: 'rtl', amount: 1, ratePct: 0.10, basePct: 0.105, points: 1.5 }); return [r2(r.margin), r.marginParts]; })(), [1, '1.50 pts − 0.50 under sizer base']);
-check('DSCR: a rate below the engine rate comes off the assumed TPO the same way', (() => { const r = S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 6.75, basePct: 7.0, points: 1, tpoSpread: 1, tpoAssumed: true }); return [r2(r.margin), r.marginParts]; })(), [1.75, '1.00 pts + 1.00 TPO (assumed — set at closing) − 0.25 under sizer base']);
+check('DSCR without a sensitivity: a rate below the engine rate comes off the assumed TPO point for point', (() => { const r = S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 6.75, basePct: 7.0, points: 1, tpoSpread: 1, tpoAssumed: true }); return [r2(r.margin), r.marginParts]; })(), [1.75, '1.00 pts + 1.00 TPO (assumed — set at closing) − 0.25 TPO for 0.25 under sizer base']);
+// Deploy 236.964 — Mike: "have it scale to the TPO sensitivity": 1.00 pt of premium per 0.320 of rate = 3.125 pts per 1%
+check('DSCR with the engine sensitivity: 0.25 under the base costs 0.78 of TPO (3.125 pts per 1%)', (() => { const r = S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 6.75, basePct: 7.0, points: 1, tpoSpread: 1, tpoAssumed: true, tpoPerRate: 3.125 }); return [r2(r.margin), r.marginParts]; })(), [1.22, '1.00 pts + 1.00 TPO (assumed — set at closing) − 0.78 TPO for 0.25 under sizer base (3.13 pts per 1%)']);
+check('DSCR over the base earns premium at the same ratio', r2(S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 7.25, basePct: 7.0, points: 1, tpoSpread: 1, tpoPerRate: 3.125 }).margin), 2.78);
+check('DSCR at the base: no TPO move, plain breakdown', S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 7.0, basePct: 7.0, points: 1, tpoSpread: 1, tpoAssumed: true, tpoPerRate: 3.125 }).marginParts, '1.00 pts + 1.00 TPO (assumed — set at closing)');
 check('source / referral stamps pass through; repeat is never guessed', (() => { const r = S.rowFrom({ tool: 'dscr', amount: 1, points: 1, tpoSpread: 1, source: 'company', referral: true }); return [r.source, r.referral, r.isRepeat]; })(), ['company', true, false]);
 
 // ── summarize = computeRow on that row: same number as the commissions page ─
@@ -68,8 +72,14 @@ check('revenue plan quotes no per-loan number', S.summarize({ tool: 'dscr', amou
   globalThis._dscrLastCalcEffective = { loan: 250000, finalRate: 7.5 };
   globalThis._dscrOverrides = { points: null };
   globalThis._loadedLoan = undefined;
+  globalThis.SLA_DSCR = { DIYA: { HIDDEN_TPO_PCT: 1.00, HIDDEN_TPO_ADJ: 0.320 }, activePricing: () => null };
   const p = S.fromDscr('dscr');
   check('dscr reader: effective amount/rate, points = 1 + buydown, TPO assumed from the engine', [p.amount, p.ratePct, p.basePct, p.points, p.tpoSpread, p.tpoAssumed], [250000, 7.5, 7.205, 1.25, 1, true]);
+  check('dscr reader: TPO sensitivity read from the engine (1.00 / 0.320)', r2(p.tpoPerRate), 3.13);
+  globalThis.SLA_DSCR = { DIYA: { HIDDEN_TPO_PCT: 1.00, HIDDEN_TPO_ADJ: 0.320 }, activePricing: () => ({ HIDDEN_TPO_PCT: 1.00, HIDDEN_TPO_ADJ: 0.280 }) };
+  check('dscr reader: a historical sheet from activePricing() wins (1.00 / 0.280)', r2(S.dscrTpoPerRate()), 3.57);
+  globalThis.SLA_DSCR = undefined;
+  check('dscr reader: no engine on the page → no scaling (point for point)', S.fromDscr('dscr').tpoPerRate, 0);
   globalThis._dscrOverrides = { points: 0.75 };
   check('dscr reader: an overridden points value wins', S.fromDscr('dscr').points, 0.75);
   globalThis._dscrLastCalc = { loan: 1, finalRate: 7 };
