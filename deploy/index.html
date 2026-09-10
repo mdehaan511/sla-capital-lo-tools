@@ -57,6 +57,13 @@
     }
     .login-btn:hover { background: var(--gold); }
     .login-footer { margin-top: 1.5rem; font-size: 11px; color: var(--muted); }
+    /* Deploy 236.958 — this sign-in is for team members; visitors get a way out,
+       and activate.html's gate sends an unknown team-domain account back here
+       with ?reason=nouser (the email is never put in the URL). */
+    .login-note { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid #e5e0d5; font-size: 12px; color: var(--muted); line-height: 1.55; }
+    .login-note a { color: var(--gold); font-weight: 600; text-decoration: none; }
+    .login-note a:hover { text-decoration: underline; }
+    .login-alert { display: none; background: rgba(124,31,31,0.08); color: #7c1f1f; border: 1px solid rgba(124,31,31,0.25); border-radius: 8px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin: 0 0 16px; line-height: 1.4; }
 
     /* Deploy 236.304 — Google-branded Sign-in button per Google's own
        identity guidelines (light theme). Multi-color G glyph on a
@@ -311,6 +318,7 @@
            onerror="this.style.display='none';document.getElementById('login-title').style.marginTop='0'" />
       <h1 id="login-title">SLA Capital</h1>
       <p>Sir Lends A Lot LLC</p>
+      <div class="login-alert" id="loginNoUser">No user exists with that email.</div>
       <button class="btn-google" id="loginBtn" type="button">
         <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -330,6 +338,7 @@
         <button class="login-btn" id="loginMagicLinkBtn" style="margin-top:8px;background:transparent;color:var(--gold);border:1px solid var(--gold)">Send Magic Link</button>
       </div>
       <p id="loginMagicMsg" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);line-height:1.5"></p>
+      <p class="login-note">This login is for <strong>SLA Capital team members</strong> only.<br>Not an SLA Capital team member? <a href="/portal-select.html">Click here</a>.</p>
     </div>
   </div>
 
@@ -1274,9 +1283,26 @@
           _setMsg('Sign-in link sent — check ' + email + ' and click the link.', 'var(--ok, #166534)');
         })
         .catch(function(e) {
-          _setMsg('Could not send link: ' + ((e && e.message) || 'unknown error'), '#7c1f1f');
+          // Deploy 236.958 — shouldCreateUser:false makes Supabase answer
+          // "Signups not allowed…" for an address it has never seen.
+          var m = (e && e.message) || 'unknown error';
+          if (/signups? not allowed/i.test(m)) m = 'No user exists with that email.';
+          _setMsg('Could not send link: ' + m, '#7c1f1f');
         });
     });
+
+    // Deploy 236.958 — activate.html sends an unknown team-domain Google account
+    // back here signed out, with ?reason=nouser. Show the banner, drop the flag.
+    (function () {
+      try {
+        var q = new URLSearchParams(window.location.search);
+        if (q.get('reason') === 'nouser') {
+          var el = document.getElementById('loginNoUser');
+          if (el) el.style.display = 'block';
+          if (window.history && history.replaceState) history.replaceState(null, '', window.location.pathname);
+        }
+      } catch (_) {}
+    })();
   </script>
 
 </body>

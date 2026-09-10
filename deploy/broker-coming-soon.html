@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Broker Portal — Coming Soon — SLA Capital</title>
+  <meta name="robots" content="noindex" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+  <style>
+    /* Deploy 236.958 — the "Broker" choice on portal-select.html lands here
+       until the broker (Preferred Partner) portal opens to outside brokers;
+       swap the link on portal-select.html to the broker login when it does. */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: var(--surface); max-width: 480px; width: 100%; border-radius: 14px; padding: 40px 40px 32px; text-align: center; border: 1px solid var(--border); box-shadow: 0 24px 48px rgba(0,0,0,0.12); }
+    .logo { height: 48px; width: auto; margin-bottom: 18px; }
+    .brand { font-family: 'Lora', serif; font-size: 20px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .tagline { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 26px; }
+    .pill { display: inline-block; background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--gold-mid); border-radius: 999px; padding: 5px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+    h1 { font-family: 'Lora', serif; font-size: 26px; color: var(--dark); margin-bottom: 10px; }
+    p { font-size: 14px; color: var(--muted); line-height: 1.55; margin-bottom: 12px; }
+    .foot { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    .foot a { color: var(--gold-mid); font-weight: 600; text-decoration: none; }
+    .foot a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+    <div class="brand">SLA Capital</div>
+    <div class="tagline">Sir Lends A Lot LLC</div>
+    <div class="pill">Coming soon</div>
+    <h1>Broker Portal</h1>
+    <p>We're building a dedicated portal for our broker partners: submit scenarios, price loans, and track your pipeline in one place.</p>
+    <p>Until it opens, keep working with your SLA Capital representative the way you do today.</p>
+    <div class="foot">
+      <a href="/portal-select.html">Back</a> &nbsp;·&nbsp; Borrower? <a href="/borrower-portal.html?hint=app-email">Borrower sign-in</a>
+    </div>
+  </div>
+</body>
+</html>

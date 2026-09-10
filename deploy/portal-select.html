@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Which portal? — SLA Capital</title>
+  <meta name="robots" content="noindex" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+  <style>
+    /* Deploy 236.958 — where a non-team visitor lands from the staff login page
+       ("Not an SLA Capital team member? Click here") and from a Google sign-in
+       with an unknown, non-team address (activate.html → auth-gate 'unknown').
+       Styled like activate.html so the hand-off feels like one site. */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0; --err: #7c1f1f;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: var(--surface); max-width: 480px; width: 100%; border-radius: 14px; padding: 40px 40px 32px; text-align: center; border: 1px solid var(--border); box-shadow: 0 24px 48px rgba(0,0,0,0.12); }
+    .logo { height: 48px; width: auto; margin-bottom: 18px; }
+    .brand { font-family: 'Lora', serif; font-size: 20px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .tagline { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 26px; }
+    h1 { font-family: 'Lora', serif; font-size: 24px; color: var(--dark); margin-bottom: 8px; }
+    p { font-size: 14px; color: var(--muted); line-height: 1.55; margin-bottom: 12px; }
+    .alert { display: none; background: rgba(124,31,31,0.08); border: 1px solid rgba(124,31,31,0.25); color: var(--err); border-radius: 8px; padding: 12px 14px; font-size: 14px; font-weight: 600; margin-bottom: 20px; }
+    .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; }
+    .choice { display: block; padding: 22px 14px; border-radius: 10px; border: 1px solid var(--border); background: #faf8f3; color: var(--dark); text-decoration: none; transition: border-color .15s, background .15s, transform .15s; }
+    .choice:hover { border-color: var(--gold); background: var(--gold-light); transform: translateY(-1px); }
+    .choice .big { display: block; font-family: 'Lora', serif; font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+    .choice .sub { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .foot { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    .foot a { color: var(--gold-mid); font-weight: 600; text-decoration: none; }
+    .foot a:hover { text-decoration: underline; }
+    @media (max-width: 440px) { .choices { grid-template-columns: 1fr; } .card { padding: 32px 24px 24px; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+    <div class="brand">SLA Capital</div>
+    <div class="tagline">Sir Lends A Lot LLC</div>
+    <div class="alert" id="noUser">No user exists with that email.</div>
+    <h1>Are you a Borrower or a Broker?</h1>
+    <p>The sign-in you came from is for SLA Capital team members. Pick the portal that fits you.</p>
+    <div class="choices">
+      <a class="choice" href="/borrower-portal.html?hint=app-email">
+        <span class="big">Borrower</span>
+        <span class="sub">I have a loan or an application with SLA Capital.</span>
+      </a>
+      <a class="choice" href="/broker-coming-soon.html">
+        <span class="big">Broker</span>
+        <span class="sub">I refer or submit loans to SLA Capital.</span>
+      </a>
+    </div>
+    <div class="foot">SLA Capital team member? <a href="/">Sign in here</a>.</div>
+  </div>
+  <script>
+    // ?reason=nouser — activate.html sends an unknown Google sign-in here after
+    // signing it out. The email itself is never put in the URL.
+    (function () {
+      try {
+        var q = new URLSearchParams(window.location.search);
+        if (q.get('reason') === 'nouser') {
+          document.getElementById('noUser').style.display = 'block';
+          if (window.history && history.replaceState) history.replaceState(null, '', window.location.pathname);
+        }
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>

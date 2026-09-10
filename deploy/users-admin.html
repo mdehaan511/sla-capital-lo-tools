@@ -107,7 +107,7 @@
 <div class="page" id="app" style="display:none">
   <div class="page-header">
     <h1>Users Admin</h1>
-    <p>Invite new users to the Supabase-backed auth. Roles are stamped at invite time. Netlify Identity users still work via the existing login; the two systems run in parallel until Phase 3.
+    <p>SLA Capital team members only — the people invited here. Borrowers live on the Borrowers page; anyone who signed in with Google without an invite is listed under "Unknown sign-ins" below the roster. Last sign-in is the most recent time the person loaded the portal signed in, whichever login they used.
        &nbsp;·&nbsp; <a href="borrowers-admin.html" style="color:#c8813a;font-weight:600">Borrowers →</a></p>
   </div>
 
@@ -259,14 +259,19 @@ async function loadUsers() {
     var r = await SLA.api('GET', '/api/users-list-supabase');
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
     var users = r.users || [];
-    // Deploy 236.665 — Borrowers are managed under Clients / the Borrowers page, not
-    // this staff roster (there will be many). Hide role='borrower'.
-    var _hiddenBorrowers = users.filter(function(u){ return String(u.role || '').toLowerCase() === 'borrower'; }).length;
-    users = users.filter(function(u){ return String(u.role || '').toLowerCase() !== 'borrower'; });
-    count.textContent = users.length + ' user' + (users.length === 1 ? '' : 's') +
-      (_hiddenBorrowers ? ' · ' + _hiddenBorrowers + ' borrower' + (_hiddenBorrowers === 1 ? '' : 's') + ' hidden (see Borrowers →)' : '');
-    if (!users.length) {
-      wrap.innerHTML = '<div class="empty">No users in Supabase yet. Invite someone above to get started.</div>';
+    // Deploy 236.958 — the server now returns TEAM MEMBERS ONLY (shared
+    // team-roster rules: role table → app_metadata → @slacapital.com). Borrowers,
+    // brokers and Google-minted unknowns are counted in r.hidden; the unknowns
+    // come back in r.unknown so they can still be removed (they are otherwise
+    // invisible here). Replaces the 236.665 client-side borrower filter.
+    var _h = r.hidden || {};
+    var _unknown = r.unknown || [];
+    count.textContent = users.length + ' team member' + (users.length === 1 ? '' : 's') +
+      (_h.borrowers ? ' · ' + _h.borrowers + ' borrower' + (_h.borrowers === 1 ? '' : 's') + ' (see Borrowers →)' : '') +
+      (_h.brokers ? ' · ' + _h.brokers + ' broker' + (_h.brokers === 1 ? '' : 's') : '') +
+      (_unknown.length ? ' · ' + _unknown.length + ' unknown sign-in' + (_unknown.length === 1 ? '' : 's') : '');
+    if (!users.length && !_unknown.length) {
+      wrap.innerHTML = '<div class="empty">No team members yet. Invite someone above to get started.</div>';
       return;
     }
     var rows = users.map(function(u) {
@@ -300,6 +305,9 @@ async function loadUsers() {
         statusPill = '<span class="pill none">no status</span>';
       }
       var last = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString() : '—';
+      // Deploy 236.958 — which stamp won: the portal's own last-seen ping (any
+      // login method) or Supabase's sign-in record.
+      var lastTitle = u.lastSignInSource === 'portal' ? 'Last portal activity (from the signed-in page ping)' : (u.lastSignInAt ? 'Supabase sign-in' : '');
 
       // Resend button only makes sense for users who haven't signed in yet.
       var resendBtn = !u.lastSignInAt
@@ -324,17 +332,31 @@ async function loadUsers() {
         '</td>' +
         '<td>' + roleControl + '</td>' +
         '<td>' + statusPill + '</td>' +
-        '<td class="mono">' + escH(last) + '</td>' +
+        '<td class="mono" title="' + escAttr(lastTitle) + '">' + escH(last) + '</td>' +
         '<td><div class="row-actions">' + resendBtn + editBtn + deleteBtn + '</div></td>' +
       '</tr>';
     }).join('');
     wrap.innerHTML =
       '<table>' +
         '<thead><tr>' +
-          '<th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th style="text-align:right">Actions</th>' +
+          '<th>Email</th><th>Role</th><th>Status</th><th title="Most recent of: the portal\'s own signed-in page ping, or Supabase\'s sign-in record">Last sign-in</th><th style="text-align:right">Actions</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
-      '</table>';
+      '</table>' +
+      // Deploy 236.958 — Google sign-ins nobody invited (no role, no loan access).
+      // The sign-in gate removes new ones automatically; older ones sit here
+      // until an admin deletes them.
+      (_unknown.length ? '<details style="margin-top:18px"><summary style="cursor:pointer;font-size:13px;color:var(--muted)">Unknown sign-ins (' + _unknown.length + ') — Google accounts with no invite, no role and no loan access</summary>' +
+        '<table style="margin-top:10px"><thead><tr><th>Email</th><th>Signed in</th><th>Created</th><th style="text-align:right">Actions</th></tr></thead><tbody>' +
+        _unknown.map(function (x) {
+          return '<tr data-user-id="' + escAttr(x.id) + '">' +
+            '<td>' + escH(x.email) + (x.fullName ? '<div class="mono">' + escH(x.fullName) + '</div>' : '') + (x.provider ? '<div class="mono">' + escH(x.provider) + '</div>' : '') +
+              '<div class="row-msg" id="rowmsg_' + escAttr(x.id) + '"></div></td>' +
+            '<td class="mono">' + escH(x.lastSignInAt ? new Date(x.lastSignInAt).toLocaleString() : '—') + '</td>' +
+            '<td class="mono">' + escH(x.createdAt ? new Date(x.createdAt).toLocaleDateString() : '—') + '</td>' +
+            '<td><div class="row-actions"><button class="icon-btn danger" onclick="deleteUser(\'' + escAttr(x.id) + '\', \'' + escAttr(x.email) + '\', this)" title="Remove this account">Delete</button></div></td>' +
+          '</tr>';
+        }).join('') + '</tbody></table></details>' : '');
   } catch (e) {
     wrap.innerHTML = '<div class="status err">Failed to load users: ' + escH(e.message || 'unknown') + '</div>';
     count.textContent = '';

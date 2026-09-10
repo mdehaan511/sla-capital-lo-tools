@@ -84,7 +84,7 @@
         : role === 'processor' ? 'Processor' : role === 'borrower' ? 'Borrower' : 'Loan Officer';
       // Deploy 236.531 — route borrowers to their portal, staff to the app.
       // A same-origin ?next= path (single leading slash) wins, for deep-links.
-      var STAFF = ['super_admin', 'admin', 'loan_officer', 'processor'];
+      var STAFF = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor'];
       var isStaff = Array.isArray(roles) && roles.some(function (r) { return STAFF.indexOf(r) >= 0; });
       var isBorrower = Array.isArray(roles) && roles.indexOf('borrower') >= 0;
       var dest = (!isStaff && isBorrower) ? '/borrower-portal.html' : '/';
@@ -106,6 +106,35 @@
       // Auto-forward once the session is persisted (short beat so the
       // confirmation is visible). The manual link above is the fallback.
       setTimeout(function () { window.location.replace(dest); }, 1200);
+    }
+
+    // Deploy 236.958 (Mike: "If someone tries to google sign in with an email
+    // that doesnt exist as a user or isnt a borrower that has been invited,
+    // simply say 'No User Exists with that Email'.") Google mints an auth
+    // account for anyone, so the check runs HERE, after the sign-in: /api/auth-gate
+    // classifies the session (staff / borrower / broker / unknown) and removes a
+    // stray 'unknown' account. We sign the browser out and send a team-domain
+    // address back to the staff login with the message, anyone else on to
+    // portal-select.html (Borrower or Broker?). Fails OPEN if the gate can't be
+    // reached, so a transient error never locks staff out.
+    async function gateSession(session) {
+      try {
+        var r = await fetch('/api/auth-gate', { cache: 'no-store', headers: { Authorization: 'Bearer ' + session.access_token } });
+        if (!r.ok) return null;
+        var j = await r.json();
+        return (j && j.ok) ? j : null;
+      } catch (_) { return null; }
+    }
+    function renderNoUser(dest) {
+      var card = document.getElementById('card');
+      card.className = 'card status-err';
+      card.innerHTML =
+        '<div class="logo">Sir Lends A Lot LLC</div>' +
+        '<div class="tagline">Sign-in</div>' +
+        '<h1>No user exists with that email.</h1>' +
+        '<p>That Google account isn\'t set up with SLA Capital. Taking you to the right place…</p>' +
+        '<p style="margin-top:20px"><a href="' + escH(dest) + '" style="display:inline-block;padding:10px 24px;background:var(--gold);color:#fff;border-radius:6px;font-weight:600;text-decoration:none">Continue</a></p>';
+      setTimeout(function () { window.location.replace(dest); }, 1800);
     }
 
     function renderErr(msg) {
@@ -143,7 +172,18 @@
           renderErr('No active session detected. If you clicked an invitation link and got here, the link may have expired. Ask for a fresh one.');
           return;
         }
-        renderOk(data.session.user, _rolesFromToken(data.session.access_token));
+        // Deploy 236.958 — gate before forwarding (see gateSession).
+        var gate = await gateSession(data.session);
+        if (gate && gate.kind === 'unknown') {
+          try { await supabase.auth.signOut(); } catch (_) {}
+          renderNoUser(gate.teamDomain ? '/?reason=nouser' : '/portal-select.html?reason=nouser');
+          return;
+        }
+        var roles = _rolesFromToken(data.session.access_token);
+        // A borrower known only by a portal grant (no role on the token) still
+        // belongs in the portal, not on the staff dashboard.
+        if (gate && gate.kind === 'borrower' && roles.indexOf('borrower') < 0) roles = roles.concat(['borrower']);
+        renderOk(data.session.user, roles);
       } catch (e) {
         console.error('[activate] boot failed:', e);
         renderErr((e && e.message) || 'unknown error');

@@ -361,7 +361,11 @@
         if (res && res.error) throw res.error;
         if (msg) msg.textContent = 'Check your email for a login link.';
       }).catch(function (e) {
-        if (msg) msg.textContent = (e && e.message) ? e.message : 'Could not send the link. Ask your loan officer to re-invite you.';
+        // Deploy 236.958 — shouldCreateUser:false makes Supabase answer
+        // "Signups not allowed…" for an address it has never seen.
+        var em = (e && e.message) || '';
+        if (/signups? not allowed/i.test(em)) em = 'No user exists with that email. Use the email you submitted in your loan application, or contact your support representative.';
+        if (msg) msg.textContent = em || 'Could not send the link. Ask your loan officer to re-invite you.';
       });
     }
 
@@ -752,6 +756,22 @@
 
     // ── Boot: existing Supabase session → app, else the sign-in screen ──
     (function boot() {
+      // Deploy 236.958 (Mike) — arrivals from portal-select.html ("Borrower") or
+      // from a Google sign-in nobody invited: tell them where their login link
+      // went before they try a different address.
+      try {
+        var _q = new URLSearchParams(location.search);
+        var _hint = _q.get('hint') === 'app-email';
+        var _nouser = _q.get('reason') === 'nouser';
+        if (_hint || _nouser) {
+          var _lm = document.getElementById('loginMsg');
+          if (_lm) {
+            _lm.style.color = '#7c1f1f';
+            _lm.textContent = (_nouser ? 'No user exists with that email. ' : '') +
+              'Make sure you check the email you submitted in your loan application — that is where your login link was sent. If you can\'t find it, contact your support representative.';
+          }
+        }
+      } catch (_) {}
       var gb = document.getElementById('googleBtn');  if (gb) gb.addEventListener('click', _startGoogle);
       var mb = document.getElementById('magicBtn');   if (mb) mb.addEventListener('click', _startMagic);
       var le = document.getElementById('loginEmail'); if (le) le.addEventListener('keydown', function (e) { if (e.key === 'Enter') _startMagic(); });

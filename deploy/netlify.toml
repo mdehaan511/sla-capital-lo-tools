@@ -1484,6 +1484,14 @@
   to = "/.netlify/functions/lo-comp-plan"
   status = 200
   force = true
+
+# Deploy 236.958 -- sign-in gate: activate.html asks what the fresh session is
+# (staff / borrower / broker / unknown) before forwarding anyone.
+[[redirects]]
+  from = "/api/auth-gate"
+  to = "/.netlify/functions/auth-gate"
+  status = 200
+  force = true
 # Deploy 236.684 — Resend delivery-failure webhook. On email.bounced of a
 # borrower loan application / rate sheet, notify the loan officer.
 [[redirects]]
