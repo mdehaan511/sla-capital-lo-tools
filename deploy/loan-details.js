@@ -7446,7 +7446,7 @@ function _ldExtStatusLabel(m){
 function _ldExtSignersHtml(m){
   var list = Array.isArray(m.signers) ? m.signers : [];
   if (!list.length) return '';
-  // Deploy 236.980 — admins can void ONE signer's signature and re-invite them.
+  // Deploy 236.981 — admins can void ONE signer's signature and re-invite them.
   var canReset = !!(window.SLA && SLA.isAdmin && _user && SLA.isAdmin(_user));
   return '<div style="margin:10px 0 4px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:4px">Signers</div>' +
     list.map(function(s){

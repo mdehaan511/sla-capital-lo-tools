@@ -1062,7 +1062,7 @@ function _extStatusLabel(m){
 function _extSignersHtml(m){
   var list = Array.isArray(m.signers) ? m.signers : [];
   if (!list.length) return '';
-  // Deploy 236.980 (Mike: "There was an error and I need to get it resigned") —
+  // Deploy 236.981 (Mike: "There was an error and I need to get it resigned") —
   // admins can void ONE signer's signature and re-invite them; everyone else's
   // signature stays. The executed copy is withdrawn until they sign again.
   return '<div style="margin:-6px 0 14px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:4px">Signers</div>' +
