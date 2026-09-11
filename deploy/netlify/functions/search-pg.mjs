@@ -121,12 +121,33 @@ export default async (req, context) => {
     }),
   ]);
 
+  // Deploy 236.986 (Mike: "search a borrower and no loan comes up") — the
+  // loans tsvector indexes ADDRESS + NOTES only, so a borrower-NAME search
+  // matched the client rows but never their loans. Pull the loans belonging
+  // to the matched clients (one indexed client_id lookup) and merge them in
+  // as loan results, so searching a borrower reliably surfaces their loans.
+  let clientLoanRows = [];
+  const _matchedCids = clientHits.map((c) => c && c.id).filter(Boolean).slice(0, 20);
+  if (_matchedCids.length) {
+    try {
+      const parts = [
+        'select=' + encodeURIComponent(LOAN_SELECT),
+        'client_id=in.(' + _matchedCids.map(encodeURIComponent).join(',') + ')',
+        'limit=' + (PER_CATEGORY * 2),
+        'order=updated_at.desc',
+      ];
+      if (!wantAll) parts.push('owner_email=eq.' + encodeURIComponent(selfEmail));
+      clientLoanRows = (await _pgSelect('loans', parts.join('&'))).map((l) => _rowToLoanResult(l, selfEmail));
+    } catch (e) { console.warn('search-pg: client-loans lookup failed:', e && e.message); }
+  }
+
   // Loans: merge in PRIORITY order, dedupe by loan id. Deploy 236.633 — address
   // matches now rank above loan-number matches (Mike): address STARTS-WITH first,
-  // then address/notes FTS (contains), then id / SLA-number lookup last.
+  // then address/notes FTS (contains), then id / SLA-number lookup last;
+  // borrower-name (client-match) loans rank after direct loan matches.
   const seenLoans = new Set();
   const loans = [];
-  [].concat(loanPrefixRows, loanRows, loanIdRows).forEach((l) => {
+  [].concat(loanPrefixRows, loanRows, loanIdRows, clientLoanRows).forEach((l) => {
     if (!l || !l.id || seenLoans.has(l.id)) return;
     seenLoans.add(l.id);
     loans.push(l);
