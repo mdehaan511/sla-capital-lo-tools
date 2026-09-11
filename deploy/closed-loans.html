@@ -1364,11 +1364,14 @@ function openMarkSold(clientId, loanId, ownerKey){
   document.getElementById('svcSub').textContent = 'Records the sale and moves this loan to ' + (rtl?'Sold – RTL (still serviced)':'Sold – DSCR') + '.';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   _reqRegister('ms_soldDate','Sold Date'); _reqRegister('ms_investorName','Investor');
-  var html = '<div class="svc-fld"><label>Sold Date <span class="req">*</span></label><input type="date" id="ms_soldDate" value="'+escAttr(l.soldDate||'')+'" oninput="_validateRequired()" /></div>' +
+  // Deploy 236.978 (Mike) — prefill: Sold Date defaults to TODAY, Sold Rate
+  // to the Closing tab's Buy Rate (loan.buyRate). Stored values still win.
+  var _msToday = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  var html = '<div class="svc-fld"><label>Sold Date <span class="req">*</span></label><input type="date" id="ms_soldDate" value="'+escAttr(l.soldDate||_msToday)+'" oninput="_validateRequired()" /></div>' +
     '<div class="svc-fld"><label>Investor <span class="req">*</span></label>' + _investorSelect('ms_investorName', l.investorName||'', 'onchange="_validateRequired()"') + '</div>';
   if (rtl){
     _reqRegister('ms_soldRate','Sold Rate');
-    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) <span class="req">*</span> <span class="svc-hint">drives yield spread</span></label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||'')+'" placeholder="e.g. 8.5" oninput="_validateRequired()" /></div>';
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) <span class="req">*</span> <span class="svc-hint">drives yield spread — prefilled from the Closing tab Buy Rate</span></label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||l.buyRate||'')+'" placeholder="e.g. 8.5" oninput="_validateRequired()" /></div>';
   }
   document.getElementById('svcGrid').innerHTML = html;
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Mark Sold';
@@ -1479,11 +1482,11 @@ function openTradeTapeModal(){
           '<option value="colchis_settlement">Colchis Settlement Tape (trade agreed)</option>' +
         '</select>' +
         '<div id="tapeParams" style="display:none;margin-bottom:12px">' +
+          // Deploy 236.978 (Mike) — Funding Bank box removed: the tape derives
+          // it per-loan from the Closing tab's Funding Source (236.976).
           '<div style="display:flex;gap:10px">' +
             '<div style="flex:1"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Trade Date</label>' +
               '<input type="date" id="tapeTradeDate" value="' + today + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px" /></div>' +
-            '<div style="flex:1.4"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Funding Bank</label>' +
-              '<input type="text" id="tapeFundingBank" placeholder="e.g. Stride #10812200" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px" /></div>' +
           '</div>' +
         '</div>' +
         '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Loans (actively-trading pre-checked)</label>' +
@@ -1517,7 +1520,6 @@ function downloadTradeTape(){
   var params = {};
   if (key === 'colchis_settlement') {
     params.tradeDate = (document.getElementById('tapeTradeDate')||{}).value || '';
-    params.fundingBank = (document.getElementById('tapeFundingBank')||{}).value || '';
     if (!params.tradeDate) { status.textContent = 'Trade Date is required for the settlement tape.'; return; }
   }
   var btn = document.getElementById('tapeGoBtn');

@@ -1823,6 +1823,7 @@ function render() {
     var _fpo = _fpSrcOpts[_fpi];
     _fpSrcOptHtml += '<option value="' + _fpo[0] + '"' + (_fpo[0] === _fpSrc ? ' selected' : '') + '>' + escH(_fpo[1]) + '</option>';
   }
+  var _fpAssigned = String(l.assignedToEntity || ''); // Deploy 236.978
   var _fpPriceLabel = isDscr ? 'TPO (points)' : 'Buy Rate (%)';
   // Deploy 236.672 — the Baseline migration stored TPO on loan.tpoPremium; the
   // Funding Plan's own field is loan.tpo. Fall back to tpoPremium so migrated DSCRs
@@ -1835,12 +1836,28 @@ function render() {
   html += '<div class="section" id="fundingPlanSection">' +
     '<div class="section-head"><h2>Funding Plan</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' +
+      // Deploy 236.978 (Mike) — layout: Funding Source | Assigned To on the
+      // first row, then Buy Rate/TPO | Investor. "Assigned To" = which SLA
+      // entity holds the note (loan.assignedToEntity).
       '<div class="app-grid">' +
         '<div class="field"><label>Funding Source</label>' +
           '<select id="fp-fundingSource" onchange="onFundingSourceChange()">' + _fpSrcOptHtml + '</select>' +
         '</div>' +
+        '<div class="field"><label>Assigned To</label>' +
+          '<select id="fp-assignedTo">' +
+            '<option value=""' + (!_fpAssigned ? ' selected' : '') + '>— Select —</option>' +
+            '<option value="Sir Lends A Lot LLC"' + (_fpAssigned === 'Sir Lends A Lot LLC' ? ' selected' : '') + '>Sir Lends A Lot LLC</option>' +
+            '<option value="King Arthur Fund 1"' + (_fpAssigned === 'King Arthur Fund 1' ? ' selected' : '') + '>King Arthur Fund 1</option>' +
+            (_fpAssigned && _fpAssigned !== 'Sir Lends A Lot LLC' && _fpAssigned !== 'King Arthur Fund 1'
+              ? '<option value="' + escAttr(_fpAssigned) + '" selected>' + escH(_fpAssigned) + '</option>' : '') +
+          '</select>' +
+        '</div>' +
         '<div class="field" id="fp-otherWrap"' + (_fpSrc === 'other' ? '' : ' style="display:none"') + '><label>Other Source (one-time)</label>' +
           '<input type="text" id="fp-fundingSourceOther" value="' + escAttr(_fpOther) + '" placeholder="e.g. private lender name" maxlength="80" />' +
+        '</div>' +
+        '<div class="field"><label>' + _fpPriceLabel + '</label>' +
+          '<input type="text" id="fp-pricing" value="' + escAttr(String(_fpPriceVal)) + '" placeholder="0" inputmode="decimal" />' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
         '</div>' +
         '<div class="field"><label>Investor</label>' +
           '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '">' +
@@ -1849,10 +1866,6 @@ function render() {
             // loads; populateFundingPlanInvestors() replaces these options.
             (l.investorId ? '<option value="' + escAttr(String(l.investorId)) + '" selected>' + escH(l.investorName || 'Selected investor') + '</option>' : '') +
           '</select>' +
-        '</div>' +
-        '<div class="field"><label>' + _fpPriceLabel + '</label>' +
-          '<input type="text" id="fp-pricing" value="' + escAttr(String(_fpPriceVal)) + '" placeholder="0" inputmode="decimal" />' +
-          '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
         '</div>' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
@@ -2421,7 +2434,17 @@ function render() {
           '<div class="field"><label>Total UPB</label><input type="text" id="sv-upb" value="' + escAttr(l.upb || '') + '" placeholder="$" inputmode="decimal" /></div>' +
           '<div class="field"><label>Payoff Amount</label><input type="text" id="sv-payoffAmount" value="' + escAttr(l.payoffAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
           '<div class="field"><label>Payoff Date</label><input type="date" id="sv-payoffDate" value="' + escAttr(l.payoffDate || '') + '" /></div>' +
-          '<div class="field"><label>Investor</label><input type="text" id="sv-investorName" value="' + escAttr(l.investorName || '') + '" maxlength="120" /></div>' +
+          // Deploy 236.978 (Mike) — Investor is a dropdown fed by the same
+          // admin-managed Investors book as the Closing tab's Funding Plan.
+          // Seeded with the stored name; populateServicingInvestors() swaps
+          // in the full book (value = investor NAME — servicing flows store
+          // investorName strings, unlike the Funding Plan's id+name pair).
+          '<div class="field"><label>Investor</label>' +
+            '<select id="sv-investorName" data-current="' + escAttr(l.investorName || '') + '">' +
+              '<option value=""' + (l.investorName ? '' : ' selected') + '>— Select —</option>' +
+              (l.investorName ? '<option value="' + escAttr(l.investorName) + '" selected>' + escH(l.investorName) + '</option>' : '') +
+            '</select>' +
+          '</div>' +
           '<div class="field"><label>Sold Rate / TPO</label><input type="text" id="sv-soldRate" value="' + escAttr(l.soldRate || '') + '" /></div>' +
           '<div class="field"><label>Sold Date</label><input type="date" id="sv-soldDate" value="' + escAttr(l.soldDate || '') + '" /></div>' +
           '<div class="field" style="grid-column:1/-1"><label>Servicer Portal URL</label>' +
@@ -2964,6 +2987,8 @@ function render() {
   // Funding Plan box's Investor dropdown. Async; the box already shows
   // the seeded current selection until this lands.
   populateFundingPlanInvestors();
+  // Deploy 236.978 — same book into the Servicing tab's Investor dropdown.
+  populateServicingInvestors();
 
   // Deploy 236.493 — mount the Underwriting + Lightning Docs tabs (RTL).
   // Self-contained in loan-uw-tab.js; fills #ldPaneUnderwriting +
@@ -7689,6 +7714,34 @@ function populateFundingPlanInvestors() {
   }).catch(function() { /* leave seeded option */ });
 }
 
+// Deploy 236.978 — Servicing tab's Investor dropdown, same book as the
+// Funding Plan but keyed by NAME (servicing/mark-sold flows store the
+// investorName string). A stored name no longer in the book is kept as a
+// "(not in book)" option so the value survives.
+function populateServicingInvestors() {
+  var sel = document.getElementById('sv-investorName');
+  if (!sel || !window.SLA || !SLA.Investors || typeof SLA.Investors.list !== 'function') return;
+  var current = sel.getAttribute('data-current') || '';
+  SLA.Investors.list().then(function(r) {
+    var list = (r && r.investors) || [];
+    var html = '<option value="">— Select —</option>';
+    var found = false;
+    for (var i = 0; i < list.length; i++) {
+      var inv = list[i];
+      var nm = String((inv && inv.name) || '').trim();
+      if (!nm) continue;
+      var _lt = (Array.isArray(inv.loanTypes) && inv.loanTypes.length) ? ' (' + inv.loanTypes.join(', ') + ')' : '';
+      var isCur = (nm === current);
+      if (isCur) found = true;
+      html += '<option value="' + escAttr(nm) + '"' + (isCur ? ' selected' : '') + '>' + escH(nm + _lt) + '</option>';
+    }
+    if (current && !found) {
+      html += '<option value="' + escAttr(current) + '" selected>' + escH(current + ' (not in book)') + '</option>';
+    }
+    sel.innerHTML = html;
+  }).catch(function() { /* leave seeded option */ });
+}
+
 // Persist the Funding Plan onto the loan. Whole-client save (same path
 // as saveAppFields) — no dedicated endpoint needed. DSCR stores tpo,
 // RTL stores buyRate; the "Other" free-text is only kept when Other is
@@ -7713,6 +7766,8 @@ function saveFundingPlan() {
   var fields = {
     fundingSource:      src,
     fundingSourceOther: (src === 'other' && otherEl) ? otherEl.value.trim() : '',
+    // Deploy 236.978 — which SLA entity holds the note.
+    assignedToEntity:   (document.getElementById('fp-assignedTo') || {}).value || '',
     investorId:         invEl ? invEl.value : '',
     investorName:       invName,
   };
