@@ -243,6 +243,11 @@ const LOAN_SUMMARY_FIELDS = [
   // Deploy 236.983 — Servicing Pros live sync bookkeeping (which book the loan
   // sits in + when it last synced). Keep in sync.
   'spAccount', 'spSyncedAt', 'spLastPaymentDate',
+  // Deploy 236.986 — the live servicing numbers BOTH syncs (FCI 236.802,
+  // Servicing Pros 236.983) write: they were stamped on the record but never
+  // reached the Closed Loans list (its UPB column falls back to
+  // currentBalance, which was not projected). Keep in sync.
+  'currentBalance', 'nextDueDate', 'paidToDate', 'daysLate', 'fciSyncedAt',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
