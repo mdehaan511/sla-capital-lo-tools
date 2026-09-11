@@ -75,7 +75,11 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "September 10, 2026",
+  effectiveDate: "September 11, 2026",
+  // Deploy 236.973 — 9.11.26 sheet ("rate-sheet-2026-09-11.xlsx"): base rates
+  //   +0.075 across the board (30Y/10-6 6.675 -> 6.75; 7/6 & 5/6 6.575 -> 6.65).
+  //   Every other table byte-identical to the 9.10.26 sheet (FICO, IO, Cash-Out,
+  //   NW Condo, 2+, Portfolio, UPB, DSCR, PPP, TPO Premium, Rate Buydown, caps).
   // Deploy 236.942 — 9.10.26 sheet ("rate-sheet-2026-09-10.xlsx"): base rates
   // +0.050 across all four products. Every other table — FICO, IO, cash-out,
   // property type, UPB, DSCR, PPP, TPO premium, rate buydown — diffed
@@ -90,7 +94,7 @@ const DIYA = {
   //
   // Deploy 236.842 — 9.2.26 sheet: base rates +0.050 across all four products;
   // everything else unchanged.
-  baseRate: { "30Y Fixed": 6.675, "10/6 ARM": 6.675, "7/6 ARM": 6.575, "5/6 ARM": 6.575 }, // 236.942: +0.050 (9.10.26 sheet)
+  baseRate: { "30Y Fixed": 6.75, "10/6 ARM": 6.75, "7/6 ARM": 6.65, "5/6 ARM": 6.65 }, // 236.973: +0.075 (9.11.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.075,-0.050,-0.025, 0.100],
@@ -620,7 +624,10 @@ function priceDSCR(raw) {
 // of PRICING_HISTORY whose overrides hold the PREVIOUS sheet's values for
 // every key the new sheet changed.
 var PRICING_HISTORY = [
-  { effective: '2026-09-10', label: 'September 10, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-11', label: 'September 11, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-10', label: 'September 10, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.675, "10/6 ARM": 6.675, "7/6 ARM": 6.575, "5/6 ARM": 6.575 },
+  } },
   { effective: '2026-09-05', label: 'September 5, 2026', overrides: {
     baseRate: { "30Y Fixed": 6.625, "10/6 ARM": 6.625, "7/6 ARM": 6.525, "5/6 ARM": 6.525 },
   } },
