@@ -166,12 +166,16 @@ async function spGet(account, path) {
   if (!token) throw new Error(account.envVar + ' is not set');
   const r = await fetch(BASE_URL + path, {
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    redirect: 'manual',   // 236.989 — a 302 to the login page means "this key isn't accepted here"; say so
   });
   const text = await r.text();
+  const title = (/<title[^>]*>([^<]{0,80})/i.exec(text) || [])[1] || '';
+  const where = (r.status >= 300 && r.status < 400) ? ' → redirected to ' + (r.headers.get('location') || '?') : '';
+  if (r.status >= 300 && r.status < 400) throw new Error('Servicing Pros ' + path + ' → HTTP ' + r.status + where + ' (the key was not accepted for this account/API)');
   if (!r.ok) throw new Error('Servicing Pros ' + path + ' → HTTP ' + r.status + ': ' + text.slice(0, 200));
   if (!text.trim()) throw new Error('Servicing Pros ' + path + ' → empty body (not an endpoint?)');
   try { return JSON.parse(text); }
-  catch (e) { throw new Error('Servicing Pros ' + path + ' → not JSON: ' + text.slice(0, 120)); }
+  catch (e) { throw new Error('Servicing Pros ' + path + ' → not JSON (HTTP ' + r.status + ', page title "' + title.trim() + '") — the key was not accepted for this account/API'); }
 }
 
 /** Lender profile for the account (a cheap credential check). */
