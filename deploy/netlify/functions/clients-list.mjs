@@ -240,6 +240,9 @@ const LOAN_SUMMARY_FIELDS = [
   // Deploy 236.974 — the extension send modal on Closed Loans prefills
   // Guarantor 2 from the loan's flat guarantors[]. Keep in sync.
   'guarantors',
+  // Deploy 236.982 — Servicing Pros live sync bookkeeping (which book the loan
+  // sits in + when it last synced). Keep in sync.
+  'spAccount', 'spSyncedAt', 'spLastPaymentDate',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
