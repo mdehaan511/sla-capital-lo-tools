@@ -40,9 +40,19 @@ function sheetXml(rows) {
       const v = row[c];
       if (v === null || v === undefined || v === '') continue;
       const ref = colLetter(c) + (r + 1);
-      if (v && typeof v === 'object' && typeof v.v === 'number' && isFinite(v.v)) {
-        // Styled number — only 'pct' exists today (cellXfs index 1 = 0.00%).
-        const style = v.s === 'pct' ? ' s="1"' : '';
+      if (v && typeof v === 'object' && typeof v.f === 'string' && v.f) {
+        // Deploy 236.976 (Mike, Colchis settlement) — FORMULA cell:
+        // { f: 'SUM(L2:L4)', v?: cachedNumber, s?: 'pct'|'date' }. The cached
+        // value paints before Excel's first recalc; fullCalcOnLoad in
+        // workbook.xml makes Excel recompute everything on open regardless.
+        const fstyle = v.s === 'pct' ? ' s="1"' : v.s === 'date' ? ' s="2"' : '';
+        out += '<c r="' + ref + '"' + fstyle + '><f>' + escXml(v.f) + '</f>' +
+          (typeof v.v === 'number' && isFinite(v.v) ? '<v>' + v.v + '</v>' : '') + '</c>';
+      } else if (v && typeof v === 'object' && typeof v.v === 'number' && isFinite(v.v)) {
+        // Styled number — 'pct' (cellXfs 1 = 0.00%) or 'date' (cellXfs 2 =
+        // m/d/yyyy, value is an Excel date serial; real serials keep
+        // DAYS360/EDATE-style formulas working — date STRINGS break them).
+        const style = v.s === 'pct' ? ' s="1"' : v.s === 'date' ? ' s="2"' : '';
         out += '<c r="' + ref + '"' + style + '><v>' + v.v + '</v></c>';
       } else if (typeof v === 'number' && isFinite(v)) {
         out += '<c r="' + ref + '"><v>' + v + '</v></c>';
@@ -90,7 +100,9 @@ export async function buildXlsx(sheets) {
     '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
     names.map((n, i) => '<sheet name="' + escXml(n) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') +
-    '</sheets></workbook>');
+    // Deploy 236.976 — recalc every formula on open, so formula cells are
+    // right even where we didn't cache a value.
+    '</sheets><calcPr fullCalcOnLoad="1"/></workbook>');
 
   zip.file('xl/_rels/workbook.xml.rels',
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -111,9 +123,11 @@ export async function buildXlsx(sheets) {
     '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
     '<borders count="1"><border/></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="2">' +
+    '<cellXfs count="3">' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    // Deploy 236.976 — built-in numFmt 14 = m/d/yyyy for { v: serial, s:'date' }.
+    '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     '</cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     '</styleSheet>');

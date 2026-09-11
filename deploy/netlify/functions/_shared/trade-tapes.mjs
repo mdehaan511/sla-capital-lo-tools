@@ -326,14 +326,33 @@ const COLCHIS_TRADE_REQUIRED = ['Property Address', 'Property State', 'Total Loa
   'Guarantor 1 Name', 'Guarantor 1 FICO', 'Third Party AIV', 'Entity TIN', 'Dutch/Non-Dutch'];
 
 // ── Template: Colchis settlement tape (26 cols + totals) ──────────────────
-function settlementRow(c) {
+// Deploy 236.976 (Mike) — the tape mirrors the hand-built settlement sheets
+// FORMULAS AND ALL, so a processor can nudge a date/rate and every dependent
+// cell (spread, days, accrued interest, proceeds, totals) recomputes:
+//   K Seller Spread   =+IFERROR(I-J,0)
+//   T B-Piece %       =-S/L
+//   U CCM Balance     =M+S
+//   V Days Accrued    =+IFERROR(DAYS360(EDATE(G,-1),H),"")
+//   W Accrued Int.    =IFERROR(ROUND(IF(D="Dutch",L+S,U)*J*V/IF(E="Actual/Actual",365,360),2),0)
+//   Y Proceeds        =+U+W*X       totals L/M/Y = SUM over the data rows
+// Dates go in as REAL Excel serials (date strings break DAYS360/EDATE).
+// Colchis Rate = the Closings tab's Buy Rate (loan.buyRate; soldRate is the
+// legacy fallback), and Funding Bank derives from the Closings tab's Funding
+// Source instead of a hand-typed export param.
+const excelSerial = (p) => p ? Math.round((Date.UTC(p.y, p.m - 1, p.d) - Date.UTC(1899, 11, 30)) / 86400000) : null;
+const FUNDING_BANK_BY_SOURCE = {
+  sla_capital: 'SLA #10102114000205',
+  stride:      'Stride #10812200',
+  king_arthur: 'KAF #10109974300203',
+};
+function settlementRow(c, r) {
   const l = c.loan;
   const trade = dparts(c.params.tradeDate);
   const paidTo = trade ? { y: trade.y, m: trade.m, d: 1 } : null;
   const nextDue = trade ? (trade.m === 12 ? { y: trade.y + 1, m: 1, d: 1 } : { y: trade.y, m: trade.m + 1, d: 1 }) : null;
-  const fmt = (p) => p ? (p.m + '/' + p.d + '/' + p.y) : '';
+  const dcell = (p) => { const s = excelSerial(p); return s != null ? { v: s, s: 'date' } : ''; };
   const gross = rateFrac(l.rate);
-  const colchis = rateFrac(l.soldRate);
+  const colchis = rateFrac((l.buyRate != null && l.buyRate !== '') ? l.buyRate : l.soldRate);
   const L = totalAmt(l);
   const N = rehabAmt(l);
   const O = 0; // rehab drawn — not tracked reliably at trade time; hand-fill if drawn
@@ -347,18 +366,28 @@ function settlementRow(c) {
   const W = (V != null && colchis != null && L != null && M != null)
     ? round2((dutch === 'Dutch' ? L : M) * colchis / 360 * V) : null;
   const Y = (M != null) ? round2(M + (W || 0)) : null;
+  const fundingBank = FUNDING_BANK_BY_SOURCE[String(l.fundingSource || '').toLowerCase()] ||
+    String(c.params.fundingBank || '');
+  // Formula cells carry the row's live formula + our computed value as the
+  // pre-recalc cache (fullCalcOnLoad recomputes on open either way).
+  const fc = (formula, cached, style) => {
+    const cell = { f: formula };
+    if (typeof cached === 'number' && isFinite(cached)) cell.v = cached;
+    if (style) cell.s = style;
+    return cell;
+  };
   return [
     c.sla,
     parseAddr(l.address).street,
     borrowerName(c),
     dutch,
     '30/360',
-    fmt(paidTo),
-    fmt(nextDue),
-    fmt(trade),
+    dcell(paidTo),
+    dcell(nextDue),
+    dcell(trade),
     pct(gross),
     pct(colchis),
-    (gross != null && colchis != null) ? pct(round4(gross - colchis)) : '',
+    fc('+IFERROR(I' + r + '-J' + r + ',0)', (gross != null && colchis != null) ? round4(gross - colchis) : null, 'pct'),
     L != null ? L : '',
     M != null ? M : '',
     N,
@@ -367,13 +396,13 @@ function settlementRow(c) {
     0, // Appraisal Holdback Remaining
     0, // Interest Escrow Balance
     0, // B-Piece $
-    0, // B-Piece %
-    M != null ? M : '', // CCM Balance
-    V != null ? V : '',
-    W != null ? W : '',
+    fc('-S' + r + '/L' + r, (L ? 0 : null), 'pct'), // B-Piece %
+    fc('M' + r + '+S' + r, M != null ? M : null),   // CCM Balance
+    fc('+IFERROR(DAYS360(EDATE(G' + r + ',-1),H' + r + '),"")', V != null ? V : null),
+    fc('IFERROR(ROUND(IF(D' + r + '="Dutch",L' + r + '+S' + r + ',U' + r + ')*J' + r + '*V' + r + '/IF(E' + r + '="Actual/Actual",365,360),2),0)', W != null ? W : null),
     pct(1), // Purchase Price (%) — 100.00%
-    Y != null ? Y : '',
-    String(c.params.fundingBank || ''),
+    fc('+U' + r + '+W' + r + '*X' + r, Y != null ? Y : null),
+    fundingBank,
   ];
 }
 const COLCHIS_SETTLE_HEADERS = ['Loan Number', 'Street Address', 'Borrower Name', 'Dutch Interest',
@@ -661,20 +690,27 @@ export const TRADE_TAPES = {
       const rows = [COLCHIS_SETTLE_HEADERS.slice()];
       const missing = [];
       let sumL = 0, sumM = 0, sumY = 0;
+      // Deploy 236.976 — a cell may now be a { f, v } formula object; sum the
+      // cached value when present.
+      const cellNum = (x) => num(x && typeof x === 'object' ? x.v : x) || 0;
       for (const c of ctxs) {
-        const row = settlementRow(c);
+        const row = settlementRow(c, rows.length + 1); // sheet row number (1-based, header is row 1)
         rows.push(row);
-        sumL += num(row[11]) || 0; sumM += num(row[12]) || 0; sumY += num(row[24]) || 0;
+        sumL += cellNum(row[11]); sumM += cellNum(row[12]); sumY += cellNum(row[24]);
         COLCHIS_SETTLE_HEADERS.forEach((h, i) => {
           if (COLCHIS_SETTLE_REQUIRED.indexOf(h) >= 0 && (row[i] === '' || row[i] == null)) {
             missing.push(c.sla + ': ' + h);
           }
         });
       }
-      // Blank spacer, then the totals row (L, M, Y) — matches the historical sheets.
+      // Blank spacer, then the totals row (L, M, Y) — matches the historical
+      // sheets, and 236.973 makes them live SUM formulas over the data rows.
+      const lastData = rows.length; // sheet row of the last data row
       rows.push([]);
       const totals = new Array(COLCHIS_SETTLE_HEADERS.length).fill('');
-      totals[11] = round2(sumL); totals[12] = round2(sumM); totals[24] = round2(sumY);
+      totals[11] = { f: 'SUM(L2:L' + lastData + ')', v: round2(sumL) };
+      totals[12] = { f: 'SUM(M2:M' + lastData + ')', v: round2(sumM) };
+      totals[24] = { f: 'SUM(Y2:Y' + lastData + ')', v: round2(sumY) };
       rows.push(totals);
       return { sheets: [{ name: 'SLA Trade', rows }], missing, filenameBase: 'SLA Colchis Settlement' };
     },
