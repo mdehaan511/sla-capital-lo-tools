@@ -173,8 +173,13 @@ const NEVER_AI_WRITE = {
 
 // Return the extraction spec for a given checklist slug (or null). Any
 // protected (non-editable) key is stripped defensively.
+// Deploy 236.980 (Mike) — per-property portfolio trays carry a __p<i>
+// suffix (appraisal__p0, bpo_valuation__p1, …); resolve to the BASE slug
+// so portfolio uploads extract like single-property ones. (Shared keys
+// mean the last property reviewed wins a given field — an unverified
+// proposal either way, the underwriter confirms.)
 export function fieldsForSlug(slug) {
-  const spec = SLUG_FIELD_MAP[String(slug || '')];
+  const spec = SLUG_FIELD_MAP[String(slug || '').replace(/__p\d+$/, '')];
   if (!spec) return null;
   const safe = spec.filter(function (f) { return !NEVER_AI_WRITE[f.key]; });
   return safe.length ? safe : null;

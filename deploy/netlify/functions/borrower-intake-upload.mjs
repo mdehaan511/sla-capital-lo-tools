@@ -24,6 +24,13 @@ import { borrowerSlugSet, borrowerItem } from './_shared/borrower-intake-checkli
 // Deploy 236.918 — uploads may also target a tray the borrower added.
 import { isBorrowerVisibleTray } from './_shared/borrower-intake-custom.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
+// Deploy 236.980 (Mike) — borrower uploads extract UW/Lightning fields too.
+// This path reviewed docs but never passed extractFields, so everything a
+// BORROWER uploaded (bank statements, EIN letters, insurance, the signed
+// application…) left the Underwriting tab blank while the same file
+// uploaded by staff filled it.
+import { fieldsForSlug } from './_shared/uw-field-map.mjs';
+import { writeFieldProposals } from './_shared/uw-field-write.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -213,9 +220,20 @@ async function handle(req, context) {
     borrowerMessage = 'Received. This file type can’t be auto-checked, so a processor will review it.';
   } else {
     try {
+      // Deploy 236.980 — same targeted field extraction as the staff upload
+      // path (loan-review-doc-upload): the review call also pulls the UW /
+      // Lightning fields this doc type holds, written below as UNVERIFIED
+      // proposals for the underwriter to confirm.
+      const _canWriteFields = !!(review.source && review.source.kind === 'existing' &&
+        review.source.clientId && review.source.loanId && review.source.ownerKey);
+      const _extractSpec = _canWriteFields ? fieldsForSlug(slug) : null;
+      const _extractFields = (Array.isArray(_extractSpec) && _extractSpec.length)
+        ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
+        : undefined;
       const ai = await reviewDocument({
         bytes, mimeType, docLabel: docState.label, docConditions: docState.conditions,
         loanContext: _loanContext(review), investor: review.investor || '',
+        extractFields: _extractFields,
       });
       docState.aiVerdict = ai.verdict;
       docState.aiNotes = ai.summary || '';
@@ -223,6 +241,29 @@ async function handle(req, context) {
       docState.aiExtractedEntities = ai.extractedEntities || {};
       docState.aiReviewedAt = now;
       docState.aiError = ai.error || '';
+      // Deploy 236.980 — keep only fields the AI actually FOUND (found:true,
+      // non-empty); "not on this document" must never overwrite a value.
+      const _ef = ai.extractedFields || {};
+      docState.aiExtractedFields = _ef;
+      if (_extractFields && Object.keys(_ef).length) {
+        const _specByKey = {};
+        (_extractSpec || []).forEach(function (s) { _specByKey[s.key] = s; });
+        const _props = [];
+        Object.keys(_ef).forEach(function (k) {
+          const spec = _specByKey[k];
+          const got = _ef[k];
+          if (!spec || !got || got.found !== true) return;
+          if (got.value === null || got.value === undefined || got.value === '') return;
+          _props.push({
+            dataset: spec.dataset, key: k, value: got.value,
+            aiNote: (docState.label || slug) + (got.where ? ' — ' + got.where : '') + ' (borrower upload)',
+          });
+        });
+        if (_props.length) {
+          try { await writeFieldProposals(review.source, _props, normalizeEmail(user.email)); }
+          catch (e) { console.warn('[borrower-intake-upload] field-proposal write failed (non-fatal):', e && e.message); }
+        }
+      }
       docState.aiCostCents = Number(docState.aiCostCents || 0) + Number(ai.costCents || 0);
       review.aiCostCents = Number(review.aiCostCents || 0) + Number(ai.costCents || 0);
       verdict = ai.verdict;   // stored + returned only when borrower feedback is ON
