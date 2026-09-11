@@ -164,7 +164,12 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
         if (!byServicerNum.has(sn)) byServicerNum.set(sn, []);
         byServicerNum.get(sn).push(ref);
         if (tagged && !feedAccounts.has(sn)) {
-          taggedNotInFeed.push({ servicerLoanNumber: sn, raw: String(loan.servicerLoanNumber || ''), address: ref.address, disposition: ref.disposition, loanId: loan.id });
+          // Deploy 236.988 (Mike) — their API only returns ACTIVE loans (no
+          // parameter brings back paid-off ones — probed), so a paid-off loan
+          // missing from the feed is expected. An ACTIVE loan missing from the
+          // feed has most likely not been boarded with them yet.
+          taggedNotInFeed.push({ servicerLoanNumber: sn, raw: String(loan.servicerLoanNumber || ''), address: ref.address, disposition: ref.disposition, loanId: loan.id,
+            reason: ref.disposition === 'paid_off' ? 'paid off — their feed only carries active loans' : 'likely not boarded with Servicing Pros yet' });
         }
       }
     }
@@ -314,6 +319,8 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
     review: {
       unmatched: unmatched.length,           // on their side, no portal link — tag by hand
       taggedNotInFeed: taggedNotInFeed.length, // tagged Servicing Pros here, in neither feed
+      paidOffNotInFeed: taggedNotInFeed.filter((t) => t.disposition === 'paid_off').length,   // expected — their API drops inactive loans
+      likelyNotBoarded: taggedNotInFeed.filter((t) => t.disposition !== 'paid_off').length,   // active here, absent there
       crossStamped: crossStamped.length,
       crossStampedUnresolved: crossStamped.filter((c) => !c.resolved).length,
       investorMismatch,
