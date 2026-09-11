@@ -103,16 +103,24 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
       let profile = null;
       try { profile = await spProfile(a); } catch (_) { profile = null; }
       const loans = await spLoans(a);
+      // Deploy 236.985 — the book a loan belongs to is the account the KEY was
+      // issued for (JWT claim, confirmed by the profile), not the env slot it
+      // was pasted into: the SLA slot held the KAF key and its 6 matched loans
+      // were about to be stamped SLA / Sir Lends A Lot LLC.
+      const realAcct = String(claims.account || (profile && profile.Account) || a.label).toUpperCase().replace(/-/g, '_');
+      const book = ACCOUNTS[realAcct] || a;
       let fresh = 0;
       for (const l of loans) {
+        l.book = book.key;
         const id = l.recId || (l.account + '|' + l.origBalance);
         if (seenRec.has(id)) { duplicateAcrossBooks += 1; continue; }
-        seenRec.set(id, a.key); rows.push(l); fresh += 1;
+        seenRec.set(id, book.key); rows.push(l); fresh += 1;
       }
       perAccount[a.key] = {
         label: a.label, keyAccount: claims.account || '', keyEmail: claims.email || '', keyExpires: claims.exp || '',
         lenderAccount: profile ? String(profile.Account || '') : '', lenderName: profile ? String(profile.FullName || profile.SortName || '') : '',
         keyMatchesBook: claims.account ? claims.account.toUpperCase().replace('_', '-') === a.label.toUpperCase() : null,
+        bookUsed: book.label,   // 236.985 — the book the loans were filed under
         loans: loans.length, duplicatesSkipped: loans.length - fresh, paidOff: loans.filter((l) => l.paidOff).length,
         principal: loans.filter((l) => !l.paidOff).reduce((s, l) => s + (l.principalBalance || 0), 0),
       };
