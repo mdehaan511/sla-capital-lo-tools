@@ -49,7 +49,7 @@ import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import {
   SERVICER, ACCOUNTS, spConfiguredAccounts, spLoans, spProfile, spKeyClaimsFor, normalizeServicerNumber,
-  dispositionForSp, pickLoanForSpRow,
+  dispositionForSp, pickLoanForSpRow, bookForLenderName, isOurLoan,
 } from './_shared/servicingpros-api.mjs';
 
 export default async (req, context) => {
@@ -108,21 +108,33 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
       // was pasted into: the SLA slot held the KAF key and its 6 matched loans
       // were about to be stamped SLA / Sir Lends A Lot LLC.
       const realAcct = String(claims.account || (profile && profile.Account) || a.label).toUpperCase().replace(/-/g, '_');
-      const book = ACCOUNTS[realAcct] || a;
-      let fresh = 0;
+      const keyBook = ACCOUNTS[realAcct] || a;
+      // Deploy 236.990 — the SLA key returned the WHOLE platform (1,366 loans of
+      // many lenders). Rows not originated by SLA are dropped here, before
+      // anything looks at them, and are only ever counted. Each kept row is
+      // filed under the book its lender of record names (KAF vs SLA), falling
+      // back to the key's own account.
+      let fresh = 0, foreign = 0;
       for (const l of loans) {
+        if (!isOurLoan(l)) { foreign += 1; continue; }
+        const book = bookForLenderName(l.lenderName) || keyBook;
         l.book = book.key;
         const id = l.recId || (l.account + '|' + l.origBalance);
         if (seenRec.has(id)) { duplicateAcrossBooks += 1; continue; }
         seenRec.set(id, book.key); rows.push(l); fresh += 1;
       }
+      if (foreign > 0) {
+        errors.push({ account: a.label, error: 'the key in ' + a.envVar + ' returns loans from other lenders (' + foreign + ' of ' + loans.length + ' dropped unread) — Servicing Pros should scope that account\'s API access' });
+      }
       perAccount[a.key] = {
         label: a.label, keyAccount: claims.account || '', keyEmail: claims.email || '', keyExpires: claims.exp || '',
         lenderAccount: profile ? String(profile.Account || '') : '', lenderName: profile ? String(profile.FullName || profile.SortName || '') : '',
         keyMatchesBook: claims.account ? claims.account.toUpperCase().replace('_', '-') === a.label.toUpperCase() : null,
-        bookUsed: book.label,   // 236.985 — the book the loans were filed under
-        loans: loans.length, duplicatesSkipped: loans.length - fresh, paidOff: loans.filter((l) => l.paidOff).length,
-        principal: loans.filter((l) => !l.paidOff).reduce((s, l) => s + (l.principalBalance || 0), 0),
+        bookUsed: keyBook.label,   // 236.985 — the key's own book (rows may still file under the other by lender name)
+        feedRows: loans.length, foreignRowsDropped: foreign, ours: loans.length - foreign,
+        loans: loans.length - foreign, duplicatesSkipped: loans.length - foreign - fresh, paidOff: loans.filter((l) => isOurLoan(l) && l.paidOff).length,
+        principal: loans.filter((l) => isOurLoan(l) && !l.paidOff).reduce((s, l) => s + (l.principalBalance || 0), 0),
+        byLender: loans.filter(isOurLoan).reduce((m, l) => { const k = l.lenderName || '(blank)'; m[k] = (m[k] || 0) + 1; return m; }, {}),
       };
       if (perAccount[a.key].keyMatchesBook === false) {
         errors.push({ account: a.label, error: 'the key in ' + a.envVar + ' was issued for lender account ' + claims.account + ', not ' + a.label });

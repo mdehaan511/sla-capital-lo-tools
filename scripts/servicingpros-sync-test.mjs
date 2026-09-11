@@ -10,7 +10,7 @@
  */
 import {
   ACCOUNTS, spConfiguredAccounts, spDate, spNum, spPct, normalizeSpLoan, dispositionForSp, pickLoanForSpRow,
-  spKeyClaims, normalizeServicerNumber,
+  spKeyClaims, normalizeServicerNumber, bookForLenderName, isOurLoan,
 } from '../deploy/netlify/functions/_shared/servicingpros-api.mjs';
 
 let failures = 0;
@@ -37,6 +37,11 @@ check('investor per book matches the 236.734 reconcile', [ACCOUNTS.SLA.investorN
   check('garbage → null', [spKeyClaims('nope'), spKeyClaims('')], [null, null]);
   check('servicer numbers: hand-typed junk is stripped, case fixed', [normalizeServicerNumber('26-0239-SL AND'), normalizeServicerNumber(' 26-0079-sl '), normalizeServicerNumber('399610100')], ['26-0239-SL', '26-0079-SL', '399610100']);
 }
+
+// ── platform-wide feed guard (236.990) ───────────────────────────────────
+check('only SLA-originated rows count as ours', [isOurLoan({ origVendor: 'SLA' }), isOurLoan({ origVendor: 'sla' }), isOurLoan({ origVendor: 'OTHERCO' }), isOurLoan({})], [true, true, false, false]);
+check('lender of record → book', [bookForLenderName('King Arthur Fund 1 LLC').key, bookForLenderName('Sir Lends A Lot LLC').key, bookForLenderName('king arthur fund 1, llc').key, bookForLenderName('Some Other Lender'), bookForLenderName('')], ['SLA_KAF', 'SLA', 'SLA_KAF', null, null]);
+check('normalizeSpLoan carries lenderName + origVendor', (() => { const l = normalizeSpLoan({ LoanAccount: 'x', LenderName: 'King Arthur Fund 1 LLC', LoanOrigVendorAccount: 'sla' }, 'SLA'); return [l.lenderName, l.origVendor]; })(), ['King Arthur Fund 1 LLC', 'SLA']);
 
 // ── value parsing ───────────────────────────────────────────────────────
 check('their datetime → ISO date', spDate('2026-10-01 00:00:00'), '2026-10-01');

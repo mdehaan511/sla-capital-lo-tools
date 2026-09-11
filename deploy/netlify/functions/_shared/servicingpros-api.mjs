@@ -124,6 +124,12 @@ export function normalizeSpLoan(raw, accountKey) {
     unpaidLateCharges: spNum(r.LoanTermsUnpaidLateCharges),
     trustBalance: spNum(r.LoanTermsTrustBalance),
     categories: String(r.LoanTermsCategories || '').trim(),
+    // Deploy 236.990 — who the lender of record is and who originated. The SLA
+    // account's key came back with EVERY loan on their platform (1,366 loans,
+    // $743M, other lenders' borrowers included); these two fields are how the
+    // sync keeps only ours (originated by SLA) and files each under its book.
+    lenderName: String(r.LenderName || '').trim(),
+    origVendor: String(r.LoanOrigVendorAccount || '').trim().toUpperCase(),
     // Borrower MAILING contact on their side — kept in sp* fields only, never
     // written over the client record (same rule as the FCI borrower fields).
     borrowerName: String(r.BorrowerFullName || '').trim(),
@@ -136,6 +142,20 @@ export function normalizeSpLoan(raw, accountKey) {
 
 // Their book → our disposition. A paid-off date is explicit (unlike FCI's
 // "Assigned"/"CLOSED" ambiguity), so both branches map.
+/** The book a row belongs to, by its lender of record; null when unknown. */
+export function bookForLenderName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return null;
+  for (const a of Object.values(ACCOUNTS)) if (a.investorName.toLowerCase() === n) return a;
+  if (/king arthur/.test(n)) return ACCOUNTS.SLA_KAF;
+  if (/sir lends|sla capital/.test(n)) return ACCOUNTS.SLA;
+  return null;
+}
+/** Originated by SLA — the only rows the sync may ever look at. */
+export function isOurLoan(row) {
+  return String((row && row.origVendor) || '').toUpperCase() === 'SLA';
+}
+
 export function dispositionForSp(loan) {
   return loan && loan.paidOff ? 'paid_off' : 'sold';
 }
