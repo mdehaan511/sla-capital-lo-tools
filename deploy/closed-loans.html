@@ -1043,7 +1043,7 @@ function renderExtManage(){
       // 236.974 — an executed copy from before an added signer stays downloadable.
       (m.executedAt ? '<button type="button" onclick="extDownload()" style="width:100%;margin-top:10px;font-size:13px;font-weight:600;padding:9px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer">⬇ Download the executed copy so far</button>' : '');
   }
-  if (m.status !== 'cancelled') html += _extAddSignerHtml();   // 236.974
+  if (m.status !== 'cancelled') html += _extAddSignerHtml(_extTarget);   // 236.974 / 236.979 picker
   body.innerHTML = html;
 }
 
@@ -1069,16 +1069,50 @@ function _extSignersHtml(m){
         (s.signed ? '<span style="color:#256940;font-weight:600">✓ signed' + (s.signedAt ? ' ' + escH(new Date(s.signedAt).toLocaleDateString()) : '') + '</span>' : '<span style="color:#9B5E1D;font-weight:600">pending</span>') + '</div>';
     }).join('') + '</div>';
 }
-function _extAddSignerHtml(){
+function _extAddSignerHtml(it){
+  // Deploy 236.979 (Mike: "a dropdown for the Guarantors on the Loan to select from
+  // ... emailed or possible to send as a link") — pick from the loan's guarantors
+  // (anyone not already on the envelope), or type someone else; choose whether
+  // the signing link is emailed or handed back to send yourself.
+  var opts = _extGuarantorChoices(it);
+  var sel = '<select id="extAddPick" onchange="extAddPickChange()" style="width:100%;padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px;background:#fff">' +
+    '<option value="">' + (opts.length ? 'Choose a guarantor on this loan…' : 'No other guarantors on this loan — add someone below') + '</option>' +
+    opts.map(function(o, i){ return '<option value="' + i + '">' + escH(o.name || o.email) + (o.email ? ' — ' + escH(o.email) : '') + '</option>'; }).join('') +
+    '<option value="__other">Someone else…</option></select>';
   return '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border,#E4DFD4)">' +
     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:6px">Add a guarantor signer</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+    sel +
+    '<div id="extAddCustom" style="display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' +
       '<input type="text" id="extAddName" placeholder="Name as on the guaranty" style="padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px">' +
       '<input type="text" id="extAddEmail" placeholder="Email" style="padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px">' +
     '</div>' +
-    '<button type="button" id="extAddBtn" onclick="extAddSigner()" style="width:100%;margin-top:8px;font-size:13px;font-weight:600;padding:9px;border:1px solid var(--gold,#C8813A);background:#fff;color:var(--gold,#C8813A);border-radius:6px;cursor:pointer">+ Add and send to them</button>' +
-    '<div style="font-size:11px;color:var(--muted);margin-top:6px">Adds their signature block to this agreement. Nobody re-signs; if the others are done they are invited right away, otherwise they are invited in turn. An executed copy is re-issued with every signature once they sign.</div>' +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12.5px">' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="extAddSend" value="email" checked> Email them the signing link</label>' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="extAddSend" value="link"> Don\'t email — give me the link to send</label>' +
+    '</div>' +
+    '<button type="button" id="extAddBtn" onclick="extAddSigner()" style="width:100%;margin-top:8px;font-size:13px;font-weight:600;padding:9px;border:1px solid var(--gold,#C8813A);background:#fff;color:var(--gold,#C8813A);border-radius:6px;cursor:pointer">+ Add signer</button>' +
+    '<div id="extAddLinkBox" style="display:none;margin-top:8px;font-size:11px;font-family:\'DM Mono\',monospace;word-break:break-all;background:#faf8f3;border:1px solid var(--border,#E4DFD4);border-radius:6px;padding:8px 10px"></div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-top:6px">Adds their signature block to this agreement. Nobody re-signs; if the others are done their link is ready right away, otherwise they get it in turn. An executed copy is re-issued with every signature once they sign.</div>' +
   '</div>';
+}
+function _extGuarantorChoices(it){
+  var l = (it && it.loan) || {}, c = (it && it.client) || {}, m = l.extensionEsign || {};
+  var taken = {};
+  (m.signers || []).forEach(function(s){ if (s && s.email) taken[String(s.email).toLowerCase()] = 1; });
+  if (c.email) taken[String(c.email).toLowerCase()] = 1;   // the borrower already signs
+  var out = [];
+  (Array.isArray(l.guarantors) ? l.guarantors : []).forEach(function(g){
+    if (!g) return;
+    var e = String(g.email || '').toLowerCase();
+    if (!e || taken[e]) return;
+    taken[e] = 1;
+    out.push({ name: ((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '', email: e });
+  });
+  return out;
+}
+function extAddPickChange(){
+  var v = (document.getElementById('extAddPick')||{}).value;
+  var box = document.getElementById('extAddCustom'); if (box) box.style.display = (v === '__other') ? 'grid' : 'none';
 }
 function _extGuarantorDefault(l, c){
   var list = Array.isArray(l.guarantors) ? l.guarantors : [];
@@ -1091,24 +1125,56 @@ function _extGuarantorDefault(l, c){
   return { name: '', email: '' };
 }
 function _extGuarantorsFromForm(){
-  var e = ((document.getElementById('ext_g2Email')||{}).value||'').trim();
-  var n = ((document.getElementById('ext_g2Name')||{}).value||'').trim();
-  return (e && e.indexOf('@') > 0) ? [{ name: n || e, email: e }] : [];
+  var pick = (document.getElementById('ext_g2Pick')||{}).value || '';
+  if (!pick) return [];
+  if (pick === '__other') {
+    var e = ((document.getElementById('ext_g2Email')||{}).value||'').trim();
+    var n = ((document.getElementById('ext_g2Name')||{}).value||'').trim();
+    return (e && e.indexOf('@') > 0) ? [{ name: n || e, email: e }] : [];
+  }
+  var it = _svcTarget || {};
+  var o = _extGuarantorChoices({ loan: Object.assign({}, it.loan || {}, { extensionEsign: null }), client: it.client || {} })[parseInt(pick, 10)];
+  return o ? [{ name: o.name || o.email, email: o.email }] : [];
+}
+function extG2PickChange(){
+  var other = ((document.getElementById('ext_g2Pick')||{}).value === '__other') ? '' : 'none';
+  var a = document.getElementById('ext_g2NameWrap'), b = document.getElementById('ext_g2EmailWrap');
+  if (a) a.style.display = other; if (b) b.style.display = other;
 }
 function extAddSigner(){
   var it = _extTarget; if (!it) return;
   var m = it.loan.extensionEsign || {};
-  var name = ((document.getElementById('extAddName')||{}).value||'').trim();
-  var email = ((document.getElementById('extAddEmail')||{}).value||'').trim();
+  var pick = (document.getElementById('extAddPick')||{}).value || '';
+  var name = '', email = '';
+  if (pick === '__other' || pick === '') {
+    name = ((document.getElementById('extAddName')||{}).value||'').trim();
+    email = ((document.getElementById('extAddEmail')||{}).value||'').trim();
+    if (pick === '' && !email) { _extMsg('Choose a guarantor from the list, or pick "Someone else…" and enter their name and email.', true); return; }
+  } else {
+    var o = _extGuarantorChoices(it)[parseInt(pick, 10)] || {};
+    name = o.name || o.email || ''; email = o.email || '';
+  }
   if (!name || !email || email.indexOf('@') < 0) { _extMsg('Enter the guarantor\'s name and email.', true); return; }
+  var sendEl = document.querySelector('input[name="extAddSend"]:checked');
+  var sendEmail = !sendEl || sendEl.value !== 'link';
   var btn = document.getElementById('extAddBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
-  SLA.api('POST', '/api/loan-extension-add-signer', { envelopeId: m.envelopeId, owner: it.ownerKey, name: name, email: email }).then(function(r){
-    it.loan.extensionEsign = Object.assign({}, m, { status: r.markerStatus || m.status, pendingSigner: r.invited || r.url ? { name: name, email: email, role: r.role } : (m.pendingSigner || null),
+  SLA.api('POST', '/api/loan-extension-add-signer', { envelopeId: m.envelopeId, owner: it.ownerKey, name: name, email: email, sendEmail: sendEmail }).then(function(r){
+    it.loan.extensionEsign = Object.assign({}, m, { status: r.markerStatus || m.status, pendingSigner: (r.invited || r.url) ? { name: name, email: email, role: r.role } : (m.pendingSigner || null),
       signers: (m.signers || []).concat([{ name: name, email: email, role: r.role, signed: false }]) });
     renderExtManage();
-    _extMsg(name + ' added. ' + (r.invited ? 'Their signing link was emailed.' : r.url ? 'Signing link ready — use Copy link.' : 'They will be invited once the earlier signers finish.') + (r.reissue ? ' The executed copy is re-issued with every signature once they sign.' : ''), false);
+    if (r.url && !r.invited) {
+      var lb = document.getElementById('extAddLinkBox');
+      if (lb) { lb.style.display = 'block'; lb.innerHTML = '<div style="font-family:inherit;font-size:11px;color:var(--muted);margin-bottom:4px">Signing link for ' + escH(name) + ' — text or email it yourself:</div>' + escH(r.url) +
+        '<div style="margin-top:6px"><button type="button" onclick="_extCopyText(this.getAttribute(\'data-url\'))" data-url="' + escAttr(r.url) + '" style="font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--gold,#C8813A);background:#fff;color:var(--gold,#C8813A);border-radius:4px;cursor:pointer;font-family:inherit">Copy link</button></div>'; }
+    }
+    _extMsg(name + ' added. ' + (r.invited ? 'Their signing link was emailed.' : r.url ? 'Signing link ready below — send it to them.' : 'They will be invited once the earlier signers finish.') + (r.reissue ? ' The executed copy is re-issued with every signature once they sign.' : ''), false);
     if (typeof render === 'function') { try { render(); } catch (_) {} }
-  }).catch(function(e){ if (btn) { btn.disabled = false; btn.textContent = '+ Add and send to them'; } _extMsg('Could not add: ' + (e && e.message || 'unknown'), true); });
+  }).catch(function(e){ if (btn) { btn.disabled = false; btn.textContent = '+ Add signer'; } _extMsg('Could not add: ' + (e && e.message || 'unknown'), true); });
+}
+function _extCopyText(url){
+  if (!url) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){ _extMsg('Signing link copied.', false); }).catch(function(){ window.prompt('Copy this signing link:', url); });
+  else window.prompt('Copy this signing link:', url);
 }
 
 function extDownload(){
@@ -1204,7 +1270,7 @@ function openExtensionModal(clientId, loanId, ownerKey){
   var origAmt = num(l.finalLoanAmount)||num(l.loanAmt);
   var fee = Math.round(origAmt*0.01*100)/100;
   var bName = c.entityName || clientName(c);
-  var g2 = _extGuarantorDefault(l, c);   // 236.974
+  var g2opts = _extGuarantorChoices({ loan: Object.assign({}, l, { extensionEsign: null }), client: c });   // 236.979 — every guarantor but the borrower
   document.getElementById('svcTitle').textContent='Send Loan Extension Agreement';
   document.getElementById('svcSub').textContent=(l.address||'')+'  ·  extends to the 1st, 3 months out · you sign first, then the borrower is invited';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
@@ -1220,8 +1286,13 @@ function openExtensionModal(clientId, loanId, ownerKey){
     // Deploy 236.974 (Mike: "extensions can be sent to both of the guarantors") —
     // an optional second guarantor who signs after the borrower; prefilled from
     // the loan's guarantors. More can be added from the manage panel later.
-    '<div class="svc-fld"><label>Guarantor 2 (optional)</label><input type="text" id="ext_g2Name" value="'+escAttr(g2.name)+'" placeholder="Name as on the guaranty" /></div>'+
-    '<div class="svc-fld"><label>Guarantor 2 Email</label><input type="text" id="ext_g2Email" value="'+escAttr(g2.email)+'" placeholder="signs after the borrower" /></div>'+
+    // Deploy 236.979 — pick Guarantor 2 from the loan's guarantors (or type someone else).
+    '<div class="svc-fld" style="grid-column:1/-1"><label>Guarantor 2 (optional — signs after the borrower)</label><select id="ext_g2Pick" onchange="extG2PickChange()">'+
+      '<option value="">None</option>'+
+      g2opts.map(function(o, i){ return '<option value="'+i+'"'+(i===0?' selected':'')+'>'+escH(o.name||o.email)+(o.email?' — '+escH(o.email):'')+'</option>'; }).join('')+
+      '<option value="__other">Someone else…</option></select></div>'+
+    '<div class="svc-fld" id="ext_g2NameWrap" style="display:none"><label>Guarantor 2 Name</label><input type="text" id="ext_g2Name" value="" placeholder="Name as on the guaranty" /></div>'+
+    '<div class="svc-fld" id="ext_g2EmailWrap" style="display:none"><label>Guarantor 2 Email</label><input type="text" id="ext_g2Email" value="" placeholder="Email" /></div>'+
     '<div class="svc-fld" style="grid-column:1/-1"><label>Lender Signer Email (signs first)</label><input type="text" id="ext_lenderEmail" value="mike@slacapital.com" /></div>'+
     '<div class="svc-fld" style="grid-column:1/-1;font-size:12px;color:var(--muted)">The agreement fills from the loan record (origination '+escH(l.fundingDate?fmtDate(l.fundingDate):'—')+', amount '+escH(origAmt?('$'+Math.round(origAmt).toLocaleString()):'—')+'). The lender signs first to verify it; the borrower is only emailed after that signature.</div>';
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Send for Signatures';
@@ -1483,7 +1554,7 @@ function openTradeTapeModal(){
         '</select>' +
         '<div id="tapeParams" style="display:none;margin-bottom:12px">' +
           // Deploy 236.978 (Mike) — Funding Bank box removed: the tape derives
-          // it per-loan from the Closing tab's Funding Source (236.976).
+          // it per-loan from the Closing tab's Funding Source (236.979).
           '<div style="display:flex;gap:10px">' +
             '<div style="flex:1"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Trade Date</label>' +
               '<input type="date" id="tapeTradeDate" value="' + today + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px" /></div>' +

@@ -19,7 +19,11 @@
  *      If earlier signers are still pending, the sequence reaches the new one
  *      in turn (envelope-sign invites the next unsigned signer).
  *
- * Body: { envelopeId, owner?, name, email }
+ * Body: { envelopeId, owner?, name, email, sendEmail? }
+ *   sendEmail:false (Deploy 236.979, Mike: "emailed or possible to send as a
+ *   link") mints the link without emailing it — the response carries url for
+ *   the LO to text. Only matters when it is already their turn; otherwise the
+ *   sequence invites them by email when the earlier signers finish.
  * Processor tier (canOverrideOwner) — same gate as cancel / link.
  */
 import { getStore } from '@netlify/blobs';
@@ -70,6 +74,7 @@ async function handle(req, context) {
   const name = String(body.name || '').trim().slice(0, 120);
   if (!email || !email.includes('@')) return json(400, { error: 'A valid email for the guarantor is required.' });
   if (!name) return json(400, { error: 'The guarantor\'s name (as it should appear on the agreement) is required.' });
+  const sendEmail = body.sendEmail !== false && body.sendEmail !== 'false';   // 236.979 — link-only when false
 
   const ownerKey = keySafe(normalizeEmail(body.owner || user.email));
   const envStore = getStore({ name: 'envelopes', consistency: 'strong' });
@@ -153,7 +158,7 @@ async function handle(req, context) {
     const base = host ? `${proto}://${host}` : (process.env.URL || 'https://portal.slacapital.ai');
     url = `${base}/term-sheet-sign.html?t=${encodeURIComponent(token)}`;
     const apiKey = process.env.RESEND_API_KEY;
-    if (apiKey) {
+    if (apiKey && sendEmail) {
       try {
         let loName = envelope.requesterEmail;
         try {
@@ -173,7 +178,7 @@ async function handle(req, context) {
     ts: now, status: envelope.status,
     note: 'Guarantor added by ' + selfEmail + ': ' + name + ' <' + email + '>' +
       (wasCompleted ? ' — the executed agreement is re-issued once they sign.' : '') +
-      (othersSigned ? (invited ? ' Invited to sign now.' : ' Signing link generated (email not sent — use Copy link).') : ' They are invited in turn once the earlier signers finish.'),
+      (othersSigned ? (invited ? ' Invited to sign now.' : (sendEmail ? ' Signing link generated (email failed — use Copy link).' : ' Signing link generated; not emailed by choice — the LO sends it.')) : ' They are invited in turn once the earlier signers finish.'),
   });
   await envStore.setJSON(envKey, envelope);
 
@@ -183,12 +188,12 @@ async function handle(req, context) {
   const meta = (user && user.user_metadata) || {};
   await syncExtensionMarker(envelope, markerStatus,
     'Guarantor added to the Loan Extension Agreement: ' + name + ' <' + email + '>' +
-      (othersSigned ? (invited ? ' — invited to sign now.' : ' — signing link ready to copy.') : ' — signs after the earlier signers.') +
+      (othersSigned ? (invited ? ' — invited to sign now.' : (sendEmail ? ' — email failed; signing link ready to copy.' : ' — signing link generated to send by hand.')) : ' — signs after the earlier signers.') +
       (wasCompleted ? ' The executed copy will be re-issued with every signature once they sign.' : ''),
     { clientsStore, author: meta.full_name || meta.fullName || user.email || '', authorEmail: selfEmail, via: 'loan_extension_add_signer' });
 
   return json(200, {
     ok: true, envelopeId: envelope.id, signerIndex: newIdx, role, email, name,
-    invited, url, status: envelope.status, markerStatus, reissue: wasCompleted,
+    invited, url, linkOnly: othersSigned && !sendEmail, pendingTurn: !othersSigned, status: envelope.status, markerStatus, reissue: wasCompleted,
   });
 }

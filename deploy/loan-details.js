@@ -7454,29 +7454,76 @@ function _ldExtSignersHtml(m){
     }).join('') + '</div>';
 }
 function _ldExtAddSignerHtml(m){
+  // Deploy 236.979 (Mike) — pick from the loan's guarantors or type someone else;
+  // email the signing link or get it back to send yourself.
+  var opts = _ldExtGuarantorChoices(m);
+  var sel = '<select id="ldExtAddPick" onchange="ldExtAddPickChange()" style="width:100%;padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px;background:#fff">' +
+    '<option value="">' + (opts.length ? 'Choose a guarantor on this loan…' : 'No other guarantors on this loan — add someone below') + '</option>' +
+    opts.map(function(o, i){ return '<option value="' + i + '">' + escH(o.name || o.email) + (o.email ? ' — ' + escH(o.email) : '') + '</option>'; }).join('') +
+    '<option value="__other">Someone else…</option></select>';
   return '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#E4DFD4)">' +
     (m.executedAt && m.status !== 'completed' ? '<button type="button" class="save-app-btn" onclick="ldExtDownload()" style="margin-bottom:12px">⬇ Download the executed copy so far</button>' : '') +
     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:6px">Add a guarantor signer</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+    sel +
+    '<div id="ldExtAddCustom" style="display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' +
       '<input type="text" id="ldExtAddName" placeholder="Name as on the guaranty" style="padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px">' +
       '<input type="text" id="ldExtAddEmail" placeholder="Email" style="padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px">' +
     '</div>' +
-    '<button type="button" class="save-app-btn" id="ldExtAddBtn" onclick="ldExtAddSigner()" style="margin-top:8px">+ Add and send to them</button>' +
-    '<div style="font-size:11px;color:var(--muted);margin-top:6px">Adds their signature block to this agreement. Nobody re-signs; if the others are done they are invited right away, otherwise in turn. An executed copy is re-issued with every signature once they sign.</div>' +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12.5px">' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="ldExtAddSend" value="email" checked> Email them the signing link</label>' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="ldExtAddSend" value="link"> Don\'t email — give me the link to send</label>' +
+    '</div>' +
+    '<button type="button" class="save-app-btn" id="ldExtAddBtn" onclick="ldExtAddSigner()" style="margin-top:8px">+ Add signer</button>' +
+    '<div id="ldExtAddLinkBox" style="display:none;margin-top:8px;font-size:11px;font-family:\'DM Mono\',monospace;word-break:break-all;background:#faf8f3;border:1px solid var(--border,#E4DFD4);border-radius:6px;padding:8px 10px"></div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-top:6px">Adds their signature block to this agreement. Nobody re-signs; if the others are done their link is ready right away, otherwise they get it in turn. An executed copy is re-issued with every signature once they sign.</div>' +
   '</div>';
+}
+function _ldExtGuarantorChoices(m){
+  var l = _loan || {}, c = _client || {};
+  var taken = {};
+  ((m && m.signers) || []).forEach(function(s){ if (s && s.email) taken[String(s.email).toLowerCase()] = 1; });
+  if (c.email) taken[String(c.email).toLowerCase()] = 1;   // the borrower already signs
+  var out = [];
+  (Array.isArray(l.guarantors) ? l.guarantors : []).forEach(function(g){
+    if (!g) return;
+    var e = String(g.email || '').toLowerCase();
+    if (!e || taken[e]) return;
+    taken[e] = 1;
+    out.push({ name: ((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '', email: e });
+  });
+  return out;
+}
+function ldExtAddPickChange(){
+  var v = (document.getElementById('ldExtAddPick')||{}).value;
+  var box = document.getElementById('ldExtAddCustom'); if (box) box.style.display = (v === '__other') ? 'grid' : 'none';
 }
 function ldExtAddSigner(){
   var m = (_loan && _loan.extensionEsign) || {};
-  var name = ((document.getElementById('ldExtAddName')||{}).value||'').trim();
-  var email = ((document.getElementById('ldExtAddEmail')||{}).value||'').trim();
+  var pick = (document.getElementById('ldExtAddPick')||{}).value || '';
+  var name = '', email = '';
+  if (pick === '__other' || pick === '') {
+    name = ((document.getElementById('ldExtAddName')||{}).value||'').trim();
+    email = ((document.getElementById('ldExtAddEmail')||{}).value||'').trim();
+    if (pick === '' && !email) { _ldExtMsg('Choose a guarantor from the list, or pick "Someone else…" and enter their name and email.', true); return; }
+  } else {
+    var o = _ldExtGuarantorChoices(m)[parseInt(pick, 10)] || {};
+    name = o.name || o.email || ''; email = o.email || '';
+  }
   if (!name || !email || email.indexOf('@') < 0) { _ldExtMsg('Enter the guarantor\'s name and email.', true); return; }
+  var sendEl = document.querySelector('input[name="ldExtAddSend"]:checked');
+  var sendEmail = !sendEl || sendEl.value !== 'link';
   var btn = document.getElementById('ldExtAddBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
-  SLA.api('POST', '/api/loan-extension-add-signer', { envelopeId: m.envelopeId, owner: _loEmail || '', name: name, email: email }).then(function(r){
+  SLA.api('POST', '/api/loan-extension-add-signer', { envelopeId: m.envelopeId, owner: _loEmail || '', name: name, email: email, sendEmail: sendEmail }).then(function(r){
     _loan.extensionEsign = Object.assign({}, m, { status: r.markerStatus || m.status, pendingSigner: (r.invited || r.url) ? { name: name, email: email, role: r.role } : (m.pendingSigner || null),
       signers: (m.signers || []).concat([{ name: name, email: email, role: r.role, signed: false }]) });
     _ldExtRerender();
-    _ldExtMsg(name + ' added. ' + (r.invited ? 'Their signing link was emailed.' : r.url ? 'Signing link ready — use Copy signing link.' : 'They will be invited once the earlier signers finish.') + (r.reissue ? ' The executed copy is re-issued with every signature once they sign.' : ''), false);
-  }).catch(function(e){ if (btn) { btn.disabled = false; btn.textContent = '+ Add and send to them'; } _ldExtMsg('Could not add: ' + (e && e.message || 'unknown'), true); });
+    if (r.url && !r.invited) {
+      var lb = document.getElementById('ldExtAddLinkBox');
+      if (lb) { lb.style.display = 'block'; lb.innerHTML = '<div style="font-family:inherit;font-size:11px;color:var(--muted);margin-bottom:4px">Signing link for ' + escH(name) + ' — text or email it yourself:</div>' + escH(r.url) +
+        '<div style="margin-top:6px"><button type="button" onclick="_copySigningLink(this.getAttribute(\'data-url\'))" data-url="' + escAttr(r.url) + '" style="font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--gold,#C8813A);background:#fff;color:var(--gold,#C8813A);border-radius:4px;cursor:pointer;font-family:inherit">Copy link</button></div>'; }
+    }
+    _ldExtMsg(name + ' added. ' + (r.invited ? 'Their signing link was emailed.' : r.url ? 'Signing link ready below — send it to them.' : 'They will be invited once the earlier signers finish.') + (r.reissue ? ' The executed copy is re-issued with every signature once they sign.' : ''), false);
+  }).catch(function(e){ if (btn) { btn.disabled = false; btn.textContent = '+ Add signer'; } _ldExtMsg('Could not add: ' + (e && e.message || 'unknown'), true); });
 }
 function _ldExtMsg(text, bad){
   var el = document.getElementById('ldExtMsg'); if (!el) return;
