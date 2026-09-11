@@ -6502,6 +6502,13 @@ function _esignBtn(attrs, label, title) {
   return '<button type="button" ' + attrs + (title ? ' title="' + escAttr(title) + '"' : '') +
     ' style="font-size:10.5px;font-weight:600;padding:2px 8px;margin-left:6px;background:#fff;color:var(--gold,#C8813A);border:1px solid var(--gold,#C8813A);border-radius:3px;cursor:pointer">' + label + '</button>';
 }
+// The moment the envelope went out = its first 'sent' history stamp (envelopes
+// carry no sentAt field); a queued envelope falls back to when it was created.
+function _esignSentTs(env) {
+  var hs = env.history || [];
+  for (var i = 0; i < hs.length; i++) { if (hs[i] && hs[i].ts && String(hs[i].status || '') === 'sent') return hs[i].ts; }
+  return env.createdAt || '';
+}
 function _esignFeedEntries() {
   var envs = Array.isArray(window._envelopes) ? window._envelopes : [];
   var out = [];
@@ -6549,7 +6556,7 @@ function _esignFeedEntries() {
       err +
       (actions ? '<div style="margin-top:6px;display:flex;gap:2px;flex-wrap:wrap;margin-left:-6px">' + actions + '</div>' : '') +
     '</div>';
-    out.push({ id: 'esign_' + env.id, ts: env.sentAt || env.createdAt || '', kind: 'esign', author: 'E-Signature', text: docNames + ' \u2014 ' + status, html: html });
+    out.push({ id: 'esign_' + env.id, ts: _esignSentTs(env), kind: 'esign', author: 'E-Signature', text: docNames + ' \u2014 ' + status, html: html });
     // History events. The "Created" stub and the send itself are the entry
     // above; everything after (signed / resent / voided / completed) is its
     // own line at its own time.
