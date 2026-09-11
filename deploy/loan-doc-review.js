@@ -302,6 +302,9 @@
       '.dr-root .tray-verdict.approved { background:var(--dr-green-light); color:var(--dr-green); border:1px solid var(--dr-green-border); }',
       '.dr-root .tray-verdict.issues   { background:var(--dr-red-light); color:var(--dr-red); border:1px solid var(--dr-red-border); }',
       '.dr-root .tray-verdict.na       { background:var(--dr-blue-light); color:var(--dr-blue); border:1px solid var(--dr-blue-border); }',
+      // Deploy 236.972 — uncleared UW conditions flip the chip amber.
+      '.dr-root .tray-verdict.conditions { background:var(--gold-light); color:var(--gold-mid); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); }',
+      '.dr-root .tray.conditions { border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
       // Deploy 236.161 — Awaiting Review badge variants.
       '.dr-root .tray-verdict.awaiting-ok     { background:var(--dr-green-light); color:var(--dr-green); border:1px solid var(--dr-green-border); }',
       '.dr-root .tray-verdict.awaiting-issues { background:var(--dr-red-light); color:var(--dr-red); border:1px solid var(--dr-red-border); }',
@@ -1219,6 +1222,17 @@
                    : verdict === 'na'       ? 'N/A'
                    : 'Pending';
     }
+    // Deploy 236.972 (processing team) — UW conditions surface on the
+    // COLLAPSED tray: any uncleared condition (236.561's per-doc list)
+    // flips the header chip to "Conditions (N)" so nobody has to expand
+    // every tray to find them. Clearing them all restores the normal
+    // verdict chip; the count includes outstanding + received.
+    var _openConds = (Array.isArray(d.conditions) ? d.conditions : [])
+      .filter(function(c) { return c && c.status !== 'cleared'; }).length;
+    if (_openConds > 0) {
+      effectiveVerdict = 'conditions';
+      verdictLabel = '⚑ Conditions (' + _openConds + ')';
+    }
     var expanded = _expanded[slug] === true;
 
     // Deploy 236.163 — render EVERY live (non-hidden) doc on the
@@ -1430,7 +1444,9 @@
           reqBadge +
           formBadge +
         '</div>' +
-        '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
+        '<span class="tray-verdict ' + effectiveVerdict + '"' +
+          (_openConds > 0 ? ' title="' + _openConds + ' uncleared underwriting condition' + (_openConds === 1 ? '' : 's') + ' — expand the tray to view or clear"' : '') +
+          '>' + verdictLabel + '</span>' +
       '</div>' +
       '<div class="tray-body' + (expanded ? '' : ' collapsed') + '">' +
         // Deploy 236.767 (Mike) — BPO reprice flag. Set server-side when the
