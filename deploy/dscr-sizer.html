@@ -3753,6 +3753,9 @@ function saveCurrentQuote() {
     }
 
     function handleDscrSaveSuccess(resp) {
+      // Deploy 236.966 - a successful save advances the loaded-version
+      // stamp so the NEXT save from this same tab is not a false 409.
+      try { if (resp && resp.loan && resp.loan.updatedAt) window._loadedLoanUpdatedAt = resp.loan.updatedAt; } catch (_) {}
       window._originalAddress = formData.address;
       // Deploy 236.255 — refresh the sizer-history panel from the
       // freshly-persisted loan record. Backend appends a new entry
@@ -3854,6 +3857,10 @@ function saveCurrentQuote() {
         editingClientId: window._editingClientId || null,
         editingLoanId:   window._editingLoanId || null,
         owner:           ownerOvr || null,
+        // Deploy 236.966 - the loan.updatedAt this tab loaded (server-
+        // issued). sizer-save-loan refuses with 409 staleSave when the
+        // record moved since, so a stale tab can no longer revert it.
+        baseUpdatedAt:   window._loadedLoanUpdatedAt || null,
       };
       SLA.Clients.saveFromSizer(_payload)
         .then(function(resp) {
@@ -3879,7 +3886,22 @@ function saveCurrentQuote() {
           if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;
           return _r;
         })
-        .catch(handleDscrSaveFailure);
+        .catch(function(err) {
+          // Deploy 236.966 - someone saved this loan after this tab loaded
+          // it; the server refused so this tab can't silently revert their
+          // work. Offer an explicit overwrite.
+          if (err && err.data && err.data.staleSave) {
+            var _who = err.data.lastSavedBy || 'someone else';
+            var _ok = confirm('Not saved: this loan was saved by ' + _who + ' after this sizer tab loaded it.\n\nSaving now would OVERWRITE those newer values with what this tab shows.\n\nOK = overwrite anyway.  Cancel = keep their save (reload the loan to see it).');
+            if (_ok) {
+              _payload.forceStale = true;
+              return SLA.Clients.saveFromSizer(_payload).then(handleDscrSaveSuccess).catch(handleDscrSaveFailure);
+            }
+            handleDscrSaveFailure(new Error('Save canceled - reopen the loan to pick up the newer values.'));
+            return;
+          }
+          handleDscrSaveFailure(err);
+        });
       return;
     }
 
@@ -3985,12 +4007,20 @@ function loadQuoteIntoForm(formData) {
     var _rtSum = _pfSumFd('monthlyRent'), _txSum = _pfSumFd('monthlyTaxes');
     var _inSum = _pfSumFd('monthlyInsurance'), _hoSum = _pfSumFd('monthlyHoa');
     formData.propType = 'portfolio';
-    if (_pvSum > 0) formData.propValue = String(_pvSum);
-    if (_edSum > 0) formData.currentLoanAmt = String(_edSum);
-    if (_rtSum > 0) { formData.rent = String(_rtSum); formData.monthlyRent = String(_rtSum); }
-    if (_txSum > 0) { formData.taxes = String(_txSum); formData.monthlyTaxes = String(_txSum); }
-    if (_inSum > 0) { formData.insurance = String(_inSum); formData.monthlyInsurance = String(_inSum); }
-    if (_hoSum > 0) { formData.hoa = String(_hoSum); formData.monthlyHoa = String(_hoSum); }
+    // Deploy 236.966 (Mike - Sara's Hawthorne portfolio) - the sums are a
+    // SEED for blank loan-level fields, never an override. The old
+    // unconditional assignment repainted every sizer open with the
+    // per-property rows' totals - so after an LO updated the loan-level
+    // value (new appraisal), each open reverted the form to the stale
+    // property-row sums and the next Save wrote them back over the fix.
+    // Loan-level wins when present; the sums only fill gaps.
+    var _pfHas = function (v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, '')); return isFinite(n) && n > 0; };
+    if (_pvSum > 0 && !_pfHas(formData.propValue)) formData.propValue = String(_pvSum);
+    if (_edSum > 0 && !_pfHas(formData.currentLoanAmt)) formData.currentLoanAmt = String(_edSum);
+    if (_rtSum > 0 && !_pfHas(formData.rent) && !_pfHas(formData.monthlyRent)) { formData.rent = String(_rtSum); formData.monthlyRent = String(_rtSum); }
+    if (_txSum > 0 && !_pfHas(formData.taxes) && !_pfHas(formData.monthlyTaxes)) { formData.taxes = String(_txSum); formData.monthlyTaxes = String(_txSum); }
+    if (_inSum > 0 && !_pfHas(formData.insurance) && !_pfHas(formData.monthlyInsurance)) { formData.insurance = String(_inSum); formData.monthlyInsurance = String(_inSum); }
+    if (_hoSum > 0 && !_pfHas(formData.hoa) && !_pfHas(formData.monthlyHoa)) { formData.hoa = String(_hoSum); formData.monthlyHoa = String(_hoSum); }
   }
   var fields = {
     borrowerName: formData.borrower      || formData.borrowerName  || '',
@@ -4727,6 +4757,9 @@ netlifyIdentity.on('init', function(user) {
           // Assign-LO widget (mounted after load) can read
           // fromApplication / rate / status without re-fetching.
           window._loadedLoan = found;
+          // Deploy 236.966 - stale-form guard: remember WHICH version of
+          // the loan this tab loaded; Save sends it as baseUpdatedAt.
+          window._loadedLoanUpdatedAt = found.updatedAt || '';
           // Deploy 236.846 - the rate-sheet PDF needs the primary client too, to
           // decide whether to stamp PRELIMINARY (SLARateSheet.isPreliminary).
           window._loadedClient = clientRec;

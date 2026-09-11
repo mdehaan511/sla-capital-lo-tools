@@ -321,6 +321,28 @@ async function handle(req, context) {
 
   let loanRecord;
   if (existingLoan) {
+    // Deploy 236.966 (Mike — Sara's Hawthorne revert) — STALE-FORM GUARD.
+    // The sizer is last-writer-wins: a tab left open since the morning
+    // holds the morning's numbers, and clicking Save writes them back over
+    // everything saved since (this loan flip-flopped $255,500 ↔ $206,500
+    // three times between two people's stale tabs). The sizers now send
+    // `baseUpdatedAt` — the loan.updatedAt they LOADED (a server-issued
+    // stamp, so string compare is exact, no clock skew). If the record
+    // moved since, refuse with 409 + who saved it; the sizer asks the LO
+    // "overwrite or cancel" and only a confirmed retry (forceStale) wins.
+    if (body.baseUpdatedAt && !body.forceStale && existingLoan.updatedAt &&
+        String(existingLoan.updatedAt) > String(body.baseUpdatedAt)) {
+      const _lastHist = Array.isArray(existingLoan.sizerHistory) && existingLoan.sizerHistory[0];
+      return json(409, {
+        error: 'This loan was saved again after this sizer tab loaded it' +
+          (_lastHist && _lastHist.savedBy ? ' (last save by ' + _lastHist.savedBy + ')' : '') +
+          '. Saving now would overwrite those newer values.',
+        staleSave: true,
+        serverUpdatedAt: existingLoan.updatedAt,
+        lastSavedBy: (_lastHist && _lastHist.savedBy) || '',
+        lastSavedAt: (_lastHist && _lastHist.savedAt) || existingLoan.updatedAt,
+      });
+    }
     // Update in place — merge sanitized incoming onto existing.
     const merged = Object.assign({}, existingLoan, _sanitizedLoan(body.loan, existingLoan));
     // Deploy 236.762 — preservation on THIS path (the live one). The 236.759

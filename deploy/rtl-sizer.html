@@ -3574,6 +3574,9 @@ function saveCurrentQuote() {
     }
 
     function handleSaveSuccess(resp) {
+      // Deploy 236.966 - a successful save advances the loaded-version
+      // stamp so the NEXT save from this same tab is not a false 409.
+      try { if (resp && resp.loan && resp.loan.updatedAt) window._loadedLoanUpdatedAt = resp.loan.updatedAt; } catch (_) {}
       window._originalAddress = formData.address;
       // Deploy 236.258 — refresh the sizer-history panel from the
       // freshly-persisted loan record so a new save shows up in the
@@ -3658,6 +3661,10 @@ function saveCurrentQuote() {
         editingClientId: window._editingClientId || null,
         editingLoanId:   window._editingLoanId || null,
         owner:           ownerOvr || null,
+        // Deploy 236.966 - the loan.updatedAt this tab loaded (server-
+        // issued). sizer-save-loan refuses with 409 staleSave when the
+        // record moved since, so a stale tab can no longer revert it.
+        baseUpdatedAt:   window._loadedLoanUpdatedAt || null,
       };
       SLA.Clients.saveFromSizer(_payload)
         .then(function(resp) {
@@ -3679,7 +3686,22 @@ function saveCurrentQuote() {
           if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;
           return _r;
         })
-        .catch(handleSaveFailure);
+        .catch(function(err) {
+          // Deploy 236.966 - someone saved this loan after this tab loaded
+          // it; the server refused so this tab can't silently revert their
+          // work. Offer an explicit overwrite.
+          if (err && err.data && err.data.staleSave) {
+            var _who = err.data.lastSavedBy || 'someone else';
+            var _ok = confirm('Not saved: this loan was saved by ' + _who + ' after this sizer tab loaded it.\n\nSaving now would OVERWRITE those newer values with what this tab shows.\n\nOK = overwrite anyway.  Cancel = keep their save (reload the loan to see it).');
+            if (_ok) {
+              _payload.forceStale = true;
+              return SLA.Clients.saveFromSizer(_payload).then(handleSaveSuccess).catch(handleSaveFailure);
+            }
+            handleSaveFailure(new Error('Save canceled - reopen the loan to pick up the newer values.'));
+            return;
+          }
+          handleSaveFailure(err);
+        });
       return;
     }
 
@@ -4390,6 +4412,9 @@ netlifyIdentity.on('init', function(user) {
         // Deploy 236.359 — stash the loaded loan for the admin
         // Assign-LO widget (see dscr-sizer.html for details).
         window._loadedLoan = found;
+          // Deploy 236.966 - stale-form guard: remember WHICH version of
+          // the loan this tab loaded; Save sends it as baseUpdatedAt.
+          window._loadedLoanUpdatedAt = found.updatedAt || '';
         // Deploy 236.846 - the rate-sheet PDF needs the primary client too, to
         // decide whether to stamp PRELIMINARY (SLARateSheet.isPreliminary).
         window._loadedClient = clientRec;
