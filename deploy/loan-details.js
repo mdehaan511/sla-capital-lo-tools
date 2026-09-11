@@ -2102,6 +2102,7 @@ function render() {
           '<button class="btn-jump active" id="noteFilterBtn_all"    onclick="setNoteFilter(\'all\')"    title="All entries">All</button>' +
           '<button class="btn-jump"        id="noteFilterBtn_status" onclick="setNoteFilter(\'status\')" title="Status changes, decisions, edits — anything the platform stamped">Status</button>' +
           '<button class="btn-jump"        id="noteFilterBtn_user"   onclick="setNoteFilter(\'user\')"   title="Free-form notes left by users">Notes</button>' +
+          '<button class="btn-jump"        id="noteFilterBtn_esign"  onclick="setNoteFilter(\'esign\')"  title="E-signature envelopes: what was sent, who signed, and each signer\'s link">E-Sign</button>' + // 236.967
           '<span style="flex:1"></span>' +
           '<button class="btn-jump active" id="noteJumpTopBtn" onclick="jumpNotesTo(\'top\')" title="Newest entries">↑ Top</button>' +
           '<button class="btn-jump" id="noteJumpBottomBtn" onclick="jumpNotesTo(\'bottom\')" title="Oldest entries">↓ Bottom</button>' +
@@ -2689,36 +2690,27 @@ function render() {
     var panel = document.getElementById('envelopesPanel');
     var bar   = document.getElementById('ldNotesSidebar');
     if (!panel || !bar) return;
-    var wrap = document.createElement('div');
-    wrap.className = 'section';
-    wrap.id = 'ldEnvelopesSection';
-    wrap.style.marginTop = '20px';
-    wrap.innerHTML =
-      '<div class="section-head">' +
-        '<h2>E-Signature Envelopes</h2>' +
-        '<span class="section-tag tag-readonly">Audit trail</span>' +
-      '</div>' +
-      '<div class="section-body" id="ldEnvelopesBody"></div>';
-    bar.appendChild(wrap);
-    var body = document.getElementById('ldEnvelopesBody');
-    while (panel.firstChild) body.appendChild(panel.firstChild);
+    // Deploy 236.967 (Mike: "merge the E-Signature Envelope notes with the
+    // Notes and Activity") -- the separate E-Signature Envelopes box is gone;
+    // envelopes render inside the Notes & Activity feed (_esignFeedEntries).
+    // #envelopesList must still exist (hidden): refreshEnvelopes() returns
+    // early without it and it is what sets _signedRateSheet for the Download
+    // button (236.861). The Signature Confirmations pane (#signedAppStatus,
+    // the signed loan application) now sits right above the feed.
+    var holder = document.createElement('div');
+    holder.id = 'ldEnvelopesHidden';
+    holder.style.display = 'none';
+    while (panel.firstChild) holder.appendChild(panel.firstChild);
     panel.remove();
-
-    // Relocate the signedAppStatus pane (Signature Confirmations)
-    // into the SAME box, just above the envelope cards list so the
-    // pane reads as a summary line for the most recent signed app.
-    // refreshSignedApplicationStatus() still finds the element by
-    // ID after the move; only the visual position changes.
+    bar.appendChild(holder);
     var sigPane = document.getElementById('signedAppStatus');
-    if (sigPane) {
-      // Strip the inline border/margin that made sense when it sat
-      // next to the (now-relocated) download button — the section
-      // wrapper provides its own framing now.
+    var notesList = document.getElementById('notesList');
+    if (sigPane && notesList && notesList.parentNode) {
       sigPane.style.marginTop = '';
+      sigPane.style.marginBottom = '10px';
       sigPane.style.border = '1px solid var(--border, #ddd8d0)';
       sigPane.style.borderRadius = '6px';
-      // Insert at the TOP of the body so it sits above #envelopesList.
-      body.insertBefore(sigPane, body.firstChild);
+      notesList.parentNode.insertBefore(sigPane, notesList);
     }
   })();
 
@@ -6491,10 +6483,102 @@ function openOrCreateDocReview() {
 
 // ── Notes audit log (Deploy 226) ────────────────────────────────────
 
+// Deploy 236.967 (Mike: "merge the E-Signature Envelope notes with the Notes
+// and Activity please and make the link always available in those
+// confirmations to send so they can be texted without having to generate a
+// new one.") Every envelope from refreshEnvelopes() becomes feed entries:
+// one "sent" entry carrying the signers, their state and the actions --
+// Copy link (the EXISTING link, from envelopes.mjs signUrl), Resend email
+// (a NEW link), Cancel, Refresh, Download -- plus one entry per envelope
+// history event (signed, resent, voided, completed). Kind 'esign'.
+function _esignDocNames(env) {
+  return (env.docs || []).map(function(d) {
+    if (d.kind === 'rate_sheet') return 'Rate Sheet';
+    if (d.kind === 'loan_extension') return 'Extension Agreement';
+    return 'Loan App';
+  }).join(' + ') || 'Document';
+}
+function _esignBtn(attrs, label, title) {
+  return '<button type="button" ' + attrs + (title ? ' title="' + escAttr(title) + '"' : '') +
+    ' style="font-size:10.5px;font-weight:600;padding:2px 8px;margin-left:6px;background:#fff;color:var(--gold,#C8813A);border:1px solid var(--gold,#C8813A);border-radius:3px;cursor:pointer">' + label + '</button>';
+}
+function _esignFeedEntries() {
+  var envs = Array.isArray(window._envelopes) ? window._envelopes : [];
+  var out = [];
+  envs.forEach(function(env) {
+    if (!env || !env.id) return;
+    var status = String(env.status || 'queued');
+    var isLegacy = (env.envelopeMode === 'pandadoc-legacy') || (!env.envelopeMode && env.pandadocMode);
+    var dead = status === 'completed' || status === 'voided' || status === 'expired';
+    var docNames = _esignDocNames(env);
+    var lines = '';
+    (env.signers || []).forEach(function(s, idx) {
+      var nm = escH((((s.firstName || '') + ' ' + (s.lastName || '')).trim()) || s.email || 'Signer');
+      var em = escH(s.email || '');
+      var signed = !!(s.hasSigned || s.signedAt);
+      var state = signed
+        ? '<span style="color:#256940;font-weight:600">\u2713 signed' + (s.signedAt ? ' ' + escH(new Date(s.signedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })) : '') + '</span>'
+        : '<span style="color:#9B5E1D;font-weight:600">pending</span>';
+      var acts = '';
+      if (!signed && !dead && !isLegacy && status !== 'failed') {
+        if (s.signUrl) acts += _esignBtn('data-action="copy-link" data-url="' + escAttr(s.signUrl) + '"', '\uD83D\uDD17 Copy link', 'Copies this signer\'s CURRENT signing link -- text it to them. No new link is generated.');
+        acts += _esignBtn('data-action="resend-signer" data-id="' + escAttr(env.id) + '" data-signer="' + idx + '"', 'Resend email', 'Emails a NEW signing link (the old one stops working).');
+      }
+      var rc = (s.resendCount && s.resendCount > 0) ? ' <span style="color:var(--muted,#7A7488);font-size:10.5px">(resent ' + s.resendCount + 'x)</span>' : '';
+      lines += '<div>\u2022 ' + nm + (em ? ' &lt;' + em + '&gt;' : '') + ' \u2014 ' + state + rc + acts + '</div>';
+    });
+    var actions = '';
+    if (status === 'completed' && !isLegacy && env.docs && env.docs.length) {
+      env.docs.forEach(function(d, i) {
+        actions += _esignBtn('data-action="download-final" data-id="' + escAttr(env.id) + '" data-doc="' + i + '"', '\u2193 ' + escH(d.name || ('Doc ' + (i + 1))), 'Download the signed copy');
+      });
+    }
+    if (!dead && !isLegacy && status !== 'failed') {
+      actions += _esignBtn('data-action="refresh" data-id="' + escAttr(env.id) + '"', 'Refresh status', '');
+      actions += _esignBtn('data-action="void" data-id="' + escAttr(env.id) + '"', 'Cancel envelope', 'Invalidates every outstanding signing link');
+    }
+    var err = '';
+    if (status === 'failed' && env.sendError) err = '<div style="color:var(--danger,#7c1f1f);margin-top:4px;font-size:11.5px">Error: ' + escH(env.sendError) + '</div>';
+    else if (status === 'partial_send_failure') err = '<div style="color:#9B5E1D;margin-top:4px;font-size:11.5px">Some invitation emails failed \u2014 copy the link and text it, or resend.</div>';
+    else if (status === 'completed_stamping_failed') err = '<div style="color:var(--danger,#7c1f1f);margin-top:4px;font-size:11.5px">All signed, but PDF stamping failed: ' + escH(env.sendError || 'unknown') + '</div>';
+    if (isLegacy) err += '<div style="color:var(--muted,#7A7488);margin-top:4px;font-size:11px;font-style:italic">Legacy PandaDoc envelope \u2014 read only.</div>';
+    var html = '<div class="note-esign">' +
+      '<strong>' + escH(docNames) + '</strong> sent for e-signature ' +
+      '<span class="env-status-badge ' + escAttr(status) + '" style="margin-left:4px">' + escH(status.replace(/_/g, ' ')) + '</span>' +
+      (lines ? '<div style="margin-top:6px;font-size:11.5px;line-height:1.8">' + lines + '</div>' : '') +
+      err +
+      (actions ? '<div style="margin-top:6px;display:flex;gap:2px;flex-wrap:wrap;margin-left:-6px">' + actions + '</div>' : '') +
+    '</div>';
+    out.push({ id: 'esign_' + env.id, ts: env.sentAt || env.createdAt || '', kind: 'esign', author: 'E-Signature', text: docNames + ' \u2014 ' + status, html: html });
+    // History events. The "Created" stub and the send itself are the entry
+    // above; everything after (signed / resent / voided / completed) is its
+    // own line at its own time.
+    var sendSkipped = false;
+    (env.history || []).forEach(function(h, i) {
+      if (!h || !h.ts) return;
+      var note = String(h.note || '');
+      if (i === 0 && /^Created/i.test(note)) return;
+      if (!sendSkipped && String(h.status || '') === 'sent' && !/resent/i.test(note)) { sendSkipped = true; return; }
+      out.push({ id: 'esign_' + env.id + '_h' + i, ts: h.ts, kind: 'esign', author: 'E-Signature', text: docNames + ': ' + note });
+    });
+  });
+  return out;
+}
+function _copySigningLink(url) {
+  if (!url) { showToast('No signing link on this envelope'); return; }
+  var done = function() { showToast('Signing link copied \u2014 text it to the borrower'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(function() { window.prompt('Copy this signing link:', url); });
+  } else {
+    window.prompt('Copy this signing link:', url);
+  }
+}
+
 function renderNotesLog() {
   var inner = document.getElementById('notesListInner');
   if (!inner) return;
   var all = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
+  all = all.concat(_esignFeedEntries()); // Deploy 236.967 -- envelopes live in this feed
   // Deploy 236.800 — pinned notes float above the feed, regardless of the
   // note filter (that's the point of pinning: read-this-first). Most
   // recently pinned first. Processors/admins get pin/unpin controls.
@@ -6554,7 +6638,7 @@ function renderNotesLog() {
       ctrls += '<button type="button" onclick="startNoteEdit(\'' + escH(e.id) + '\')" title="Edit this note"' +
         ' style="margin-left:auto;border:none;background:transparent;cursor:pointer;font-size:11px;color:#a49d92;padding:0 2px">✎ Edit</button>';
     }
-    if (_canPin && e.id && e.id !== 'legacy') {
+    if (_canPin && e.id && e.id !== 'legacy' && e.kind !== 'esign') { // 236.967 -- envelope entries are synthetic, nothing to pin
       ctrls += '<button type="button" onclick="toggleNotePin(\'' + escH(e.id) + '\',' + (isPinned ? 'false' : 'true') + ')"' +
         ' title="' + (isPinned ? 'Unpin this note' : 'Pin this note to the top') + '"' +
         ' style="' + (canEdit ? '' : 'margin-left:auto;') + 'border:none;background:transparent;cursor:pointer;font-size:11px;color:' + (isPinned ? '#b5712d' : '#a49d92') + ';padding:0 2px">' +
@@ -6574,7 +6658,7 @@ function renderNotesLog() {
           '<span class="note-entry-kind nk-' + escH(e.kind || 'manual') + '">' + escH(kindLabel) + '</span>' +
           ctrls +
         '</div>' +
-        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + escH(e.text || '') + editedMark + '</div>' +
+        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + (e.html ? e.html : escH(e.text || '')) + editedMark + '</div>' + // 236.967 -- esign entries carry markup
       '</div>';
   }
   var html = '';
@@ -6695,6 +6779,7 @@ function noteKindLabel(k) {
     case 'field_edit':    return 'Edit';
     case 'system':        return 'System';
     case 'legacy':        return 'Pre-audit-log';
+    case 'esign':         return 'E-Sign';   // Deploy 236.967
     default:              return String(k || 'Note');
   }
 }
@@ -6707,14 +6792,15 @@ function noteKindLabel(k) {
 //   * user-side: 'manual', 'legacy' — the actual free-form notes
 // `all` shows everything (default).
 var NOTE_KIND_BUCKETS = {
-  status: ['status','stage_change','decision','app_sent','app_received','submit','pre_discussed','decline','reprice','field_edit','system'],
+  status: ['status','stage_change','decision','app_sent','app_received','submit','pre_discussed','decline','reprice','field_edit','system','esign'],
   user:   ['manual','legacy'],
+  esign:  ['esign'],   // Deploy 236.967 -- envelopes (sent / signed / links)
 };
 var _noteFilter = 'all';
 function setNoteFilter(which) {
   _noteFilter = which;
   // Update button active states.
-  ['all','status','user'].forEach(function(k) {
+  ['all','status','user','esign'].forEach(function(k) {
     var b = document.getElementById('noteFilterBtn_' + k);
     if (b) b.classList.toggle('active', k === which);
   });
@@ -11240,13 +11326,13 @@ function refreshEnvelopes() {
     // even when the panel is empty, so the button resets correctly).
     _signedRateSheet = _findSignedRateSheet(envs);
     _applyRateSheetBtn();
-    if (!envs.length) {
-      listEl.style.display = 'none';
-      listEl.innerHTML = '';
-      return;
-    }
-    listEl.style.display = '';
-    listEl.innerHTML = envs.map(renderEnvelopeCard).join('');
+    // Deploy 236.967 -- envelopes render inside Notes & Activity now (see
+    // _esignFeedEntries); the old card list stays hidden but the element
+    // must exist for the signed-rate-sheet logic above.
+    window._envelopes = envs;
+    listEl.style.display = 'none';
+    listEl.innerHTML = '';
+    try { renderNotesLog(); } catch (e) { console.warn('[SLA] esign feed:', e && e.message); }
   }).catch(function(err) {
     // Quiet failure — don't pollute the loan-details page with envelope errors
     console.warn('refreshEnvelopes failed:', err && err.message);
@@ -11362,10 +11448,11 @@ function renderEnvelopeCard(env) {
 // Delegate envelope card button clicks. Using delegation rather than
 // inline onclick so escaping is simpler and the markup stays clean.
 document.addEventListener('click', function(e) {
-  var btn = e.target.closest && e.target.closest('.env-card-actions button, .env-card [data-action]');
+  var btn = e.target.closest && e.target.closest('.env-card-actions button, .env-card [data-action], .note-esign [data-action]');
   if (!btn) return;
   var action = btn.dataset.action;
   var id     = btn.dataset.id;
+  if (action === 'copy-link') { _copySigningLink(btn.dataset.url || ''); return; } // 236.967
   if (!action || !id) return;
   if (action === 'refresh')       refreshEnvelopeStatus(id);
   else if (action === 'void')     voidEnvelope(id);

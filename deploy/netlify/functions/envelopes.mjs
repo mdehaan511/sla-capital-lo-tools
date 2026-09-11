@@ -290,16 +290,35 @@ async function handleList(req, user) {
     // Strip large fields for list view: full audit JSON is heavy, and
     // tokens shouldn\u2019t leak in a list response (they\u2019re for the
     // signer\u2019s email link only).
+    // Deploy 236.967 (Mike: "make the link always available in those
+    // confirmations to send so they can be texted without having to generate
+    // a new one") -- every signer who still has to sign on a live envelope
+    // carries signUrl: the EXISTING link (same token the invitation email
+    // used), so the LO can copy and text it at any time instead of rotating
+    // it with Resend. The raw token itself is still never listed; signed
+    // signers and completed / voided / expired envelopes get no link.
+    const proto = (req.headers && req.headers.get ? req.headers.get('x-forwarded-proto') : null) || 'https';
+    const host  = (req.headers && req.headers.get ? req.headers.get('host') : null) || '';
+    const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://slaloantools.netlify.app');
+    const DEAD = ['completed', 'voided', 'expired', 'failed', 'completed_stamping_failed'];
+    const nowMs = Date.now();
     envelopes = envelopes.map((e) => ({
       ...e,
-      signers: (e.signers || []).map((s) => ({
-        firstName: s.firstName, lastName: s.lastName, email: s.email,
-        role: s.role, signingOrder: s.signingOrder,
-        signedAt: s.signedAt || (s.audit && s.audit.signedAt) || null,
-        invitedAt: s.invitedAt,
-        resendCount: s.resendCount,
-        hasSigned: !!(s.audit && s.audit.signedAt),
-      })),
+      signers: (e.signers || []).map((s) => {
+        const hasSigned = !!(s.audit && s.audit.signedAt);
+        const expired = !!(s.tokenExpiresAt && new Date(s.tokenExpiresAt).getTime() < nowMs);
+        const linkable = !!s.token && !hasSigned && !expired && !DEAD.includes(String(e.status || '')) && String(e.status || '') !== 'queued';
+        return {
+          firstName: s.firstName, lastName: s.lastName, email: s.email,
+          role: s.role, signingOrder: s.signingOrder,
+          signedAt: s.signedAt || (s.audit && s.audit.signedAt) || null,
+          invitedAt: s.invitedAt,
+          resendCount: s.resendCount,
+          hasSigned,
+          tokenExpiresAt: s.tokenExpiresAt || null,
+          signUrl: linkable ? `${base}/term-sheet-sign.html?t=${encodeURIComponent(s.token)}` : null,
+        };
+      }),
       // Legacy compat: surface the historical pandadocMode field as
       // envelopeMode so the UI can fan out on type. For pre-Deploy-185
       // records, envelopeMode is absent and we synthesize it.
