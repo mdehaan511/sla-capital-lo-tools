@@ -72,7 +72,7 @@
 [functions."fci-portfolio-sync-cron"]
   timeout = 26
 
-# Deploy 236.982 -- live Servicing Pros sync (both lender accounts): two feed
+# Deploy 236.983 -- live Servicing Pros sync (both lender accounts): two feed
 # calls + a client-blob walk to match by servicer loan number. Full budget.
 [functions."servicingpros-portfolio-sync"]
   timeout = 26
@@ -1062,7 +1062,7 @@
   to = "/.netlify/functions/servicingpros-portfolio-sync"
   status = 200
   force = true
-# Deploy 236.982 -- see above; dry-run by default, nightly via its own config export.
+# Deploy 236.983 -- see above; dry-run by default, nightly via its own config export.
 [[redirects]]
   from = "/api/fci-portfolio-sync"
   to = "/.netlify/functions/fci-portfolio-sync"

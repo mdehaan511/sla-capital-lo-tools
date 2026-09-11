@@ -1,5 +1,5 @@
 /**
- * scripts/servicingpros-sync-test.mjs — Deploy 236.982
+ * scripts/servicingpros-sync-test.mjs — Deploy 236.983
  *
  * Gate for the pure half of the Servicing Pros sync (deploy/netlify/functions/
  * _shared/servicingpros-api.mjs): how their loan rows are read, how a paid-off

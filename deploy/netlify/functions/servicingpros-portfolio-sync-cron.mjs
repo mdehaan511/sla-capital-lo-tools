@@ -1,7 +1,7 @@
 /**
  * servicingpros-portfolio-sync-cron.mjs — nightly Servicing Pros refresh.
  *
- * Deploy 236.982 (Mike). Same code path as POST /api/servicingpros-portfolio-sync
+ * Deploy 236.983 (Mike). Same code path as POST /api/servicingpros-portfolio-sync
  * (imported directly — no HTTP round trip, no service token). Both lender
  * accounts (SLA + SLA-KAF), full book every night — it is a few dozen loans,
  * so there is no delta window to manage.

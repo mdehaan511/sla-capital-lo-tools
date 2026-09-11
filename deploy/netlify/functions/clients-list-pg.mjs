@@ -140,7 +140,7 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'borrowerName', 'borrowerEmail',
   'expectedCloseDate', // Deploy 236.960 — see clients-list.mjs (rides extra)
   'guarantors',        // Deploy 236.974 — see clients-list.mjs (rides extra)
-  'spAccount', 'spSyncedAt', 'spLastPaymentDate', // Deploy 236.982 — see clients-list.mjs
+  'spAccount', 'spSyncedAt', 'spLastPaymentDate', // Deploy 236.983 — see clients-list.mjs
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
