@@ -1465,11 +1465,14 @@
               '<span class="ai-label issues">⛔ Felony found — hard stop</span></div>' +
               '<div class="ai-summary">' + escHtml(d.felonyAlert) + '</div></div>'
           : '') +
+        // Deploy 236.987 (processing team) — Conditions + processor notes
+        // LEAD the tray, above the document list: they are the action items,
+        // and at the bottom they were off-screen on any tray with docs.
+        conds +
+        notes +
         currentHtml +
         aiHtml +
         dz +
-        notes +
-        conds +
         naBlock +
         '<div class="verdict-actions">' + verdictBtns + '</div>' +
         historyHtml +
