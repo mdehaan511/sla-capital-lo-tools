@@ -42,7 +42,7 @@ function roleLabel(role) {
   const r = String(role || '').toLowerCase();
   if (r === 'borrower') return 'Borrower';
   if (r === 'lender')   return 'Lender';
-  if (r === 'guarantor') return 'Guarantor';
+  if (r === 'guarantor' || r.indexOf('guarantor') === 0) return 'Guarantor';   // guarantor2, guarantor3 … (236.974)
   return 'Co-Signer';
 }
 

@@ -28,6 +28,7 @@ import {
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { hashPdf } from './_shared/native-esign.mjs';
+import { markerFields } from './_shared/extension-marker.mjs'; // Deploy 236.974
 import { buildExtensionAgreementPdf } from './_shared/extension-agreement-pdf.mjs';
 
 const DEFAULT_LENDER = { firstName: 'Mike', lastName: 'DeHaan', email: 'mike@slacapital.com' };
@@ -99,6 +100,18 @@ async function handle(req, context) {
   }
   const lenderEmail = normalizeEmail(body.lenderEmail || DEFAULT_LENDER.email);
   if (lenderEmail === borrowerEmail) return json(400, { error: 'Lender and borrower emails must differ.' });
+  // Deploy 236.974 (Mike: "extensions can be sent to both of the guarantors") —
+  // extra guarantor signers, each with their own rule on the agreement, signing
+  // in turn after the borrower. More can be added later (loan-extension-add-signer).
+  const extraGuarantors = [];
+  for (const g of (Array.isArray(body.guarantors) ? body.guarantors : []).slice(0, 4)) {
+    const gEmail = normalizeEmail((g && g.email) || '');
+    const gName = String((g && g.name) || '').trim().slice(0, 120);
+    if (!gEmail || !gEmail.includes('@')) continue;
+    if (gEmail === borrowerEmail || gEmail === lenderEmail || extraGuarantors.some((x) => x.email === gEmail)) continue;
+    extraGuarantors.push({ name: gName || gEmail, email: gEmail, role: 'guarantor' + (extraGuarantors.length + 2) });
+  }
+  values.guarantors = extraGuarantors.map((g) => ({ name: g.name, role: g.role }));
 
   // ── Render the agreement PDF ──────────────────────────────────────
   let pdfBytes, sigFields;
@@ -140,6 +153,11 @@ async function handle(req, context) {
         role: 'lender', signingOrder: 1, token: null, tokenExpiresAt: null, audit: null, signedAt: null, invitedAt: null, resendCount: 0 },
       { firstName: borrower.firstName, lastName: borrower.lastName, email: borrowerEmail,
         role: 'borrower', signingOrder: 2, token: null, tokenExpiresAt: null, audit: null, signedAt: null, invitedAt: null, resendCount: 0 },
+      ...extraGuarantors.map((g, i) => {
+        const n = _splitName(g.name, '');
+        return { firstName: n.firstName, lastName: n.lastName, email: g.email,
+          role: g.role, signingOrder: 3 + i, token: null, tokenExpiresAt: null, audit: null, signedAt: null, invitedAt: null, resendCount: 0 };
+      }),
     ],
     message: 'Loan Extension Agreement for ' + (loan.address || 'your loan') +
       ' — new maturity date ' + values.newMaturityDate + '.',
@@ -160,7 +178,8 @@ async function handle(req, context) {
     envelopeMode: 'native',
     sendError: null,
     createdAt: now,
-    history: [{ ts: now, status: 'queued', note: 'Extension agreement generated — sequential send (lender first, then borrower).' }],
+    history: [{ ts: now, status: 'queued', note: 'Extension agreement generated — sequential send (lender first, then borrower' +
+      (extraGuarantors.length ? ', then ' + extraGuarantors.map((g) => g.name).join(', ') : '') + ').' }],
   };
   const envStore = getStore({ name: 'envelopes', consistency: 'strong' });
   await envStore.setJSON(ownerKey + '/' + envelopeId, record);
@@ -192,13 +211,15 @@ async function handle(req, context) {
     loan.extensionEsign = {
       envelopeId, status: 'sent', sentAt: now,
       newMaturityDate: values.newMaturityDate,
+      ...markerFields(record),   // 236.974 — who is up next + every signer's state
     };
     appendNoteEntry(loan, {
       kind: 'status',
       text: 'Loan Extension Agreement sent for signature — new maturity ' + values.newMaturityDate +
         ', fee $' + Number(values.extensionFee).toLocaleString() +
         ' (' + (values.feeHandling === 'add_to_principal' ? 'added to principal' : 'paid at signing') + '). ' +
-        'Lender (' + lenderEmail + ') signs first, then borrower (' + borrowerEmail + ').',
+        'Lender (' + lenderEmail + ') signs first, then borrower (' + borrowerEmail + ')' +
+        (extraGuarantors.length ? ', then ' + extraGuarantors.map((g) => g.name + ' (' + g.email + ')').join(', ') : '') + '.',
       author: meta.full_name || meta.fullName || user.email || '',
       authorEmail: selfEmail,
       meta: { via: 'loan_extension_send', envelopeId },
@@ -207,5 +228,6 @@ async function handle(req, context) {
     await writeClient(ownerKey, client, { clientsStore });
   } catch (e) { console.warn('loan-extension-send: note append failed (non-fatal):', e && e.message); }
 
-  return json(200, { ok: true, envelopeId, values, firstSigner: lenderEmail, secondSigner: borrowerEmail });
+  return json(200, { ok: true, envelopeId, values, firstSigner: lenderEmail, secondSigner: borrowerEmail,
+    guarantors: extraGuarantors.map((g) => ({ name: g.name, email: g.email, role: g.role })) });
 }

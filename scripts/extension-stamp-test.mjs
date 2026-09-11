@@ -118,6 +118,16 @@ const built = await buildExtensionAgreementPdf(VALUES);
   check('borrower rule sits below the lender rule', borrower.sigYFromTop > lender.sigYFromTop, true);
   // The lender rule is indented by "By: <name>    " and starts further right.
   check('lender rule starts right of the borrower rule', lender.sigX > borrower.sigX, true);
+
+  // Deploy 236.974 (Mike: "extensions can be sent to both of the guarantors") —
+  // extra guarantors each get their own measured rule after the borrower's.
+  const withG = await buildExtensionAgreementPdf(Object.assign({}, VALUES, { guarantors: [{ name: 'Gia Guarantor', role: 'guarantor2' }, { name: 'Gus Guarantor', role: 'guarantor3' }] }));
+  check('one rule per party, guarantors after the borrower', (withG.sigFields || []).map((f) => f.role), ['lender', 'borrower', 'guarantor2', 'guarantor3']);
+  const [, gB, g2, g3] = withG.sigFields;
+  check('guarantor 2 rule sits below the borrower rule (same page) or on a later page', g2.pageNumber > gB.pageNumber || g2.sigYFromTop > gB.sigYFromTop, true);
+  check('guarantor 3 rule sits below guarantor 2', g3.pageNumber > g2.pageNumber || g3.sigYFromTop > g2.sigYFromTop, true);
+  check('guarantor rules share the borrower rule\'s x (same "Signature: " prefix)', [g2.sigX === gB.sigX, g3.sigX === gB.sigX], [true, true]);
+  check('no guarantors → the two original rules only', (await buildExtensionAgreementPdf(VALUES)).sigFields.map((f) => f.role), ['lender', 'borrower']);
 }
 
 // ── Both signatures land ON THE AGREEMENT, not only the certificate ───────

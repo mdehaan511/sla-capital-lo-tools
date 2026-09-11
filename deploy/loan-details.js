@@ -7365,11 +7365,9 @@ function _ldFmtDate(v){
 function _buildExtensionSectionHtml(l){
   var m = l.extensionEsign || {};
   var sv = l.extensionServicer || {};
-  var STATUS = { sent:'Sent — awaiting lender signature', lender_signed:'Lender signed — awaiting borrower',
-                 completed:'Fully executed', cancelled:'Cancelled' };
   var row = function(k, v){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #f2efe9;font-size:13px"><span style="color:var(--muted)">' + escH(k) + '</span><span style="text-align:right">' + v + '</span></div>'; };
   var body = '<div style="margin-bottom:12px">' +
-    row('Status', '<strong>' + escH(STATUS[m.status] || m.status || '—') + '</strong>') +
+    row('Status', '<strong>' + escH(_ldExtStatusLabel(m)) + '</strong>') +
     row('Sent', m.sentAt ? escH(new Date(m.sentAt).toLocaleDateString()) : '—') +
     row('New maturity per agreement', m.newMaturityDate ? escH(_ldFmtDate(m.newMaturityDate)) : '—') +
     row('Maturity on this loan now', l.maturityDate ? escH(_ldFmtDate(l.maturityDate)) : '—') +
@@ -7400,11 +7398,60 @@ function _buildExtensionSectionHtml(l){
       '<button type="button" onclick="ldExtCancel()" style="color:var(--danger,#7c1f1f);border:1px solid rgba(124,31,31,0.25);background:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit">✕ Cancel request</button>' +
       '<div id="ldExtLinkBox" style="display:none;font-size:11px;font-family:\'DM Mono\',monospace;word-break:break-all;background:#faf8f3;border:1px solid var(--border,#E4DFD4);border-radius:6px;padding:8px;margin-top:10px"></div>';
   }
+  body += _ldExtSignersHtml(m);                                   // 236.974 — signer progress
+  if (m.status !== 'cancelled') body += _ldExtAddSignerHtml(m);   // 236.974 — add a guarantor
   return '<div class="section" id="extensionSection">' +
     '<div class="section-head"><h2>Loan Extension</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' + body +
       '<div id="ldExtMsg" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.45"></div>' +
     '</div></div>';
+}
+// Deploy 236.974 (Mike) — extensions can carry extra guarantor signers, and a
+// guarantor can be added to an existing (even executed) one.
+function _ldExtRoleLabel(role){
+  var r = String(role||'').toLowerCase();
+  return r === 'lender' ? 'Lender' : r === 'borrower' ? 'Borrower' : r.indexOf('guarantor') === 0 ? 'Guarantor' : 'Signer';
+}
+function _ldExtStatusLabel(m){
+  if (m.status === 'completed') return 'Fully executed';
+  if (m.status === 'cancelled') return 'Cancelled';
+  if (m.pendingSigner && m.pendingSigner.name) return 'Awaiting signature — ' + m.pendingSigner.name + ' (' + _ldExtRoleLabel(m.pendingSigner.role) + ')';
+  return m.status === 'lender_signed' ? 'Lender signed — awaiting borrower' : m.status === 'sent' ? 'Sent — awaiting lender signature' : (m.status || '—');
+}
+function _ldExtSignersHtml(m){
+  var list = Array.isArray(m.signers) ? m.signers : [];
+  if (!list.length) return '';
+  return '<div style="margin:10px 0 4px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:4px">Signers</div>' +
+    list.map(function(s){
+      return '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #f2efe9;font-size:13px"><span>' + escH(s.name || s.email || '') +
+        ' <span style="color:var(--muted);font-size:11px">' + escH(_ldExtRoleLabel(s.role)) + (s.email ? ' · ' + escH(s.email) : '') + '</span></span>' +
+        (s.signed ? '<span style="color:#256940;font-weight:600">✓ signed' + (s.signedAt ? ' ' + escH(new Date(s.signedAt).toLocaleDateString()) : '') + '</span>' : '<span style="color:#9B5E1D;font-weight:600">pending</span>') + '</div>';
+    }).join('') + '</div>';
+}
+function _ldExtAddSignerHtml(m){
+  return '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#E4DFD4)">' +
+    (m.executedAt && m.status !== 'completed' ? '<button type="button" class="save-app-btn" onclick="ldExtDownload()" style="margin-bottom:12px">⬇ Download the executed copy so far</button>' : '') +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:6px">Add a guarantor signer</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      '<input type="text" id="ldExtAddName" placeholder="Name as on the guaranty" style="padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px">' +
+      '<input type="text" id="ldExtAddEmail" placeholder="Email" style="padding:7px 9px;border:1px solid var(--border,#E4DFD4);border-radius:6px;font:inherit;font-size:13px">' +
+    '</div>' +
+    '<button type="button" class="save-app-btn" id="ldExtAddBtn" onclick="ldExtAddSigner()" style="margin-top:8px">+ Add and send to them</button>' +
+    '<div style="font-size:11px;color:var(--muted);margin-top:6px">Adds their signature block to this agreement. Nobody re-signs; if the others are done they are invited right away, otherwise in turn. An executed copy is re-issued with every signature once they sign.</div>' +
+  '</div>';
+}
+function ldExtAddSigner(){
+  var m = (_loan && _loan.extensionEsign) || {};
+  var name = ((document.getElementById('ldExtAddName')||{}).value||'').trim();
+  var email = ((document.getElementById('ldExtAddEmail')||{}).value||'').trim();
+  if (!name || !email || email.indexOf('@') < 0) { _ldExtMsg('Enter the guarantor\'s name and email.', true); return; }
+  var btn = document.getElementById('ldExtAddBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  SLA.api('POST', '/api/loan-extension-add-signer', { envelopeId: m.envelopeId, owner: _loEmail || '', name: name, email: email }).then(function(r){
+    _loan.extensionEsign = Object.assign({}, m, { status: r.markerStatus || m.status, pendingSigner: (r.invited || r.url) ? { name: name, email: email, role: r.role } : (m.pendingSigner || null),
+      signers: (m.signers || []).concat([{ name: name, email: email, role: r.role, signed: false }]) });
+    _ldExtRerender();
+    _ldExtMsg(name + ' added. ' + (r.invited ? 'Their signing link was emailed.' : r.url ? 'Signing link ready — use Copy signing link.' : 'They will be invited once the earlier signers finish.') + (r.reissue ? ' The executed copy is re-issued with every signature once they sign.' : ''), false);
+  }).catch(function(e){ if (btn) { btn.disabled = false; btn.textContent = '+ Add and send to them'; } _ldExtMsg('Could not add: ' + (e && e.message || 'unknown'), true); });
 }
 function _ldExtMsg(text, bad){
   var el = document.getElementById('ldExtMsg'); if (!el) return;

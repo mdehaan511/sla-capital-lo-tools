@@ -135,6 +135,17 @@ export function buildExtensionAgreementPdf(v) {
     B().text('  Except as expressly modified by this Agreement, all other terms, conditions, and covenants of the original Promissory Note and Deed of Trust remain in full force and effect.', { lineGap: 3 });
     doc.moveDown(2);
 
+    // Deploy 236.974 (Mike: "extensions can be sent to both of the guarantors") —
+    // v.guarantors = [{ name, role }] adds a consent clause and one signature
+    // block per guarantor after the borrower's. Each block's rule is measured
+    // under its own role so the stamper can find it.
+    const guarantors = Array.isArray(v.guarantors) ? v.guarantors.filter((g) => g && g.role) : [];
+    if (guarantors.length) {
+      H().text('6. GUARANTOR CONSENT', { continued: true });
+      B().text('  Each undersigned Guarantor consents to this Agreement and confirms that their guaranty of the Loan remains in full force and effect with respect to the Loan as extended by this Agreement.', { lineGap: 3 });
+      doc.moveDown(1);
+    }
+
     B().text('The parties execute this Agreement by electronic signature; the attached signature certificate forms part of this Agreement.', { lineGap: 3 });
     doc.moveDown(2);
 
@@ -152,6 +163,14 @@ export function buildExtensionAgreementPdf(v) {
     const borrowerPrefix = 'Signature: ';
     B(); markSignatureLine('borrower', borrowerPrefix);
     B().text(borrowerPrefix + SIG_RULE + '    Date: ' + DATE_RULE);
+    guarantors.forEach((g) => {
+      doc.moveDown(1.5);
+      H().text('GUARANTOR:');
+      B().text(String(g.name || ''));
+      const gPrefix = 'Signature: ';
+      B(); markSignatureLine(String(g.role), gPrefix);
+      B().text(gPrefix + SIG_RULE + '    Date: ' + DATE_RULE);
+    });
 
     doc.end();
   });

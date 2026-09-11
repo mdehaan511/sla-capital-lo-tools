@@ -105,6 +105,9 @@ async function handle(req, context) {
     lenderName:      lenderSigner
                        ? ((lenderSigner.firstName || '') + ' ' + (lenderSigner.lastName || '')).replace(/\s*—\s*$/, '').trim()
                        : 'Mike DeHaan',
+    // Deploy 236.974 — extra guarantor signers get their own rule.
+    guarantors:      (envelope.signers || []).filter((s) => s && /^guarantor/i.test(String(s.role || ''))).map((s) => ({
+      name: ((s.firstName || '') + ' ' + (s.lastName || '')).replace(/\s*—\s*$/, '').trim(), role: s.role })),
   };
 
   let built;

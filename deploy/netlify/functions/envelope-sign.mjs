@@ -34,6 +34,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.897 — client ids go stale on merge; find loans by LOAN id.
 import { locateLoan } from './_shared/loan-locate.mjs';
+import { syncExtensionMarker } from './_shared/extension-marker.mjs'; // Deploy 236.974
 
 export default async (req) => {
   try { return await handle(req); }
@@ -310,51 +311,9 @@ function _extensionDoneNote(envelope) {
     (nm ? ' — new maturity ' + nm + ' per the agreement' : '') +
     '. Maturity on this record is not auto-updated (it syncs from FCI).';
 }
-async function syncExtensionMarker(envelope, status, noteText) {
-  if (envelope.envelopeKind !== 'loan_extension' || !envelope.loanId) return;
-  try {
-    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-    // Deploy 236.897 (Mike: the chip never appeared for 3602 24th Ave W) —
-    // find the loan by LOAN id, not by the clientId frozen into the envelope
-    // when it was sent. That client was merged away between the send and the
-    // borrower signing six days later, so the old lookup silently found
-    // nothing and returned, leaving the servicing row with no chip at all.
-    const found = await locateLoan({
-      ownerKey: envelope.ownerKey,
-      clientId: envelope.clientId,
-      loanId: envelope.loanId,
-      clientsStore,
-    });
-    if (!found) return;
-    const { client, loan } = found;
-    if (found.moved) {
-      console.log('[envelope-sign] extension marker: loan ' + envelope.loanId +
-        ' moved from client ' + envelope.clientId + ' to ' + found.clientId);
-    }
-    const cur = loan.extensionEsign;
-    // A newer extension envelope owns the chip — don't let a stale one clobber it.
-    if (cur && cur.envelopeId && cur.envelopeId !== envelope.id) return;
-    loan.extensionEsign = {
-      envelopeId: envelope.id,
-      status,
-      sentAt: (cur && cur.sentAt) || envelope.createdAt || '',
-      newMaturityDate: (envelope.extensionTerms && envelope.extensionTerms.newMaturityDate) ||
-        (cur && cur.newMaturityDate) || '',
-      updatedAt: new Date().toISOString(),
-    };
-    if (noteText) {
-      appendNoteEntry(loan, {
-        kind: 'status', text: noteText,
-        author: 'eSign', authorEmail: envelope.requesterEmail || '',
-        meta: { via: 'envelope_sign', envelopeId: envelope.id },
-      });
-    }
-    loan.updatedAt = new Date().toISOString();
-    await writeClient(found.ownerKey, client, { clientsStore });
-  } catch (e) {
-    console.warn('envelope-sign: extension marker sync failed (non-fatal):', e && e.message);
-  }
-}
+// Deploy 236.974 — syncExtensionMarker lives in _shared/extension-marker.mjs now
+// (shared with loan-extension-send / loan-extension-add-signer; records who
+// is up next + every signer's state).
 
 // ── Email helper ───────────────────────────────────────────────
 async function sendFinalCopiesEmail({ envelope, stampedPdfs }) {

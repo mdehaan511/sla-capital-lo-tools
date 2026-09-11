@@ -136,6 +136,7 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.953 — see clients-list.mjs (borrower identity on broker deals; both ride extra).
   'borrowerName', 'borrowerEmail',
   'expectedCloseDate', // Deploy 236.960 — see clients-list.mjs (rides extra)
+  'guarantors',        // Deploy 236.974 — see clients-list.mjs (rides extra)
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

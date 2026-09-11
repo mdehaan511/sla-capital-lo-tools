@@ -234,6 +234,9 @@ const LOAN_SUMMARY_FIELDS = [
   // Deploy 236.960 — pending-commission rows show when an approved loan is
   // expected to close (and pick the tier schedule by it). Keep in sync.
   'expectedCloseDate',
+  // Deploy 236.974 — the extension send modal on Closed Loans prefills
+  // Guarantor 2 from the loan's flat guarantors[]. Keep in sync.
+  'guarantors',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

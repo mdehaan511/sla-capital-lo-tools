@@ -870,6 +870,15 @@
   status = 200
   force = true
 
+# Deploy 236.974 -- add a guarantor signer to an existing (even executed) extension.
+[[redirects]]
+  from = "/api/loan-extension-add-signer"
+  to = "/.netlify/functions/loan-extension-add-signer"
+  status = 200
+  force = true
+[functions."loan-extension-add-signer"]
+  timeout = 26
+
 [[redirects]]
   from = "/api/loan-extension-servicer"
   to = "/.netlify/functions/loan-extension-servicer"
