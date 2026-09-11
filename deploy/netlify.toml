@@ -879,6 +879,15 @@
 [functions."loan-extension-add-signer"]
   timeout = 26
 
+# Deploy 236.980 -- void ONE signer's signature on an extension and re-invite them (admin).
+[[redirects]]
+  from = "/api/loan-extension-reset-signer"
+  to = "/.netlify/functions/loan-extension-reset-signer"
+  status = 200
+  force = true
+[functions."loan-extension-reset-signer"]
+  timeout = 26
+
 [[redirects]]
   from = "/api/loan-extension-servicer"
   to = "/.netlify/functions/loan-extension-servicer"

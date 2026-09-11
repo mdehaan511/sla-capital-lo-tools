@@ -7446,12 +7446,39 @@ function _ldExtStatusLabel(m){
 function _ldExtSignersHtml(m){
   var list = Array.isArray(m.signers) ? m.signers : [];
   if (!list.length) return '';
+  // Deploy 236.980 — admins can void ONE signer's signature and re-invite them.
+  var canReset = !!(window.SLA && SLA.isAdmin && _user && SLA.isAdmin(_user));
   return '<div style="margin:10px 0 4px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.04em;margin-bottom:4px">Signers</div>' +
     list.map(function(s){
+      var reset = (s.signed && canReset && s.email)
+        ? ' <button type="button" onclick="ldExtResetSigner(this.getAttribute(\'data-email\'), this.getAttribute(\'data-name\'))" data-email="' + escAttr(s.email) + '" data-name="' + escAttr(s.name || '') + '"' +
+          ' title="Void this signature and send a fresh signing link — nobody else re-signs" style="font-size:10px;padding:2px 7px;margin-left:8px;background:#fff;color:var(--danger,#7c1f1f);border:1px solid rgba(124,31,31,0.3);border-radius:3px;cursor:pointer">Reset signature</button>'
+        : '';
       return '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #f2efe9;font-size:13px"><span>' + escH(s.name || s.email || '') +
         ' <span style="color:var(--muted);font-size:11px">' + escH(_ldExtRoleLabel(s.role)) + (s.email ? ' · ' + escH(s.email) : '') + '</span></span>' +
-        (s.signed ? '<span style="color:#256940;font-weight:600">✓ signed' + (s.signedAt ? ' ' + escH(new Date(s.signedAt).toLocaleDateString()) : '') + '</span>' : '<span style="color:#9B5E1D;font-weight:600">pending</span>') + '</div>';
+        '<span>' + (s.signed ? '<span style="color:#256940;font-weight:600">✓ signed' + (s.signedAt ? ' ' + escH(new Date(s.signedAt).toLocaleDateString()) : '') + '</span>' : '<span style="color:#9B5E1D;font-weight:600">pending</span>') + reset + '</span></div>';
     }).join('') + '</div>';
+}
+function ldExtResetSigner(email, name){
+  var m = (_loan && _loan.extensionEsign) || {};
+  if (!email || !m.envelopeId) return;
+  var reason = window.prompt('Void the signature by ' + (name || email) + ' and send them a fresh signing link?\n\nEveryone else\'s signature stays. The executed copy is withdrawn until they sign again.\n\nReason (kept on the envelope record):', 'Signed in error — needs to be re-signed by ' + (name || email));
+  if (reason === null) return;
+  var sendEl = document.querySelector('input[name="ldExtAddSend"]:checked');
+  var sendEmail = !sendEl || sendEl.value !== 'link';
+  _ldExtMsg('Resetting…', false);
+  SLA.api('POST', '/api/loan-extension-reset-signer', { envelopeId: m.envelopeId, owner: _loEmail || '', email: email, reason: reason, sendEmail: sendEmail }).then(function(r){
+    _loan.extensionEsign = Object.assign({}, m, { status: r.markerStatus || m.status, executedAt: '',
+      pendingSigner: (r.invited || r.url) ? { name: name, email: email, role: '' } : (m.pendingSigner || null),
+      signers: (m.signers || []).map(function(s){ return (s.email && String(s.email).toLowerCase() === String(email).toLowerCase()) ? Object.assign({}, s, { signed: false, signedAt: null }) : s; }) });
+    _ldExtRerender();
+    if (r.url && !r.invited) {
+      var lb = document.getElementById('ldExtAddLinkBox');
+      if (lb) { lb.style.display = 'block'; lb.innerHTML = '<div style="font-family:inherit;font-size:11px;color:var(--muted);margin-bottom:4px">Fresh signing link for ' + escH(name || email) + ' — text or email it yourself:</div>' + escH(r.url) +
+        '<div style="margin-top:6px"><button type="button" onclick="_copySigningLink(this.getAttribute(\'data-url\'))" data-url="' + escAttr(r.url) + '" style="font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--gold,#C8813A);background:#fff;color:var(--gold,#C8813A);border-radius:4px;cursor:pointer;font-family:inherit">Copy link</button></div>'; }
+    }
+    _ldExtMsg('Signature by ' + (name || email) + ' voided. ' + (r.invited ? 'A fresh signing link was emailed.' : r.url ? 'Fresh signing link ready below — send it to them.' : 'They will be invited once the earlier signers finish.') + (r.wasCompleted ? ' The executed copy is withdrawn until they sign again.' : ''), false);
+  }).catch(function(e){ _ldExtMsg('Reset failed: ' + (e && e.message || 'unknown'), true); });
 }
 function _ldExtAddSignerHtml(m){
   // Deploy 236.979 (Mike) — pick from the loan's guarantors or type someone else;
