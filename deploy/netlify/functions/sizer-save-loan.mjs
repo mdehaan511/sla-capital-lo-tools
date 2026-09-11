@@ -380,6 +380,46 @@ async function handle(req, context) {
         merged[k] = existingLoan[k];
       }
     }
+    // Deploy 236.967 (Mike) — PORTFOLIO WRITE-BACK: a sizer save's portfolio
+    // totals flow into the per-property rows so the Property tab's
+    // "Portfolio Total" (which live-sums those rows) matches the sizer.
+    // Each row is scaled pro-rata to the new total (even split when the
+    // rows are all blank), with rounding drift pinned on the largest row.
+    // Companion to 236.966: loads no longer let stale rows overwrite the
+    // sizer; saves now keep the rows in step instead of drifting apart.
+    if (merged.isPortfolio && Array.isArray(merged.properties) && merged.properties.length) {
+      const PF_WRITE_BACK = [
+        ['propValue',      'propValue'],
+        ['currentLoanAmt', 'existingDebt'],
+        ['rent',           'monthlyRent'],
+        ['taxes',          'monthlyTaxes'],
+        ['insurance',      'monthlyInsurance'],
+        ['hoa',            'monthlyHoa'],
+      ];
+      const pfNum = (v) => {
+        const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+        return isFinite(n) ? n : 0;
+      };
+      const props = merged.properties.filter((p) => p && typeof p === 'object');
+      for (const [loanKey, propKey] of PF_WRITE_BACK) {
+        const total = pfNum(merged[loanKey]);
+        if (!(total > 0) || !props.length) continue; // never zero rows from a blank sizer box
+        const cur = props.reduce((s, p) => s + pfNum(p[propKey]), 0);
+        if (Math.abs(cur - total) < 0.5) continue;   // already in step
+        let acc = 0, iMax = 0, vMax = -1;
+        for (let i = 0; i < props.length; i++) {
+          const v = pfNum(props[i][propKey]);
+          const nv = cur > 0
+            ? Math.round((v * total / cur) * 100) / 100     // pro-rata
+            : Math.round((total / props.length) * 100) / 100; // blank rows → even split
+          props[i][propKey] = String(nv);
+          acc += nv;
+          if (v > vMax) { vMax = v; iMax = i; }
+        }
+        const drift = Math.round((total - acc) * 100) / 100;
+        if (drift) props[iMax][propKey] = String(Math.round((pfNum(props[iMax][propKey]) + drift) * 100) / 100);
+      }
+    }
     merged.status = _resolveStatus(existingLoan.status, body.loan.status);
     merged.updatedAt = now;
     merged.savedAt   = now;
