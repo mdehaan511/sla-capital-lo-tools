@@ -2104,8 +2104,10 @@ function render() {
           '<button class="btn-jump"        id="noteFilterBtn_user"   onclick="setNoteFilter(\'user\')"   title="Free-form notes left by users">Notes</button>' +
           '<button class="btn-jump"        id="noteFilterBtn_esign"  onclick="setNoteFilter(\'esign\')"  title="E-signature envelopes: what was sent, who signed, and each signer\'s link">E-Sign</button>' + // 236.967
           '<span style="flex:1"></span>' +
-          '<button class="btn-jump active" id="noteJumpTopBtn" onclick="jumpNotesTo(\'top\')" title="Newest entries">↑ Top</button>' +
-          '<button class="btn-jump" id="noteJumpBottomBtn" onclick="jumpNotesTo(\'bottom\')" title="Oldest entries">↓ Bottom</button>' +
+          // Deploy 236.970 (Mike) -- one toggle instead of Top + Bottom buttons so the
+          // chip row isn't squished now that E-Sign joined it. The label shows where
+          // the click will take you; jumpNotesTo() flips it.
+          '<button class="btn-jump" id="noteJumpBtn" onclick="jumpNotesTo()" title="Jump to the oldest entries">↓ Bottom</button>' +
         '</div>' +
         '<div class="notes-list" id="notesList">' +
           '<div class="notes-list-inner" id="notesListInner"></div>' +
@@ -6676,6 +6678,7 @@ function renderNotesLog() {
   // naturally lands after innerHTML replacement, but make explicit.
   var list = document.getElementById('notesList');
   if (list) list.scrollTop = 0;
+  _noteJumpAt = 'top'; _syncNoteJumpBtn(); // 236.970
 }
 
 // Deploy 236.818 — inline note editing. The body swaps to a textarea;
@@ -7159,16 +7162,24 @@ function deleteTask(taskId) {
 // Deploy 227 — two-button Top/Bottom toggle. List is sorted newest-first
 // so "Top" = scrollTop=0 (newest) and "Bottom" = scrollTop=scrollHeight
 // (oldest including the legacy entry, if any).
+// Deploy 236.970 -- a single toggle. With no argument it goes to whichever end
+// it isn't at; an explicit 'top' / 'bottom' still works for callers.
+var _noteJumpAt = 'top';
 function jumpNotesTo(where) {
   var list = document.getElementById('notesList');
   if (!list) return;
+  if (!where) where = (_noteJumpAt === 'bottom') ? 'top' : 'bottom';
   if (where === 'bottom') list.scrollTop = list.scrollHeight;
   else                    list.scrollTop = 0;
-  // Reflect which end is active in the button styling.
-  var top = document.getElementById('noteJumpTopBtn');
-  var bot = document.getElementById('noteJumpBottomBtn');
-  if (top) top.classList.toggle('active', where !== 'bottom');
-  if (bot) bot.classList.toggle('active', where === 'bottom');
+  _noteJumpAt = (where === 'bottom') ? 'bottom' : 'top';
+  _syncNoteJumpBtn();
+}
+function _syncNoteJumpBtn() {
+  var b = document.getElementById('noteJumpBtn');
+  if (!b) return;
+  var atBottom = _noteJumpAt === 'bottom';
+  b.textContent = atBottom ? '\u2191 Top' : '\u2193 Bottom';
+  b.title = atBottom ? 'Jump to the newest entries' : 'Jump to the oldest entries';
 }
 
 function handleNoteKeydown(e) {
