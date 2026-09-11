@@ -7704,7 +7704,11 @@ function populateFundingPlanInvestors() {
       var label = String(inv.name || 'Investor') + _lt;
       var isCur = (idStr === current);
       if (isCur) found = true;
-      html += '<option value="' + escAttr(idStr) + '"' + (isCur ? ' selected' : '') + '>' + escH(label) + '</option>';
+      // Deploy 236.978 — carry the BARE name so saveFundingPlan snapshots
+      // "Colchis", not the display label "Colchis (RTL)". The suffixed
+      // label leaking into loan.investorName is why name-keyed dropdowns
+      // (Mark Sold, Servicing) showed Colchis twice.
+      html += '<option value="' + escAttr(idStr) + '" data-name="' + escAttr(String(inv.name || '')) + '"' + (isCur ? ' selected' : '') + '>' + escH(label) + '</option>';
     }
     if (current && !found) {
       var nm = (_loan && _loan.investorName) || 'Selected investor';
@@ -7760,7 +7764,12 @@ function saveFundingPlan() {
   var src = srcEl.value || '';
   var invName = '';
   if (invEl && invEl.value && invEl.options[invEl.selectedIndex]) {
-    invName = invEl.options[invEl.selectedIndex].text || '';
+    // Deploy 236.978 — prefer the bare book name (data-name); the visible
+    // text carries the "(RTL)" loan-types suffix and was being stamped onto
+    // loan.investorName, which made name-keyed dropdowns show the same
+    // investor twice ("Colchis" from the book + "Colchis (RTL)" stored).
+    var _invOpt = invEl.options[invEl.selectedIndex];
+    invName = _invOpt.getAttribute('data-name') || _invOpt.text || '';
     invName = invName.replace(/ \(removed\)$/, '');
   }
   var fields = {
