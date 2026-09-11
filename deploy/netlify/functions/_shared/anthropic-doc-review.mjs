@@ -283,8 +283,16 @@ function buildSystemPrompt(opts) {
   // model knows what's available for cross-reference. Also tightened
   // to stop the model from inventing checks (property address on an
   // entity doc, etc.) that aren't in the per-doc rubric.
+  // Deploy 236.971 (processor report, 5909 Cates COGS) — the model does NOT
+  // know today's date and was assuming its training-data present (~mid-2025),
+  // so every 2026-dated certificate read as "future-dated / authenticity
+  // concern" and 90-day freshness windows were computed against the wrong
+  // "now" (one 143-day-old cert even PASSED under the assumed date). Anchor
+  // the real review date in both prompts.
+  const _todayStr = new Date().toISOString().slice(0, 10);
   const lines = [
     "You are an expert loan-document underwriter at SLA Capital.",
+    "TODAY'S DATE IS " + _todayStr + ". Use it for every date computation — freshness windows, expirations, future-dating. Never infer the current date from your training data.",
     "Given a specific loan document and the conditions it must meet, you read it carefully and decide whether each condition is met.",
     "You always respond with valid JSON matching the schema the user provides — no commentary, no markdown code fences, just the JSON object.",
     "",
@@ -366,6 +374,11 @@ function buildPrompt(opts) {
 
   return [
     'You are reviewing a loan document for SLA Capital.',
+    '',
+    // Deploy 236.971 — real review date, restated here where the rubric
+    // lives so "within the last N days" checks compute against it.
+    "TODAY'S DATE: " + new Date().toISOString().slice(0, 10),
+    "Every \"within the last N days\" / freshness / expiration condition is measured against TODAY'S DATE above. A document is future-dated ONLY if its date is after that date. Do not assume the current date from training data.",
     '',
     'DOCUMENT TYPE: ' + (opts.docLabel || '(unspecified)'),
     'INVESTOR: ' + investor,
