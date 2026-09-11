@@ -11,7 +11,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { canEditLoan } from './_shared/access.mjs';
+import { canEditLoan, canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.992 — canOverrideOwner
 import { revokeLoanAccess } from './_shared/loan-access-store.mjs';
 
 export default async (req, context) => {
@@ -39,10 +39,15 @@ async function handle(req, context) {
 
   let loan = null;
   let ownerKey = null;
+  // Deploy 236.992 (Mike: "give all users access to the Borrower Portal Access
+  // box") — the processor tier (admins, processors, senior LOs) may revoke on
+  // another LO's loan. It was admins only: a processor's revoke looked the
+  // loan up under their OWN key and fell through to 403.
+  const override = !!(body.owner && normalizeEmail(body.owner) !== normalizeEmail(user.email) && canOverrideOwner(user).ok);
   if (primaryClientId) {
     try {
       const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-      const requestedOwner = (body.owner && isAdmin(user)) ? normalizeEmail(body.owner) : normalizeEmail(user.email);
+      const requestedOwner = override ? normalizeEmail(body.owner) : normalizeEmail(user.email);
       ownerKey = keySafe(requestedOwner);
       const client = await clientsStore.get(ownerKey + '/' + keySafe(primaryClientId), { type: 'json' });
       if (client && Array.isArray(client.loans)) {
@@ -50,7 +55,7 @@ async function handle(req, context) {
       }
     } catch (_) {}
   }
-  const perm = await canEditLoan(user, loan || { id: loanId }, { ownerKey });
+  const perm = override ? canOverrideOwner(user) : await canEditLoan(user, loan || { id: loanId }, { ownerKey }); // 236.992
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'not authorized' });
 
   const access = await revokeLoanAccess({ email, loanId, revokedBy: normalizeEmail(user.email) });

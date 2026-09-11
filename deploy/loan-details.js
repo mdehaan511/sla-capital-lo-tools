@@ -2835,13 +2835,17 @@ function render() {
     // upload documents via the (upcoming) borrower portal. Powered
     // by /api/borrower-invite (Netlify Identity invite + loan_access
     // grant) and /api/loan-access-list.
-    // Deploy 236.172 — gated to admins-only per Mike while we're
-    // still tire-kicking the flow. LOs will see it once the portal
-    // is production-ready.
-    if (window.SLA && SLA.isAdmin && SLA.isAdmin(_user)) {
-      paneContacts.appendChild(_buildBorrowerAccessSection());
-      _ldLoadWorksheets(); // Deploy 236.947 — async fill of the worksheets summary
-    }
+    // Deploy 236.172 — was gated to admins-only per Mike while we were
+    // still tire-kicking the flow.
+    // Deploy 236.992 (Mike: "give all users access to the Borrower Portal
+    // Access box") — every signed-in team member gets it. LOs work their
+    // own loans (the invite / revoke endpoints resolve under their own
+    // key); processors and senior LOs pass the owner override, which
+    // borrower-invite + loan-access-revoke now accept from the processor
+    // tier (canOverrideOwner) instead of admins only. The In-Processing
+    // gate and the admin-only "view portal" button are unchanged.
+    paneContacts.appendChild(_buildBorrowerAccessSection());
+    _ldLoadWorksheets(); // Deploy 236.947 — async fill of the worksheets summary
 
     // DOCUMENTS tab: placeholder. Real implementation is Phase D
     // (the Loan Doc Review system already exists as its own page;

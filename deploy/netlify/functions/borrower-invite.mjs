@@ -31,7 +31,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { canEditLoan, isLoanInProcessing } from './_shared/access.mjs';
+import { canEditLoan, canOverrideOwner, isLoanInProcessing } from './_shared/access.mjs'; // Deploy 236.992 — canOverrideOwner
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
 import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
 import { findClientByEmail } from './_shared/client-lookup.mjs';
@@ -66,10 +66,15 @@ async function handle(req, context) {
   const primaryClientId = String(body.primaryClientId).trim();
   if (inviteEmail.indexOf('@') < 0) return json(400, { error: 'Valid email required' });
 
-  // Resolve owner. Admins can invite on any loan; LOs invite on their own
-  // book. Owner override lets an admin do it "on behalf of" the LO.
+  // Resolve owner. LOs invite on their own book; the owner override lets
+  // the processor tier (admins, processors, senior LOs) do it on another
+  // LO's loan. Deploy 236.992 (Mike: "give all users access to the Borrower
+  // Portal Access box") — was admins only, so a processor's invite on
+  // another LO's loan looked the loan up under the processor's own key
+  // and 404'd.
   const selfEmail = normalizeEmail(user.email);
-  const ownerEmail = (body.owner && isAdmin(user)) ? normalizeEmail(body.owner) : selfEmail;
+  const override = !!(body.owner && normalizeEmail(body.owner) !== selfEmail && canOverrideOwner(user).ok);
+  const ownerEmail = override ? normalizeEmail(body.owner) : selfEmail;
   const ownerKey = keySafe(ownerEmail);
 
   // Load the target loan + its client and confirm the caller can edit the
@@ -85,7 +90,7 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to load loan: ' + (e.message || 'unknown') });
   }
-  const perm = await canEditLoan(user, loan, { ownerKey });
+  const perm = override ? canOverrideOwner(user) : await canEditLoan(user, loan, { ownerKey }); // 236.992 — processor tier on another LO's loan
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
 
   // Deploy 236.590 — no borrower invites before the loan is In Processing.
