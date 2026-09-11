@@ -30,9 +30,43 @@ function escXml(s) {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 }
 
+// Deploy 236.977 (Mike) — approximate the on-screen width of a cell in Excel
+// character units, so every sheet opens with columns wide enough to read.
+function cellDisplayWidth(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'object') {
+    if (typeof v.v === 'number' && isFinite(v.v)) {
+      if (v.s === 'date') return 10;                          // m/d/yyyy
+      if (v.s === 'pct') return String(Math.round(v.v * 10000) / 100).length + 3;
+      const base = Math.round(Math.abs(v.v)).toLocaleString('en-US').length;
+      return base + (v.s === 'cur' ? 6 : 3);                  // $ , .00
+    }
+    return typeof v.f === 'string' ? 12 : 0;                  // uncached formula
+  }
+  if (typeof v === 'number') return String(v).length + 1;
+  return String(v).length;
+}
+
 function sheetXml(rows) {
   let out = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+  // Deploy 236.977 — <cols> autofit: each column as wide as its widest cell
+  // (clamped 9–42 so a stray long string can't blow the layout out).
+  let nCols = 0;
+  for (const row of rows) if (row && row.length > nCols) nCols = row.length;
+  if (nCols) {
+    let cols = '';
+    for (let c = 0; c < nCols; c++) {
+      let w = 0;
+      for (const row of rows) {
+        const cw = cellDisplayWidth(row && row[c]);
+        if (cw > w) w = cw;
+      }
+      cols += '<col min="' + (c + 1) + '" max="' + (c + 1) + '" width="' + Math.min(42, Math.max(9, w + 2)) + '" customWidth="1"/>';
+    }
+    out += '<cols>' + cols + '</cols>';
+  }
+  out += '<sheetData>';
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r] || [];
     out += '<row r="' + (r + 1) + '">';
@@ -45,14 +79,15 @@ function sheetXml(rows) {
         // { f: 'SUM(L2:L4)', v?: cachedNumber, s?: 'pct'|'date' }. The cached
         // value paints before Excel's first recalc; fullCalcOnLoad in
         // workbook.xml makes Excel recompute everything on open regardless.
-        const fstyle = v.s === 'pct' ? ' s="1"' : v.s === 'date' ? ' s="2"' : '';
+        const fstyle = v.s === 'pct' ? ' s="1"' : v.s === 'date' ? ' s="2"' : v.s === 'cur' ? ' s="3"' : '';
         out += '<c r="' + ref + '"' + fstyle + '><f>' + escXml(v.f) + '</f>' +
           (typeof v.v === 'number' && isFinite(v.v) ? '<v>' + v.v + '</v>' : '') + '</c>';
       } else if (v && typeof v === 'object' && typeof v.v === 'number' && isFinite(v.v)) {
-        // Styled number — 'pct' (cellXfs 1 = 0.00%) or 'date' (cellXfs 2 =
+        // Styled number — 'pct' (cellXfs 1 = 0.00%), 'date' (cellXfs 2 =
         // m/d/yyyy, value is an Excel date serial; real serials keep
-        // DAYS360/EDATE-style formulas working — date STRINGS break them).
-        const style = v.s === 'pct' ? ' s="1"' : v.s === 'date' ? ' s="2"' : '';
+        // DAYS360/EDATE-style formulas working — date STRINGS break them),
+        // or 'cur' (cellXfs 3 = $#,##0.00; Deploy 236.977).
+        const style = v.s === 'pct' ? ' s="1"' : v.s === 'date' ? ' s="2"' : v.s === 'cur' ? ' s="3"' : '';
         out += '<c r="' + ref + '"' + style + '><v>' + v.v + '</v></c>';
       } else if (typeof v === 'number' && isFinite(v)) {
         out += '<c r="' + ref + '"><v>' + v + '</v></c>';
@@ -119,15 +154,19 @@ export async function buildXlsx(sheets) {
   zip.file('xl/styles.xml',
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    // Deploy 236.977 — custom currency format for { s:'cur' } cells.
+    '<numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts>' +
     '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
     '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
     '<borders count="1"><border/></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="3">' +
+    '<cellXfs count="4">' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     // Deploy 236.976 — built-in numFmt 14 = m/d/yyyy for { v: serial, s:'date' }.
     '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    // Deploy 236.977 — currency (numFmt 164 above) for { s:'cur' }.
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     '</cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     '</styleSheet>');

@@ -348,9 +348,20 @@ const FUNDING_BANK_BY_SOURCE = {
 function settlementRow(c, r) {
   const l = c.loan;
   const trade = dparts(c.params.tradeDate);
-  const paidTo = trade ? { y: trade.y, m: trade.m, d: 1 } : null;
-  const nextDue = trade ? (trade.m === 12 ? { y: trade.y + 1, m: 1, d: 1 } : { y: trade.y, m: trade.m + 1, d: 1 }) : null;
+  // Deploy 236.977 (Mike) — Paid To / Next Due key off the CLOSING date, not
+  // the trade date: paid-to = 1st of the month AFTER closing, next due = the
+  // month after that. A loan closed 9/11 is paid through 10/1 (next due
+  // 11/1) — so a 9/11 trade shows NEGATIVE days accrued (an interest credit
+  // back to the buyer); one closed 8/20 is paid through 9/1 (next due 10/1).
+  // Old trade-month convention stays only as the fallback when the loan has
+  // no funding date on record.
+  const addMonths = (p, n) => { let m = p.m + n, y = p.y; while (m > 12) { m -= 12; y += 1; } return { y, m, d: 1 }; };
+  const closing = dparts(l.fundingDate);
+  const paidTo = closing ? addMonths(closing, 1) : (trade ? { y: trade.y, m: trade.m, d: 1 } : null);
+  const nextDue = paidTo ? addMonths(paidTo, 1) : null;
   const dcell = (p) => { const s = excelSerial(p); return s != null ? { v: s, s: 'date' } : ''; };
+  // Deploy 236.977 — currency-formatted number ($#,##0.00).
+  const cur = (n) => (n == null || n === '' ? '' : { v: n, s: 'cur' });
   const gross = rateFrac(l.rate);
   const colchis = rateFrac((l.buyRate != null && l.buyRate !== '') ? l.buyRate : l.soldRate);
   const L = totalAmt(l);
@@ -388,20 +399,20 @@ function settlementRow(c, r) {
     pct(gross),
     pct(colchis),
     fc('+IFERROR(I' + r + '-J' + r + ',0)', (gross != null && colchis != null) ? round4(gross - colchis) : null, 'pct'),
-    L != null ? L : '',
-    M != null ? M : '',
-    N,
-    O,
-    P,
-    0, // Appraisal Holdback Remaining
-    0, // Interest Escrow Balance
-    0, // B-Piece $
+    cur(L),
+    cur(M),
+    cur(N),
+    cur(O),
+    cur(P),
+    cur(0), // Appraisal Holdback Remaining
+    cur(0), // Interest Escrow Balance
+    cur(0), // B-Piece $
     fc('-S' + r + '/L' + r, (L ? 0 : null), 'pct'), // B-Piece %
-    fc('M' + r + '+S' + r, M != null ? M : null),   // CCM Balance
+    fc('M' + r + '+S' + r, M != null ? M : null, 'cur'),   // CCM Balance
     fc('+IFERROR(DAYS360(EDATE(G' + r + ',-1),H' + r + '),"")', V != null ? V : null),
-    fc('IFERROR(ROUND(IF(D' + r + '="Dutch",L' + r + '+S' + r + ',U' + r + ')*J' + r + '*V' + r + '/IF(E' + r + '="Actual/Actual",365,360),2),0)', W != null ? W : null),
+    fc('IFERROR(ROUND(IF(D' + r + '="Dutch",L' + r + '+S' + r + ',U' + r + ')*J' + r + '*V' + r + '/IF(E' + r + '="Actual/Actual",365,360),2),0)', W != null ? W : null, 'cur'),
     pct(1), // Purchase Price (%) — 100.00%
-    fc('+U' + r + '+W' + r + '*X' + r, Y != null ? Y : null),
+    fc('+U' + r + '+W' + r + '*X' + r, Y != null ? Y : null, 'cur'),
     fundingBank,
   ];
 }
@@ -708,9 +719,9 @@ export const TRADE_TAPES = {
       const lastData = rows.length; // sheet row of the last data row
       rows.push([]);
       const totals = new Array(COLCHIS_SETTLE_HEADERS.length).fill('');
-      totals[11] = { f: 'SUM(L2:L' + lastData + ')', v: round2(sumL) };
-      totals[12] = { f: 'SUM(M2:M' + lastData + ')', v: round2(sumM) };
-      totals[24] = { f: 'SUM(Y2:Y' + lastData + ')', v: round2(sumY) };
+      totals[11] = { f: 'SUM(L2:L' + lastData + ')', v: round2(sumL), s: 'cur' };
+      totals[12] = { f: 'SUM(M2:M' + lastData + ')', v: round2(sumM), s: 'cur' };
+      totals[24] = { f: 'SUM(Y2:Y' + lastData + ')', v: round2(sumY), s: 'cur' };
       rows.push(totals);
       return { sheets: [{ name: 'SLA Trade', rows }], missing, filenameBase: 'SLA Colchis Settlement' };
     },
