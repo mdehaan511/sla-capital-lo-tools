@@ -380,7 +380,7 @@ async function handle(req, context) {
         merged[k] = existingLoan[k];
       }
     }
-    // Deploy 236.967 (Mike) — PORTFOLIO WRITE-BACK: a sizer save's portfolio
+    // Deploy 236.969 (Mike) — PORTFOLIO WRITE-BACK: a sizer save's portfolio
     // totals flow into the per-property rows so the Property tab's
     // "Portfolio Total" (which live-sums those rows) matches the sizer.
     // Each row is scaled pro-rata to the new total (even split when the
