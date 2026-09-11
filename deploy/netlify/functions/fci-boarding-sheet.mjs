@@ -18,6 +18,8 @@ import {
 } from './_shared/auth.mjs';
 import { buildFciBoardingPdf } from './_shared/fci-boarding.mjs';
 import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
+// Deploy 236.982 — generating the sheet stamps boardingStatus 'sent'.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -53,6 +55,20 @@ async function handle(req, context) {
 
   const sla = deriveBaselineLoanId(loan);
   const { bytes, missing } = await buildFciBoardingPdf({ loan, client, guarantors, sla });
+
+  // Deploy 236.982 (Mike) — producing the boarding package IS the "sent to
+  // servicer" moment (or close enough that the Pending Boarding list should
+  // reflect it). Stamp 'sent' unless the loan is already boarded; the
+  // nightly FCI sync flips it to 'boarded' when FCI's book picks it up.
+  // Best-effort — a stamp failure never blocks the PDF download.
+  try {
+    if (String(loan.boardingStatus || '') !== 'boarded') {
+      loan.boardingStatus = 'sent';
+      if (!loan.boardingSentAt) loan.boardingSentAt = new Date().toISOString().slice(0, 10);
+      loan.updatedAt = new Date().toISOString();
+      await writeClient(ownerKey, client, { clientsStore });
+    }
+  } catch (e) { console.warn('fci-boarding-sheet: boarding stamp failed (non-fatal):', e && e.message); }
 
   const dutch = String(loan.dutchInterest || '').toLowerCase() === 'dutch';
   const street = String(loan.address || '').split(',')[0].trim() || 'loan';

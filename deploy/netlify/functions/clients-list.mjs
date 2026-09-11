@@ -213,6 +213,9 @@ const LOAN_SUMMARY_FIELDS = [
   // tpoPremium; tpo is the canonical Funding-Plan key). Keep in sync with
   // clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
   'tpo', 'tpoPremium', 'buyRate', 'investorId',
+  // Deploy 236.982 (Mike) - servicer boarding tracking (Pending Boarding
+  // accordion on Closed Loans). Keep both projections in sync.
+  'boardingStatus', 'boardingSentAt', 'boardedDate',
   // Deploy 236.798 — LO commission inputs (lo-commissions.html). Keep in
   // sync with clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
   'commissionSource', 'commissionReferral',

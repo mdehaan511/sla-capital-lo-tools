@@ -72,6 +72,9 @@
     .acc.open .acc-body { display: block; }
     .acc[data-d="servicing"] .acc-head { background: var(--d-servicing-bg); } .acc[data-d="servicing"] .acc-title { color: var(--d-servicing); }
     .acc[data-d="pending_sale"] .acc-head { background: var(--d-pending-bg); } .acc[data-d="pending_sale"] .acc-title { color: var(--d-pending); }
+    /* Deploy 236.982 — Pending Boarding: amber spotlight */
+    .acc[data-d="pending_boarding"] .acc-head { background: rgba(200,129,58,0.10); } .acc[data-d="pending_boarding"] .acc-title { color: #b5712d; }
+    .acc[data-d="pending_boarding"] { border-color: rgba(200,129,58,0.35); }
     .acc[data-d="sold"] .acc-head { background: var(--d-sold-bg); } .acc[data-d="sold"] .acc-title { color: var(--d-sold); }
     .acc[data-d="sold_rtl"] .acc-head, .acc[data-d="sold_dscr"] .acc-head { background: var(--d-sold-bg); }
     .acc[data-d="sold_rtl"] .acc-title, .acc[data-d="sold_dscr"] .acc-title { color: var(--d-sold); }
@@ -220,7 +223,8 @@
 var _user = null, _isAdmin = false, _isStaff = false;
 var _closed = [];            // [{ ownerKey, client, loan }]
 var _tab = 'all';
-var _openAcc = { post_close: true, servicing: true, pending_sale: true, sold_rtl: false, sold_dscr: false, paid_off: false };
+var _openAcc = { post_close: true, servicing: true, pending_sale: true, sold_rtl: false, sold_dscr: false, paid_off: false,
+  pending_boarding: true }; // Deploy 236.982 — open by default: it exists to be seen
 var _openDraws = {};         // loanKey -> bool
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
 var _noteServicers = [];     // Deploy 236.628 — org-wide Note Servicer names (Vendors, role note_servicer)
@@ -291,7 +295,69 @@ function displayBucket(l){
   return d;
 }
 var DISP_LABEL = { post_close:'Post Close', servicing:'Servicing', pending_sale:'Pending Sale',
-  sold:'Sold', sold_rtl:'Sold – RTL', sold_dscr:'Sold – DSCR', paid_off:'Paid Off' };
+  sold:'Sold', sold_rtl:'Sold – RTL', sold_dscr:'Sold – DSCR', paid_off:'Paid Off',
+  pending_boarding:'⏳ Pending Boarding' };
+
+// ── Deploy 236.982 (Mike) — servicer boarding tracking ────────────────
+// A sold/serviced loan needs boarding until it's confirmed on the
+// servicer's book. servicerLoanNumber counts as boarded (the FCI sync
+// stamps it when it matches a loan, and 93 legacy loans carry it already),
+// so the Pending Boarding list starts with only the genuinely unboarded.
+// The nightly FCI sync stamps boardingStatus='boarded' automatically;
+// generating the FCI boarding sheet stamps 'sent'.
+function needsBoarding(l){
+  var b = displayBucket(l);
+  if (b!=='sold_rtl' && b!=='sold_dscr' && b!=='servicing') return false;
+  if (String(l.boardingStatus||'')==='boarded') return false;
+  return !String(l.servicerLoanNumber||'').trim();
+}
+function boardingChip(l){
+  var st = String(l.boardingStatus||'');
+  if (st==='boarded' || String(l.servicerLoanNumber||'').trim())
+    return '<span style="font-size:10px;font-weight:700;color:#166534;background:rgba(21,128,61,.09);border:1px solid rgba(21,128,61,.25);border-radius:12px;padding:2px 8px;white-space:nowrap">✓ Boarded'+(l.boardedDate?' '+fmtDate(l.boardedDate):'')+'</span>';
+  if (st==='sent')
+    return '<span style="font-size:10px;font-weight:700;color:#b5712d;background:rgba(200,129,58,.10);border:1px solid rgba(200,129,58,.28);border-radius:12px;padding:2px 8px;white-space:nowrap">Sent'+(l.boardingSentAt?' '+fmtDate(l.boardingSentAt):'')+' — awaiting</span>';
+  return '<span style="font-size:10px;font-weight:700;color:#7c1f1f;background:rgba(124,31,31,.08);border:1px solid rgba(124,31,31,.28);border-radius:12px;padding:2px 8px;white-space:nowrap">Not boarded</span>';
+}
+function _daysSinceSold(l){
+  var d = parseLocalDate(l.soldDate || l.fundingDate); if (!d) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+function _pbBody(group){
+  if (!group.length) return '<div class="cl-empty">Nothing awaiting boarding — every sold/serviced loan is on the servicer\'s book.</div>';
+  var rows = group.map(function(it){
+    var l=it.loan, days=_daysSinceSold(l);
+    var age = days!=null ? (days+'d'+(days>14?' ⚠':'')) : '—';
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
+      '<td>'+escH(l.address||'')+'</td>' +
+      '<td>'+escH(clientName(it.client))+'</td>' +
+      '<td>'+escH(toolLabel(l))+'</td>' +
+      '<td>'+escH(fmtDate(l.soldDate)||'—')+'</td>' +
+      '<td>'+escH(l.investorName||'—')+'</td>' +
+      '<td>'+escH(l.servicerName||'—')+'</td>' +
+      '<td>'+escH(age)+'</td>' +
+      '<td>'+boardingChip(l)+'</td>' +
+      '<td onclick="event.stopPropagation()">' +
+        (String(l.boardingStatus||'')!=='sent'
+          ? '<button type="button" class="cl-act" onclick="markBoarding(\''+escAttr(it.client.id)+'\',\''+escAttr(l.id)+'\',\''+escAttr(it.ownerKey)+'\',\'sent\')">Mark Sent</button> '
+          : '') +
+        '<button type="button" class="cl-act" onclick="markBoarding(\''+escAttr(it.client.id)+'\',\''+escAttr(l.id)+'\',\''+escAttr(it.ownerKey)+'\',\'boarded\')">✓ Boarded</button>' +
+      '</td></tr>';
+  }).join('');
+  var note = '<div class="cl-note">Sold / serviced loans not yet confirmed on the servicer\'s book. FCI-serviced loans clear this list <strong>automatically</strong> when the nightly FCI sync finds them (it also fills the Servicer Loan #); generating the FCI boarding sheet marks them <strong>Sent</strong>. Non-FCI servicers: use the buttons.</div>';
+  return note + '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Address</th><th>Borrower</th><th>Type</th><th>Sold</th><th>Investor</th><th>Servicer</th><th>Days</th><th>Boarding</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function markBoarding(clientId, loanId, ownerKey, status){
+  var it=_find(clientId, loanId, ownerKey); if (!it) return;
+  var today = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  var fields = { boardingStatus: status };
+  if (status==='sent') fields.boardingSentAt = today;
+  if (status==='boarded') fields.boardedDate = today;
+  Object.keys(fields).forEach(function(k){ it.loan[k]=fields[k]; });
+  render(); // optimistic
+  SLA.api('POST','/api/loan-servicing-update',{ clientId:clientId, loanId:loanId, owner:ownerKey, fields:fields })
+    .catch(function(e){ if (typeof showToast==='function') showToast('Boarding update failed: '+((e&&e.message)||'unknown')); else alert('Boarding update failed: '+((e&&e.message)||'unknown')); });
+}
 
 // ── Computed servicing metrics (Deploy 236.624) ───────────────────
 // First payment = the 1st of the month TWO months after the close month (close
@@ -725,7 +791,13 @@ function _dispBody(group, disp, includeDisp){
 function renderAll(items){
   var order = ['post_close','pending_sale','sold_rtl','sold_dscr','paid_off'];
   if (items.some(function(it){ return displayBucket(it.loan)==='servicing'; })) order.splice(1,0,'servicing');
-  return order.map(function(d){
+  // Deploy 236.982 (Mike) — Pending Boarding SPOTLIGHT accordion, first. The
+  // loans still appear in their own disposition bucket below; this list
+  // exists so unboarded loans can't get lost as the serviced book grows.
+  // Loans drop out automatically when the FCI sync confirms them.
+  var pb = items.filter(function(it){ return needsBoarding(it.loan); });
+  var pbAcc = accordion('pending_boarding', pb, '', _pbBody(pb));
+  return pbAcc + order.map(function(d){
     var desc = _colDesc(d);
     var group = sortItems(items.filter(function(it){ return displayBucket(it.loan)===d; }), desc.tab, desc.sort);
     var body = group.length ? _dispBody(group, d, true) : '<div class="cl-empty">No '+escH((DISP_LABEL[d]||d).toLowerCase())+' loans.</div>';
@@ -801,7 +873,12 @@ var SVC_FIELDS = [
   { k:'payoffDate',         label:'Payoff Date',       type:'date' },
   { k:'investorName',       label:'Investor',          type:'text' },
   { k:'soldRate',           label:'Sold Rate / TPO',   type:'text' },
-  { k:'soldDate',           label:'Sold Date',         type:'date' }
+  { k:'soldDate',           label:'Sold Date',         type:'date' },
+  // Deploy 236.982 — servicer boarding tracking (auto-stamped by the FCI
+  // boarding sheet + nightly sync; editable here for non-FCI servicers).
+  { k:'boardingStatus',     label:'Boarding Status',   type:'boarding' },
+  { k:'boardingSentAt',     label:'Boarding Sent',     type:'date' },
+  { k:'boardedDate',        label:'Boarded Date',      type:'date' }
 ];
 var _svcTarget = null;
 var _svcMode = 'edit';     // 'edit' (✎ full editor) | 'disp' (disposition-change confirm)
@@ -872,6 +949,13 @@ function _servicerSelect(id, cur, extraAttr){
 function svcInputHtml(k, type, val, extraAttr){
   if (k === 'investorName') return _investorSelect('svc_'+k, val, extraAttr);
   if (k === 'servicerName') return _servicerSelect('svc_'+k, val, extraAttr);
+  // Deploy 236.982 — boarding status is a fixed three-state select.
+  if (type === 'boarding'){
+    var bOpts = [['','— Not boarded —'],['sent','Sent to servicer'],['boarded','Boarded ✓']];
+    return '<select id="svc_'+k+'" '+(extraAttr||'')+'>'+bOpts.map(function(o){
+      return '<option value="'+o[0]+'"'+(o[0]===String(val||'')?' selected':'')+'>'+o[1]+'</option>';
+    }).join('')+'</select>';
+  }
   if (type === 'location') return _locationSelect('svc_'+k, val, extraAttr);
   return '<input type="'+(type==='date'?'date':'text')+'" id="svc_'+k+'" value="'+escAttr(val)+'"'+(extraAttr||'')+' />';
 }
@@ -1523,7 +1607,11 @@ function renderServicing(items){
   // Deploy 236.733 (Mike) — includeDisp:true adds the staff Disposition picker so a
   // servicing loan can be marked Paid Off (or moved) right from this list; picking
   // "Paid Off" opens the confirm modal that collects payoff amount + date.
-  return note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', true) + '</div>';
+  // Deploy 236.982 — Pending Boarding accordion leads (serviced book only:
+  // the loans in THIS view that still need boarding).
+  var pb = group.filter(function(it){ return needsBoarding(it.loan); });
+  var pbAcc = accordion('pending_boarding', pb, '', _pbBody(pb));
+  return pbAcc + note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', true) + '</div>';
 }
 // Generic single-bucket tab (Sold-RTL / Sold-DSCR). Pending Sale wraps this with a note.
 function renderBucketTab(items, b){

@@ -55,6 +55,11 @@ const FIELDS = {
   // commissionSource 'lo'|'company' (company-sourced first loan halves the
   // tier bps) and commissionReferral 'yes'|'' ($250 borrower-referral bonus).
   commissionSource: 1, commissionReferral: 1,
+  // Deploy 236.982 (Mike) — servicer boarding tracking: '' → 'sent' →
+  // 'boarded'. Stamped automatically by fci-boarding-sheet (sent) and the
+  // nightly fci-portfolio-sync (boarded, when FCI's book picks the loan up);
+  // these stay editable for non-FCI servicers.
+  boardingStatus: 1, boardingSentAt: 1, boardedDate: 1,
   // Deploy 236.926 (Mike) — manual "mark paid" for PAST commissions that were
   // paid outside BILL (before the one-button billing existed). The page only
   // offers it on rows with NO commissionBillId, so the BILL payment sync

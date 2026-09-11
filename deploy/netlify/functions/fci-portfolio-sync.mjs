@@ -397,6 +397,14 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
             if (f === 'fciSyncedAt') continue;   // bookkeeping only; never counts as a change
             if (nv !== '' && String(loan[f] == null ? '' : loan[f]) !== String(nv)) { loan[f] = nv; changed = true; }
           }
+          // Deploy 236.982 (Mike) — a loan on FCI's book IS boarded: the sync
+          // matching it is the confirmation. Stamps once; the Pending
+          // Boarding accordion on Closed Loans drops the loan automatically.
+          if (String(loan.boardingStatus || '') !== 'boarded') {
+            loan.boardingStatus = 'boarded';
+            if (!loan.boardedDate) loan.boardedDate = now.slice(0, 10);
+            changed = true;
+          }
           if (changed) {
             loan.fciSyncedAt = now;
             loan.updatedAt = now;

@@ -2430,6 +2430,17 @@ function render() {
           '</div>' +
           // Deploy 236.618 — full servicing field set (shared with the Closed Loans page).
           '<div class="field"><label>Servicer Loan #</label><input type="text" id="sv-servicerLoanNumber" value="' + escAttr(l.servicerLoanNumber || '') + '" maxlength="60" /></div>' +
+          // Deploy 236.982 (Mike) — boarding tracking. Auto-stamped: generating
+          // the FCI boarding sheet marks Sent; the nightly FCI sync marks
+          // Boarded when the loan appears on FCI's book. Editable for non-FCI.
+          '<div class="field"><label>Boarding Status</label>' +
+            '<select id="sv-boardingStatus">' +
+              '<option value=""' + (!l.boardingStatus ? ' selected' : '') + '>— Not boarded —</option>' +
+              '<option value="sent"' + (l.boardingStatus === 'sent' ? ' selected' : '') + '>Sent to servicer</option>' +
+              '<option value="boarded"' + (l.boardingStatus === 'boarded' ? ' selected' : '') + '>Boarded ✓</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="field"><label>Boarded Date</label><input type="date" id="sv-boardedDate" value="' + escAttr(l.boardedDate || '') + '" /></div>' +
           '<div class="field"><label>Payment Amount</label><input type="text" id="sv-paymentAmount" value="' + escAttr(l.paymentAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
           '<div class="field"><label>Total UPB</label><input type="text" id="sv-upb" value="' + escAttr(l.upb || '') + '" placeholder="$" inputmode="decimal" /></div>' +
           '<div class="field"><label>Payoff Amount</label><input type="text" id="sv-payoffAmount" value="' + escAttr(l.payoffAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
@@ -7646,6 +7657,9 @@ function saveServicingFields() {
     investorName:       _sv('sv-investorName'),
     soldRate:           _sv('sv-soldRate'),
     soldDate:           _sv('sv-soldDate'),
+    // Deploy 236.982 — boarding tracking.
+    boardingStatus:     _sv('sv-boardingStatus'),
+    boardedDate:        _sv('sv-boardedDate'),
     // Deploy 236.622 — collateral tracking (3 docs × date + location).
     signedOriginalsDate:     _sv('sv-signedOriginalsDate'),
     signedOriginalsLocation: _sv('sv-signedOriginalsLocation'),
