@@ -48,7 +48,8 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import {
-  SERVICER, ACCOUNTS, spConfiguredAccounts, spLoans, dispositionForSp, pickLoanForSpRow,
+  SERVICER, ACCOUNTS, spConfiguredAccounts, spLoans, spProfile, spKeyClaimsFor, normalizeServicerNumber,
+  dispositionForSp, pickLoanForSpRow,
 } from './_shared/servicingpros-api.mjs';
 
 export default async (req, context) => {
@@ -90,14 +91,36 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
   const errors = [];
   const perAccount = {};
   let rows = [];
+  const seenRec = new Map();   // LoanRecID → book that delivered it first
+  let duplicateAcrossBooks = 0;
   for (const a of accounts) {
+    const claims = spKeyClaimsFor(a) || {};
     try {
+      // Deploy 236.984 — say which lender account the key really opens. The
+      // first dry run had both keys answering with the same 9 loans: the SLA
+      // env var held the SLA-KAF key. The JWT claim + the profile make that
+      // visible instead of silently doubling every match.
+      let profile = null;
+      try { profile = await spProfile(a); } catch (_) { profile = null; }
       const loans = await spLoans(a);
-      perAccount[a.key] = { label: a.label, loans: loans.length, paidOff: loans.filter((l) => l.paidOff).length,
-        principal: loans.filter((l) => !l.paidOff).reduce((s, l) => s + (l.principalBalance || 0), 0) };
-      rows = rows.concat(loans);
+      let fresh = 0;
+      for (const l of loans) {
+        const id = l.recId || (l.account + '|' + l.origBalance);
+        if (seenRec.has(id)) { duplicateAcrossBooks += 1; continue; }
+        seenRec.set(id, a.key); rows.push(l); fresh += 1;
+      }
+      perAccount[a.key] = {
+        label: a.label, keyAccount: claims.account || '', keyEmail: claims.email || '', keyExpires: claims.exp || '',
+        lenderAccount: profile ? String(profile.Account || '') : '', lenderName: profile ? String(profile.FullName || profile.SortName || '') : '',
+        keyMatchesBook: claims.account ? claims.account.toUpperCase().replace('_', '-') === a.label.toUpperCase() : null,
+        loans: loans.length, duplicatesSkipped: loans.length - fresh, paidOff: loans.filter((l) => l.paidOff).length,
+        principal: loans.filter((l) => !l.paidOff).reduce((s, l) => s + (l.principalBalance || 0), 0),
+      };
+      if (perAccount[a.key].keyMatchesBook === false) {
+        errors.push({ account: a.label, error: 'the key in ' + a.envVar + ' was issued for lender account ' + claims.account + ', not ' + a.label });
+      }
     } catch (e) {
-      perAccount[a.key] = { label: a.label, error: (e && e.message) || 'fetch failed' };
+      perAccount[a.key] = { label: a.label, keyAccount: claims.account || '', error: (e && e.message) || 'fetch failed' };
       errors.push({ account: a.label, error: 'feed: ' + ((e && e.message) || '') });
     }
   }
@@ -119,7 +142,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
       if (!c || !Array.isArray(c.loans)) continue;
       for (const loan of c.loans) {
         if (!loan || !loan.id) continue;
-        const sn = String(loan.servicerLoanNumber || '').trim().toUpperCase();
+        const sn = normalizeServicerNumber(loan.servicerLoanNumber);   // 236.984 — "26-0239-SL AND" → 26-0239-SL
         const tagged = isSpName(loan.servicerName);
         if (!sn) continue;
         const ref = {
@@ -133,7 +156,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
         if (!byServicerNum.has(sn)) byServicerNum.set(sn, []);
         byServicerNum.get(sn).push(ref);
         if (tagged && !feedAccounts.has(sn)) {
-          taggedNotInFeed.push({ servicerLoanNumber: sn, address: ref.address, disposition: ref.disposition, loanId: loan.id });
+          taggedNotInFeed.push({ servicerLoanNumber: sn, raw: String(loan.servicerLoanNumber || ''), address: ref.address, disposition: ref.disposition, loanId: loan.id });
         }
       }
     }
@@ -270,6 +293,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
     dryRun,
     servicingPros: {
       accounts: perAccount,
+      duplicateAcrossBooks,             // the same loan delivered by two keys (same account behind both)
       totalLoans: rows.length,
       activeUpb: rows.filter((r) => !r.paidOff).reduce((s, r) => s + (r.principalBalance || 0), 0),
     },

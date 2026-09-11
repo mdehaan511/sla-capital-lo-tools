@@ -10,6 +10,7 @@
  */
 import {
   ACCOUNTS, spConfiguredAccounts, spDate, spNum, spPct, normalizeSpLoan, dispositionForSp, pickLoanForSpRow,
+  spKeyClaims, normalizeServicerNumber,
 } from '../deploy/netlify/functions/_shared/servicingpros-api.mjs';
 
 let failures = 0;
@@ -27,6 +28,15 @@ check('one key → that account only', spConfiguredAccounts({ SERVICINGPROS_API_
 check('both keys → both accounts, SLA first', spConfiguredAccounts({ SERVICINGPROS_API_KEY_SLA: 'y'.repeat(40), SERVICINGPROS_API_KEY_SLA_KAF: 'x'.repeat(40) }).map((a) => a.label), ['SLA', 'SLA-KAF']);
 check('a blank / too-short value is not a key', spConfiguredAccounts({ SERVICINGPROS_API_KEY_SLA: ' ' }).length, 0);
 check('investor per book matches the 236.734 reconcile', [ACCOUNTS.SLA.investorName, ACCOUNTS.SLA_KAF.investorName], ['Sir Lends A Lot LLC', 'King Arthur Fund 1 LLC']);
+
+// ── the key names its lender account (236.984) ──────────────────────────
+{
+  const payload = Buffer.from(JSON.stringify({ iat: 1, exp: 2104520115, data: { token: 'x', email_address: 'mike@slacapital.com', account_type: 'LENDER', account: 'SLA-KAF' } })).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const jwt = 'eyJ0eXAiOiJKV1QifQ.' + payload + '.sig';
+  check('JWT payload → lender account / email / expiry', spKeyClaims(jwt), { account: 'SLA-KAF', accountType: 'LENDER', email: 'mike@slacapital.com', exp: '2036-09-08' });
+  check('garbage → null', [spKeyClaims('nope'), spKeyClaims('')], [null, null]);
+  check('servicer numbers: hand-typed junk is stripped, case fixed', [normalizeServicerNumber('26-0239-SL AND'), normalizeServicerNumber(' 26-0079-sl '), normalizeServicerNumber('399610100')], ['26-0239-SL', '26-0079-SL', '399610100']);
+}
 
 // ── value parsing ───────────────────────────────────────────────────────
 check('their datetime → ISO date', spDate('2026-10-01 00:00:00'), '2026-10-01');

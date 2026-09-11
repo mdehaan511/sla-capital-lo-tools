@@ -36,6 +36,34 @@ export const ACCOUNTS = {
   SLA_KAF: { key: 'SLA_KAF', envVar: 'SERVICINGPROS_API_KEY_SLA_KAF', label: 'SLA-KAF', investorName: 'King Arthur Fund 1 LLC', investorId: 'inv_1785352851496_76w1' },
 };
 
+// Deploy 236.984 — the key is a JWT whose payload names the lender account it
+// was issued for (data.account: 'SLA-KAF' | 'SLA' …). Read (not verified —
+// their server verifies) so the sync can say which book a key really opens:
+// the first dry run showed BOTH env keys returning the same 9 loans.
+export function spKeyClaims(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    const d = (payload && payload.data) || {};
+    return { account: String(d.account || ''), accountType: String(d.account_type || ''), email: String(d.email_address || ''),
+      exp: payload.exp ? new Date(payload.exp * 1000).toISOString().slice(0, 10) : '' };
+  } catch (_) { return null; }
+}
+export function spKeyClaimsFor(account, env) {
+  return spKeyClaims(String((env || process.env)[account.envVar] || '').trim());
+}
+
+// Their account numbers look like 26-0079-SL. Hand-typed servicer numbers on
+// our side carry stray text now and then ("26-0239-SL AND") — match on the
+// number inside, and let the sync rewrite the clean form.
+export function normalizeServicerNumber(s) {
+  const m = /(\d{2}-\d{4}-[A-Z]{2})/i.exec(String(s || '').toUpperCase());
+  return m ? m[1].toUpperCase() : String(s || '').trim().toUpperCase();
+}
+
 export function spConfiguredAccounts(env) {
   const e = env || process.env;
   return Object.values(ACCOUNTS).filter((a) => String(e[a.envVar] || '').trim().length > 20);
