@@ -36,6 +36,9 @@ import { canListAllClients } from './_shared/access.mjs';
 // scan only when an index is missing.
 import { prospectsIndex } from './_shared/prospects-index.mjs';
 import { quotesIndex } from './_shared/quotes-index.mjs';
+// Deploy 236.991 — SLA-number search: the displayed SLA-YYYYMMDD-NNNN id is
+// DERIVED (funding date + id hash), never stored for native loans.
+import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
 
 const PER_CATEGORY = 8;
 
@@ -92,7 +95,7 @@ export default async (req, context) => {
   // loanId alone from PG regardless of any page filter — the "loan
   // disappeared but it's still in the system" recovery path). Clients
   // matching the query split into brokers vs clients on is_broker.
-  const [clientHits, loanPrefixRows, loanRows, loanIdRows, prospectsResult, quotesResult] = await Promise.all([
+  const [clientHits, loanPrefixRows, loanRows, loanIdRows, loanSlaRows, prospectsResult, quotesResult] = await Promise.all([
     _searchClientsPG(q, wantAll, selfEmail).catch((e) => {
       console.warn('search-pg: clients FTS failed:', e && e.message);
       return [];
@@ -109,6 +112,11 @@ export default async (req, context) => {
     }),
     _searchLoansByIdPG(q, wantAll, selfEmail).catch((e) => {
       console.warn('search-pg: loans id lookup failed:', e && e.message);
+      return [];
+    }),
+    // Deploy 236.991 — derived SLA-number match (see _searchLoansBySlaNumberPG).
+    _searchLoansBySlaNumberPG(q, wantAll, selfEmail).catch((e) => {
+      console.warn('search-pg: loans SLA-number lookup failed:', e && e.message);
       return [];
     }),
     _searchProspectsIdx(q, wantAll, selfKey).catch((e) => {
@@ -147,7 +155,7 @@ export default async (req, context) => {
   // borrower-name (client-match) loans rank after direct loan matches.
   const seenLoans = new Set();
   const loans = [];
-  [].concat(loanPrefixRows, loanRows, loanIdRows, clientLoanRows).forEach((l) => {
+  [].concat(loanSlaRows, loanPrefixRows, loanRows, loanIdRows, clientLoanRows).forEach((l) => {
     if (!l || !l.id || seenLoans.has(l.id)) return;
     seenLoans.add(l.id);
     loans.push(l);
@@ -309,8 +317,39 @@ async function _searchClientsPG(q, wantAll, selfEmail) {
   return rows.map((c) => _rowToClientResult(c, selfEmail));
 }
 
-const LOAN_SELECT = 'id,client_id,address,status,sla_display_id,tool_type,loan_amt,owner_email,updated_at,' +
+const LOAN_SELECT = 'id,client_id,address,status,sla_display_id,tool_type,loan_amt,owner_email,updated_at,funding_date,' +
   'clients!client_id(id,first_name,last_name,email,entity_name)';
+
+// Deploy 236.991 (Mike: "the number is showing nothing but the loan exists")
+// — a native loan's SLA-YYYYMMDD-NNNN number is deriveBaselineLoanId(loan):
+// funding date + a hash of the loan id, computed on the fly everywhere it's
+// displayed and stored NOWHERE (only Baseline imports carry it inside their
+// l_baseline_SLA-... id, which is why those DID match). Searching one
+// therefore found nothing. The number encodes its own funding date, so:
+// decode the date, fetch that day's loans (a handful), re-derive each one's
+// number locally and keep the ones that match. Exact, cheap, and immune to
+// the drift a stored copy would suffer when a funding date is edited.
+async function _searchLoansBySlaNumberPG(q, wantAll, selfEmail) {
+  const m = /^sla[-\s]?(\d{8})(?:[-\s]?(\d{1,4}))?$/i.exec(String(q || '').trim());
+  if (!m) return [];
+  const date = m[1].slice(0, 4) + '-' + m[1].slice(4, 6) + '-' + m[1].slice(6, 8);
+  const sufFrag = m[2] || '';
+  const parts = [
+    'select=' + encodeURIComponent(LOAN_SELECT),
+    'funding_date=eq.' + date,
+    'limit=100',
+    'order=updated_at.desc',
+  ];
+  if (!wantAll) parts.push('owner_email=eq.' + encodeURIComponent(selfEmail));
+  const rows = await _pgSelect('loans', parts.join('&'));
+  return rows
+    .filter((l) => {
+      const derived = deriveBaselineLoanId({ id: l.id, fundingDate: l.funding_date });
+      const suffix = derived.slice(-4);
+      return !sufFrag || suffix.indexOf(sufFrag) === 0;
+    })
+    .map((l) => _rowToLoanResult(l, selfEmail));
+}
 
 /** Same address normalisation the handler uses for prospect dedupe. */
 function _normAddr(s) {

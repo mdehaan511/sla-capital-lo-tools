@@ -940,33 +940,14 @@ function render() {
     // Deploy 236.73 — page-title row is a flex container so the Loan
     // Doc Review button (processor + admin only) can sit pushed-right
     // alongside the address. Regular LOs see just the address.
-    '<div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">' +
-      '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
-        '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
-        // Deploy 236.118 — Loan ID chip. Click to copy to clipboard.
-        // Deploy 236.132 — display the SLA-YYYYMMDD-NNNN id (same
-        // shape we push to Baseline) instead of the raw l_<ts>_<rand>
-        // storage id. Stamped on the loan as slaDisplayId for new
-        // loans; derived deterministically from id + fundingDate for
-        // legacy loans so the displayed value stays stable.
-        (function() {
-          var displayId = (l.slaDisplayId && String(l.slaDisplayId).trim()) || _deriveSlaLoanIdClient(l);
-          return '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(displayId) + '\')" title="Click to copy SLA loan ID (storage id: ' + escAttr(l.id || '') + ')">' +
-            '<span class="ld-loan-id-label">Loan ID</span>' +
-            '<span>' + escH(displayId || '(none)') + '</span>' +
-          '</span>';
-        })() +
-        // Deploy 236.330 (Tier 4) — freshness chip. Passive
-        // "Updated X ago" indicator so the LO can see at a glance
-        // when the record last changed. Text refreshes every 30s
-        // via _startFreshnessRefresh(). Empty title until the
-        // helper populates it, so we don't flash "unknown" on
-        // cached-first paint before the fetch resolves.
-        '<span id="ldFreshness" class="ld-freshness" title="' + escAttr(l.updatedAt || '') + '" style="font-size:11.5px;color:var(--muted);font-family:DM Sans,sans-serif;font-weight:500">' +
-          _formatFreshness(l.updatedAt || l.createdAt) +
-        '</span>' +
-      '</div>' +
-      '<div style="display:flex;align-items:center;gap:10px">' +
+    // Deploy 236.991 (Mike) — a LONG address used to push the Change Status /
+    // Actions / Tasks controls onto a second line. The title row no longer
+    // wraps: the address gets flex:1 (its own text wraps inside), the
+    // controls stay pinned top-right, and the Loan ID chip + Updated
+    // freshness moved DOWN to their own line under the address.
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:nowrap">' +
+      '<div class="page-title" style="flex:1 1 auto;min-width:0">'+escH(l.address||'No address')+'</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' +
         // Deploy 236.643 — Change Status dropdown, admin-only, sits at the top
         // right next to the Actions dropdown (moved here from Loan Financials
         // per Mike). onchange → adminMoveStatus() (confirm-gated, audit-logged,
@@ -1012,6 +993,27 @@ function render() {
           '<span id="ldTabTasksCount" hidden style="background:#fff;color:var(--gold, #C8813A);border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5"></span>' +
         '</button>' +
       '</div>' +
+    '</div>' +
+    // Deploy 236.991 — Loan ID + Updated on their own line under the address
+    // (moved out of the title row so long addresses can't crowd the controls).
+    '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px">' +
+      // Deploy 236.118 — Loan ID chip. Click to copy to clipboard.
+      // Deploy 236.132 — display the SLA-YYYYMMDD-NNNN id (same shape we push
+      // to Baseline) instead of the raw l_<ts>_<rand> storage id. Stamped on
+      // the loan as slaDisplayId for new loans; derived deterministically
+      // from id + fundingDate for legacy loans so the display stays stable.
+      (function() {
+        var displayId = (l.slaDisplayId && String(l.slaDisplayId).trim()) || _deriveSlaLoanIdClient(l);
+        return '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(displayId) + '\')" title="Click to copy SLA loan ID (storage id: ' + escAttr(l.id || '') + ')">' +
+          '<span class="ld-loan-id-label">Loan ID</span>' +
+          '<span>' + escH(displayId || '(none)') + '</span>' +
+        '</span>';
+      })() +
+      // Deploy 236.330 (Tier 4) — freshness chip; refreshes every 30s via
+      // _startFreshnessRefresh().
+      '<span id="ldFreshness" class="ld-freshness" title="' + escAttr(l.updatedAt || '') + '" style="font-size:11.5px;color:var(--muted);font-family:DM Sans,sans-serif;font-weight:500">' +
+        _formatFreshness(l.updatedAt || l.createdAt) +
+      '</span>' +
     '</div>' +
     '<div class="page-subtitle">' +
       '<span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span>' +
