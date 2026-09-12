@@ -79,6 +79,9 @@ const DIYA = {
   // UPB bands, min rate 6.25). The 9.2.26 sheet's suspect "54321 -0.010"
   // anomaly (deliberately not applied then) is CORRECTED to -0.100 on this
   // sheet — the no-apply call was right.
+  // Deploy 236.994 — 9.12.26 sheet ("rate-sheet-2026-09-12 (1).xlsx"): base
+  //   rates +0.075 across the board (6.75 -> 6.825 / 6.65 -> 6.725); min rate,
+  //   PPP (321 still +0.300), FICO/LTV, IO, 5+ Multi, DSCR, UPB all unchanged.
   // Deploy 236.973 — 9.11.26 sheet ("rate-sheet-2026-09-11 (1).xlsx"): base
   //   rates +0.075 across the board (6.675 -> 6.75 / 6.575 -> 6.65); min rate,
   //   PPP (321 still +0.300), FICO/LTV, IO, 5+ Multi, DSCR, UPB all unchanged.
@@ -87,9 +90,9 @@ const DIYA = {
   // UNCHANGED (FICO floor 700, the +1.000 5+ Multi row still NA above 75 LTV,
   // IO, cash-out, DSCR ≥ 1.20, UPB bands, PPP 321 +0.300 / 54321 -0.100 /
   // 5y6m -0.150, min rate 6.25).
-  effectiveDate: "September 11, 2026",
+  effectiveDate: "September 12, 2026",
   minRate: 6.25,
-  baseRate: { "30Y Fixed": 6.75, "10/6 ARM": 6.75, "7/6 ARM": 6.65, "5/6 ARM": 6.65 }, // 236.973: +0.075 (9.11.26 sheet)
+  baseRate: { "30Y Fixed": 6.825, "10/6 ARM": 6.825, "7/6 ARM": 6.725, "5/6 ARM": 6.725 }, // 236.994: +0.075 (9.12.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050],
@@ -676,7 +679,10 @@ function priceDSCR(raw) {
 // than base rates (PPP 321). The MF sizer launched on the 8-7-26 matrix, so
 // no MF lock can predate it.
 var PRICING_HISTORY = [
-  { effective: '2026-09-11', label: 'September 11, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-12', label: 'September 12, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-11', label: 'September 11, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.75, "10/6 ARM": 6.75, "7/6 ARM": 6.65, "5/6 ARM": 6.65 },
+  } },
   { effective: '2026-09-10', label: 'September 10, 2026', overrides: {
     baseRate: { "30Y Fixed": 6.675, "10/6 ARM": 6.675, "7/6 ARM": 6.575, "5/6 ARM": 6.575 },
   } },

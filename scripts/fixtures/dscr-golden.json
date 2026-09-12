@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-11T17:10:19.306Z",
+  "generatedAt": "2026-09-12T13:01:52.646Z",
   "source": "deploy/dscr-pricing.js (extracted module, --from-module)",
-  "effectiveDate": "September 11, 2026",
+  "effectiveDate": "September 12, 2026",
   "scenarios": [
     {
       "name": "base-30y-fixed",
@@ -998,9 +998,9 @@
     "base-30y-fixed": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9169076913424214,
+      "dscr": 1.9045950833334722,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1015,12 +1015,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.07,
-      "pi": 2680.0411736561846,
+      "finalRate": 7.1450000000000005,
+      "pi": 2700.275905101384,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3130.0411736561846,
+      "totalPayment": 3150.275905101384,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1045,9 +1045,9 @@
     "product-10-6-arm": {
       "loanType": "10/6 ARM",
       "ltv": 66.66666666666666,
-      "dscr": 1.9169076913424214,
+      "dscr": 1.9045950833334722,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1062,12 +1062,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.07,
-      "pi": 2680.0411736561846,
+      "finalRate": 7.1450000000000005,
+      "pi": 2700.275905101384,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3130.0411736561846,
+      "totalPayment": 3150.275905101384,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1092,9 +1092,9 @@
     "product-7-6-arm": {
       "loanType": "7/6 ARM",
       "ltv": 66.66666666666666,
-      "dscr": 1.9335156111714968,
+      "dscr": 1.921039096513282,
       "fico": "740-759",
-      "baseRate": 6.65,
+      "baseRate": 6.725,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1109,12 +1109,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.970000000000001,
-      "pi": 2653.15570525167,
+      "finalRate": 7.045,
+      "pi": 2673.3096769816398,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3103.15570525167,
+      "totalPayment": 3123.3096769816398,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1139,9 +1139,9 @@
     "product-5-6-arm": {
       "loanType": "5/6 ARM",
       "ltv": 66.66666666666666,
-      "dscr": 1.9335156111714968,
+      "dscr": 1.921039096513282,
       "fico": "740-759",
-      "baseRate": 6.65,
+      "baseRate": 6.725,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1156,12 +1156,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.970000000000001,
-      "pi": 2653.15570525167,
+      "finalRate": 7.045,
+      "pi": 2673.3096769816398,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3103.15570525167,
+      "totalPayment": 3123.3096769816398,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1186,9 +1186,9 @@
     "fico-780plus": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9251841851525229,
+      "dscr": 1.9127899202368948,
       "fico": "780+",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1203,12 +1203,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.0200000000000005,
-      "pi": 2666.5849201720143,
+      "finalRate": 7.095000000000001,
+      "pi": 2686.779390418846,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3116.5849201720143,
+      "totalPayment": 3136.779390418846,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1233,9 +1233,9 @@
     "fico-760-779": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9210390965132815,
+      "dscr": 1.908685733938401,
       "fico": "760-779",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1250,12 +1250,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.045000000000001,
-      "pi": 2673.3096769816407,
+      "finalRate": 7.120000000000001,
+      "pi": 2693.5243074927484,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3123.3096769816407,
+      "totalPayment": 3143.5243074927484,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1280,9 +1280,9 @@
     "fico-720-739": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9086857339384014,
+      "dscr": 1.896454193475092,
       "fico": "720-739",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1297,12 +1297,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.12,
-      "pi": 2693.5243074927475,
+      "finalRate": 7.195,
+      "pi": 2713.799062821289,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3143.5243074927475,
+      "totalPayment": 3163.799062821289,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1327,9 +1327,9 @@
     "fico-700-719": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9005179194535555,
+      "dscr": 1.8883668606536081,
       "fico": "700-719",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1344,12 +1344,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.170000000000001,
-      "pi": 2707.0341634690526,
+      "finalRate": 7.245000000000001,
+      "pi": 2727.348705390466,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3157.0341634690526,
+      "totalPayment": 3177.348705390466,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1374,9 +1374,9 @@
     "fico-680-699": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.8448266542818588,
+      "dscr": 1.833222855155179,
       "fico": "680-699",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1391,12 +1391,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.5200000000000005,
-      "pi": 2802.3380915350217,
+      "finalRate": 7.595000000000001,
+      "pi": 2822.92450185611,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3252.3380915350217,
+      "totalPayment": 3272.92450185611,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1421,9 +1421,9 @@
     "fico-660-679": {
       "loanType": "30Y Fixed",
       "ltv": 58.333333333333336,
-      "dscr": 1.9927860947260283,
+      "dscr": 1.980744447386935,
       "fico": "660-679",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1438,12 +1438,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.97,
-      "pi": 2560.8600295230835,
+      "finalRate": 8.045,
+      "pi": 2579.1641144900864,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3010.8600295230835,
+      "totalPayment": 3029.1641144900864,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1473,9 +1473,9 @@
     "ltv-col-50": {
       "loanType": "30Y Fixed",
       "ltv": 48.333333333333336,
-      "dscr": 2.5227006063608215,
+      "dscr": 2.507281719758576,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1490,12 +1490,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.995,
-      "pi": 1928.4035191775827,
+      "finalRate": 7.07,
+      "pi": 1943.0298509007337,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2378.403519177583,
+      "totalPayment": 2393.0298509007334,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1520,9 +1520,9 @@
     "ltv-col-60": {
       "loanType": "30Y Fixed",
       "ltv": 58.333333333333336,
-      "dscr": 2.15574402267757,
+      "dscr": 2.142144140419078,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1537,12 +1537,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.0200000000000005,
-      "pi": 2333.2618051505124,
+      "finalRate": 7.095000000000001,
+      "pi": 2350.93196661649,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2783.2618051505124,
+      "totalPayment": 2800.93196661649,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1567,9 +1567,9 @@
     "ltv-col-80": {
       "loanType": "30Y Fixed",
       "ltv": 79.16666666666666,
-      "dscr": 1.6265775891567342,
+      "dscr": 1.615978603446953,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1584,12 +1584,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.245,
-      "pi": 3238.726587651178,
+      "finalRate": 7.32,
+      "pi": 3262.9204478337383,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3688.726587651178,
+      "totalPayment": 3712.9204478337383,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1614,9 +1614,9 @@
     "ltv-80-fico-700-719-new-tier": {
       "loanType": "30Y Fixed",
       "ltv": 79.16666666666666,
-      "dscr": 1.5814166507792398,
+      "dscr": 1.5712738054354403,
       "fico": "700-719",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1631,12 +1631,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.57,
-      "pi": 3344.0665396709414,
+      "finalRate": 7.6450000000000005,
+      "pi": 3368.557898212556,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3794.0665396709414,
+      "totalPayment": 3818.557898212556,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1661,9 +1661,9 @@
     "admin-sandbox-over-ltv": {
       "loanType": "30Y Fixed",
       "ltv": 86.66666666666667,
-      "dscr": 1.5016693619029435,
+      "dscr": 1.491780577267737,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1678,12 +1678,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.245,
-      "pi": 3545.553317007605,
+      "finalRate": 7.32,
+      "pi": 3572.039227102198,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3995.553317007605,
+      "totalPayment": 4022.039227102198,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1713,9 +1713,9 @@
     "io-yes": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.0761245674740483,
+      "dscr": 2.058319039451115,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1734,12 +1734,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.32,
-      "pi": 2440,
+      "finalRate": 7.3950000000000005,
+      "pi": 2465,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2890,
+      "totalPayment": 2915,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1764,9 +1764,9 @@
     "io-at-75": {
       "loanType": "30Y Fixed",
       "ltv": 74.16666666666667,
-      "dscr": 1.8849894623852972,
+      "dscr": 1.8686616359873085,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1785,12 +1785,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.37,
-      "pi": 2733.0416666666665,
+      "finalRate": 7.445,
+      "pi": 2760.854166666667,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3183.0416666666665,
+      "totalPayment": 3210.854166666667,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1815,9 +1815,9 @@
     "cashout": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9086857339384014,
+      "dscr": 1.896454193475092,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1836,12 +1836,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.12,
-      "pi": 2693.5243074927475,
+      "finalRate": 7.195,
+      "pi": 2713.799062821289,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3143.5243074927475,
+      "totalPayment": 3163.799062821289,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1866,9 +1866,9 @@
     "cashout-io-combined": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.064220183486239,
+      "dscr": 2.0466173962478678,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1891,12 +1891,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.37,
-      "pi": 2456.6666666666665,
+      "finalRate": 7.445,
+      "pi": 2481.666666666667,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2906.6666666666665,
+      "totalPayment": 2931.666666666667,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1921,9 +1921,9 @@
     "prop-nw-condo": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.8924038567195596,
+      "dscr": 1.880332697182764,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1942,12 +1942,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.220000000000001,
-      "pi": 2720.5705833853394,
+      "finalRate": 7.295000000000001,
+      "pi": 2740.924674654431,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3170.5705833853394,
+      "totalPayment": 3190.924674654431,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1972,9 +1972,9 @@
     "prop-2-4-unit": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.3756473993169442,
+      "dscr": 2.36045857581701,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1993,12 +1993,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.170000000000001,
-      "pi": 2707.0341634690526,
+      "finalRate": 7.245000000000001,
+      "pi": 2727.348705390466,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3157.0341634690526,
+      "totalPayment": 3177.348705390466,
       "rent": 7500,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2023,9 +2023,9 @@
     "prop-portfolio": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.977500390084012,
+      "dscr": 1.9642977024899841,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2048,12 +2048,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.2700000000000005,
-      "pi": 4101.200113602832,
+      "finalRate": 7.345000000000001,
+      "pi": 4131.790218759313,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 4551.200113602832,
+      "totalPayment": 4581.790218759313,
       "rent": 9000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2078,9 +2078,9 @@
     "ppp-5y6m": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9503448546067215,
+      "dscr": 1.9377020480801297,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2095,12 +2095,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.87,
-      "pi": 2626.3790238572315,
+      "finalRate": 6.945,
+      "pi": 2646.451286690224,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3076.3790238572315,
+      "totalPayment": 3096.451286690224,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2125,9 +2125,9 @@
     "ppp-54321": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9419023675147482,
+      "dscr": 1.9293430068078596,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2142,12 +2142,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.920000000000001,
-      "pi": 2639.753687091291,
+      "finalRate": 6.995000000000001,
+      "pi": 2659.8669230035625,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3089.753687091291,
+      "totalPayment": 3109.8669230035625,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2172,9 +2172,9 @@
     "ppp-320": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9005179194535555,
+      "dscr": 1.8883668606536081,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2189,12 +2189,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.170000000000001,
-      "pi": 2707.0341634690526,
+      "finalRate": 7.245000000000001,
+      "pi": 2727.348705390466,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3157.0341634690526,
+      "totalPayment": 3177.348705390466,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2219,9 +2219,9 @@
     "ppp-300": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.8843431568890083,
+      "dscr": 1.8723513176996942,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2236,12 +2236,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.2700000000000005,
-      "pi": 2734.1334090685546,
+      "finalRate": 7.345000000000001,
+      "pi": 2754.5268125062084,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3184.1334090685546,
+      "totalPayment": 3204.5268125062084,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2266,9 +2266,9 @@
     "ppp-none": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.8448266542818588,
+      "dscr": 1.833222855155179,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2283,12 +2283,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.5200000000000005,
-      "pi": 2802.3380915350217,
+      "finalRate": 7.595000000000001,
+      "pi": 2822.92450185611,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3252.3380915350217,
+      "totalPayment": 3272.92450185611,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2313,9 +2313,9 @@
     "buydown-0.25": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9243540703710076,
+      "dscr": 1.9119679977663437,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2330,12 +2330,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.025,
-      "pi": 2667.929331395456,
+      "finalRate": 7.1000000000000005,
+      "pi": 2688.1278384415946,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3117.929331395456,
+      "totalPayment": 3138.1278384415946,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2360,9 +2360,9 @@
     "buydown-1.00": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9469611463569978,
+      "dscr": 1.9343517903522987,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2377,12 +2377,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.890000000000001,
-      "pi": 2631.725596438703,
+      "finalRate": 6.965000000000001,
+      "pi": 2651.814276971427,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3081.725596438703,
+      "totalPayment": 3101.814276971427,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2407,9 +2407,9 @@
     "buydown-2.00": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9777400296502887,
+      "dscr": 1.9648261257960251,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2424,12 +2424,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.71,
-      "pi": 2583.76576802207,
+      "finalRate": 6.785,
+      "pi": 2603.7053234515465,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3033.76576802207,
+      "totalPayment": 3053.7053234515465,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2454,9 +2454,9 @@
     "upb-75-99k": {
       "loanType": "30Y Fixed",
       "ltv": 60,
-      "dscr": 5.489949478994628,
+      "dscr": 5.466611965016712,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2475,12 +2475,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.720000000000001,
-      "pi": 642.9062321897319,
+      "finalRate": 7.795000000000001,
+      "pi": 647.5719583531217,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 1092.9062321897318,
+      "totalPayment": 1097.5719583531218,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2510,9 +2510,9 @@
     "upb-100-149k": {
       "loanType": "30Y Fixed",
       "ltv": 60,
-      "dscr": 4.611822512494761,
+      "dscr": 4.589934103080184,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2531,12 +2531,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.6450000000000005,
-      "pi": 851.0041006010669,
+      "finalRate": 7.720000000000001,
+      "pi": 857.2083095863093,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 1301.004100601067,
+      "totalPayment": 1307.2083095863093,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2561,9 +2561,9 @@
     "upb-150-199k": {
       "loanType": "30Y Fixed",
       "ltv": 64.28571428571429,
-      "dscr": 3.570663356845414,
+      "dscr": 3.5512686416089574,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2582,12 +2582,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.2700000000000005,
-      "pi": 1230.3600340808496,
+      "finalRate": 7.345000000000001,
+      "pi": 1239.537065627794,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 1680.3600340808496,
+      "totalPayment": 1689.537065627794,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2612,9 +2612,9 @@
     "upb-600k-plus": {
       "loanType": "30Y Fixed",
       "ltv": 70,
-      "dscr": 1.8567294365404245,
+      "dscr": 1.8439928001045647,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2633,12 +2633,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.0200000000000005,
-      "pi": 4666.523610301025,
+      "finalRate": 7.095000000000001,
+      "pi": 4701.86393323298,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 5116.523610301025,
+      "totalPayment": 5151.86393323298,
       "rent": 9500,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2663,9 +2663,9 @@
     "dscr-1.00-1.19": {
       "loanType": "30Y Fixed",
       "ltv": 60,
-      "dscr": 1.082236614836053,
+      "dscr": 1.0751731250268604,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2680,12 +2680,12 @@
           "value": 0
         }
       ],
-      "finalRate": 7.07,
-      "pi": 2010.0308802421384,
+      "finalRate": 7.1450000000000005,
+      "pi": 2025.2069288260384,
       "taxes": 200,
       "ins": 100,
       "hoa": 0,
-      "totalPayment": 2310.0308802421387,
+      "totalPayment": 2325.206928826038,
       "rent": 2500,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2710,9 +2710,9 @@
     "broker-fees": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9169076913424214,
+      "dscr": 1.9045950833334722,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2727,12 +2727,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.07,
-      "pi": 2680.0411736561846,
+      "finalRate": 7.1450000000000005,
+      "pi": 2700.275905101384,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3130.0411736561846,
+      "totalPayment": 3150.275905101384,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2770,16 +2770,16 @@
       "error": "FICO 680-699 is not available at 79.2% LTV. Maximum LTV for FICO 680-699 is 70%. Maximum loan at this property value is $420,000. Reach out to a manager to submit an exception request."
     },
     "err-dscr-below-1": {
-      "error": "DSCR 0.48x is below minimum 1.00x. Reach out to a manager to submit an exception request.",
-      "dscr": 0.47717143348460034,
+      "error": "DSCR 0.47x is below minimum 1.00x. Reach out to a manager to submit an exception request.",
+      "dscr": 0.474113548368773,
       "dscrBelowMin": true
     },
     "warn-ineligible-state": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9169076913424214,
+      "dscr": 1.9045950833334722,
       "fico": "740-759",
-      "baseRate": 6.75,
+      "baseRate": 6.825,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2794,12 +2794,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.07,
-      "pi": 2680.0411736561846,
+      "finalRate": 7.1450000000000005,
+      "pi": 2700.275905101384,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3130.0411736561846,
+      "totalPayment": 3150.275905101384,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
