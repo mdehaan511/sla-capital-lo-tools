@@ -1011,6 +1011,17 @@
   to = "/.netlify/functions/admin-baseline-pii-backfill-status"
   status = 200
   force = true
+# Deploy 237.006 -- Pipeline summary-save data recovery (background job + report).
+[[redirects]]
+  from = "/api/admin-summary-save-recovery"
+  to = "/.netlify/functions/admin-summary-save-recovery-background"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/admin-summary-save-recovery-status"
+  to = "/.netlify/functions/admin-summary-save-recovery-status"
+  status = 200
+  force = true
 
 # Deploy 236.818: borrower-link — durable 72h portal sign-in links. GET
 # redeems (mints a fresh Supabase magic link at click time); POST resends
