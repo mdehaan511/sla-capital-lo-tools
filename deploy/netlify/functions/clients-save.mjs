@@ -25,6 +25,8 @@ import { encryptField } from './_shared/crypto.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.999 — summary round-trips must not wipe client data.
+import { preserveOmittedClientFields } from './_shared/client-save-merge.mjs';
 
 /**
  * Look up a profile by email and return a best-effort full name. Never throws.
@@ -138,6 +140,11 @@ export default async (req, context) => {
         return merged;
       });
     }
+
+    // Deploy 236.999 — client-level keys, company sub-fields, loan notesLog
+    // (union by entry id) and the original submittedAt survive a SUMMARY
+    // round-trip. See _shared/client-save-merge.mjs for the rules.
+    if (existing) preserveOmittedClientFields(existing, record);
 
     // Deploy 236.150 — accept a freshly-typed SSN under
     // record.ssn (raw digits from the Client Details page).

@@ -823,7 +823,7 @@ function cdVaultDoc(email, entityId, docType) {
 function clearEmailChangeRequest() {
   if (!_client) return;
   if (!confirm('Mark the email-change request handled?\n\nDo this AFTER updating their login on the admin side.')) return;
-  delete _client._emailChangeRequest;
+  _client._emailChangeRequest = null; // Deploy 236.999 — explicit null: clients-save keeps OMITTED keys
   var saveRec = _client;
   if (_loEmail && _user && _loEmail !== _user.email) saveRec = Object.assign({}, _client, { _owner: _loEmail });
   SLA.Clients.save(saveRec).then(function () { showToast('Request cleared'); render(); })

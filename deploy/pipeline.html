@@ -3294,15 +3294,13 @@ function updateLoanRecordPreDiscussed(quoteItem, text) {
         : _loanLookup[ownerLc + '|id|' + qLoanId]
           || _loanLookup[ownerLc + '|' + (quoteItem.quote.address || '').toLowerCase().trim()]);
   if (!lookup) return Promise.resolve();
-  var ownerOpt = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { all: true } : {};
-  return SLA.Clients.list(ownerOpt).then(function(r) {
-    var clients;
-    if (r && r.byOwner) {
-      clients = r.byOwner[lookup.ownerKey] || [];
-    } else {
-      clients = (r && r.clients) || [];
-    }
-    var client = clients.find(function(c) { return c.id === lookup.clientId; });
+  // Deploy 236.999 — load the FULL client record. SLA.Clients.list() returns
+  // SUMMARY records (no notesLog / notes / submittedAt / addresses), and this
+  // path saves the whole client back — which replaced the loan's notes history
+  // with one entry and wiped client details on every submit.
+  var getOpts = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { owner: lookup.ownerKey } : {};
+  return SLA.Clients.get(lookup.clientId, getOpts).then(function(r) {
+    var client = r && r.client;
     if (!client) return;
     var loan = (client.loans || []).find(function(l) { return l.id === lookup.loanId; });
     if (!loan) return;
@@ -3405,15 +3403,13 @@ function updateLoanRecordOnSubmit(quoteItem, notes) {
     // updating, the quote-only path was the pre-existing behavior.
     return Promise.resolve();
   }
-  var ownerOpt = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { all: true } : {};
-  return SLA.Clients.list(ownerOpt).then(function(r) {
-    var clients;
-    if (r && r.byOwner) {
-      clients = r.byOwner[lookup.ownerKey] || [];
-    } else {
-      clients = (r && r.clients) || [];
-    }
-    var client = clients.find(function(c) { return c.id === lookup.clientId; });
+  // Deploy 236.999 — load the FULL client record. SLA.Clients.list() returns
+  // SUMMARY records (no notesLog / notes / submittedAt / addresses), and this
+  // path saves the whole client back — which replaced the loan's notes history
+  // with one entry and wiped client details on every submit.
+  var getOpts = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { owner: lookup.ownerKey } : {};
+  return SLA.Clients.get(lookup.clientId, getOpts).then(function(r) {
+    var client = r && r.client;
     if (!client) return;
     var loan = (client.loans || []).find(function(l) { return l.id === lookup.loanId; });
     if (!loan) return;

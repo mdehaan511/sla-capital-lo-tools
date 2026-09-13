@@ -125,6 +125,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.982 (Mike) - servicer boarding tracking (Pending Boarding
   // accordion on Closed Loans). Keep both projections in sync.
   'boardingStatus', 'boardingSentAt', 'boardedDate',
+  // Deploy 236.999 — Team Overview 'days in stage' (processing-pipeline.html).
+  'processingStageAt',
   // Deploy 236.798 — LO commission inputs (lo-commissions.html). Keep in
   // sync with clients-list.mjs's LOAN_SUMMARY_FIELDS.
   'commissionSource', 'commissionReferral',
