@@ -105,6 +105,20 @@
     #auth-gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; }
     .gate-msg { text-align: center; color: var(--muted); font-size: 14px; }
     .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+    /* Deploy 237.001: page-level nav CSS. sla-nav.js only injects the dropdown
+       (.nav-dd*) rules; the bar layout + logo size must live on each page
+       (same fix closed-loans needed in 236.611). Without it the logo renders at
+       native size and the links stack unstyled. */
+    :root { --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10); --gold-border: rgba(200,129,58,0.28); --muted: #7a7488; --border: #ddd8d0; }
+    .nav { max-width: 1440px; margin: 0 auto; padding: 1.5rem 22px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .nav img { height: 48px; width: auto; display: block; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
   </style>
 </head>
 <body>
