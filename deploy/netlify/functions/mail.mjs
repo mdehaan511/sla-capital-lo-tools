@@ -164,7 +164,10 @@ async function handle(req, context) {
     const collRows = [];
     for (let offset = 0; offset < 50000; offset += 1000) {
       const page = await pgGet('loans', 'select=' + encodeURIComponent(collSelect) +
-        '&status=not.in.(cancelled,denied)&order=funding_date.desc.nullslast&limit=1000&offset=' + offset);
+        // Deploy 237.010: no status pre-filter. closed-loans.html lets a SET
+        // disposition win over status, so a loan marked denied/cancelled but
+        // disposition sold / paid off is still a closed loan (4 were missing).
+        '&order=funding_date.desc.nullslast&limit=1000&offset=' + offset);
       page.forEach((r) => collRows.push(r));
       if (page.length < 1000) break;
     }
