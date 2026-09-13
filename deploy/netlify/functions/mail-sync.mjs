@@ -1,5 +1,5 @@
 /**
- * mail-sync.mjs — POST /api/mail-sync   (+ runSync, used by the cron + webhook)
+ * mail-sync.mjs — POST /api/mail-sync   (+ runSync / runSuggestions exports)
  *
  * Deploy 236.995 (Mike, mail room). Pulls mail from Stable into the portal:
  *
@@ -12,10 +12,19 @@
  *   3. SUGGESTIONS: items flagged needsAi get a suggested loan + category
  *      (_shared/mail-match.mjs). Suggestion only; a person confirms.
  *
- * Time-budgeted: a function has ~26s, an AI call takes seconds, and a busy
- * mail day can bring dozens of pieces. Work stops at the budget and the rest
- * waits for the next run (every 15 minutes) — the watermark only advances past
- * items actually stored, and suggestions are a separate resumable queue.
+ * Deploy 236.998 — hardening after the cleanup scan:
+ *   - LOCK (meta/lock): the 15-minute cron, the "Check for new mail" button
+ *     and the Stable webhook share this code; overlapping runs used to fetch
+ *     and suggest the same pieces twice. A run that finds a live lock skips.
+ *   - AI RESERVE: a suggestion call can take up to ~18s, so one is only
+ *     STARTED when that much budget remains — a late start could push a
+ *     scheduled run past Netlify's 30s kill.
+ *   - Suggestions can run separately (runSuggestions, used by the
+ *     mail-suggest-background function the cron fires) so a busy mail day's
+ *     queue drains in one 15-minute background run instead of one piece per
+ *     cron tick.
+ *   - The watermark is saved BEFORE suggestions, so a run killed mid-AI never
+ *     re-ingests pieces it already stored.
  *
  * Body: { dryRun?: bool (default false), sinceDays?: number (first run window) }
  * Auth: mail-room access (office assistant / processor / admin).
@@ -30,6 +39,7 @@ import {
 import { loadCandidateLoans, suggestForItem } from './_shared/mail-match.mjs';
 
 const MAX_IMG_BYTES = 8 * 1024 * 1024;
+const AI_RESERVE_MS = 18000;
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -50,7 +60,7 @@ async function handle(req, context) {
   const result = await runSync({
     dryRun: body.dryRun === true,
     sinceDays: Number(body.sinceDays) > 0 ? Number(body.sinceDays) : 30,
-    budgetMs: 20000,
+    budgetMs: 22000,
     actor: normalizeEmail(user.email),
   });
   return json(200, Object.assign({ ok: true }, result));
@@ -249,9 +259,67 @@ async function loadMedia(store, item) {
   return media;
 }
 
+// ── Locking ──────────────────────────────────────────────────────────
+async function withLock(store, key, holdMs, actor, fn) {
+  const lock = await store.get(key, { type: 'json' }).catch(() => null);
+  if (lock && Date.parse(lock.until) > Date.now()) {
+    return { skipped: 'another run is in progress', lockedBy: lock.by || '', lockedUntil: lock.until };
+  }
+  await store.setJSON(key, { until: new Date(Date.now() + holdMs).toISOString(), by: actor || 'mail-sync' });
+  try { return await fn(); }
+  finally { await store.delete(key).catch(() => {}); }
+}
+
+// ── Suggestions (resumable queue) ────────────────────────────────────
+/**
+ * Work the needsai queue until it empties or the budget runs out. A
+ * suggestion is only STARTED when AI_RESERVE_MS of budget remains.
+ */
+export async function runSuggestions(opts) {
+  opts = opts || {};
+  const store = opts.store || mailStore();
+  const t0 = opts.t0 || Date.now();
+  const budgetMs = opts.budgetMs || 20000;
+  const out = { suggested: 0, remaining: 0, budgetStopped: false, errors: [] };
+  const queue = await listPointers('p/needsai/', {}, store);
+  let loans = null;
+  let i = 0;
+  for (; i < queue.length; i++) {
+    const p = queue[i];
+    if (Date.now() - t0 > budgetMs - AI_RESERVE_MS) { out.budgetStopped = true; break; }
+    try {
+      const item = await getItem(p.safeId, store);
+      if (!item || item.sort !== 'unsorted') { await store.delete(p.key).catch(() => {}); continue; }
+      if (!loans) loans = await loadCandidateLoans();
+      item.suggestion = await suggestForItem(item, await loadMedia(store, item), loans);
+      item.needsAi = false;
+      await putItem(item, store);
+      await store.delete(p.key).catch(() => {});
+      out.suggested += 1;
+    } catch (e) {
+      out.errors.push({ id: p.safeId, error: 'suggestion: ' + ((e && e.message) || '') });
+    }
+  }
+  out.remaining = Math.max(0, queue.length - i);
+  return out;
+}
+
+export async function runSuggestionsLocked(opts) {
+  opts = opts || {};
+  const store = mailStore();
+  const budgetMs = opts.budgetMs || 20000;
+  return withLock(store, 'meta/lock-suggest', budgetMs + 30000, opts.actor, () =>
+    runSuggestions({ store, budgetMs, t0: Date.now() }));
+}
+
 // ── The sync ─────────────────────────────────────────────────────────
 export async function runSync(opts) {
   opts = opts || {};
+  if (opts.dryRun) return syncOnce(opts);
+  return withLock(mailStore(), 'meta/lock', (opts.budgetMs || 20000) + 30000, opts.actor, () => syncOnce(opts));
+}
+
+async function syncOnce(opts) {
   const t0 = Date.now();
   const budgetMs = opts.budgetMs || 20000;
   const dryRun = !!opts.dryRun;
@@ -262,7 +330,7 @@ export async function runSync(opts) {
     ? new Date(Date.parse(meta.lastCreatedAt) - 2 * 3600 * 1000).toISOString()
     : new Date(Date.now() - (opts.sinceDays || 30) * 86400 * 1000).toISOString();
 
-  const out = { dryRun, since, fetched: 0, created: 0, updated: 0, unchanged: 0, pendingRefreshed: 0, suggested: 0, errors: [], budgetStopped: false };
+  const out = { dryRun, since, fetched: 0, created: 0, updated: 0, unchanged: 0, pendingRefreshed: 0, suggested: 0, suggestionsQueued: 0, errors: [], budgetStopped: false };
 
   // 1. Page through new items.
   const nodes = [];
@@ -323,27 +391,6 @@ export async function runSync(opts) {
     }
   }
 
-  // 3. Suggestions.
-  if (!dryRun) {
-    const queue = await listPointers('p/needsai/', {}, store);
-    let loans = null;
-    for (const p of queue) {
-      if (Date.now() - t0 > budgetMs) { out.budgetStopped = true; break; }
-      try {
-        const item = await getItem(p.safeId, store);
-        if (!item || item.sort !== 'unsorted') { await store.delete(p.key).catch(() => {}); continue; }
-        if (!loans) loans = await loadCandidateLoans();
-        item.suggestion = await suggestForItem(item, await loadMedia(store, item), loans);
-        item.needsAi = false;
-        await putItem(item, store);
-        await store.delete(p.key).catch(() => {});
-        out.suggested += 1;
-      } catch (e) {
-        out.errors.push({ id: p.safeId, error: 'suggestion: ' + ((e && e.message) || '') });
-      }
-    }
-  }
-
   if (!dryRun) {
     await store.setJSON('meta/sync', {
       // No createdAt on the nodes at all → fall back to the run start so the
@@ -354,6 +401,18 @@ export async function runSync(opts) {
       actor: opts.actor || 'auto:mail-sync',
     });
   }
+
+  // 3. Suggestions (unless the caller hands them to the background job).
+  if (!dryRun && opts.suggest !== false) {
+    const s = await runSuggestions({ store, t0, budgetMs });
+    out.suggested = s.suggested;
+    out.suggestionsQueued = s.remaining;
+    if (s.budgetStopped) out.budgetStopped = true;
+    out.errors.push.apply(out.errors, s.errors);
+  } else if (!dryRun) {
+    out.suggestionsQueued = (await listPointers('p/needsai/', {}, store)).length;
+  }
+
   out.ms = Date.now() - t0;
   return out;
 }

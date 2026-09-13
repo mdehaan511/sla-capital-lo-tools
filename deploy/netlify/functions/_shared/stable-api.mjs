@@ -38,6 +38,8 @@ async function _req(method, path, opts) {
   const resp = await fetch(BASE + path + qs, {
     method,
     headers,
+    // Deploy 236.998 — never let a hung Stable call eat the function budget.
+    signal: AbortSignal.timeout(opts.timeoutMs || 12000),
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   const text = await resp.text();
@@ -76,7 +78,7 @@ export function getMailItem(id) {
 /** Download one of Stable's temporary URLs. Returns { bytes, contentType }. */
 export async function fetchTemp(url, maxBytes) {
   if (!url) return null;
-  const resp = await fetch(url);
+  const resp = await fetch(url, { signal: AbortSignal.timeout(15000) }); // Deploy 236.998
   if (!resp.ok) throw new Error('temp URL fetch → HTTP ' + resp.status);
   const buf = Buffer.from(await resp.arrayBuffer());
   if (maxBytes && buf.length > maxBytes) return { bytes: null, contentType: resp.headers.get('content-type') || '', tooLarge: buf.length };

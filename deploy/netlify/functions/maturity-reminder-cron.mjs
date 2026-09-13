@@ -33,7 +33,7 @@ import { db } from './_shared/supabase-db.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { logBorrowerSendFromResponse } from './_shared/email.mjs';
 
-export const config = { schedule: '20 16 * * *' }; // 16:20 UTC ≈ 9:20am PT
+export const config = { schedule: '35 16 * * *' }; // 16:20 UTC ≈ 9:20am PT
 
 export const PAYOFF_INBOX = 'payoffs@slacapital.com';
 // Deploy 236.808 — fire in a BAND, not just "≤ 30". The first preview turned up

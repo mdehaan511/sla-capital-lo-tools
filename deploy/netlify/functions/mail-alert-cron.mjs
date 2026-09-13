@@ -15,7 +15,9 @@
 import { db } from './_shared/supabase-db.mjs';
 import { mailStore, getItem, listPointers, OVERDUE_HOURS, CATEGORY_LABEL } from './_shared/mail-store.mjs';
 
-export const config = { schedule: '7 * * * *' };
+// Deploy 236.998 — 13:00–01:59 UTC covers 7am–6pm Mountain in both MDT and
+// MST; the in-code gate below still decides weekday + exact hours.
+export const config = { schedule: '7 0,1,13-23 * * *' };
 
 const PORTAL = 'https://portal.slacapital.ai/mail.html';
 
@@ -66,8 +68,6 @@ export default async () => {
 
   const ptrs = await listPointers('p/unsorted/', {}, store);
   if (!ptrs.length) {
-    state.escalatedAt = {};
-    await store.setJSON('meta/alerts', state);
     return new Response(JSON.stringify({ ok: true, unsorted: 0 }), { status: 200 });
   }
 
@@ -91,6 +91,7 @@ export default async () => {
     if (sent) {
       state.lastNewNoticeAt = fresh.map(seenAt).sort().pop();
       out.newNotified = fresh.length;
+      await store.setJSON('meta/alerts', state); // Deploy 236.998 — persist per send
     }
   }
 
@@ -109,6 +110,7 @@ export default async () => {
       const stamp = new Date().toISOString();
       overdue.forEach((i) => { state.escalatedAt[i.id] = stamp; });
       out.escalated = overdue.length;
+      await store.setJSON('meta/alerts', state); // Deploy 236.998 — persist per send
     }
   }
 
