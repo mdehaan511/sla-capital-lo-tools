@@ -403,6 +403,7 @@ async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, prope
   // back to them instead of the unmonitored noreply@ from-address.
   const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({

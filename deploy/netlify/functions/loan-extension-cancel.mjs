@@ -153,6 +153,7 @@ async function handle(req, context) {
     for (const s of invited) {
       try {
         const r = await fetch('https://api.resend.com/emails', {
+          signal: AbortSignal.timeout(15000), // Deploy 237.003
           method: 'POST',
           headers: {
             'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,

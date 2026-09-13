@@ -131,7 +131,7 @@
     ['account1','account2','account3','account4','account5'].forEach(function(k){
       var x = uwData[k] && uwData[k].value;
       if (x && typeof x === 'object' && (num(x.balance) > 0 || x.type)) {
-        accounts.push({ type: x.type||'', balance: num(x.balance), weight: (x.weight==null?0:num(x.weight)) });
+        accounts.push({ type: x.type||'', balance: num(x.balance), weight: _acctWeight(x) });
       }
     });
 
@@ -147,6 +147,17 @@
     };
   }
 
+  // Deploy 237.003: an account row with no saved weight (AI autofill writes
+  // type + balance only) now takes its TYPE default, as the input's tooltip
+  // promises; unknown type = 0. Mirrors trade-tapes.mjs reservesOf so the
+  // UW tab and the Colchis/Stride tape report the same reserves.
+  function _acctWeight(x) {
+    if (x.weight != null && x.weight !== '') return num(x.weight);
+    var tbl = (typeof F !== 'undefined' && F && F.ACCOUNT_WEIGHTS) || [];
+    var hit = tbl.filter(function(r){ return r.type === x.type; })[0];
+    return (hit && hit.weight != null) ? hit.weight : 0;
+  }
+
   // ── DSCR (Deploy 236.511) ──────────────────────────────────────────
   function programOf(loan) {
     return String((loan && loan.toolType) || '').toLowerCase() === 'dscr' ? 'dscr' : 'rtl';
@@ -157,7 +168,7 @@
     ['account1','account2','account3','account4','account5'].forEach(function(k){
       var x = uwData[k] && uwData[k].value;
       if (x && typeof x === 'object' && (num(x.balance) > 0 || x.type)) {
-        accounts.push({ type: x.type||'', balance: num(x.balance), weight: (x.weight==null?0:num(x.weight)) });
+        accounts.push({ type: x.type||'', balance: num(x.balance), weight: _acctWeight(x) });
       }
     });
     return accounts;

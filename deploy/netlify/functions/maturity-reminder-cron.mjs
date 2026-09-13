@@ -188,6 +188,7 @@ export async function findMaturityCandidates(now) {
 
 async function _send(apiKey, { to, subject, html, text }) {
   return fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({

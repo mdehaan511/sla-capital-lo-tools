@@ -196,7 +196,7 @@ const reservesOf = (c) => {
     const bal = num(a.balance);
     if (bal == null) continue;
     let w = (a.weight != null && a.weight !== '') ? num(a.weight) : TAPE_ACCOUNT_WEIGHTS[a.type];
-    if (w == null) w = 1;
+    if (w == null) w = 0; // Deploy 237.003: unknown type = 0, same as the UW tab (was 1, overstated reserves)
     if (w > 1) w = w / 100; // tolerate "70" for 70%
     total += bal * w;
     any = true;

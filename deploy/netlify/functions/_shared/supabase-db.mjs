@@ -103,6 +103,9 @@ async function _request(method, table, { qs = '', body, headers } = {}) {
   const { url, key } = _env();
   const endpoint = url + '/rest/v1/' + table + qs;
   const resp = await fetch(endpoint, {
+    // Deploy 237.003: a hung PostgREST socket used to hold the function until
+    // Netlify's hard kill. Abort first so the caller's catch / read-retry runs.
+    signal: AbortSignal.timeout(22000),
     method,
     headers: { ..._baseHeaders(key), ...(headers || {}) },
     body: body ? JSON.stringify(body) : undefined,

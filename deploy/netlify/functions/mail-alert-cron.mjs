@@ -49,6 +49,7 @@ async function sendEmail(to, subject, rows, intro) {
     '<p style="margin-top:18px"><a href="' + PORTAL + '" style="background:#C8813A;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-size:13px">Open the Mail Room</a></p>' +
     '</div></div></body></html>';
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: 'SLA Capital <noreply@leads.slacapital.com>', to, subject, html }),

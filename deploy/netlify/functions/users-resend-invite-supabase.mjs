@@ -56,6 +56,7 @@ async function _sendViaResend(email, subject, text, html) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error('RESEND_API_KEY not configured');
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: INVITE_FROM, to: [email], subject, text, html }),

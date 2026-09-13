@@ -167,6 +167,7 @@ async function _sendLink(email, link) {
       <p style="font-size:12px;color:#999;margin-top:24px">If the button doesn't work, paste this into your browser:<br>${esc(link)}</p>
     </div></body></html>`;
   const r = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: INVITE_FROM, to: [email], subject: 'Your SLA Capital sign-in link', text, html }),

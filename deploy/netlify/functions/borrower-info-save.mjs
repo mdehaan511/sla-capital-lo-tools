@@ -264,6 +264,7 @@ async function notifyBorrower(record) {
 
   const replyTo = await getOwnerReplyTo(record.ownerKey);
   await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -309,6 +310,7 @@ async function notifyLO(record) {
 
   const replyTo = await getOwnerReplyTo(record.ownerKey);
   await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({

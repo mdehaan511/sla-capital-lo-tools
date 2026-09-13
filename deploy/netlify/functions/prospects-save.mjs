@@ -991,6 +991,7 @@ async function notifyLO(prospect, ids) {
   });
 
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + key,
@@ -1244,6 +1245,7 @@ async function notifyApplicantOfSubmission(prospect) {
   });
 
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + key,

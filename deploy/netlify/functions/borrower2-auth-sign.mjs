@@ -385,6 +385,7 @@ async function emailFinalSignedCopy({ toEmail, toName, propertyAddress, pdfBuffe
 
   const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -471,6 +472,7 @@ async function notifyLOOfB2Signed(biRecord, signedRec, b2Audit, opts) {
   const replyTo = await getOwnerReplyTo(biRecord && biRecord.ownerKey);
   try {
     const resp = await fetch('https://api.resend.com/emails', {
+      signal: AbortSignal.timeout(15000), // Deploy 237.003
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({

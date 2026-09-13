@@ -188,6 +188,7 @@ async function handle(req, context) {
             encodeURIComponent(g.primaryClientId);
           const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const resp = await fetch('https://api.resend.com/emails', {
+            signal: AbortSignal.timeout(15000), // Deploy 237.003
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({

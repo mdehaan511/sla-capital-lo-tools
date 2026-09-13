@@ -202,6 +202,7 @@ export async function sendBorrowerEmail(toEmail, subject, text, html, replyTo, l
   const payload = { from: INVITE_FROM, to: [toEmail], subject, text, html };
   if (replyTo) payload.reply_to = replyTo;
   const r = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

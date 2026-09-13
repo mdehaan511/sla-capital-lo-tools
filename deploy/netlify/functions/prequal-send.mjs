@@ -156,6 +156,7 @@ async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link, ownerK
     ccList.push(loEmail);
   }
   const resp = await fetch('https://api.resend.com/emails', {
+    signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
