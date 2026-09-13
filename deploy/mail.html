@@ -119,6 +119,41 @@
     .mv-imgwrap { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #f7f5f1; padding: 12px; }
     .mv-imgwrap img { max-width: 100%; height: auto; cursor: zoom-in; }
     .mv-imgwrap img.zoomed { max-width: none; cursor: zoom-out; }
+    /* Deploy 237.009 (Mike): Collateral board (moved from Closed Loans) +
+       piece modal (a mail piece opens on top of the board, not in a new page). */
+    .coll-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    .coll-bar input[type=search] { font: inherit; font-size: 13px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 20px; min-width: 260px; background: #fff; }
+    .coll-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ctab { font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--muted); cursor: pointer; }
+    .ctab.active { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .coll-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .coll-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 11px; }
+    .ctbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ctbl th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; background: #faf8f4; }
+    .ctbl td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .ctbl tr:last-child td { border-bottom: 0; }
+    .ctbl .cprop { min-width: 220px; }
+    .ctbl .cprop a { font-weight: 600; color: var(--text); text-decoration: none; }
+    .ctbl .cprop a:hover { color: var(--gold-mid); }
+    .csub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    .cc { min-width: 180px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+    .cc-date { font-weight: 600; color: var(--success); }
+    .cc-miss { color: var(--warn); font-size: 12px; font-weight: 600; }
+    .cc-row { font-size: 12px; }
+    .cc-row .k { color: var(--muted); }
+    .mono { font-family: 'DM Mono', monospace; font-size: 11.5px; }
+    .cc-piece { text-align: left; font: inherit; font-size: 11.5px; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); cursor: pointer; max-width: 260px; }
+    .cc-piece:hover { border-color: var(--gold); }
+    .cc-piece .pl { display: block; color: var(--muted); font-size: 10.5px; }
+    .cc-piece.pend { border-color: rgba(30,64,175,.28); background: rgba(30,64,175,.06); color: var(--blue); }
+    .pm-bg { position: fixed; inset: 0; background: rgba(20,14,28,.6); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 3vh 2vw; }
+    .pm { background: var(--surface); border-radius: 12px; width: min(880px, 96vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    .pm-head { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .pm-body { overflow: auto; padding: 16px 18px 20px; }
+    .pm-body.panel { border: 0; border-radius: 0; min-height: 0; }
+    .pm-body .row3, .coll-edit .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .pm-body input[type=text], .pm-body input[type=date] { width: 100%; }
+    @media (max-width: 640px) { .pm-body .row3 { grid-template-columns: 1fr; } }
     /* Deploy 237.001: page-level nav CSS. sla-nav.js only injects the dropdown
        (.nav-dd*) rules; the bar layout + logo size must live on each page
        (same fix closed-loans needed in 236.611). Without it the logo renders at
@@ -159,11 +194,13 @@
     <div class="tabs">
       <button type="button" class="tab active" data-view="unsorted" onclick="setView('unsorted')">Unsorted<span class="count" id="tabCount" hidden></span></button>
       <button type="button" class="tab" data-view="all" onclick="setView('all')">All Mail</button>
+      <button type="button" class="tab" data-view="collateral" onclick="setView('collateral')">Collateral</button>
     </div>
-    <div class="layout">
+    <div class="layout" id="mailLayout">
       <div class="list" id="list"><div class="empty">Loading…</div></div>
       <div class="panel" id="detail"><div class="empty">Select a piece of mail to review it.</div></div>
     </div>
+    <div id="collWrap" style="display:none"></div>
   </div>
 
 <script>
@@ -175,6 +212,8 @@ var _sel = null;          // full record of the selected piece
 var _picked = null;       // loan picked in the assign form
 var _thumbUrls = {};      // id|kind -> object URL
 var _searchTimer = null;
+var _detailTarget = 'detail';  // Deploy 237.009: 'pieceModalBody' while a piece is open in the modal
+function detailEl() { return document.getElementById(_detailTarget) || document.getElementById('detail'); }
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function api(method, path, body) { return SLA.api(method, path, body); }
@@ -239,15 +278,181 @@ function openImage(id, kind) {
 function closeViewer() {
   var m = document.getElementById('mailViewer');
   if (m) { m.style.display = 'none'; m.innerHTML = ''; }
-  document.body.style.overflow = '';
+  document.body.style.overflow = _pieceOpen() ? 'hidden' : '';
 }
-document.addEventListener('keydown', function (e) { if (e.key === 'Escape' || e.key === 'Esc') closeViewer(); });
+function _pieceOpen() { var p = document.getElementById('pieceModal'); return !!(p && p.style.display === 'flex'); }
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape' && e.key !== 'Esc') return;
+  var v = document.getElementById('mailViewer');
+  if (v && v.style.display === 'flex') closeViewer();
+  else if (_pieceOpen()) closePiece();
+});
 
 // ── List ─────────────────────────────────────────────────────────────
 function setView(v) {
   _view = v;
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('active', b.getAttribute('data-view') === v); });
-  loadList();
+  var coll = v === 'collateral';
+  document.getElementById('mailLayout').style.display = coll ? 'none' : '';
+  document.getElementById('collWrap').style.display = coll ? '' : 'none';
+  try { history.replaceState(null, '', coll ? '/mail.html?view=collateral' : '/mail.html'); } catch (_) {}
+  if (coll) {
+    // Clear the side panel so its element ids never duplicate the modal's.
+    _selId = ''; _sel = null;
+    document.getElementById('detail').innerHTML = '<div class="empty">Select a piece of mail to review it.</div>';
+    loadCollateral();
+  } else {
+    loadList();
+  }
+}
+
+// ── Deploy 237.009 (Mike) — Collateral board (moved from Closed Loans) ──
+// Rows = properties (closed loans + any loan with collateral data or pieces).
+// Each document column shows the loan's date / location / tracking and the
+// mail pieces behind it; a piece opens in a modal (same detail panel, so an
+// AI-matched piece can be confirmed right there). Dates fill in automatically
+// when a collateral piece is filed.
+var _coll = null;
+var _collFilter = 'all';
+var _collQ = '';
+function loadCollateral() {
+  var w = document.getElementById('collWrap');
+  if (!_coll) w.innerHTML = '<div class="empty">Loading collateral…</div>';
+  api('GET', '/api/mail?action=collateral').then(function (r) { _coll = r; renderCollateral(); })
+    .catch(function (e) { w.innerHTML = '<div class="empty">' + esc(e.message || 'Failed to load collateral') + '</div>'; });
+}
+function collMissing(l) {
+  return (_coll.docs || []).filter(function (d) { return !(l.docs && l.docs[d.prefix] && l.docs[d.prefix].date); }).length;
+}
+function collAwaiting(l) { return Object.keys(l.pending || {}).length > 0; }
+function setCollFilter(f) { _collFilter = f; renderCollateral(); }
+function collCell(l, d) {
+  var doc = (l.docs && l.docs[d.prefix]) || {};
+  var pcs = (l.pieces && l.pieces[d.prefix]) || [];
+  var pend = (l.pending && l.pending[d.prefix]) || [];
+  var latest = pcs.length ? pcs[pcs.length - 1] : null;
+  var h = '<div class="cc">';
+  h += doc.date ? '<div class="cc-date">✓ ' + esc(fmtDate(doc.date + 'T12:00:00')) + '</div>' : '<div class="cc-miss">Not received</div>';
+  var loc = doc.location || (latest && latest.locationLabel) || '';
+  if (loc) h += '<div class="cc-row"><span class="k">Location:</span> ' + esc(loc) + '</div>';
+  var trk = doc.tracking || (latest && latest.tracking) || '';
+  if (trk) {
+    var carrier = (!doc.tracking && latest && latest.carrier) ? latest.carrier + ' ' : '';
+    h += '<div class="cc-row"><span class="k">Tracking:</span> <span class="mono">' + esc(carrier + trk) + '</span></div>';
+  }
+  pcs.slice().reverse().forEach(function (p) {
+    h += '<button type="button" class="cc-piece" onclick="openPiece(\'' + esc(p.id) + '\')" title="Open this piece">📬 ' +
+      esc(fmtDate(p.receivedAt)) + (p.from ? ' · ' + esc(p.from.slice(0, 24)) : '') + (p.hasScan ? ' · 📄' : '') +
+      '<span class="pl">' + esc(p.locationLabel || '') + (p.tracking ? ' · ' + esc((p.carrier ? p.carrier + ' ' : '') + p.tracking) : '') + '</span></button>';
+  });
+  pend.forEach(function (p) {
+    h += '<button type="button" class="cc-piece pend" onclick="openPiece(\'' + esc(p.id) + '\')" title="Matched by AI — open to confirm and file it">🤖 Awaiting sort · ' +
+      esc(fmtDate(p.receivedAt)) + (p.from ? ' · ' + esc(p.from.slice(0, 20)) : '') + '</button>';
+  });
+  return h + '</div>';
+}
+function renderCollateral() {
+  var w = document.getElementById('collWrap');
+  if (!_coll || !w) return;
+  var docs = _coll.docs || [];
+  var all = _coll.loans || [];
+  if (!document.getElementById('collTable')) {
+    w.innerHTML = '<div class="coll-bar"><input type="search" id="collSearch" placeholder="Search property, borrower or SLA #" oninput="_collQ=this.value;renderCollateral()">' +
+      '<div class="coll-filters" id="collFilters"></div><span style="flex:1"></span>' +
+      '<button type="button" class="btn ghost sm" onclick="loadCollateral()">↻ Refresh</button></div>' +
+      '<div class="coll-note">Physical collateral for every closed loan. Dates fill in automatically when a Signed Originals, Recorded DOT or Final Title Policy piece is filed from Stable. Click 📬 to open a piece; 🤖 means it arrived and the AI matched it, but nobody has confirmed it yet.</div>' +
+      '<div class="coll-scroll"><table class="ctbl" id="collTable"></table></div>';
+    document.getElementById('collSearch').value = _collQ;
+  }
+  var counts = { all: all.length, missing: 0, complete: 0, awaiting: 0 };
+  all.forEach(function (l) { if (collMissing(l)) counts.missing++; else counts.complete++; if (collAwaiting(l)) counts.awaiting++; });
+  document.getElementById('collFilters').innerHTML = [['all', 'All'], ['missing', 'Missing docs'], ['complete', 'Complete'], ['awaiting', 'Awaiting sort']].map(function (f) {
+    return '<button type="button" class="ctab' + (_collFilter === f[0] ? ' active' : '') + '" onclick="setCollFilter(\'' + f[0] + '\')">' + f[1] + ' · ' + counts[f[0]] + '</button>';
+  }).join('');
+  var q = String(_collQ || '').toLowerCase().trim();
+  var rows = all.filter(function (l) {
+    if (_collFilter === 'missing' && !collMissing(l)) return false;
+    if (_collFilter === 'complete' && collMissing(l)) return false;
+    if (_collFilter === 'awaiting' && !collAwaiting(l)) return false;
+    if (q && [l.address, l.borrower, l.entity, l.slaNumber].join(' ').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  // Awaiting-sort first, then missing docs, then newest funding (server order).
+  rows = rows.map(function (l, i) { return { l: l, i: i }; }).sort(function (a, b) {
+    var ra = (collAwaiting(a.l) ? 0 : 1) * 2 + (collMissing(a.l) ? 0 : 1);
+    var rb = (collAwaiting(b.l) ? 0 : 1) * 2 + (collMissing(b.l) ? 0 : 1);
+    return ra - rb || a.i - b.i;
+  }).map(function (x) { return x.l; });
+  var head = '<thead><tr><th>Property</th>' + docs.map(function (d) { return '<th>' + esc(d.label) + '</th>'; }).join('') + '<th>Status</th><th></th></tr></thead>';
+  var body = rows.length ? rows.map(function (l) {
+    var miss = collMissing(l);
+    return '<tr><td class="cprop"><a href="' + esc(loanHref(l)) + '" target="_blank" rel="noopener">' + esc(l.address || '(no address)') + '</a>' +
+      '<div class="csub">' + esc([l.slaNumber, l.borrower || l.entity].filter(Boolean).join(' · ')) + '</div></td>' +
+      docs.map(function (d) { return '<td>' + collCell(l, d) + '</td>'; }).join('') +
+      '<td>' + (miss ? '<span class="chip warn">Missing ' + miss + '</span>' : '<span class="chip ok">Complete</span>') + '</td>' +
+      '<td><button type="button" class="btn ghost sm" onclick="editCollateral(\'' + esc(l.loanId) + '\')" title="Edit dates, locations and tracking">✎ Edit</button></td></tr>';
+  }).join('') : '<tr><td colspan="' + (docs.length + 3) + '" style="color:var(--muted)">No properties match.</td></tr>';
+  document.getElementById('collTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+}
+
+// Modal shell shared by the piece view and the collateral editor.
+function _pieceShell(title, bodyHtml, bodyClass) {
+  var m = document.getElementById('pieceModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'pieceModal';
+    m.className = 'pm-bg';
+    m.onclick = function (e) { if (e.target === m) closePiece(); };
+    document.body.appendChild(m);
+  }
+  m.innerHTML = '<div class="pm" role="dialog" aria-modal="true"><div class="pm-head"><strong>' + esc(title) + '</strong><span style="flex:1"></span>' +
+    '<button type="button" class="btn ghost sm" onclick="closePiece()" aria-label="Close">✕</button></div>' +
+    '<div class="pm-body ' + (bodyClass || '') + '" id="pieceModalBody">' + bodyHtml + '</div></div>';
+  m.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function openPiece(id) {
+  _pieceShell('Mail piece', '<div class="empty">Loading…</div>', 'panel');
+  _detailTarget = 'pieceModalBody';
+  selectItem(id);
+}
+function closePiece() {
+  var m = document.getElementById('pieceModal');
+  if (m) { m.style.display = 'none'; m.innerHTML = ''; }
+  _detailTarget = 'detail';
+  _sel = null; _selId = '';
+  document.body.style.overflow = '';
+  if (_view === 'collateral') loadCollateral();
+}
+function editCollateral(loanId) {
+  var l = ((_coll && _coll.loans) || []).filter(function (x) { return x.loanId === loanId; })[0];
+  if (!l) return;
+  var body = '<div class="csub" style="margin-bottom:4px">' + esc(l.address || '') + (l.slaNumber ? ' · ' + esc(l.slaNumber) : '') + '</div>' +
+    (_coll.docs || []).map(function (d) {
+      var doc = (l.docs && l.docs[d.prefix]) || {};
+      return '<h3>' + esc(d.label) + '</h3><div class="row3">' +
+        '<div class="field"><label>Date received</label><input type="date" id="ce_' + d.prefix + 'Date" value="' + esc(doc.date || '') + '"></div>' +
+        '<div class="field"><label>Location</label><input type="text" list="collLocOpts" id="ce_' + d.prefix + 'Location" value="' + esc(doc.location || '') + '"></div>' +
+        '<div class="field"><label>Tracking #</label><input type="text" id="ce_' + d.prefix + 'Tracking" value="' + esc(doc.tracking || '') + '"></div></div>';
+    }).join('') +
+    '<datalist id="collLocOpts"><option value="Westover"><option value="SLA Mailbox (Stable)"><option value="SLA Office"></datalist>' +
+    '<div class="actions" style="margin-top:14px;display:flex;gap:8px"><button type="button" class="btn sm" id="ceSave" onclick="saveCollEdit(\'' + esc(loanId) + '\')">Save</button>' +
+    '<button type="button" class="btn ghost sm" onclick="closePiece()">Cancel</button></div><div class="status" id="ceStatus"></div>';
+  _pieceShell('Edit collateral', body, 'panel coll-edit');
+}
+function saveCollEdit(loanId) {
+  var l = ((_coll && _coll.loans) || []).filter(function (x) { return x.loanId === loanId; })[0];
+  if (!l) return;
+  var fields = {};
+  (_coll.docs || []).forEach(function (d) {
+    ['Date', 'Location', 'Tracking'].forEach(function (suf) { var el = document.getElementById('ce_' + d.prefix + suf); if (el) fields[d.prefix + suf] = el.value; });
+  });
+  var btn = document.getElementById('ceSave'), st = document.getElementById('ceStatus');
+  btn.disabled = true; st.className = 'status'; st.textContent = 'Saving…';
+  api('POST', '/api/mail', { action: 'collateral-update', loanId: l.loanId, clientId: l.clientId, ownerKey: l.ownerKey, fields: fields }).then(function () {
+    st.className = 'status ok'; st.textContent = 'Saved';
+    setTimeout(closePiece, 400);
+  }).catch(function (e) { btn.disabled = false; st.className = 'status err'; st.textContent = (e && e.message) || 'Save failed'; });
 }
 
 function loadList() {
@@ -317,8 +522,8 @@ function renderList() {
 function selectItem(id) {
   _selId = id; _picked = null;
   Array.prototype.forEach.call(document.querySelectorAll('.card'), function (c) { c.classList.toggle('sel', c.getAttribute('data-id') === id); });
-  try { history.replaceState(null, '', '/mail.html?item=' + encodeURIComponent(id)); } catch (_) {}
-  var d = document.getElementById('detail');
+  if (_detailTarget === 'detail') { try { history.replaceState(null, '', '/mail.html?item=' + encodeURIComponent(id)); } catch (_) {} }
+  var d = detailEl();
   d.innerHTML = '<div class="empty">Loading…</div>';
   api('GET', '/api/mail?action=get&id=' + encodeURIComponent(id)).then(function (r) {
     _sel = r.item;
@@ -393,7 +598,7 @@ function renderDetail() {
       (e.trackingNumber ? '<div class="trk">' + esc((e.carrier ? e.carrier + ' ' : '') + e.trackingNumber) + '</div>' : '') + '</div>';
   }).join('') + '</div>';
 
-  document.getElementById('detail').innerHTML = h;
+  detailEl().innerHTML = h;
   if (i.hasEnvelope) loadImage(i.id, 'envelope', document.getElementById('imgEnv'));
   if (i.hasScan) loadImage(i.id, 'scan', document.getElementById('imgScan'));
   syncCollateralBlock();
@@ -650,10 +855,11 @@ window.netlifyIdentity.on('init', function (user) {
     loadList();
     var want = new URLSearchParams(window.location.search).get('item');
     if (want) selectItem(want);
+    if (new URLSearchParams(window.location.search).get('view') === 'collateral') setView('collateral'); // Deploy 237.009
   }).catch(function (e) {
     document.getElementById('list').innerHTML = '<div class="empty">' + esc(e.message || 'Failed to load') + '</div>';
   });
-  setInterval(function () { if (!document.hidden) loadList(); }, 120000);
+  setInterval(function () { if (!document.hidden && _view !== 'collateral') loadList(); }, 120000);
 });
 </script>
 </body>

@@ -195,7 +195,9 @@
       <button type="button" class="cl-tab"        data-tab="sold_dscr"    onclick="setTab('sold_dscr')">Sold – DSCR</button>
       <button type="button" class="cl-tab"        data-tab="payoff"       onclick="setTab('payoff')">Payoff</button>
       <button type="button" class="cl-tab"        data-tab="draws"        onclick="setTab('draws')">Draws</button>
-      <button type="button" class="cl-tab"        data-tab="collateral"   onclick="setTab('collateral')">Collateral</button>
+      <!-- Deploy 237.009 (Mike) — Collateral moved to the Mail Room (mail.html?view=collateral),
+           where filed Stable pieces fill it in automatically. -->
+      <a class="cl-tab" href="/mail.html?view=collateral" style="text-decoration:none" title="Collateral tracking moved to the Mail Room">Collateral ↗</a>
       <!-- Deploy 236.824 — the Follow-ups tab (236.823) moved to its own page:
            /followups.html, linked from the Processing menu. -->
     </div>
@@ -229,7 +231,7 @@ var _openDraws = {};         // loanKey -> bool
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
 var _noteServicers = [];     // Deploy 236.628 — org-wide Note Servicer names (Vendors, role note_servicer)
 var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'funded',d:-1}, pending_sale:{k:'funded',d:-1},
-  sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1}, collateral:{k:'status',d:1} };
+  sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
 
 // ── Helpers ────────────────────────────────────────────────────────
 function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -599,7 +601,6 @@ function render(){
   else if (_tab==='sold_dscr')   wrap.innerHTML = renderBucketTab(items,'sold_dscr');
   else if (_tab==='draws')       wrap.innerHTML = renderDraws(items);
   else if (_tab==='payoff')      wrap.innerHTML = renderPayoff(items);
-  else if (_tab==='collateral')  wrap.innerHTML = renderCollateral(items);
 }
 function countBucket(items, b){ return items.filter(function(it){ return displayBucket(it.loan)===b; }).length; }
 
@@ -1023,7 +1024,6 @@ function openDispConfirm(it, newDisp){
 }
 function svcSave(){
   if (_svcMode==='disp') confirmDisposition();
-  else if (_svcMode==='collateral') saveCollateral();
   else if (_svcMode==='closeout') confirmCloseOut();
   else if (_svcMode==='marksold') confirmMarkSold();
   else if (_svcMode==='extension') sendExtensionAgreement();
@@ -2031,16 +2031,10 @@ function renderPayoff(items){
   return '<div class="acc" style="padding:0">' + _dispBody(paid, 'paid_off', false) + '</div>';
 }
 
-// ── TAB: Collateral — replicates the collateral Google Sheet (Deploy 236.622) ──
-// 3 fixed documents per loan (Signed Originals / Recorded DOT / Final Title Policy),
-// each a date + a location (custodian). Stored as scalar loan fields; edited via the
-// same servicing endpoint. Loans missing any of the three are flagged.
+// Custodian location picker — shared by the Servicing editor's 'location' fields.
+// Deploy 237.009 (Mike): the Collateral TAB moved to the Mail Room
+// (mail.html?view=collateral); only this helper stays here.
 var COLL_LOCATIONS = ['Westover']; // extend as custodians are added
-var COLL_DOCS = [
-  { label:'Signed Originals',   dateK:'signedOriginalsDate', locK:'signedOriginalsLocation', trackK:'signedOriginalsTracking' },
-  { label:'Recorded DOT',       dateK:'recordedDotDate',     locK:'recordedDotLocation',     trackK:'recordedDotTracking' },
-  { label:'Final Title Policy', dateK:'titlePolicyDate',     locK:'titlePolicyLocation',     trackK:'titlePolicyTracking' }
-];
 function _locationSelect(id, cur, extraAttr){
   var opts='<option value="">— location —</option>';
   var found=false;
@@ -2048,74 +2042,10 @@ function _locationSelect(id, cur, extraAttr){
   if (cur && !found) opts='<option value="'+escAttr(cur)+'" selected>'+escH(cur)+'</option>'+opts;
   return '<select id="'+id+'" '+(extraAttr||'')+'>'+opts+'</select>';
 }
-function _collComplete(l){ return !!(l.signedOriginalsDate && l.recordedDotDate && l.titlePolicyDate); }
-function collVal(it, k){
-  var l=it.loan;
-  if (k==='address') return l.address||'';
-  if (k==='status') return _collComplete(l) ? 1 : 0;
-  return '';
-}
-function renderCollateral(items){
-  var rows = sortItems(items.slice(), 'collateral', collVal);
-  if (!rows.length) return '<div class="cl-empty">No closed loans.</div>';
-  var note = '<div class="cl-note">Physical collateral per loan — each document\'s date, location (custodian), and shipping tracking #. Loans missing any of the three documents are flagged. Click ✎ to edit.</div>';
-  var head = '<tr>'+th('collateral','address','Property')+
-    COLL_DOCS.map(function(d){ return '<th>'+escH(d.label)+'</th><th>Location</th><th>Tracking #</th>'; }).join('')+
-    th('collateral','status','Status')+'<th></th></tr>';
-  var body = rows.map(function(it){
-    var l=it.loan;
-    var cells = COLL_DOCS.map(function(d){
-      return '<td class="cl-num">'+(l[d.dateK]?escH(fmtDate(l[d.dateK])):'<span class="cl-ph">—</span>')+'</td>'+
-        '<td>'+(l[d.locK]?escH(l[d.locK]):'<span class="cl-ph">—</span>')+'</td>'+
-        '<td class="cl-num">'+(l[d.trackK]?escH(l[d.trackK]):'<span class="cl-ph">—</span>')+'</td>';
-    }).join('');
-    var status = _collComplete(l)
-      ? '<span class="stpill" style="background:var(--d-servicing-bg);color:var(--d-servicing)">Complete</span>'
-      : '<span class="stpill" style="background:var(--d-pending-bg);color:var(--d-pending)">Missing</span>';
-    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+
-      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>'+ cells +
-      '<td>'+status+'</td>'+
-      '<td onclick="event.stopPropagation()"><button type="button" class="svc-edit" title="Edit collateral" onclick="openCollateralEditor(\''+escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button></td>'+
-    '</tr>';
-  }).join('');
-  return note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
-}
-
 // Deploy 236.824 — the Follow-ups queue (236.823) moved to its own page,
 // /followups.html (Processing menu). Window math lives there + in
 // followup-reminder-cron.mjs — keep the two aligned.
 
-function openCollateralEditor(clientId, loanId, ownerKey){
-  var it=null; for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
-  if (!it) return;
-  _svcTarget=it; _svcMode='collateral'; _dispPending=null;
-  var l=it.loan;
-  document.getElementById('svcTitle').textContent='Collateral';
-  document.getElementById('svcSub').textContent=(l.address||'')+'  ·  '+clientName(it.client);
-  var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
-  document.getElementById('svcGrid').innerHTML = COLL_DOCS.map(function(d){
-    return '<div class="svc-fld" style="grid-column:1/-1;border-top:1px solid var(--border);margin-top:4px;padding-top:8px"><label style="font-weight:700">'+escH(d.label)+'</label></div>'+
-      '<div class="svc-fld"><label>Date</label><input type="date" id="svc_'+d.dateK+'" value="'+escAttr(l[d.dateK]!=null?String(l[d.dateK]):'')+'" /></div>'+
-      '<div class="svc-fld"><label>Location</label>'+_locationSelect('svc_'+d.locK, l[d.locK]!=null?String(l[d.locK]):'')+'</div>'+
-      '<div class="svc-fld" style="grid-column:1/-1"><label>Tracking #</label><input type="text" id="svc_'+d.trackK+'" value="'+escAttr(l[d.trackK]!=null?String(l[d.trackK]):'')+'" placeholder="carrier tracking number" /></div>';
-  }).join('');
-  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save';
-  document.getElementById('svcBg').classList.add('show');
-}
-function saveCollateral(){
-  if (!_svcTarget) return;
-  var it=_svcTarget, fields={};
-  COLL_DOCS.forEach(function(d){ [d.dateK, d.locK, d.trackK].forEach(function(k){ var el=document.getElementById('svc_'+k); if (el) fields[k]=el.value; }); });
-  var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
-  btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
-  SLA.api('POST','/api/loan-servicing-update',{ clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, fields:fields }).then(function(){
-    // Deploy 236.624 — was COLL_FIELDS (renamed to COLL_DOCS in 236.623); the stale
-    // name threw a ReferenceError here, so collateral saves surfaced a false error.
-    COLL_DOCS.forEach(function(d){ [d.dateK, d.locK, d.trackK].forEach(function(k){ it.loan[k]=fields[k]; }); });
-    st.className='svc-status ok'; st.textContent='Saved';
-    render(); setTimeout(closeServicingEditor, 500);
-  }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
-}
 </script>
 </body>
 </html>

@@ -141,6 +141,139 @@ async function handle(req, context) {
     return json(200, { ok: true, loans: await searchLoans(q) });
   }
 
+  // ── Deploy 237.009 (Mike) — Collateral board (moved here from Closed Loans) ──
+  // One row per property: every CLOSED loan (same rule as closed-loans.html
+  // isClosedLoan) plus any loan that already has a collateral date or a filed
+  // collateral piece. Each document (Signed Originals / Recorded DOT / Final
+  // Title Policy) carries the loan's date + location + tracking, the mail
+  // pieces filed for it, and unsorted pieces the AI matched to it (not yet
+  // confirmed). Office assistants can't use loan-servicing-update (processor
+  // tier), so the board reads + writes through the Mail Room endpoint.
+  if (action === 'collateral') {
+    const collOrder = ['signedOriginals', 'recordedDot', 'titlePolicy'];
+    const collDocs = collOrder.map((prefix) => {
+      const hit = Object.values(COLLATERAL_FOR_CATEGORY).find((c) => c.prefix === prefix);
+      return { prefix, label: hit ? hit.label : prefix };
+    });
+    const collSuffix = ['Date', 'Location', 'Tracking'];
+    const collSelect = 'id,client_id,owner_email,address,status,funding_date,sla_display_id,updated_at,' +
+      'loan_entity:extra->>entityName,disposition:extra->>disposition,' +
+      'processing_stage:extra->>processingStage,baseline_status:extra->>baselineStatus,' +
+      collOrder.map((prefix, i) => collSuffix.map((suf, j) => 'coll_' + i + '_' + j + ':extra->>' + prefix + suf).join(',')).join(',') +
+      ',clients!client_id(first_name,last_name,entity_name,email)';
+    const collRows = [];
+    for (let offset = 0; offset < 50000; offset += 1000) {
+      const page = await pgGet('loans', 'select=' + encodeURIComponent(collSelect) +
+        '&status=not.in.(cancelled,denied)&order=funding_date.desc.nullslast&limit=1000&offset=' + offset);
+      page.forEach((r) => collRows.push(r));
+      if (page.length < 1000) break;
+    }
+
+    // Filed + AI-matched collateral pieces. Pointer listings only (no store walk):
+    // p/loan/* = filed pieces, p/unsorted/* = waiting for a person.
+    const loanPtrs = await listPointers('p/loan/', {}, store);
+    const unsortedPtrs = await listPointers('p/unsorted/', {}, store);
+    const pieceIds = Array.from(new Set(loanPtrs.concat(unsortedPtrs).map((x) => x.safeId)));
+    const pieceItems = [];
+    for (let i = 0; i < pieceIds.length; i += 16) {
+      const got = await Promise.all(pieceIds.slice(i, i + 16).map((sid) => getItem(sid, store)));
+      got.forEach((it) => { if (it) pieceItems.push(it); });
+    }
+    const pieceOf = (it) => {
+      let tracking = (it.stable && it.stable.forwardTrackingNumber) || '';
+      let carrier = '';
+      (it.events || []).forEach((e) => { if (e && e.trackingNumber) { tracking = e.trackingNumber; carrier = e.carrier || ''; } });
+      return {
+        id: it.id, receivedAt: it.receivedAt || '', from: it.from || '',
+        location: it.location || 'at_stable', locationLabel: LOCATION_LABEL[it.location || 'at_stable'] || '',
+        tracking, carrier, hasScan: !!it.hasScan,
+      };
+    };
+    const filedBy = {};
+    const pendingBy = {};
+    pieceItems.forEach((it) => {
+      if (it.sort === 'assigned' && it.assignment && it.assignment.loanId && COLLATERAL_FOR_CATEGORY[it.category]) {
+        const pre = COLLATERAL_FOR_CATEGORY[it.category].prefix;
+        const bucket = (filedBy[it.assignment.loanId] = filedBy[it.assignment.loanId] || {});
+        (bucket[pre] = bucket[pre] || []).push(pieceOf(it));
+      } else if (it.sort === 'unsorted' && it.suggestion && it.suggestion.loanId) {
+        const cat = it.suggestion.category || it.category;
+        if (!COLLATERAL_FOR_CATEGORY[cat]) return;
+        const pre = COLLATERAL_FOR_CATEGORY[cat].prefix;
+        const bucket = (pendingBy[it.suggestion.loanId] = pendingBy[it.suggestion.loanId] || {});
+        (bucket[pre] = bucket[pre] || []).push(Object.assign(pieceOf(it), { confidence: it.suggestion.confidence || '' }));
+      }
+    });
+
+    const normDisp = (v) => String(v || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    const isClosedRow = (r) => {
+      const d = normDisp(r.disposition);
+      if (d === 'sold' || d === 'servicing' || d === 'pending sale' || d === 'paid off' || d === 'post close') return true;
+      const st = String(r.status || '').toLowerCase().trim();
+      if (st === 'closed' || st === 'sold' || st === 'liquidated') return true;
+      if (String(r.processing_stage || '').toLowerCase().trim() === 'pp_closed') return true;
+      const b = normDisp(r.baseline_status);
+      return b === 'sold' || b === 'in servicing' || b === 'servicing' || b === 'liquidated' || b === 'paid off' || b === 'closed';
+    };
+    const collLoans = [];
+    collRows.forEach((r) => {
+      const docs = {};
+      let anyField = false;
+      collOrder.forEach((prefix, i) => {
+        const doc = { date: r['coll_' + i + '_0'] || '', location: r['coll_' + i + '_1'] || '', tracking: r['coll_' + i + '_2'] || '' };
+        if (doc.date || doc.location || doc.tracking) anyField = true;
+        docs[prefix] = doc;
+      });
+      const closed = isClosedRow(r);
+      if (!closed && !anyField && !filedBy[r.id] && !pendingBy[r.id]) return;
+      collLoans.push(Object.assign(loanRowToCandidate(r), {
+        disposition: r.disposition || '', closed, docs,
+        pieces: filedBy[r.id] || {}, pending: pendingBy[r.id] || {},
+      }));
+    });
+    return json(200, { ok: true, docs: collDocs, loans: collLoans });
+  }
+
+  if (action === 'collateral-update') {
+    if (req.method !== 'POST') return json(405, { error: 'POST required' });
+    const collLoanId = String(body.loanId || '');
+    const collClientId = String(body.clientId || '');
+    const collOwner = normalizeEmail(body.ownerKey || '');
+    if (!collLoanId || !collClientId || !collOwner) return json(400, { error: 'loanId, clientId and ownerKey required' });
+    const allowed = {};
+    Object.values(COLLATERAL_FOR_CATEGORY).forEach((c) => {
+      allowed[c.prefix + 'Date'] = { type: 'date', label: c.label + ' date' };
+      allowed[c.prefix + 'Location'] = { type: 'text', label: c.label + ' location' };
+      allowed[c.prefix + 'Tracking'] = { type: 'text', label: c.label + ' tracking #' };
+    });
+    const fields = body.fields || {};
+    const collClients = getStore({ name: 'clients', consistency: 'strong' });
+    const collOwnerKey = keySafe(collOwner);
+    const collClient = await collClients.get(collOwnerKey + '/' + keySafe(collClientId), { type: 'json' });
+    const collLoan = collClient && Array.isArray(collClient.loans) ? collClient.loans.find((l) => l && l.id === collLoanId) : null;
+    if (!collLoan) return json(404, { error: 'Loan not found' });
+    const collChanges = [];
+    for (const k of Object.keys(allowed)) {
+      if (fields[k] === undefined) continue;
+      let v = String(fields[k] == null ? '' : fields[k]).trim();
+      if (allowed[k].type === 'date') { if (v && !ymd(v)) return json(400, { error: allowed[k].label + ' must be a date' }); }
+      else v = v.slice(0, 80);
+      const before = collLoan[k] == null ? '' : String(collLoan[k]);
+      if (before === v) continue;
+      collLoan[k] = v;
+      collChanges.push({ field: k, label: allowed[k].label, from: before, to: v });
+    }
+    if (!collChanges.length) return json(200, { ok: true, unchanged: true });
+    const collNow = new Date().toISOString();
+    collLoan.updatedAt = collNow;
+    collClient.updatedAt = collNow;
+    await writeClient(collOwnerKey, collClient, { clientsStore: collClients });
+    try {
+      await recordLoanChanges({ ownerKey: collOwnerKey, clientId: collClientId, loanId: collLoanId, actor, actorName, source: 'Mail Room · Collateral', changes: collChanges });
+    } catch (e) { console.warn('mail: collateral change log failed (non-fatal):', e && e.message); }
+    return json(200, { ok: true, changed: collChanges.length });
+  }
+
   if (req.method !== 'POST') return json(405, { error: 'POST required for ' + (action || 'this action') });
 
   const id = String(body.id || '');
