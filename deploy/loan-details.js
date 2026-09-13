@@ -2579,7 +2579,10 @@ function render() {
   var _tabDocuments    = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="documents" onclick="switchLdTab(\'documents\')"><span class="ld-tab-icon">\u{1F4C4}</span>Documents</button>' : '';
   var _tabUnderwriting = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' : '';
   var _tabClosing      = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="closing" onclick="switchLdTab(\'closing\')"><span class="ld-tab-icon">\u{1F3C1}</span>Closing</button>' : '';
-  var _tabLightning    = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>' : '';
+  // Deploy 237.007 (Mike): Lightning Docs tab HIDDEN for now — not in use yet;
+  // likely replaced by a Lightning Docs API integration. Flip to true to restore.
+  var LD_SHOW_LIGHTNING = false;
+  var _tabLightning    = (_uwOK && LD_SHOW_LIGHTNING) ? '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>' : '';
   // Deploy 236.618 — Servicing tab (after Lightning Docs). Same gate as the
   // Servicing Info section built above (_isServicingStage / _hasServicing);
   // relocateSectionsToTabs moves #servicingSection into its pane.
@@ -4583,7 +4586,7 @@ function ldMailLoad(force) {
     var items = (r && r.items) || [];
     var fmt = function (iso) { var d = new Date(iso || ''); return isNaN(d) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
     var rows = items.map(function (i) {
-      return '<tr style="cursor:pointer" onclick="window.open(\'/mail.html?item=' + encodeURIComponent(i.id) + '\',\'_blank\')">' +
+      return '<tr style="cursor:pointer" onclick="ldMailOpen(\'' + encodeURIComponent(i.id) + '\')">' + // Deploy 237.007: modal
         '<td style="padding:8px 10px;white-space:nowrap">' + escH(fmt(i.receivedAt)) + '</td>' +
         '<td style="padding:8px 10px">' + escH(i.from || 'Unknown sender') + '</td>' +
         '<td style="padding:8px 10px">' + escH(i.categoryLabel || '—') + '</td>' +
@@ -4599,13 +4602,173 @@ function ldMailLoad(force) {
         (items.length
           ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em">' +
               '<th style="padding:6px 10px">Received</th><th style="padding:6px 10px">From</th><th style="padding:6px 10px">Category</th><th style="padding:6px 10px">Where it is</th><th style="padding:6px 10px">Tracking</th><th style="padding:6px 10px"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-            '<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Click a row to see the envelope, scan and full history in the Mail Room.</div>'
+            '<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Click a row to see the envelope, scan and full history.</div>'
           : '<div style="color:var(--muted);font-size:13px">No mail has been filed to this loan yet. Pieces appear here once the office assistant confirms them in the Mail Room.</div>') +
       '</div></div>';
   }).catch(function (e) {
     _ldMailState = 'error';
     pane.innerHTML = '<div class="section"><div class="section-body" style="color:var(--danger);font-size:13px">Mail failed to load: ' + escH((e && e.message) || 'unknown') + '</div></div>';
   });
+}
+
+// ── Deploy 237.007 (Mike) — mail piece detail in a modal on the loan ──
+// Read-only view of one filed piece (images, where it is, Stable statuses,
+// text read from the mail, history). Filing / moving / forwarding stays in the
+// Mail Room. One /api/mail?action=get call + the image proxy per open.
+var _ldMailImgUrls = {};   // id|kind -> { url, type }
+function _ldMailCss() {
+  if (document.getElementById('ldMailModalCss')) return;
+  var st = document.createElement('style');
+  st.id = 'ldMailModalCss';
+  st.textContent =
+    '.ldm-bg{position:fixed;inset:0;background:rgba(38,26,54,.6);z-index:1200;display:flex;align-items:center;justify-content:center;padding:3vh 2vw}' +
+    '.ldm{background:#fff;border-radius:12px;width:min(980px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35)}' +
+    '.ldm-head{display:flex;align-items:flex-start;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border,#ddd8d0)}' +
+    '.ldm-head h3{font-family:Lora,Georgia,serif;font-size:18px;font-weight:600;margin:0}' +
+    '.ldm-sub{font-size:12.5px;color:var(--muted,#7a7488);margin-top:2px}' +
+    '.ldm-body{padding:14px 18px 20px;overflow:auto}' +
+    '.ldm-btn{display:inline-block;padding:5px 11px;border:1px solid var(--border,#ddd8d0);border-radius:7px;font-size:12px;font-weight:600;color:var(--text,#1a1520);background:#fff;text-decoration:none;cursor:pointer;white-space:nowrap}' +
+    '.ldm-btn:hover{border-color:var(--gold,#C8813A);color:var(--gold,#C8813A)}' +
+    '.ldm-imgs{display:flex;gap:12px;flex-wrap:wrap}' +
+    '.ldm-imgbox{border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;background:#f7f5f1}' +
+    '.ldm-imgbox .ldm-thumb{width:300px;max-width:100%;height:220px;display:flex;align-items:center;justify-content:center;position:relative;color:var(--muted,#7a7488);font-size:12px}' +
+    '.ldm-imgbox img{max-width:100%;max-height:220px;display:block}' +
+    '.ldm-imgbox iframe{width:100%;height:100%;border:0;pointer-events:none;background:#fff}' +
+    '.ldm-hit{position:absolute;inset:0;cursor:zoom-in}' +
+    '.ldm-cap{font-size:11px;color:var(--muted,#7a7488);padding:4px 8px}' +
+    '.ldm-big{margin-top:12px;border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;background:#f7f5f1}' +
+    '.ldm-big-head{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border,#ddd8d0);font-size:12px;font-weight:600}' +
+    '.ldm-big iframe{width:100%;height:70vh;border:0;display:block;background:#fff}' +
+    '.ldm-big img{max-width:100%;display:block;margin:0 auto}' +
+    '.ldm h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#7a7488);margin:18px 0 6px}' +
+    '.ldm-kv{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;font-size:13px}' +
+    '.ldm-kv .k{color:var(--muted,#7a7488)}' +
+    '.ldm-ocr{white-space:pre-wrap;font-size:12px;background:#f7f5f1;border-radius:6px;padding:8px 10px;margin-top:6px;max-height:260px;overflow:auto}' +
+    '.ldm-tl{border-left:2px solid var(--border,#ddd8d0);margin-left:6px;padding-left:14px}' +
+    '.ldm-ev{position:relative;padding:4px 0 10px;font-size:13px}' +
+    '.ldm-ev:before{content:"";position:absolute;left:-21px;top:8px;width:10px;height:10px;border-radius:50%;background:var(--gold,#C8813A);border:2px solid #fff}' +
+    '.ldm-when{font-size:11.5px;color:var(--muted,#7a7488)}' +
+    '@media (max-width:640px){.ldm-kv{grid-template-columns:1fr}}';
+  document.head.appendChild(st);
+}
+function ldMailClose() {
+  var m = document.getElementById('ldMailModal');
+  if (m && m.parentNode) m.parentNode.removeChild(m);
+  document.removeEventListener('keydown', _ldMailEsc);
+}
+function _ldMailEsc(e) { if (e.key === 'Escape' || e.key === 'Esc') ldMailClose(); }
+function _ldMailWhen(iso) {
+  var d = new Date(iso || '');
+  return isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function ldMailOpen(encId) {
+  var id = decodeURIComponent(encId || '');
+  if (!id) return;
+  _ldMailCss();
+  ldMailClose();
+  var m = document.createElement('div');
+  m.id = 'ldMailModal';
+  m.className = 'ldm-bg';
+  m.onclick = function (e) { if (e.target === m) ldMailClose(); };
+  m.innerHTML = '<div class="ldm" role="dialog" aria-modal="true"><div class="ldm-head"><div style="flex:1"><h3>Mail</h3><div class="ldm-sub">Loading…</div></div>' +
+    '<button type="button" class="ldm-btn" onclick="ldMailClose()" aria-label="Close">✕</button></div></div>';
+  document.body.appendChild(m);
+  document.addEventListener('keydown', _ldMailEsc);
+  SLA.api('GET', '/api/mail?action=get&id=' + encodeURIComponent(id)).then(function (r) {
+    if (!document.getElementById('ldMailModal')) return;
+    _ldMailRender(m, (r && r.item) || {});
+  }).catch(function (e) {
+    var sub = m.querySelector('.ldm-sub');
+    if (sub) { sub.style.color = 'var(--danger,#7c1f1f)'; sub.textContent = 'Could not load this piece: ' + ((e && e.message) || 'unknown'); }
+  });
+}
+function _ldMailRender(m, i) {
+  var st = i.stable || {};
+  var a = i.assignment || {};
+  var h = '<div class="ldm" role="dialog" aria-modal="true">' +
+    '<div class="ldm-head"><div style="flex:1;min-width:0"><h3>' + escH(i.from || 'Unknown sender') + '</h3>' +
+      '<div class="ldm-sub">' + escH(i.categoryLabel || 'Mail') + ' · received ' + escH(_ldMailWhen(i.receivedAt)) +
+        (i.recipientName || i.recipientLine1 ? ' · to ' + escH(i.recipientName || i.recipientLine1) : '') + '</div></div>' +
+      (i.stableUrl ? '<a class="ldm-btn" href="' + escH(i.stableUrl) + '" target="_blank" rel="noopener">Open in Stable ↗</a>' : '') +
+      '<a class="ldm-btn" href="/mail.html?item=' + encodeURIComponent(i.id || '') + '" target="_blank" rel="noopener">Mail Room ↗</a>' +
+      '<button type="button" class="ldm-btn" onclick="ldMailClose()" aria-label="Close">✕</button></div>' +
+    '<div class="ldm-body">';
+
+  h += '<div class="ldm-imgs">';
+  if (i.hasEnvelope) h += '<div class="ldm-imgbox"><div class="ldm-thumb" id="ldmThumb_envelope">Loading…</div><div class="ldm-cap">Envelope</div></div>';
+  if (i.hasScan) h += '<div class="ldm-imgbox"><div class="ldm-thumb" id="ldmThumb_scan">Loading…</div><div class="ldm-cap">Contents scan</div></div>';
+  if (!i.hasEnvelope && !i.hasScan) h += '<div style="font-size:12.5px;color:var(--muted,#7a7488)">No images stored for this piece.</div>';
+  h += '</div><div id="ldmBig"></div>';
+  if (!i.hasScan) {
+    h += '<div style="font-size:12px;color:var(--muted,#7a7488);margin-top:6px">' +
+      (st.scanStatus === 'processing' ? 'Scan requested at Stable — it will appear once Stable finishes.' : 'Not opened yet — request Open &amp; Scan in Stable to see the contents.') + '</div>';
+  }
+
+  var rows = '';
+  function kv(k, v) { if (v) rows += '<div class="k">' + escH(k) + '</div><div>' + escH(v) + '</div>'; }
+  rows += '<div class="k">Where it is</div><div><strong>' + escH(i.locationLabel || 'At Stable mailbox') + '</strong></div>';
+  kv('Filed by', a.at ? ((a.byName || a.by || '') + ' · ' + _ldMailWhen(a.at)) : '');
+  kv('Stable barcode', i.barcodeId);
+  kv('Scan', st.scanStatus);
+  kv('Forward', (st.forwardStatus || '') + (st.forwardTrackingNumber ? ' · tracking ' + st.forwardTrackingNumber : ''));
+  kv('Shred', st.shredStatus);
+  kv('Deposit', (st.depositStatus || '') + (st.depositTrackingNumber ? ' · ' + st.depositTrackingNumber : ''));
+  if (st.isReturnedToSender) kv('Returned', 'Returned to sender');
+  h += '<h4>Details</h4><div class="ldm-kv">' + rows + '</div>';
+
+  if (st.checks && st.checks.length) {
+    h += '<h4>Checks</h4>' + st.checks.map(function (c) {
+      return '<div style="font-size:13px;margin-top:4px">💵 <strong>$' + ((Number(c.amount) || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }) + '</strong>' +
+        (c.checkNumber ? ' · #' + escH(c.checkNumber) : '') + (c.payer ? ' · from ' + escH(c.payer) : '') + ' · deposit: ' + escH(c.status || 'not requested') + '</div>';
+    }).join('');
+  }
+  if (i.scanSummary || i.scanOcrText || i.ocrText) {
+    h += '<h4>Text read from the mail</h4>' +
+      (i.scanSummary ? '<div class="ldm-ocr"><strong>Stable summary:</strong> ' + escH(i.scanSummary) + '</div>' : '') +
+      ((i.scanOcrText || i.ocrText) ? '<details><summary style="cursor:pointer;font-size:12.5px;color:var(--gold-mid,#b5712d);font-weight:600;margin-top:8px">Full text</summary><div class="ldm-ocr">' + escH(i.scanOcrText || i.ocrText) + '</div></details>' : '');
+  }
+  var evs = (i.events || []).slice().reverse();
+  if (evs.length) {
+    h += '<h4>History</h4><div class="ldm-tl">' + evs.map(function (e) {
+      return '<div class="ldm-ev"><div class="ldm-when">' + escH(_ldMailWhen(e.at)) + (e.by ? ' · ' + escH(e.by) : '') + '</div>' +
+        '<div>' + escH(e.note || e.type || '') + '</div>' +
+        (e.trackingNumber ? '<div style="font-family:DM Mono,monospace;font-size:11.5px">' + escH((e.carrier ? e.carrier + ' ' : '') + e.trackingNumber) + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+  h += '</div></div>';
+  m.innerHTML = h;
+  if (i.hasEnvelope) _ldMailThumb(i.id, 'envelope');
+  if (i.hasScan) _ldMailThumb(i.id, 'scan');
+}
+function _ldMailThumb(id, kind) {
+  var key = id + '|' + kind;
+  var show = function (rec) {
+    var box = document.getElementById('ldmThumb_' + kind);
+    if (!box) return;
+    var isPdf = /pdf/i.test(rec.type || '');
+    box.innerHTML = (isPdf
+      ? '<iframe tabindex="-1" title="' + kind + ' preview" src="' + rec.url + '#toolbar=0&navpanes=0&view=FitH"></iframe>'
+      : '<img alt="' + kind + '" src="' + rec.url + '">') +
+      '<div class="ldm-hit" title="Click to enlarge" onclick="_ldMailBig(\'' + encodeURIComponent(id) + '\',\'' + kind + '\')"></div>';
+  };
+  if (_ldMailImgUrls[key]) { show(_ldMailImgUrls[key]); return; }
+  SLA.getToken().then(function (t) {
+    return fetch('/api/mail-image?id=' + encodeURIComponent(id) + '&kind=' + kind, { headers: { Authorization: 'Bearer ' + t } });
+  }).then(function (r) { if (!r.ok) throw new Error('no image'); return r.blob(); })
+    .then(function (b) { _ldMailImgUrls[key] = { url: URL.createObjectURL(b), type: b.type || '' }; show(_ldMailImgUrls[key]); })
+    .catch(function () { var box = document.getElementById('ldmThumb_' + kind); if (box) box.textContent = 'Image unavailable'; });
+}
+// Enlarge inside the modal (the whole multi-page scan scrolls in place).
+function _ldMailBig(encId, kind) {
+  var rec = _ldMailImgUrls[decodeURIComponent(encId) + '|' + kind];
+  var el = document.getElementById('ldmBig');
+  if (!rec || !el) return;
+  var isPdf = /pdf/i.test(rec.type || '');
+  el.innerHTML = '<div class="ldm-big"><div class="ldm-big-head">' + (kind === 'scan' ? 'Contents scan' : 'Envelope') +
+    '<span style="flex:1"></span><a class="ldm-btn" href="' + rec.url + '" target="_blank" rel="noopener">Open in new tab ↗</a>' +
+    '<button type="button" class="ldm-btn" onclick="document.getElementById(\'ldmBig\').innerHTML=\'\'">Hide</button></div>' +
+    (isPdf ? '<iframe title="' + kind + '" src="' + rec.url + '#view=FitH"></iframe>' : '<img alt="' + kind + '" src="' + rec.url + '">') + '</div>';
+  if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 var _ldDrawsState = '';   // '' | 'loading' | 'ready' | 'error'
