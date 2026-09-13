@@ -45,6 +45,8 @@ export function roleOf(user) {
   // access-token hook actually stamps it. Sits above borrower/viewer
   // because a broker has more reach than either, and below every staff
   // tier because a broker is NOT staff.
+  // Deploy 236.995 - Office Assistant (mail room). Staff, not processor tier.
+  if (raw.indexOf('office_assistant') >= 0) return 'office_assistant';
   if (raw.indexOf('broker')   >= 0) return 'broker';
   if (raw.indexOf('borrower') >= 0) return 'borrower';
   if (raw.indexOf('viewer')   >= 0) return 'viewer';

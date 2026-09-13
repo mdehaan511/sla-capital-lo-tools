@@ -42,6 +42,14 @@
   var _lastTaskFetch = 0;
   var TASK_TTL = 5 * 60 * 1000;
 
+  // Deploy 236.995 (Mike) — Mail Room queue for office assistants and the
+  // processor tier: unsorted Stable mail. The endpoint is a key listing, but
+  // it's still throttled like the other feeds.
+  var _canMail = false;
+  var _mailCache = null;
+  var _lastMailFetch = 0;
+  var MAIL_TTL = 3 * 60 * 1000;
+
   // Resolve the caller's role once so refresh() knows whether to fetch the
   // processing-alerts feed. Kicks a prompt refresh the moment we learn we're
   // a processor (so the section appears without waiting for the next poll).
@@ -51,6 +59,9 @@
       var proc = !!(u && SLA.isProcessor && SLA.isProcessor(u));
       if (proc && !_isProcessor) { _isProcessor = true; refresh(); }
       else _isProcessor = proc;
+      // Deploy 236.995 — mail-room users get the Mail to Sort section.
+      var mailOk = !!(u && SLA.canWorkMail && SLA.canWorkMail(u));
+      if (mailOk && !_canMail) { _canMail = true; _lastMailFetch = 0; refresh(); }
     }).catch(function(){});
   }
 
@@ -222,7 +233,23 @@
       fetchTasks = Promise.resolve([]);
     }
 
-    return Promise.all([fetchReminders, fetchQuotes, fetchPa, fetchTasks]).then(function(results) {
+    // Deploy 236.995 — unsorted mail (mail-room users only).
+    var fetchMail;
+    if (_canMail && SLA.api) {
+      if (!_lastMailFetch || (Date.now() - _lastMailFetch) > MAIL_TTL) {
+        fetchMail = trackAuth(SLA.api('GET', '/api/mail?action=alerts')).then(function(r) {
+          _mailCache = r || null;
+          _lastMailFetch = Date.now();
+          return _mailCache;
+        }).catch(function(){ return _mailCache; });
+      } else {
+        fetchMail = Promise.resolve(_mailCache);
+      }
+    } else {
+      fetchMail = Promise.resolve(null);
+    }
+
+    return Promise.all([fetchReminders, fetchQuotes, fetchPa, fetchTasks, fetchMail]).then(function(results) {
       var reminders = (results[0] && results[0].reminders) || [];
       var quotes    = (results[1] && results[1].quotes)    || [];
       var procList  = results[2] || [];
@@ -258,7 +285,7 @@
         // Hide events the user has already dismissed (persisted in localStorage)
         return !isDismissed(ev.id);
       });
-      render(reminders, loanAppEvents, procAlerts, dueTasks);
+      render(reminders, loanAppEvents, procAlerts, dueTasks, results[4]);
     }).catch(function() { /* silent */ });
   }
 
@@ -314,7 +341,7 @@
     return !!ts && (Date.now() - ts) < PA_SNOOZE_MS;
   }
 
-  function render(reminders, loanAppEvents, procAlerts, dueTasks) {
+  function render(reminders, loanAppEvents, procAlerts, dueTasks, mail) {
     loanAppEvents = loanAppEvents || [];
     procAlerts = procAlerts || [];
     dueTasks = dueTasks || []; // Deploy 236.961
@@ -332,8 +359,9 @@
 
     // The bell glows red if there's anything due, a fresh loan-app event, or
     // an actionable processing alert.
-    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0 || dueTasks.length > 0;
-    var alertCount = due.length + loanAppEvents.length + procAlerts.length + dueTasks.length;
+    var mailN = (mail && mail.unsorted) || 0; // Deploy 236.995
+    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0 || dueTasks.length > 0 || mailN > 0;
+    var alertCount = due.length + loanAppEvents.length + procAlerts.length + dueTasks.length + mailN;
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');
@@ -349,6 +377,16 @@
     var html = '';
     // Processing alerts first — they're the most time-sensitive (closings,
     // aging, open conditions). Deploy 236.565.
+    // Deploy 236.995 — Mail to Sort leads: it's the front-desk queue, and red
+    // once anything has waited past the 24h escalation line.
+    if (mailN) {
+      var mOver = (mail && mail.overdue) || 0;
+      html += '<div class="sla-notif-hdr"><span>Mail to Sort</span><span class="count">' + mailN + '</span></div>' +
+        '<div class="sla-notif-item ' + (mOver ? 'due' : 'future') + '"><a href="/mail.html" class="sla-notif-link"><div class="pin"></div><div class="body">' +
+          '<div class="title">📬 ' + mailN + ' piece' + (mailN === 1 ? '' : 's') + ' of mail waiting</div>' +
+          '<div class="meta">' + (mOver ? mOver + ' waiting over 24h' : 'oldest ' + ((mail && mail.oldestHours) || 0) + 'h') + '</div>' +
+        '</div></a></div>';
+    }
     if (procAlerts.length) {
       html += '<div class="sla-notif-hdr"><span>Processing</span><span class="count">' + procAlerts.length + '</span></div>';
       procAlerts.forEach(function(a){ html += renderProcItem(a); });
@@ -370,7 +408,7 @@
       html += '<div class="sla-notif-hdr"><span>Upcoming</span><span>' + future.length + '</span></div>';
       future.forEach(function(r){ html += renderItem(r, 'future'); });
     }
-    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length && !dueTasks.length) {
+    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length && !dueTasks.length && !mailN) {
       html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders, tasks and loan-app completions will appear here.</span></div>';
     }
     // Footer: Clear All button (only if there's anything actionable)

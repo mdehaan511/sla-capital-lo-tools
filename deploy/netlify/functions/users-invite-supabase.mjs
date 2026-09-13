@@ -28,7 +28,7 @@
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin, normalizeEmail } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 
-const ALLOWED_ROLES = new Set(['admin', 'senior_lo', 'loan_officer', 'processor']); // Deploy 236.831 - Senior LO tier
+const ALLOWED_ROLES = new Set(['admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant']); // Deploy 236.831 - Senior LO tier; 236.995 - Office Assistant
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
 
 function escH(s) {

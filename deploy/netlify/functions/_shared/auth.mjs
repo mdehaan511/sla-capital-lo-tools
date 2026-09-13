@@ -202,6 +202,20 @@ export function isProcessor(user) {
 }
 
 /**
+ * Deploy 236.995 (Mike) - 'office_assistant' (Elle): front-desk mail room.
+ * Deliberately NOT processor tier - the role grants the mail room, nothing
+ * else. canWorkMail is the mail-room gate: office assistants plus everyone
+ * processor tier and up.
+ */
+export function isOfficeAssistant(user) {
+  return getRoles(user).some((r) => r === 'office_assistant');
+}
+
+export function canWorkMail(user) {
+  return isProcessor(user) || isOfficeAssistant(user);
+}
+
+/**
  * Parse a JSON body from a Request, returning {} on failure.
  */
 export async function readJsonBody(req) {

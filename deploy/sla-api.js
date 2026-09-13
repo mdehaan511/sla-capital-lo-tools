@@ -2225,6 +2225,10 @@
   // ("staff sees all LOs") than `isProcessor`. Same set as isProcessor
   // (admin OR super_admin OR processor); it's an alias, not a new tier.
   function isStaff(user) { return isProcessor(user); }
+  // Deploy 236.995 - Office Assistant (mail room). Not processor tier; the
+  // mail room gate is canWorkMail (office assistant OR processor tier).
+  function isOfficeAssistant(user) { return getRoles(user).some(function (r) { return r === 'office_assistant'; }); }
+  function canWorkMail(user) { return isProcessor(user) || isOfficeAssistant(user); }
 
   // The LO's apply-link slug is simply their email address.
   // URLs are like apply.html?lo=mike@slacapital.com (URL-encoded).
@@ -3000,6 +3004,8 @@
     isSeniorLo: isSeniorLo, // Deploy 236.831
     isProcessor: isProcessor,
     isStaff: isStaff, // Deploy 236.266 — alias of isProcessor for scope callsites
+    isOfficeAssistant: isOfficeAssistant, // Deploy 236.995
+    canWorkMail: canWorkMail,             // Deploy 236.995
     slugFromUser: slugFromUser,
     // Deploy 236.267 — helpers we set earlier were being clobbered
     // when this window.SLA = {...} assignment ran. Attach on the same

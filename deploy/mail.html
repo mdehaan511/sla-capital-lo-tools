@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mail Room — SLA Capital</title>
+  <!--
+    Deploy 236.995 (Mike) — the Mail Room. Front-desk workflow for the Stable
+    virtual mailbox: every piece lands in Unsorted with an AI suggestion; the
+    office assistant CONFIRMS the loan + category (nothing is filed on AI
+    alone), which puts it on that loan's Mail tab, optionally records the
+    collateral date and files the scan, and tags the piece in Stable with the
+    SLA loan number. Location + tracking history kept per piece.
+  -->
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js?v=236992"></script>
+  <script src="sla-nav.js?v=236992"></script>
+  <script src="/sla-search.js"></script>
+  <script src="sla-notifications.js?v=236992"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --dark: #261a36; --bg: #f0ece5; --surface: #ffffff;
+      --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940; --blue: #1e40af;
+    }
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    .page { max-width: 1440px; margin: 0 auto; padding: 24px 22px 60px; }
+    .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; }
+    h1 { font-family: 'Lora', Georgia, serif; font-size: 27px; font-weight: 600; }
+    .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .btn { background: var(--gold); color: #fff; border: none; border-radius: 7px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn:disabled { opacity: .55; cursor: wait; }
+    .btn.ghost { background: #fff; border: 1px solid var(--border); color: var(--text); }
+    .btn.dark { background: var(--dark); }
+    .btn.danger { background: #fff; color: var(--danger); border: 1px solid rgba(124,31,31,.35); }
+    .btn.sm { padding: 5px 10px; font-size: 12px; }
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; min-width: 130px; }
+    .stat .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .stat .val { font-size: 21px; font-weight: 600; margin-top: 3px; font-family: 'DM Mono', monospace; }
+    .stat.alert { border-color: rgba(124,31,31,.4); background: rgba(124,31,31,.05); }
+    .stat.alert .val { color: var(--danger); }
+    .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .tab { font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--muted); cursor: pointer; }
+    .tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .tab .count { margin-left: 6px; background: var(--gold); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 11px; }
+    .banner { border-radius: 9px; padding: 11px 14px; font-size: 13px; margin-bottom: 14px; background: rgba(200,129,58,.1); border: 1px solid rgba(200,129,58,.35); color: var(--warn); }
+    .layout { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+    .list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 250px); overflow-y: auto; padding-right: 4px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; gap: 10px; cursor: pointer; }
+    .card:hover { border-color: var(--gold); }
+    .card.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(200,129,58,.25); }
+    .card.overdue { border-left: 4px solid var(--danger); }
+    .thumb { width: 74px; height: 50px; border-radius: 5px; background: #f3f1ec; flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 20px; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .card .body { min-width: 0; flex: 1; }
+    .card .from { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card .meta { font-size: 11.5px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+    .chip { font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); background: #fff; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .chip.ai { color: var(--blue); border-color: rgba(30,64,175,.28); background: rgba(30,64,175,.06); }
+    .chip.ok { color: var(--success); border-color: rgba(37,105,64,.3); background: rgba(37,105,64,.07); }
+    .chip.warn { color: var(--warn); border-color: rgba(122,82,24,.3); background: rgba(200,129,58,.1); }
+    .chip.danger { color: var(--danger); border-color: rgba(124,31,31,.3); background: rgba(124,31,31,.06); }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 18px; min-height: 300px; }
+    .panel h2 { font-family: 'Lora', Georgia, serif; font-size: 18px; font-weight: 600; }
+    .panel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 8px; }
+    .imgs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .imgbox { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #f7f5f1; }
+    .imgbox img { display: block; max-width: 320px; max-height: 230px; cursor: zoom-in; }
+    .imgbox .cap { font-size: 11px; color: var(--muted); padding: 4px 8px; display: flex; justify-content: space-between; gap: 8px; }
+    .kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 13px; }
+    .kv .k { color: var(--muted); }
+    .box { border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; margin-top: 10px; }
+    .box.ai { border-color: rgba(30,64,175,.3); background: rgba(30,64,175,.04); }
+    .box.filed { border-color: rgba(37,105,64,.35); background: rgba(37,105,64,.05); }
+    .field { margin-top: 10px; }
+    .field label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 3px; }
+    input[type=text], input[type=date], input[type=tel], select, textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 13px; background: #fff; }
+    textarea { resize: vertical; min-height: 54px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+    .results { border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; max-height: 220px; overflow-y: auto; }
+    .result { padding: 7px 10px; font-size: 12.5px; cursor: pointer; border-top: 1px solid #f0ece5; }
+    .result:first-child { border-top: none; }
+    .result:hover { background: rgba(200,129,58,.08); }
+    .result .sub { color: var(--muted); font-size: 11.5px; }
+    .picked { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid rgba(37,105,64,.35); background: rgba(37,105,64,.06); border-radius: 7px; margin-top: 6px; font-size: 13px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .timeline { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 14px; }
+    .ev { position: relative; padding: 0 0 12px; font-size: 12.5px; }
+    .ev::before { content: ''; position: absolute; left: -20px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); border: 2px solid #fff; }
+    .ev .when { color: var(--muted); font-size: 11px; }
+    .ev .trk { font-family: 'DM Mono', monospace; font-size: 11.5px; }
+    .status { font-size: 12.5px; margin-top: 8px; }
+    .status.ok { color: var(--success); } .status.err { color: var(--danger); }
+    .empty { color: var(--muted); font-size: 13px; padding: 30px 10px; text-align: center; }
+    details summary { cursor: pointer; font-size: 12.5px; color: var(--gold-mid); font-weight: 600; margin-top: 12px; }
+    .ocr { white-space: pre-wrap; font-size: 12px; color: #4a4455; background: #f7f5f1; border-radius: 6px; padding: 10px; max-height: 220px; overflow-y: auto; margin-top: 6px; }
+    a { color: var(--gold-mid); }
+    #auth-gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .gate-msg { text-align: center; color: var(--muted); font-size: 14px; }
+    .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>📬 Mail Room</h1>
+        <p>Mail received at the Stable mailbox. Review the AI suggestion, confirm the loan and category, and file it.</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="syncStatus" style="font-size:12px;color:var(--muted)"></span>
+        <button type="button" class="btn ghost" id="syncBtn" onclick="syncNow()">↻ Check for new mail</button>
+      </div>
+    </div>
+    <div id="configBanner"></div>
+    <div class="stats">
+      <div class="stat" id="statUnsorted"><div class="lbl">Unsorted</div><div class="val" id="valUnsorted">—</div></div>
+      <div class="stat" id="statOverdue"><div class="lbl">Waiting &gt; 24h</div><div class="val" id="valOverdue">—</div></div>
+      <div class="stat"><div class="lbl">Last checked</div><div class="val" id="valSync" style="font-size:14px">—</div></div>
+    </div>
+    <div class="tabs">
+      <button type="button" class="tab active" data-view="unsorted" onclick="setView('unsorted')">Unsorted<span class="count" id="tabCount" hidden></span></button>
+      <button type="button" class="tab" data-view="all" onclick="setView('all')">All Mail</button>
+    </div>
+    <div class="layout">
+      <div class="list" id="list"><div class="empty">Loading…</div></div>
+      <div class="panel" id="detail"><div class="empty">Select a piece of mail to review it.</div></div>
+    </div>
+  </div>
+
+<script>
+var _view = 'unsorted';
+var _items = [];
+var _meta = null;
+var _selId = '';
+var _sel = null;          // full record of the selected piece
+var _picked = null;       // loan picked in the assign form
+var _thumbUrls = {};      // id|kind -> object URL
+var _searchTimer = null;
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function api(method, path, body) { return SLA.api(method, path, body); }
+function catLabel(k) { var hit = (_meta && _meta.categories || []).filter(function (c) { return c[0] === k; })[0]; return hit ? hit[1] : ''; }
+function locLabel(k) { var hit = (_meta && _meta.locations || []).filter(function (c) { return c[0] === k; })[0]; return hit ? hit[1] : ''; }
+function fmtDate(iso) { if (!iso) return '—'; var d = new Date(iso); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+function fmtWhen(iso) { if (!iso) return ''; var d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+function ageHours(iso) { var t = Date.parse(iso || ''); return t > 0 ? Math.floor((Date.now() - t) / 3600000) : 0; }
+function ageText(iso) { var h = ageHours(iso); return h < 1 ? 'just now' : (h < 48 ? h + 'h ago' : Math.floor(h / 24) + 'd ago'); }
+function loanHref(a) { return (window.SLA && SLA.urls && SLA.urls.loanDetails) ? SLA.urls.loanDetails(a.loanId, { owner: a.ownerKey }) : ('/loan-details.html?loanId=' + encodeURIComponent(a.loanId)); }
+function ymdOf(iso) { var t = Date.parse(iso || ''); return t > 0 ? new Date(t).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10); }
+
+// ── Images (fetched with the bearer token, rendered via object URLs) ──
+function loadImage(id, kind, imgEl) {
+  var key = id + '|' + kind;
+  if (_thumbUrls[key]) { imgEl.src = _thumbUrls[key]; return; }
+  SLA.getToken().then(function (t) {
+    return fetch('/api/mail-image?id=' + encodeURIComponent(id) + '&kind=' + kind, { headers: { Authorization: 'Bearer ' + t } });
+  }).then(function (r) { if (!r.ok) throw new Error('no image'); return r.blob(); })
+    .then(function (b) { _thumbUrls[key] = URL.createObjectURL(b); imgEl.src = _thumbUrls[key]; })
+    .catch(function () { if (imgEl.parentNode) imgEl.parentNode.innerHTML = '✉'; });
+}
+function openImage(id, kind) {
+  var url = _thumbUrls[id + '|' + kind];
+  if (url) window.open(url, '_blank');
+}
+
+// ── List ─────────────────────────────────────────────────────────────
+function setView(v) {
+  _view = v;
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('active', b.getAttribute('data-view') === v); });
+  loadList();
+}
+
+function loadList() {
+  api('GET', '/api/mail?action=list&view=' + _view + '&limit=200').then(function (r) {
+    _items = r.items || [];
+    renderStats(r);
+    renderList();
+    if (_selId && !_items.some(function (i) { return i.id === _selId; }) && _view === 'unsorted') {
+      // selected piece was just filed — keep the detail open for its confirmation
+    }
+  }).catch(function (e) {
+    document.getElementById('list').innerHTML = '<div class="empty">' + esc(e.message || 'Failed to load') + '</div>';
+  });
+  api('GET', '/api/mail?action=alerts').then(function (a) {
+    document.getElementById('valOverdue').textContent = a.overdue || 0;
+    document.getElementById('statOverdue').classList.toggle('alert', (a.overdue || 0) > 0);
+  }).catch(function () {});
+}
+
+function renderStats(r) {
+  var n = r.unsortedCount || 0;
+  document.getElementById('valUnsorted').textContent = n;
+  document.getElementById('statUnsorted').classList.toggle('alert', n > 0);
+  var tc = document.getElementById('tabCount');
+  tc.hidden = !n; tc.textContent = n;
+  document.getElementById('valSync').textContent = r.lastSyncAt ? fmtWhen(r.lastSyncAt) : 'never';
+  var banner = document.getElementById('configBanner');
+  banner.innerHTML = r.stableConfigured ? '' :
+    '<div class="banner"><strong>Stable isn\'t connected yet.</strong> Add <code>STABLE_API_KEY</code> (Stable dashboard → Settings → API keys) to the Netlify environment and mail will start flowing in every 15 minutes.</div>';
+}
+
+function renderList() {
+  var el = document.getElementById('list');
+  if (!_items.length) {
+    el.innerHTML = '<div class="empty">' + (_view === 'unsorted' ? '🎉 Nothing to sort — the mailbox is caught up.' : 'No mail yet.') + '</div>';
+    return;
+  }
+  el.innerHTML = _items.map(function (i) {
+    var chips = '';
+    if (i.sort === 'unsorted') {
+      if (i.suggestion && i.suggestion.pending) chips += '<span class="chip">AI reviewing…</span>';
+      else if (i.suggestion && i.suggestion.address) chips += '<span class="chip ai" title="AI suggestion — needs your confirmation">AI: ' + esc(i.suggestion.address.split(',')[0]) + (i.suggestion.confidence ? ' · ' + esc(i.suggestion.confidence) : '') + '</span>';
+      else chips += '<span class="chip warn">No loan match</span>';
+      if (i.suggestion && i.suggestion.category) chips += '<span class="chip">' + esc(catLabel(i.suggestion.category)) + '</span>';
+    } else if (i.sort === 'assigned' && i.assignment) {
+      chips += '<span class="chip ok">' + esc(i.assignment.slaNumber || 'Filed') + '</span>';
+      if (i.categoryLabel) chips += '<span class="chip">' + esc(i.categoryLabel) + '</span>';
+    } else if (i.sort === 'no_loan') {
+      chips += '<span class="chip">No loan · ' + esc(i.categoryLabel || '') + '</span>';
+    }
+    if (i.location && i.location !== 'at_stable') chips += '<span class="chip">' + esc(i.locationLabel) + '</span>';
+    if (i.checkCount) chips += '<span class="chip warn">💵 ' + i.checkCount + ' check' + (i.checkCount === 1 ? '' : 's') + '</span>';
+    if (i.hasScan) chips += '<span class="chip">📄 scanned</span>';
+    var overdue = i.sort === 'unsorted' && ageHours(i.receivedAt) >= ((_meta && _meta.overdueHours) || 24);
+    return '<div class="card' + (i.id === _selId ? ' sel' : '') + (overdue ? ' overdue' : '') + '" data-id="' + esc(i.id) + '" onclick="selectItem(\'' + esc(i.id) + '\')">' +
+      '<div class="thumb">' + (i.hasEnvelope ? '<img alt="" data-thumb="' + esc(i.id) + '">' : '✉') + '</div>' +
+      '<div class="body">' +
+        '<div class="from">' + esc(i.from || 'Unknown sender') + '</div>' +
+        '<div class="meta">To ' + esc(i.recipient || '—') + ' · ' + esc(ageText(i.receivedAt)) + '</div>' +
+        '<div class="chips">' + chips + '</div>' +
+      '</div></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('img[data-thumb]'), function (img) { loadImage(img.getAttribute('data-thumb'), 'envelope', img); });
+}
+
+// ── Detail ───────────────────────────────────────────────────────────
+function selectItem(id) {
+  _selId = id; _picked = null;
+  Array.prototype.forEach.call(document.querySelectorAll('.card'), function (c) { c.classList.toggle('sel', c.getAttribute('data-id') === id); });
+  try { history.replaceState(null, '', '/mail.html?item=' + encodeURIComponent(id)); } catch (_) {}
+  var d = document.getElementById('detail');
+  d.innerHTML = '<div class="empty">Loading…</div>';
+  api('GET', '/api/mail?action=get&id=' + encodeURIComponent(id)).then(function (r) {
+    _sel = r.item;
+    var s = _sel.suggestion || {};
+    if (_sel.sort === 'unsorted' && s.loanId) {
+      _picked = { loanId: s.loanId, clientId: s.clientId, ownerKey: s.ownerKey, address: s.address, borrower: s.borrower, slaNumber: s.slaNumber, fromAi: true };
+    }
+    renderDetail();
+  }).catch(function (e) { d.innerHTML = '<div class="empty">' + esc(e.message || 'Failed to load') + '</div>'; });
+}
+
+function stableStatusRows(st) {
+  var rows = [];
+  function add(k, v) { if (v) rows.push('<div class="k">' + esc(k) + '</div><div>' + esc(v) + '</div>'); }
+  add('Scan', st.scanStatus);
+  add('Forward', st.forwardStatus + (st.forwardTrackingNumber ? ' · tracking ' + st.forwardTrackingNumber : ''));
+  add('Shred', st.shredStatus);
+  add('Deposit', st.depositStatus + (st.depositTrackingNumber ? ' · ' + st.depositTrackingNumber : ''));
+  if (st.isReturnedToSender) add('Returned', 'Returned to sender');
+  return rows.join('');
+}
+
+function renderDetail() {
+  var i = _sel; if (!i) return;
+  var st = i.stable || {};
+  var s = i.suggestion || {};
+  var h = '';
+  h += '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">' +
+    '<div><h2>' + esc(i.from || 'Unknown sender') + '</h2>' +
+    '<div style="font-size:12.5px;color:var(--muted);margin-top:2px">To ' + esc(i.recipientName || i.recipientLine1 || '—') + ' · received ' + esc(fmtWhen(i.receivedAt)) + '</div></div>' +
+    '<a class="btn ghost sm" href="' + esc(i.stableUrl) + '" target="_blank" rel="noopener">Open in Stable ↗</a></div>';
+
+  h += '<div class="imgs">';
+  if (i.hasEnvelope) h += '<div class="imgbox"><img id="imgEnv" alt="Envelope" onclick="openImage(\'' + esc(i.id) + '\',\'envelope\')"><div class="cap"><span>Envelope</span></div></div>';
+  if (i.hasScan) h += '<div class="imgbox"><img id="imgScan" alt="Scan" onclick="openImage(\'' + esc(i.id) + '\',\'scan\')"><div class="cap"><span>Contents scan</span></div></div>';
+  if (!i.hasEnvelope && !i.hasScan) h += '<div style="font-size:12.5px;color:var(--muted)">No images stored for this piece.</div>';
+  h += '</div>';
+  if (!i.hasScan && st.scanStatus !== 'processing') {
+    h += '<div style="font-size:12px;color:var(--muted);margin-top:6px">Not opened yet — to see the contents, request <strong>Open &amp; Scan</strong> in Stable (their API doesn\'t allow requesting scans). The scan appears here automatically once it\'s done.</div>';
+  } else if (st.scanStatus === 'processing') {
+    h += '<div style="font-size:12px;color:var(--warn);margin-top:6px">Scan requested — it will appear here automatically when Stable finishes.</div>';
+  }
+
+  var statusRows = stableStatusRows(st);
+  h += '<h3>Details</h3><div class="kv">' +
+    '<div class="k">Where it is</div><div><strong>' + esc(i.locationLabel || 'At Stable mailbox') + '</strong></div>' +
+    (i.barcodeId ? '<div class="k">Stable barcode</div><div>' + esc(i.barcodeId) + '</div>' : '') +
+    statusRows + '</div>';
+  if (st.checks && st.checks.length) {
+    h += '<h3>Checks</h3>' + st.checks.map(function (c) {
+      return '<div class="box" style="margin-top:6px;font-size:12.5px">💵 <strong>$' + ((Number(c.amount) || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }) + '</strong>' +
+        (c.checkNumber ? ' · #' + esc(c.checkNumber) : '') + (c.payer ? ' · from ' + esc(c.payer) : '') + (c.payee ? ' · to ' + esc(c.payee) : '') +
+        ' · deposit: ' + esc(c.status || 'not requested') + '</div>';
+    }).join('');
+  }
+  if (i.scanSummary || i.ocrText || i.scanOcrText) {
+    h += '<details><summary>Text read from the mail</summary>' +
+      (i.scanSummary ? '<div class="ocr"><strong>Stable summary:</strong> ' + esc(i.scanSummary) + '</div>' : '') +
+      (i.scanOcrText ? '<div class="ocr">' + esc(i.scanOcrText) + '</div>' : '') +
+      (i.ocrText ? '<div class="ocr">' + esc(i.ocrText) + '</div>' : '') + '</details>';
+  }
+
+  if (i.sort === 'assigned' && i.assignment) h += renderFiled(i);
+  else if (i.sort === 'no_loan') h += '<div class="box filed"><strong>Filed without a loan</strong> · ' + esc(i.categoryLabel) + '<div class="actions"><button class="btn ghost sm" onclick="unassign()">Move back to Unsorted</button></div></div>';
+  else h += renderAssignForm(i, s);
+
+  h += renderLocationTools(i);
+
+  h += '<h3>History</h3><div class="timeline">' + (i.events || []).slice().reverse().map(function (e) {
+    return '<div class="ev"><div class="when">' + esc(fmtWhen(e.at)) + (e.by ? ' · ' + esc(e.by) : '') + '</div>' +
+      '<div>' + esc(e.note || e.type) + '</div>' +
+      (e.trackingNumber ? '<div class="trk">' + esc((e.carrier ? e.carrier + ' ' : '') + e.trackingNumber) + '</div>' : '') + '</div>';
+  }).join('') + '</div>';
+
+  document.getElementById('detail').innerHTML = h;
+  if (i.hasEnvelope) loadImage(i.id, 'envelope', document.getElementById('imgEnv'));
+  if (i.hasScan) loadImage(i.id, 'scan', document.getElementById('imgScan'));
+  syncCollateralBlock();
+}
+
+function renderFiled(i) {
+  var a = i.assignment;
+  return '<div class="box filed"><div style="font-size:11px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:.04em">✓ Filed to loan</div>' +
+    '<div style="font-size:14px;font-weight:600;margin-top:4px"><a href="' + esc(loanHref(a)) + '" target="_blank">' + esc(a.address || a.loanId) + '</a></div>' +
+    '<div style="font-size:12.5px;color:var(--muted)">' + esc(a.slaNumber || '') + (a.borrower ? ' · ' + esc(a.borrower) : '') + ' · ' + esc(i.categoryLabel || '') + '</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-top:4px">Filed by ' + esc(a.byName || a.by) + ' ' + esc(fmtWhen(a.at)) +
+      (a.aiSuggestedLoanId ? (a.aiAgreed ? ' · matched the AI suggestion' : ' · <span style="color:var(--warn)">different from the AI suggestion</span>') : '') + '</div>' +
+    (i.stableTag ? '<div style="font-size:12px;color:var(--muted)">Tagged <strong>' + esc(i.stableTag.name) + '</strong> in Stable</div>' : (i.stableTagError ? '<div style="font-size:12px;color:var(--danger)">Stable tag not written: ' + esc(i.stableTagError) + '</div>' : '')) +
+    '<div class="actions"><button class="btn ghost sm" onclick="startReassign()">Reassign</button><button class="btn ghost sm" onclick="unassign()">Move back to Unsorted</button></div></div>';
+}
+
+function renderAssignForm(i, s) {
+  var h = '';
+  if (s && (s.loanId || s.reason || (s.candidates && s.candidates.length))) {
+    h += '<div class="box ai"><div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.04em">AI suggestion — confirm before filing</div>';
+    if (s.loanId) {
+      h += '<div style="font-size:14px;font-weight:600;margin-top:4px">' + esc(s.address) + '</div>' +
+        '<div style="font-size:12.5px;color:var(--muted)">' + esc(s.slaNumber || '') + (s.borrower ? ' · ' + esc(s.borrower) : '') + ' · confidence: <strong>' + esc(s.confidence || '—') + '</strong></div>';
+    } else {
+      h += '<div style="font-size:13px;margin-top:4px">No confident loan match.</div>';
+    }
+    if (s.category) h += '<div style="font-size:12.5px;margin-top:4px">Looks like: <strong>' + esc(catLabel(s.category)) + '</strong>' + (s.categoryConfidence ? ' (' + esc(s.categoryConfidence) + ')' : '') + '</div>';
+    if (s.reason) h += '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + esc(s.reason) + '</div>';
+    var others = (s.candidates || []).filter(function (c) { return c.loanId !== s.loanId; });
+    if (others.length) {
+      h += '<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Other possible matches:</div>' + others.slice(0, 5).map(function (c, idx) {
+        return '<div class="result" onclick="pickCandidate(' + idx + ')">' + esc(c.address) + '<div class="sub">' + esc(c.slaNumber) + (c.borrower ? ' · ' + esc(c.borrower) : '') + ' · ' + esc(c.why || '') + '</div></div>';
+      }).join('');
+    }
+    if (s.source === 'rules') h += '<div style="font-size:11px;color:var(--muted);margin-top:6px">Suggested by matching rules (AI unavailable for this piece).</div>';
+    h += '</div>';
+  } else if (i.needsAi) {
+    h += '<div class="box ai" style="font-size:12.5px">AI is reviewing this piece — the suggestion will appear on the next check (within 15 minutes).</div>';
+  }
+
+  var cats = (_meta && _meta.categories) || [];
+  var curCat = i.category || s.category || 'general';
+  h += '<h3>File this mail</h3>' +
+    '<div class="field"><label>Loan</label>' +
+      '<div id="pickedBox">' + pickedHtml() + '</div>' +
+      '<input type="text" id="loanSearch" placeholder="Search address, borrower, entity or SLA loan #…" oninput="searchLoans()" style="margin-top:6px" />' +
+      '<div class="results" id="loanResults" hidden></div>' +
+    '</div>' +
+    '<div class="field"><label>Category</label><select id="catSel" onchange="syncCollateralBlock()">' +
+      cats.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === curCat ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') +
+    '</select></div>' +
+    '<div id="collBlock"></div>' +
+    '<div class="field"><label>Note (optional)</label><textarea id="assignNote" placeholder="Anything the loan team should know"></textarea></div>' +
+    '<div class="actions">' +
+      '<button class="btn" id="assignBtn" onclick="confirmAssign()">✓ Confirm &amp; file to loan</button>' +
+      '<button class="btn ghost" onclick="fileNoLoan()">File without a loan</button>' +
+    '</div><div class="status" id="assignStatus"></div>';
+  return h;
+}
+
+function pickedHtml() {
+  if (!_picked) return '<div style="font-size:12.5px;color:var(--muted)">No loan selected — search below.</div>';
+  return '<div class="picked"><div><strong>' + esc(_picked.address) + '</strong><div style="font-size:11.5px;color:var(--muted)">' +
+    esc(_picked.slaNumber || '') + (_picked.borrower ? ' · ' + esc(_picked.borrower) : '') + (_picked.fromAi ? ' · from AI suggestion' : '') + '</div></div>' +
+    '<button class="btn ghost sm" onclick="clearPicked()">Change</button></div>';
+}
+function clearPicked() { _picked = null; var b = document.getElementById('pickedBox'); if (b) b.innerHTML = pickedHtml(); var q = document.getElementById('loanSearch'); if (q) q.focus(); }
+function pickCandidate(idx) {
+  var s = (_sel && _sel.suggestion) || {};
+  var c = (s.candidates || []).filter(function (x) { return x.loanId !== s.loanId; })[idx];
+  if (!c) return;
+  _picked = { loanId: c.loanId, clientId: c.clientId, ownerKey: c.ownerKey, address: c.address, borrower: c.borrower, slaNumber: c.slaNumber };
+  document.getElementById('pickedBox').innerHTML = pickedHtml();
+}
+
+var _loanResults = [];
+function searchLoans() {
+  clearTimeout(_searchTimer);
+  var q = (document.getElementById('loanSearch').value || '').trim();
+  var box = document.getElementById('loanResults');
+  if (q.length < 2) { box.hidden = true; return; }
+  _searchTimer = setTimeout(function () {
+    api('GET', '/api/mail?action=search-loans&q=' + encodeURIComponent(q)).then(function (r) {
+      _loanResults = r.loans || [];
+      box.hidden = false;
+      box.innerHTML = _loanResults.length ? _loanResults.map(function (l, idx) {
+        return '<div class="result" onclick="pickResult(' + idx + ')">' + esc(l.address || '(no address)') +
+          '<div class="sub">' + esc(l.slaNumber) + (l.borrower || l.entity ? ' · ' + esc(l.borrower || l.entity) : '') + ' · ' + esc(l.status || '') + ' · ' + esc(l.ownerKey) + '</div></div>';
+      }).join('') : '<div class="result" style="cursor:default;color:var(--muted)">No loans match.</div>';
+    }).catch(function (e) { box.hidden = false; box.innerHTML = '<div class="result">' + esc(e.message) + '</div>'; });
+  }, 250);
+}
+function pickResult(idx) {
+  var l = _loanResults[idx]; if (!l) return;
+  _picked = { loanId: l.loanId, clientId: l.clientId, ownerKey: l.ownerKey, address: l.address, borrower: l.borrower || l.entity, slaNumber: l.slaNumber };
+  document.getElementById('pickedBox').innerHTML = pickedHtml();
+  document.getElementById('loanResults').hidden = true;
+  document.getElementById('loanSearch').value = '';
+}
+
+function syncCollateralBlock() {
+  var box = document.getElementById('collBlock');
+  var sel = document.getElementById('catSel');
+  if (!box || !sel || !_sel) return;
+  var coll = _meta && _meta.collateral && _meta.collateral[sel.value];
+  if (!coll) { box.innerHTML = ''; return; }
+  var ex = (_sel.suggestion && _sel.suggestion.extracted) || {};
+  box.innerHTML = '<div class="box" style="background:#faf8f4">' +
+    '<label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600"><input type="checkbox" id="collApply" checked> Record <span>' + esc(coll.label) + '</span> received on this loan\'s collateral tracking</label>' +
+    '<div class="row2"><div class="field"><label>Date received</label><input type="date" id="collDate" value="' + esc(ymdOf(_sel.receivedAt)) + '"></div>' +
+    '<div class="field"><label>Location</label><input type="text" id="collLoc" list="collLocList" value="SLA Mailbox (Stable)"><datalist id="collLocList"><option value="SLA Mailbox (Stable)"><option value="SLA Office"><option value="Westover"></datalist></div></div>' +
+    (ex.recordingDate || ex.instrumentNumber ? '<div style="font-size:11.5px;color:var(--muted);margin-top:6px">Read from the document: ' + (ex.recordingDate ? 'recorded ' + esc(ex.recordingDate) : '') + (ex.instrumentNumber ? ' · instrument #' + esc(ex.instrumentNumber) : '') + '</div>' : '') +
+    (_sel.hasScan ? '<label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:8px"><input type="checkbox" id="fileScan" checked> File the scan to Documents → Executed Closing Documents</label>' : '') +
+    '</div>';
+}
+
+function assignStatus(msg, cls) { var el = document.getElementById('assignStatus'); if (el) { el.className = 'status ' + (cls || ''); el.textContent = msg; } }
+
+function confirmAssign() {
+  if (!_sel) return;
+  if (!_picked) { assignStatus('Pick the loan this mail belongs to first.', 'err'); return; }
+  var cat = document.getElementById('catSel').value;
+  var coll = _meta && _meta.collateral && _meta.collateral[cat];
+  var applyEl = document.getElementById('collApply');
+  var body = {
+    action: 'assign', id: _sel.id,
+    loanId: _picked.loanId, clientId: _picked.clientId, ownerKey: _picked.ownerKey,
+    category: cat, note: (document.getElementById('assignNote').value || '').trim(),
+  };
+  if (coll && applyEl && applyEl.checked) {
+    body.collateral = { apply: true, date: document.getElementById('collDate').value, location: document.getElementById('collLoc').value };
+  }
+  var fs = document.getElementById('fileScan');
+  if (fs && fs.checked) body.fileScan = true;
+  if (!confirm('File this mail to ' + _picked.address + ' (' + (_picked.slaNumber || '') + ') as "' + catLabel(cat) + '"?' +
+      (body.collateral ? '\n\nThis also records ' + coll.label + ' received on ' + body.collateral.date + ' on the loan.' : ''))) return;
+  var btn = document.getElementById('assignBtn');
+  btn.disabled = true; assignStatus('Filing…');
+  api('POST', '/api/mail', body).then(function (r) {
+    var notes = [];
+    if (r.results && r.results.collateral) notes.push(r.results.collateral.label + ' date recorded');
+    if (r.results && r.results.filed && r.results.filed.attached) notes.push('scan filed to Documents');
+    if (r.results && r.results.filed && !r.results.filed.attached) notes.push('scan not filed (' + (r.results.filed.reason || 'no doc review on this loan') + ')');
+    assignStatus('Filed.' + (notes.length ? ' ' + notes.join(' · ') + '.' : ''), 'ok');
+    loadList();
+    selectItem(_sel.id);
+  }).catch(function (e) { btn.disabled = false; assignStatus(e.message || 'Filing failed', 'err'); });
+}
+
+function fileNoLoan() {
+  if (!_sel) return;
+  var cat = document.getElementById('catSel').value;
+  if (!confirm('File this mail as "' + catLabel(cat) + '" without tying it to a loan?')) return;
+  api('POST', '/api/mail', { action: 'no-loan', id: _sel.id, category: cat, note: (document.getElementById('assignNote').value || '').trim() })
+    .then(function () { loadList(); selectItem(_sel.id); })
+    .catch(function (e) { assignStatus(e.message || 'Failed', 'err'); });
+}
+
+function unassign() {
+  if (!_sel || !confirm('Move this mail back to Unsorted? (Collateral dates already recorded on the loan are left as they are.)')) return;
+  api('POST', '/api/mail', { action: 'unassign', id: _sel.id }).then(function () { loadList(); selectItem(_sel.id); })
+    .catch(function (e) { alert(e.message || 'Failed'); });
+}
+
+function startReassign() {
+  if (!_sel) return;
+  _sel.sort = 'unsorted';
+  _picked = null;
+  renderDetail();
+}
+
+// ── Location, shipments, forwarding ──────────────────────────────────
+function renderLocationTools(i) {
+  var locs = (_meta && _meta.locations) || [];
+  return '<h3>Location &amp; tracking</h3>' +
+    '<div class="row2"><div class="field"><label>Where it is now</label><select id="locSel">' +
+      locs.map(function (l) { return '<option value="' + l[0] + '"' + (l[0] === (i.location || 'at_stable') ? ' selected' : '') + '>' + esc(l[1]) + '</option>'; }).join('') +
+    '</select></div><div class="field"><label>Note</label><input type="text" id="locNote" placeholder="e.g. handed to Beth for scanning"></div></div>' +
+    '<div class="actions"><button class="btn ghost sm" onclick="saveLocation()">Update location</button></div>' +
+    '<details><summary>Log a shipment we sent ourselves</summary>' +
+      '<div class="row3"><div class="field"><label>Sent to</label><input type="text" id="shipTo" placeholder="Westover custodian"></div>' +
+      '<div class="field"><label>Carrier</label><input type="text" id="shipCarrier" placeholder="FedEx"></div>' +
+      '<div class="field"><label>Tracking #</label><input type="text" id="shipTrk"></div></div>' +
+      '<div class="actions"><button class="btn ghost sm" onclick="logShipment()">Log shipment</button></div>' +
+    '</details>' +
+    '<details><summary>Forward the physical piece through Stable</summary>' +
+      '<div class="row2"><div class="field"><label>Recipient</label><input type="text" id="fwdName"></div><div class="field"><label>Phone</label><input type="tel" id="fwdPhone"></div></div>' +
+      '<div class="field"><label>Street</label><input type="text" id="fwdLine1"></div>' +
+      '<div class="row3"><div class="field"><label>City</label><input type="text" id="fwdCity"></div><div class="field"><label>State</label><input type="text" id="fwdState"></div><div class="field"><label>ZIP</label><input type="text" id="fwdZip"></div></div>' +
+      '<div class="actions"><button class="btn ghost sm" onclick="loadMethods()">Get shipping options</button></div>' +
+      '<div id="fwdMethods"></div>' +
+    '</details><div class="status" id="locStatus"></div>';
+}
+function locStatus(msg, cls) { var el = document.getElementById('locStatus'); if (el) { el.className = 'status ' + (cls || ''); el.textContent = msg; } }
+
+function saveLocation() {
+  api('POST', '/api/mail', { action: 'update', id: _sel.id, location: document.getElementById('locSel').value, note: document.getElementById('locNote').value })
+    .then(function () { loadList(); selectItem(_sel.id); })
+    .catch(function (e) { locStatus(e.message || 'Failed', 'err'); });
+}
+function logShipment() {
+  var trk = document.getElementById('shipTrk').value.trim(), to = document.getElementById('shipTo').value.trim();
+  if (!trk && !to) { locStatus('Enter where it went and/or the tracking number.', 'err'); return; }
+  api('POST', '/api/mail', { action: 'update', id: _sel.id, shipment: { to: to, carrier: document.getElementById('shipCarrier').value.trim(), trackingNumber: trk } })
+    .then(function () { loadList(); selectItem(_sel.id); })
+    .catch(function (e) { locStatus(e.message || 'Failed', 'err'); });
+}
+function fwdAddress() {
+  return { line1: document.getElementById('fwdLine1').value.trim(), city: document.getElementById('fwdCity').value.trim(),
+    state: document.getElementById('fwdState').value.trim(), postalCode: document.getElementById('fwdZip').value.trim(), country: 'US' };
+}
+function loadMethods() {
+  var box = document.getElementById('fwdMethods');
+  box.innerHTML = '<div class="status">Getting options…</div>';
+  api('POST', '/api/mail', { action: 'shipping-methods', id: _sel.id, address: fwdAddress() }).then(function (r) {
+    var m = r.methods; var list = Array.isArray(m) ? m : ((m && (m.shippingMethods || m.methods || m.data)) || []);
+    if (!list.length) { box.innerHTML = '<div class="status err">Stable returned no shipping options for that address.</div>'; return; }
+    box.innerHTML = '<div class="field"><label>Shipping method</label><select id="fwdSvc">' + list.map(function (x) {
+      var code = x.serviceCode || x.code || x.id || '';
+      var name = x.name || x.label || x.description || code;
+      var cost = x.cost != null ? ' — $' + ((Number(x.cost) || 0) / 100).toFixed(2) : (x.price != null ? ' — $' + x.price : '');
+      return '<option value="' + esc(code) + '">' + esc(name + cost) + '</option>';
+    }).join('') + '</select></div><div class="actions"><button class="btn dark sm" onclick="forwardNow()">Forward via Stable</button></div>';
+  }).catch(function (e) { box.innerHTML = '<div class="status err">' + esc(e.message || 'Failed') + '</div>'; });
+}
+function forwardNow() {
+  var name = document.getElementById('fwdName').value.trim(), phone = document.getElementById('fwdPhone').value.trim();
+  var svc = document.getElementById('fwdSvc') ? document.getElementById('fwdSvc').value : '';
+  if (!confirm('Forward this piece to ' + name + '? Stable will ship it and charge the account.')) return;
+  api('POST', '/api/mail', { action: 'forward', id: _sel.id, recipient: name, phone: phone, address: fwdAddress(), serviceCode: svc })
+    .then(function () { loadList(); selectItem(_sel.id); })
+    .catch(function (e) { locStatus(e.message || 'Forward failed', 'err'); });
+}
+
+// ── Sync ─────────────────────────────────────────────────────────────
+function syncNow() {
+  var btn = document.getElementById('syncBtn'), st = document.getElementById('syncStatus');
+  btn.disabled = true; st.textContent = 'Checking Stable…';
+  api('POST', '/api/mail-sync', {}).then(function (r) {
+    st.textContent = (r.created || 0) + ' new · ' + (r.updated || 0) + ' updated' + (r.budgetStopped ? ' · more on the next check' : '');
+    btn.disabled = false; loadList();
+  }).catch(function (e) { st.textContent = e.message || 'Sync failed'; btn.disabled = false; });
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────
+window.netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  var ok = !!(window.SLA && (SLA.canWorkMail ? SLA.canWorkMail(user) : (SLA.isProcessor && SLA.isProcessor(user))));
+  if (!ok) { window.location.replace('/'); return; }
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  api('GET', '/api/mail?action=meta').then(function (m) {
+    _meta = m;
+    loadList();
+    var want = new URLSearchParams(window.location.search).get('item');
+    if (want) selectItem(want);
+  }).catch(function (e) {
+    document.getElementById('list').innerHTML = '<div class="empty">' + esc(e.message || 'Failed to load') + '</div>';
+  });
+  setInterval(function () { if (!document.hidden) loadList(); }, 120000);
+});
+</script>
+</body>
+</html>

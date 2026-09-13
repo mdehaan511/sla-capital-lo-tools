@@ -33,7 +33,7 @@
  * (role table, profiles store, Supabase admin API) lives in team-roster.mjs.
  */
 
-export const STAFF_ROLES = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor', 'user'];
+export const STAFF_ROLES = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant', 'user'];
 export const TEAM_DOMAIN = '@slacapital.com';
 
 export function normEmail(s) {

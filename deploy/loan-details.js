@@ -2590,6 +2590,11 @@ function render() {
   // have no draw schedule. Content loads lazily on first open (ldDrawsLoad).
   var _showDrawsTab = _showServicingTab && (_uwTt === 'rtl' || _uwTt === 'guc');
   var _tabDraws     = _showDrawsTab ? '<button type="button" class="ld-tab" data-ld-tab="draws" onclick="switchLdTab(\'draws\')"><span class="ld-tab-icon">\u{1F3D7}\u{FE0F}</span>Draws</button>' : '';
+  // Deploy 236.995 (Mike) — Mail tab: pieces from the Stable mailbox that the
+  // office assistant filed to this loan. Mail-room access only (office
+  // assistant / processor tier); content loads lazily on first open.
+  var _showMailTab = !!(window.SLA && (SLA.canWorkMail ? SLA.canWorkMail(_user) : (SLA.isProcessor && SLA.isProcessor(_user))));
+  var _tabMail      = _showMailTab ? '<button type="button" class="ld-tab" data-ld-tab="mail" onclick="switchLdTab(\'mail\')"><span class="ld-tab-icon">\u{1F4EC}</span>Mail</button>' : '';
   var tabsHtml =
     '<div class="ld-tabs" role="tablist">' +
       '<button type="button" class="ld-tab active" data-ld-tab="loan"     onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
@@ -2606,6 +2611,7 @@ function render() {
       _tabLightning +
       _tabServicing +
       _tabDraws +
+      _tabMail +
     '</div>' +
     '<div class="ld-pane active" data-ld-pane="loan"     id="ldPaneLoan"></div>' +
     '<div class="ld-pane"        data-ld-pane="property" id="ldPaneProperty"></div>' +
@@ -2615,7 +2621,8 @@ function render() {
     (_inProc ? '<div class="ld-pane" data-ld-pane="closing"      id="ldPaneClosing"></div>' : '') +
     (_uwOK   ? '<div class="ld-pane" data-ld-pane="lightning"    id="ldPaneLightning"></div>' : '') +
     (_showServicingTab ? '<div class="ld-pane" data-ld-pane="servicing" id="ldPaneServicing"></div>' : '') +
-    (_showDrawsTab ? '<div class="ld-pane" data-ld-pane="draws" id="ldPaneDraws"></div>' : '');
+    (_showDrawsTab ? '<div class="ld-pane" data-ld-pane="draws" id="ldPaneDraws"></div>' : '') +
+    (_showMailTab ? '<div class="ld-pane" data-ld-pane="mail" id="ldPaneMail"></div>' : '');
   // Deploy 236.126 — top-of-page warning banner placeholder.
   // computeGuarantorOwnershipBanner() fills this slot after render
   // based on loan.guarantorOwnership values + linked guarantor count.
@@ -4545,6 +4552,7 @@ function switchLdTab(name, skipHash) {
   });
   // Deploy 236.721 — Draws pane loads its Sitewire data lazily on first open.
   if (name === 'draws') ldDrawsLoad(false);
+  if (name === 'mail') ldMailLoad(false); // Deploy 236.995
   if (!skipHash) {
     try {
       var url = new URL(window.location.href);
@@ -4559,6 +4567,47 @@ function switchLdTab(name, skipHash) {
 // per-draw rows with the wire-sent / reimbursement annotations, and the
 // Dutch vs Non-Dutch UPB math (Deploy 236.710). Data comes from the same
 // /api/sitewire-draws proxy, joined by slaDisplayId == Sitewire loan_number.
+// ── Deploy 236.995 (Mike) — Mail tab (Stable mailbox, filed by the mail room) ──
+// Lists the pieces the office assistant confirmed onto this loan: when it
+// arrived, what it is, where the physical piece is now, tracking, and a link
+// to the full record (images, history, Stable deep link) in the Mail Room.
+var _ldMailState = '';   // '' | 'loading' | 'ready' | 'error'
+function ldMailLoad(force) {
+  var pane = document.getElementById('ldPaneMail');
+  if (!pane || !_loanId) return;
+  if (_ldMailState === 'loading' || (_ldMailState === 'ready' && !force)) return;
+  _ldMailState = 'loading';
+  pane.innerHTML = '<div class="section"><div class="section-head"><h2>Mail</h2></div><div class="section-body" style="color:var(--muted);font-size:13px">Loading mail…</div></div>';
+  SLA.api('GET', '/api/mail?action=list&view=loan&limit=200&loanId=' + encodeURIComponent(_loanId)).then(function (r) {
+    _ldMailState = 'ready';
+    var items = (r && r.items) || [];
+    var fmt = function (iso) { var d = new Date(iso || ''); return isNaN(d) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+    var rows = items.map(function (i) {
+      return '<tr style="cursor:pointer" onclick="window.open(\'/mail.html?item=' + encodeURIComponent(i.id) + '\',\'_blank\')">' +
+        '<td style="padding:8px 10px;white-space:nowrap">' + escH(fmt(i.receivedAt)) + '</td>' +
+        '<td style="padding:8px 10px">' + escH(i.from || 'Unknown sender') + '</td>' +
+        '<td style="padding:8px 10px">' + escH(i.categoryLabel || '—') + '</td>' +
+        '<td style="padding:8px 10px">' + escH(i.locationLabel || '—') + '</td>' +
+        '<td style="padding:8px 10px;font-family:DM Mono,monospace;font-size:12px">' + escH(i.trackingNumber || '') + '</td>' +
+        '<td style="padding:8px 10px;font-size:12px;color:var(--muted)">' + (i.hasScan ? '📄 scanned' : '✉ envelope only') + '</td>' +
+      '</tr>';
+    }).join('');
+    pane.innerHTML = '<div class="section"><div class="section-head"><h2>Mail</h2>' +
+        '<span style="display:flex;gap:8px;align-items:center"><a href="/mail.html" target="_blank" style="font-size:12px;color:var(--gold-mid)">Open Mail Room ↗</a>' +
+        '<button type="button" class="save-app-btn" style="padding:5px 10px;font-size:12px" onclick="ldMailLoad(true)">Refresh</button></span></div>' +
+      '<div class="section-body">' +
+        (items.length
+          ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em">' +
+              '<th style="padding:6px 10px">Received</th><th style="padding:6px 10px">From</th><th style="padding:6px 10px">Category</th><th style="padding:6px 10px">Where it is</th><th style="padding:6px 10px">Tracking</th><th style="padding:6px 10px"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Click a row to see the envelope, scan and full history in the Mail Room.</div>'
+          : '<div style="color:var(--muted);font-size:13px">No mail has been filed to this loan yet. Pieces appear here once the office assistant confirms them in the Mail Room.</div>') +
+      '</div></div>';
+  }).catch(function (e) {
+    _ldMailState = 'error';
+    pane.innerHTML = '<div class="section"><div class="section-body" style="color:var(--danger);font-size:13px">Mail failed to load: ' + escH((e && e.message) || 'unknown') + '</div></div>';
+  });
+}
+
 var _ldDrawsState = '';   // '' | 'loading' | 'ready' | 'error'
 var _ldDrawsData  = null; // this loan's Sitewire entry (or null = no match)
 var _ldDrawsErr   = '';

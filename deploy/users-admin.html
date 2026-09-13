@@ -130,6 +130,8 @@
                pages, but Leads/Processing pipelines stay scoped to own loans. -->
           <option value="senior_lo">Senior LO</option>
           <option value="processor">Processor</option>
+          <!-- Deploy 236.995 - Office Assistant: the mail room (Processing > Mail). -->
+          <option value="office_assistant">Office Assistant</option>
           <option value="admin">Admin</option>
         </select>
 
@@ -279,9 +281,9 @@ async function loadUsers() {
       // Status shows the SIGN-IN state (accepted vs pending) rather
       // than confirmation flag since Supabase auto-confirms on
       // invite-click. Any signed-in user = accepted.
-      var roleOpts = ['admin','senior_lo','loan_officer','processor'].map(function(r){
+      var roleOpts = ['admin','senior_lo','loan_officer','processor','office_assistant'].map(function(r){
         var sel = (u.role === r) ? ' selected' : '';
-        var lbl = r === 'loan_officer' ? 'Loan Officer' : r === 'senior_lo' ? 'Senior LO' : r === 'admin' ? 'Admin' : 'Processor';
+        var lbl = r === 'loan_officer' ? 'Loan Officer' : r === 'senior_lo' ? 'Senior LO' : r === 'admin' ? 'Admin' : r === 'office_assistant' ? 'Office Assistant' : 'Processor';
         return '<option value="' + escAttr(r) + '"' + sel + '>' + escH(lbl) + '</option>';
       }).join('');
       // Deploy 236.665 — if the user's actual role isn't one of the three staff
@@ -290,7 +292,7 @@ async function loadUsers() {
       // appearing as Admins. Prepend the real role as the selected option so the
       // dropdown reflects reality instead of a misleading default.
       var _curRole = String(u.role || '').toLowerCase();
-      if (!_curRole || ['admin','senior_lo','loan_officer','processor'].indexOf(_curRole) < 0) {
+      if (!_curRole || ['admin','senior_lo','loan_officer','processor','office_assistant'].indexOf(_curRole) < 0) {
         var _lbl = _curRole === 'super_admin' ? 'Owner' : (_curRole ? _curRole : '(no role)');
         roleOpts = '<option value="' + escAttr(_curRole) + '" selected>' + escH(_lbl) + '</option>' + roleOpts;
       }

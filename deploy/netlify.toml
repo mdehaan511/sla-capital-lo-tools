@@ -2169,3 +2169,34 @@
   to = "/.netlify/functions/borrower-entities"
   status = 200
   force = true
+
+# Deploy 236.995 (Mike) - mail room (Stable virtual mailbox)
+[[redirects]]
+  from = /api/mail
+  to = /.netlify/functions/mail
+  status = 200
+  force = true
+
+[[redirects]]
+  from = /api/mail-image
+  to = /.netlify/functions/mail-image
+  status = 200
+  force = true
+
+[[redirects]]
+  from = /api/mail-sync
+  to = /.netlify/functions/mail-sync
+  status = 200
+  force = true
+
+[[redirects]]
+  from = /api/stable-webhook
+  to = /.netlify/functions/stable-webhook-background
+  status = 200
+  force = true
+
+[functions.mail]
+  timeout = 26
+
+[functions.mail-sync]
+  timeout = 26
