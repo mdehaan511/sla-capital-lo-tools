@@ -24,7 +24,10 @@ export function stableConfigured() {
 // The API returns no web link for a mail item; the dashboard URL shape is
 // configurable so it can be corrected without a deploy if Stable changes it.
 export function stableDashboardUrl(id) {
-  const tpl = process.env.STABLE_DASHBOARD_URL_TEMPLATE || 'https://dashboard.usestable.com/mail/{id}';
+  // Deploy 237.005: real customer-app shape, from a link Mike copied out of Stable
+  // (mailroom?activeMailItemId=). The old /mail/{id} guess bounced to Stable's
+  // internal ops login. Inbox/archived filters left off so filed pieces open too.
+  const tpl = process.env.STABLE_DASHBOARD_URL_TEMPLATE || 'https://dashboard.usestable.com/mailroom?activeMailItemId={id}';
   return tpl.replace('{id}', encodeURIComponent(String(id || '')));
 }
 

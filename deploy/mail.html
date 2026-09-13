@@ -105,6 +105,20 @@
     #auth-gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; }
     .gate-msg { text-align: center; color: var(--muted); font-size: 14px; }
     .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+    /* Deploy 237.005 (Mike): Stable content scans are multi-page PDFs, which an
+       <img> cannot render (the scan box showed a broken image). PDFs now get an
+       inline preview, and clicking any image opens an in-page viewer modal
+       instead of a new tab. */
+    .pdfprev { position: relative; width: 320px; max-width: 100%; height: 230px; background: #fff; }
+    .pdfprev iframe { width: 100%; height: 100%; border: 0; display: block; pointer-events: none; }
+    .pdfprev .hit { position: absolute; inset: 0; cursor: zoom-in; }
+    .mv-bg { position: fixed; inset: 0; background: rgba(20,14,28,0.72); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 3vh 2vw; }
+    .mv { background: var(--surface); border-radius: 12px; width: min(1100px, 96vw); height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+    .mv-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .mv-pdf { flex: 1; width: 100%; border: 0; }
+    .mv-imgwrap { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #f7f5f1; padding: 12px; }
+    .mv-imgwrap img { max-width: 100%; height: auto; cursor: zoom-in; }
+    .mv-imgwrap img.zoomed { max-width: none; cursor: zoom-out; }
     /* Deploy 237.001: page-level nav CSS. sla-nav.js only injects the dropdown
        (.nav-dd*) rules; the bar layout + logo size must live on each page
        (same fix closed-loans needed in 236.611). Without it the logo renders at
@@ -174,19 +188,60 @@ function loanHref(a) { return (window.SLA && SLA.urls && SLA.urls.loanDetails) ?
 function ymdOf(iso) { var t = Date.parse(iso || ''); return t > 0 ? new Date(t).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10); }
 
 // ── Images (fetched with the bearer token, rendered via object URLs) ──
+var _thumbTypes = {};     // id|kind -> blob MIME type (Deploy 237.005)
 function loadImage(id, kind, imgEl) {
   var key = id + '|' + kind;
-  if (_thumbUrls[key]) { imgEl.src = _thumbUrls[key]; return; }
+  if (_thumbUrls[key]) { _showThumb(imgEl, key); return; }
   SLA.getToken().then(function (t) {
     return fetch('/api/mail-image?id=' + encodeURIComponent(id) + '&kind=' + kind, { headers: { Authorization: 'Bearer ' + t } });
   }).then(function (r) { if (!r.ok) throw new Error('no image'); return r.blob(); })
-    .then(function (b) { _thumbUrls[key] = URL.createObjectURL(b); imgEl.src = _thumbUrls[key]; })
+    .then(function (b) { _thumbUrls[key] = URL.createObjectURL(b); _thumbTypes[key] = b.type || ''; _showThumb(imgEl, key); })
     .catch(function () { if (imgEl.parentNode) imgEl.parentNode.innerHTML = '✉'; });
 }
-function openImage(id, kind) {
-  var url = _thumbUrls[id + '|' + kind];
-  if (url) window.open(url, '_blank');
+// Deploy 237.005: Stable content scans are PDFs. Swap the <img> for an inline
+// PDF preview (non-interactive; a transparent layer on top takes the click).
+function _showThumb(imgEl, key) {
+  if (/pdf/i.test(_thumbTypes[key] || '') && imgEl && imgEl.parentNode) {
+    var wrap = document.createElement('div');
+    wrap.className = 'pdfprev';
+    wrap.innerHTML = '<iframe tabindex="-1" title="Scan preview" src="' + _thumbUrls[key] + '#toolbar=0&navpanes=0&view=FitH"></iframe><div class="hit" title="Click to view"></div>';
+    wrap.querySelector('.hit').onclick = imgEl.onclick;
+    imgEl.parentNode.replaceChild(wrap, imgEl);
+    return;
+  }
+  if (imgEl) imgEl.src = _thumbUrls[key];
 }
+// Deploy 237.005 (Mike): view images in a modal on the page, not a new tab.
+function openImage(id, kind) {
+  var key = id + '|' + kind;
+  var url = _thumbUrls[key];
+  if (!url) return;
+  var isPdf = /pdf/i.test(_thumbTypes[key] || '');
+  var m = document.getElementById('mailViewer');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'mailViewer';
+    m.className = 'mv-bg';
+    m.onclick = function (e) { if (e.target === m) closeViewer(); };
+    document.body.appendChild(m);
+  }
+  m.innerHTML = '<div class="mv" role="dialog" aria-modal="true">' +
+    '<div class="mv-head"><strong>' + (kind === 'scan' ? 'Contents scan' : 'Envelope') + '</strong><span style="flex:1"></span>' +
+    '<a class="btn ghost sm" href="' + url + '" target="_blank" rel="noopener">Open in new tab ↗</a>' +
+    '<button class="btn ghost sm" onclick="closeViewer()" aria-label="Close">✕</button></div>' +
+    (isPdf
+      ? '<iframe class="mv-pdf" title="Contents scan" src="' + url + '#view=FitH"></iframe>'
+      : '<div class="mv-imgwrap"><img src="' + url + '" alt="" onclick="this.classList.toggle(\'zoomed\')"></div>') +
+    '</div>';
+  m.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeViewer() {
+  var m = document.getElementById('mailViewer');
+  if (m) { m.style.display = 'none'; m.innerHTML = ''; }
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' || e.key === 'Esc') closeViewer(); });
 
 // ── List ─────────────────────────────────────────────────────────────
 function setView(v) {
