@@ -2172,26 +2172,26 @@
 
 # Deploy 236.995 (Mike) - mail room (Stable virtual mailbox)
 [[redirects]]
-  from = /api/mail
-  to = /.netlify/functions/mail
+  from = "/api/mail"
+  to = "/.netlify/functions/mail"
   status = 200
   force = true
 
 [[redirects]]
-  from = /api/mail-image
-  to = /.netlify/functions/mail-image
+  from = "/api/mail-image"
+  to = "/.netlify/functions/mail-image"
   status = 200
   force = true
 
 [[redirects]]
-  from = /api/mail-sync
-  to = /.netlify/functions/mail-sync
+  from = "/api/mail-sync"
+  to = "/.netlify/functions/mail-sync"
   status = 200
   force = true
 
 [[redirects]]
-  from = /api/stable-webhook
-  to = /.netlify/functions/stable-webhook-background
+  from = "/api/stable-webhook"
+  to = "/.netlify/functions/stable-webhook-background"
   status = 200
   force = true
 
