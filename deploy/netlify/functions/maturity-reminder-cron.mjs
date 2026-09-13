@@ -186,11 +186,14 @@ export async function findMaturityCandidates(now) {
   return out;
 }
 
-async function _send(apiKey, { to, subject, html, text }) {
+async function _send(apiKey, { to, subject, html, text, idemKey }) {
+  // Deploy 237.004: Resend Idempotency-Key so a send whose ledger stamp
+  // failed (or a retried run) cannot email the same person twice in 24h.
   return fetch('https://api.resend.com/emails', {
     signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    headers: Object.assign({ Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      idemKey ? { 'Idempotency-Key': String(idemKey).slice(0, 250) } : {}),
     body: JSON.stringify({
       from: 'SLA Capital <noreply@leads.slacapital.com>',
       to: [to],
@@ -258,7 +261,7 @@ export default async () => {
           daysLeft: d,
         });
 
-        const resp = await _send(apiKey, { to: borrowerEmail, subject: body.subject, html: body.html, text: body.text });
+        const resp = await _send(apiKey, { to: borrowerEmail, subject: body.subject, html: body.html, text: body.text, idemKey: 'maturity/' + d + '/' + borrowerEmail + '/' + (loan.id || loan.address || '') });
         if (!resp.ok) {
           failed++;
           console.warn('[maturity-cron] send failed', resp.status, loan.address);

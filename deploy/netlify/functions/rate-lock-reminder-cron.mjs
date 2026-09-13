@@ -76,11 +76,14 @@ async function _candidatesFromPG() {
   return out;
 }
 
-async function _sendEmail(apiKey, to, subject, html, text, replyTo) {
+async function _sendEmail(apiKey, to, subject, html, text, replyTo, idemKey) {
+  // Deploy 237.004: Resend Idempotency-Key so a send whose ledger stamp
+  // failed (or a retried run) cannot email the same person twice in 24h.
   return fetch('https://api.resend.com/emails', {
     signal: AbortSignal.timeout(15000), // Deploy 237.003
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    headers: Object.assign({ Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      idemKey ? { 'Idempotency-Key': String(idemKey).slice(0, 250) } : {}),
     body: JSON.stringify({
       from: 'SLA Capital <noreply@leads.slacapital.com>',
       to: [to],
@@ -158,7 +161,7 @@ export default async () => {
         if (borrowerEmail && borrowerEmail.includes('@')) {
           const b = _emailBodies({ firstName: borrowerFirst, address, daysLeft: d, expiresStr, forLO: false });
           const replyTo = await getOwnerReplyTo(ownerKey).catch(() => null);
-          const resp = await _sendEmail(apiKey, borrowerEmail, b.subject, b.html, b.text, replyTo);
+          const resp = await _sendEmail(apiKey, borrowerEmail, b.subject, b.html, b.text, replyTo, 'ratelock-b/' + d + '/' + borrowerEmail + '/' + address);
           if (resp.ok) {
             try {
               await logBorrowerSendFromResponse(resp, {
@@ -172,7 +175,7 @@ export default async () => {
         // LO email.
         if (ownerEmail && ownerEmail.includes('@')) {
           const b = _emailBodies({ firstName: '', address, daysLeft: d, expiresStr, forLO: true, loLabel: borrowerLabel });
-          const resp = await _sendEmail(apiKey, ownerEmail, b.subject, b.html, b.text, null);
+          const resp = await _sendEmail(apiKey, ownerEmail, b.subject, b.html, b.text, null, 'ratelock-lo/' + d + '/' + ownerEmail + '/' + address);
           if (!resp.ok) console.warn('[rate-lock-cron] LO send failed', resp.status, address);
         }
 

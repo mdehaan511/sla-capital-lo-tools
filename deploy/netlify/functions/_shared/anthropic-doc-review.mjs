@@ -13,7 +13,7 @@
  *   $3 / 1M input tokens   = $0.000003 / token = 0.0003 cents/token
  *   $15 / 1M output tokens = $0.000015 / token = 0.0015 cents/token
  */
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = process.env.DOC_REVIEW_MODEL || 'claude-sonnet-4-6'; // Deploy 237.004: env override
 const MAX_OUTPUT_TOKENS = 2048;
 const INPUT_CENTS_PER_TOKEN          = 0.0003;
 // Deploy 236.77 — Anthropic prompt caching pricing. Writes (storing

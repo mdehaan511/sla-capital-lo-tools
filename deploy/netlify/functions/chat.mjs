@@ -23,7 +23,7 @@ import { getStore } from '@netlify/blobs';
 import { handleOptions, requireAuth, readJsonBody, normalizeEmail, keySafe } from './_shared/auth.mjs';
 import { buildSystemPrompt } from './_chat_prompt.mjs';
 
-const MODEL    = 'claude-sonnet-4-6';
+const MODEL    = process.env.CHAT_MODEL || 'claude-sonnet-4-6'; // Deploy 237.004: env override
 const MAX_TOK  = 1024;
 
 async function logChatTurn(user, question, answer, pageContext) {

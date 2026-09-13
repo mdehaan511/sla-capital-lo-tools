@@ -196,7 +196,9 @@ export default async () => {
         const resp = await fetch('https://api.resend.com/emails', {
           signal: AbortSignal.timeout(15000), // Deploy 237.003
           method: 'POST',
-          headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+          // Deploy 237.004: one digest per LO per UTC day even if the run retries.
+          headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json',
+            'Idempotency-Key': ('followup/' + ownerEmail + '/' + new Date().toISOString().slice(0, 10)).slice(0, 250) },
           body: JSON.stringify({
             from: 'SLA Capital <noreply@leads.slacapital.com>',
             to: [ownerEmail], subject: b.subject, html: b.html, text: b.text,

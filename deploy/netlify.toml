@@ -51,6 +51,21 @@
 # thousands of rows to Postgres. Pro-plan on-demand functions get up
 # to 26s; give the backfill the whole budget so it doesn't need
 # cursor pagination for the typical run.
+# Deploy 237.004 -- heavy upload / AI / zip / PDF endpoints were on the 10s default.
+[functions."loan-review-doc-upload"]
+  timeout = 26
+[functions."borrower-intake-upload"]
+  timeout = 26
+[functions."loan-review-ai-retry"]
+  timeout = 26
+[functions."loan-review-zip-classify"]
+  timeout = 26
+[functions."termsheet"]
+  timeout = 26
+[functions."guarantor-application-download"]
+  timeout = 26
+[functions."loan-review-zip-download"]
+  timeout = 26
 [functions."admin-backfill-loans-pg"]
   timeout = 26
 

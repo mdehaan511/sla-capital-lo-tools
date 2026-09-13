@@ -49,8 +49,14 @@ export default async (req, context) => {
         console.warn('resend-webhook: signature verification FAILED — rejecting');
         return json(401, { error: 'invalid signature' });
       }
+    } else if (process.env.RESEND_WEBHOOK_ALLOW_UNVERIFIED === '1') {
+      console.warn('resend-webhook: RESEND_WEBHOOK_SECRET not set — processing UNVERIFIED (RESEND_WEBHOOK_ALLOW_UNVERIFIED=1).');
     } else {
-      console.warn('resend-webhook: RESEND_WEBHOOK_SECRET not set — processing UNVERIFIED. Set it in Netlify env to secure this endpoint.');
+      // Deploy 237.004: fail closed. Was: process unverified events, so a forged
+      // POST could trigger bounce notices to LOs. Set RESEND_WEBHOOK_SECRET
+      // (or RESEND_WEBHOOK_ALLOW_UNVERIFIED=1 as a temporary escape hatch).
+      console.warn('resend-webhook: RESEND_WEBHOOK_SECRET not set — rejecting event.');
+      return json(503, { error: 'webhook secret not configured' });
     }
 
     let event;

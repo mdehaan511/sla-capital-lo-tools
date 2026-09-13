@@ -229,7 +229,7 @@ async function _classifyWithClaude(filenames, slugs) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: process.env.ZIP_CLASSIFY_MODEL || 'claude-haiku-4-5-20251001', // Deploy 237.004: env override
       max_tokens: 2000,
       system,
       messages: [{ role: 'user', content: userMsg }],
