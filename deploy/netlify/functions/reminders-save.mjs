@@ -15,6 +15,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 237.002
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -29,9 +30,11 @@ export default async (req, context) => {
   if (!body.note || !String(body.note).trim()) return json(400, { error: 'note required' });
   if (!body.dueDate) return json(400, { error: 'dueDate required' });
 
-  // Owner: default to current user. Admins may override via _owner.
+  // Owner: default to current user. Admins + processor tier may override via
+  // _owner (Deploy 237.002: was isAdmin, so a processor completing an LO's
+  // reminder from the bell wrote a stray copy on their own book).
   let owner = normalizeEmail(user.email);
-  if (body._owner && isAdmin(user)) owner = normalizeEmail(body._owner);
+  if (body._owner && canOverrideOwner(user).ok) owner = normalizeEmail(body._owner);
   const ownerKey = keySafe(owner);
 
   const store = getStore({ name: 'reminders', consistency: 'strong' });

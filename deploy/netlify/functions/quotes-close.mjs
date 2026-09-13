@@ -181,7 +181,13 @@ async function closeLoanFirst(row, { quoteId, finalLoanAmount, commissionRate, n
   if (notes != null && String(notes).trim()) loan.closeNotes = String(notes).trim();
   loan.updatedAt        = now2;
   client.updatedAt      = now2;
-  await writeClient(loanOwnerKey, client, { clientsStore });
+  // Deploy 237.002: surface write failures as JSON (was an uncaught throw).
+  try {
+    await writeClient(loanOwnerKey, client, { clientsStore });
+  } catch (e) {
+    console.error('quotes-close (loan-first): write failed:', e);
+    return json(500, { error: 'Failed to save closed loan: ' + ((e && e.message) || 'unknown') });
+  }
 
   let emailed2 = false;
   if (firstClose) {

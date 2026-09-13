@@ -8,6 +8,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { quotesIndex } from './_shared/quotes-index.mjs'; // Deploy 236.343
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 237.002
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -20,8 +21,11 @@ export default async (req, context) => {
   if (body === null) return json(400, { error: 'Invalid JSON' });
   if (!body || !body.id) return json(400, { error: 'quote id required' });
 
+  // Deploy 237.002: processor tier may override the owner too (was isAdmin,
+  // which silently ignored a processor's _owner and saved to their own book).
+  const mayOverride = canOverrideOwner(user).ok;
   let owner = normalizeEmail(user.email);
-  if (body._owner && isAdmin(user)) owner = normalizeEmail(body._owner);
+  if (body._owner && mayOverride) owner = normalizeEmail(body._owner);
 
   const record = { ...body };
   delete record._owner;
@@ -40,7 +44,7 @@ export default async (req, context) => {
 
   try {
     const existing = await store.get(key, { type: 'json' });
-    if (existing && !isAdmin(user) && existing.createdBy && normalizeEmail(existing.createdBy) !== owner) {
+    if (existing && !mayOverride && existing.createdBy && normalizeEmail(existing.createdBy) !== owner) {
       return json(403, { error: 'Not authorized' });
     }
     await store.setJSON(key, record);

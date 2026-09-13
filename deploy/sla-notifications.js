@@ -624,7 +624,7 @@
       var ownerKey = b.getAttribute('data-owner-key') || '';
       if (!id || !window.SLA || !SLA.Reminders) return Promise.resolve();
       var payload = { id: id, completed: true, completedAt: new Date().toISOString() };
-      if (ownerKey && ownerKey !== (netlifyIdentity.currentUser() && netlifyIdentity.currentUser().email || '').toLowerCase()) {
+      if (ownerKey && ownerKey !== (window.netlifyIdentity && netlifyIdentity.currentUser() && netlifyIdentity.currentUser().email || '').toLowerCase()) { // 237.002 guard
         payload._owner = ownerKey;
       }
       return SLA.Reminders.save(payload).catch(function(){});

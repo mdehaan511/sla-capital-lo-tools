@@ -225,7 +225,13 @@ async function decideLoanFirst(row, { quoteId, status, reason, user, userKey }) 
   // moves submitted → on_hold — terminal → non-terminal BY DESIGN; the
   // admin's explicit decision moves the deal. Same justification as
   // loan-advance-status admin moves (C4).
-  await writeClient(loanOwnerKey, client, { clientsStore, allowDemotion: true });
+  // Deploy 237.002: surface write failures as JSON (was an uncaught throw).
+  try {
+    await writeClient(loanOwnerKey, client, { clientsStore, allowDemotion: true });
+  } catch (e) {
+    console.error('quotes-decide (loan-first): write failed:', e);
+    return json(500, { error: 'Failed to save decision: ' + ((e && e.message) || 'unknown') });
+  }
   return json(200, {
     ok: true, loansUpdated: 1,
     quote: { id: quoteId, loanId, status: persisted, decidedAt: now2, decisionNotes: loan.decisionNotes || '' },

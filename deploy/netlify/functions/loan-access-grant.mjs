@@ -13,7 +13,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { canEditLoan } from './_shared/access.mjs';
+import { canEditLoan, canOverrideOwner } from './_shared/access.mjs'; // Deploy 237.002
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
 
 export default async (req, context) => {
@@ -47,7 +47,8 @@ async function handle(req, context) {
   if (primaryClientId) {
     try {
       const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-      const requestedOwner = (body.owner && isAdmin(user)) ? normalizeEmail(body.owner) : normalizeEmail(user.email);
+      // Deploy 237.002: same processor-tier override gate as loan-access-revoke.
+      const requestedOwner = (body.owner && canOverrideOwner(user).ok) ? normalizeEmail(body.owner) : normalizeEmail(user.email);
       ownerKey = keySafe(requestedOwner);
       const client = await clientsStore.get(ownerKey + '/' + keySafe(primaryClientId), { type: 'json' });
       if (client && Array.isArray(client.loans)) {
