@@ -216,7 +216,7 @@
   function _startGoogle(){
     var msg = document.getElementById('loginMsg'); if (msg) msg.textContent = 'Opening Google…';
     _borrowerSupabase().then(function(sb){
-      return sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + '/activate.html' } });
+      return sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + '/activate.html', queryParams:{ prompt:'select_account' } } }); // Deploy 237.008 - force the account chooser
     }).catch(function(e){ if (msg) msg.textContent = (e && e.message) || 'Could not start Google sign-in.'; });
   }
   function _startMagic(){

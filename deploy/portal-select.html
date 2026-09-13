@@ -33,6 +33,12 @@
     .foot { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
     .foot a { color: var(--gold-mid); font-weight: 600; text-decoration: none; }
     .foot a:hover { text-decoration: underline; }
+    /* Deploy 237.008 (Mike) - a real team member who picked a personal
+       Google account lands here; give them a one-tap way back that forces
+       Google's account chooser (index.html now passes prompt:select_account). */
+    .team-hint { display: none; text-align: left; background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--dark); border-radius: 8px; padding: 14px 16px; font-size: 13px; line-height: 1.55; margin-bottom: 6px; }
+    .team-hint-btn { display: inline-block; margin-top: 10px; padding: 9px 18px; background: var(--gold); color: #fff; border-radius: 6px; font-weight: 600; text-decoration: none; font-size: 13px; }
+    .team-hint-btn:hover { background: var(--gold-mid); }
     @media (max-width: 440px) { .choices { grid-template-columns: 1fr; } .card { padding: 32px 24px 24px; } }
   </style>
 </head>
@@ -42,6 +48,10 @@
     <div class="brand">SLA Capital</div>
     <div class="tagline">Sir Lends A Lot LLC</div>
     <div class="alert" id="noUser">No user exists with that email.</div>
+    <div class="team-hint" id="teamHint">
+      <strong>On the SLA Capital team?</strong> That Google account isn&rsquo;t set up with SLA. You may have picked a personal Google account &mdash; sign in again and choose your <strong>@slacapital.com</strong> account.
+      <a class="team-hint-btn" href="/">Sign in with my SLA account</a>
+    </div>
     <h1>Are you a Borrower or a Broker?</h1>
     <p>The sign-in you came from is for SLA Capital team members. Pick the portal that fits you.</p>
     <div class="choices">
@@ -64,6 +74,7 @@
         var q = new URLSearchParams(window.location.search);
         if (q.get('reason') === 'nouser') {
           document.getElementById('noUser').style.display = 'block';
+          var th = document.getElementById('teamHint'); if (th) th.style.display = 'block'; // Deploy 237.008
           if (window.history && history.replaceState) history.replaceState(null, '', window.location.pathname);
         }
       } catch (_) {}

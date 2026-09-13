@@ -1190,7 +1190,16 @@
         .then(function(supabase) {
           return supabase.auth.signInWithOAuth({
             provider: 'google',
-            options: { redirectTo: window.location.origin + '/activate.html' },
+            // Deploy 237.008 (Mike) - always show Google's account chooser.
+            // Without prompt:select_account Google silently signs in with
+            // whatever account the browser last used, so a team member with a
+            // personal Google account on their phone (Dan Austin, 2026-09-13)
+            // never got to pick dan@slacapital.com and was bounced to
+            // portal-select as "no user exists".
+            options: {
+              redirectTo: window.location.origin + '/activate.html',
+              queryParams: { prompt: 'select_account' },
+            },
           });
         })
         .then(function(res) { if (res && res.error) throw res.error; })
