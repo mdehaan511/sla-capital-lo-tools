@@ -579,9 +579,12 @@ function loadAll() {
   }
 
   var clientsP  = SLA.Clients.list(listOpts);
-  var profilesP = (SLA.Profile && SLA.Profile.listAll)
-    ? SLA.Profile.listAll().catch(function() { return { profiles: [] }; })
-    : Promise.resolve({ profiles: [] });
+  // Deploy 237.000 — SLA.Profile.listAll never existed, so this always
+  // resolved empty and cards/owner column showed raw owner keys instead of LO
+  // names. users-directory is the routed picker endpoint: { users: [{ email, name }] }.
+  var profilesP = SLA.api('GET', '/api/users-directory').then(function(r) {
+    return { profiles: ((r && r.users) || []).map(function(u) { return { email: u.email, fullName: u.name || '' }; }) };
+  }).catch(function() { return { profiles: [] }; });
 
   Promise.all([clientsP, profilesP]).then(function(results) {
     var clientsResp = results[0];
@@ -591,6 +594,9 @@ function loadAll() {
       if (!p || !p.email) return;
       var key = String(p.email).toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
       _loDisplayMap[key] = p.fullName || p.email;
+      // Owner keys are plain emails on most records (keySafe is a no-op for
+      // ordinary addresses) — key by that shape too.
+      _loDisplayMap[String(p.email).toLowerCase()] = p.fullName || p.email;
     });
 
     _processPipelineClients(clientsResp);

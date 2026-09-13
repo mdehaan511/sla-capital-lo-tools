@@ -973,6 +973,9 @@ function toggleLockPricing() {
   try { calculate(); } catch (_) {}
 }
 function renderLockPricingBanner() {
+  // Deploy 237.000 — this page defines escHtml, not escH; the old escH calls
+  // threw inside applyLockPricing's try/catch, so the banner and its
+  // "Use current pricing" control never rendered.
   var el = document.getElementById('lockPricingBanner');
   if (!el) {
     var res = document.getElementById('results');
@@ -987,14 +990,14 @@ function renderLockPricingBanner() {
   var sameSheet = lp.lockSheet && lp.active.isCurrent && lp.lockSheet.effective === lp.active.effective;
   var msg, bord, bg, col;
   if (lp.expired) {
-    msg = '🔓 <strong>Rate lock expired</strong> (locked ' + escH(lp.lockStart) + ', day ' + lp.days + ' of 45) — pricing at ' +
-      (lp.mode === 'current' ? '<strong>current rates (' + escH(lp.active.label) + ' sheet)</strong>' : '<strong>the locked sheet (' + escH(lp.active.label) + ')</strong>') + '.';
+    msg = '🔓 <strong>Rate lock expired</strong> (locked ' + escHtml(lp.lockStart) + ', day ' + lp.days + ' of 45) — pricing at ' +
+      (lp.mode === 'current' ? '<strong>current rates (' + escHtml(lp.active.label) + ' sheet)</strong>' : '<strong>the locked sheet (' + escHtml(lp.active.label) + ')</strong>') + '.';
     bg = 'rgba(124,31,31,0.08)'; bord = 'rgba(124,31,31,0.35)'; col = '#7c1f1f';
   } else if (sameSheet) {
     el.style.display = 'none'; return;
   } else {
-    msg = '🔒 <strong>Rate locked ' + escH(lp.lockStart) + '</strong> (day ' + Math.max(0, lp.days) + ' of 45) — priced on the <strong>' +
-      escH(lp.active.label) + '</strong> rate sheet' + (lp.active.isCurrent ? '' : ', not the current sheet') + '.';
+    msg = '🔒 <strong>Rate locked ' + escHtml(lp.lockStart) + '</strong> (day ' + Math.max(0, lp.days) + ' of 45) — priced on the <strong>' +
+      escHtml(lp.active.label) + '</strong> rate sheet' + (lp.active.isCurrent ? '' : ', not the current sheet') + '.';
     bg = 'rgba(37,105,64,0.08)'; bord = 'rgba(37,105,64,0.35)'; col = '#166534';
   }
   var btn = '';
@@ -1002,7 +1005,7 @@ function renderLockPricingBanner() {
     btn = ' <button type="button" onclick="toggleLockPricing()" ' +
       'title="Admin Mode required — switches this pricing session between the locked sheet and current rates" ' +
       'style="margin-left:10px;font-size:11.5px;font-weight:600;padding:4px 10px;border:1px solid ' + bord + ';background:#fff;color:' + col + ';border-radius:6px;cursor:pointer;font-family:inherit">' +
-      (lp.mode === 'lock' ? 'Use current pricing' : 'Price on the locked sheet (' + escH((lp.lockSheet && lp.lockSheet.label) || '') + ')') + '</button>';
+      (lp.mode === 'lock' ? 'Use current pricing' : 'Price on the locked sheet (' + escHtml((lp.lockSheet && lp.lockSheet.label) || '') + ')') + '</button>';
   }
   el.innerHTML = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:10px 14px;margin-bottom:12px;border:1px solid ' + bord + ';background:' + bg + ';color:' + col + ';border-radius:8px;font-size:13px;line-height:1.5">' + msg + btn + '</div>';
   el.style.display = '';

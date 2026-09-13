@@ -13,6 +13,7 @@
   'use strict';
 
   var POLL_MS = 60 * 1000; // refresh every minute
+  function _pollTick() { if (!document.hidden) refresh(); } // Deploy 237.000
   // Deploy 236.325 — exponential back-off when the API is 401'ing.
   // Without this, a session-refresh storm floods the browser console
   // with errors every 60s and amplifies the "logged out" feel. On
@@ -149,15 +150,19 @@
     // Initial fetch + poll
     resolveRole(); // Deploy 236.565 — learn processor status for the alerts feed
     refresh();
-    _pollTimer = setInterval(refresh, POLL_MS);
+    // Deploy 237.000 — every open portal tab used to re-fetch reminders and the
+    // full quotes list each minute, background tabs included. Hidden tabs now
+    // skip the tick and refresh the moment they're shown again.
+    _pollTimer = setInterval(_pollTick, POLL_MS);
     // Deploy 236.325 — resume polling on tab focus if the auth back-off
     // paused us. Same visibility hook sla-api uses for token refresh.
     document.addEventListener('visibilitychange', function() {
-      if (document.visibilityState === 'visible' && _pollingPaused) {
+      if (document.visibilityState !== 'visible') return;
+      if (_pollingPaused) {
         _consecutive401s = 0; _pollingPaused = false;
-        refresh();
-        if (!_pollTimer) _pollTimer = setInterval(refresh, POLL_MS);
+        if (!_pollTimer) _pollTimer = setInterval(_pollTick, POLL_MS);
       }
+      refresh();
     });
   }
 
