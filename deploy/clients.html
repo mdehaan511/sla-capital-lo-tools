@@ -235,7 +235,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="page">
   <div class="page-header">
     <div>
-      <!-- Deploy 237.027 (Mike) — page renamed Borrowers (navbar menu is Contacts → Borrowers). -->
+      <!-- Deploy 237.031 (Mike) — page renamed Borrowers (navbar menu is Contacts → Borrowers). -->
       <h1>Borrowers</h1>
       <p id="pageSubtitle">All borrowers with loan history.</p>
     </div>
@@ -471,8 +471,11 @@ window.ClientBook = {
 
 // ── Render ──────────────────────────────────────────────────────
 function renderSummary() {
-  var total = _clients.length;
-  var totalLoans = _clients.reduce(function(s,c){ return s+(c.loans||[]).length; }, 0);
+  // Deploy 237.031 — count only what's shown: brokers (with no loan of their own)
+  // live on the Brokers page, so they don't count toward the Borrowers total.
+  var visible = _clients.filter(function(c){ return !_hideBrokerFromBorrowers(c); });
+  var total = visible.length;
+  var totalLoans = visible.reduce(function(s,c){ return s+(c.loans||[]).length; }, 0);
   document.getElementById('summaryBar').innerHTML =
     '<div class="summary-pill"><strong>'+total+'</strong> borrowers</div>' +
     '<div class="summary-pill"><strong>'+totalLoans+'</strong> total loans</div>';
@@ -540,6 +543,7 @@ function downloadClientsCSV() {
   // the on-screen view. If we ever diverge, this is the place to fix.
   var search = (document.getElementById('searchInput').value||'').toLowerCase().trim();
   var rows = _clients.filter(function(c) {
+    if (_hideBrokerFromBorrowers(c)) return false; // Deploy 237.031 — match the on-screen view (no brokers)
     if (_tf !== 'all') {
       var hasType = (c.loans||[]).some(function(l){ return l.toolType===_tf; });
       if (!hasType) return false;
@@ -638,6 +642,19 @@ var _clientsPage = 1;
 var _clientsPerPage = 100;
 var _lastFilterSignature = '';
 
+// Deploy 237.031 (Mike) — a broker belongs on the Brokers page (brokers.html),
+// NOT the Borrowers page (this Book of Clients), UNLESS they are actually a
+// borrower on a loan: they hold a loan of their own — one that is NOT broker-
+// originated. Mirrors the server's clientActsAsBroker (a loan without
+// _isBrokerLoan/brokerId means the client is that loan's borrower). A pure
+// broker (every loan broker-originated, or no loans) is hidden here.
+function _brokerHasOwnLoan(c) {
+  return (c.loans || []).some(function(l) { return !(l && (l._isBrokerLoan || l.brokerId)); });
+}
+function _hideBrokerFromBorrowers(c) {
+  return !!(c && c._isBroker) && !_brokerHasOwnLoan(c);
+}
+
 function renderClients() {
   var search = (document.getElementById('searchInput').value||'').toLowerCase().trim();
   var list = document.getElementById('clientsList');
@@ -645,6 +662,7 @@ function renderClients() {
   list.innerHTML = '';
 
   var filtered = _clients.filter(function(c) {
+    if (_hideBrokerFromBorrowers(c)) return false; // Deploy 237.031 — brokers live on the Brokers page
     if (_tf !== 'all') {
       var hasType = (c.loans||[]).some(function(l){ return l.toolType===_tf; });
       if (!hasType) return false;
@@ -1431,6 +1449,7 @@ function renderAdminClients() {
     // showing every owner (never hide everyone on a transient failure).
     if (_deletedOwners[_keySafe(userData.email)]) return;
     (userData.clients || []).forEach(function(c) {
+      if (_hideBrokerFromBorrowers(c)) return; // Deploy 237.031 (Mike) — brokers belong on the Brokers page
       // Owner-filter applies before search so the search count is accurate
       if (loFilter && userData.email.toLowerCase() !== loFilter) return;
       // Search across name, email, phone, and the owning LO's email so admins
