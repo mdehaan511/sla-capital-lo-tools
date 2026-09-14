@@ -437,12 +437,24 @@
     var manualBtn = (it.status === 'needs_fix')
       ? '<button class="btn ghost" onclick="requestManual(\'' + escH(it.slug) + '\')">Request manual review</button>' : '';
     var files = it.uploadedCount ? '<div class="files">' + it.uploadedCount + ' file' + (it.uploadedCount===1?'':'s') + ' uploaded</div>' : '';
+    // Deploy 237.038 (Mike) — DSCR forms with an online version (VOM, PM
+    // questionnaire): the primary action opens the form; upload stays as
+    // the fallback for a copy completed elsewhere.
+    var formBtn = '';
+    if (it.form){
+      var fUrl = 'borrower-form.html?form=' + encodeURIComponent(it.form) + '&loanId=' + encodeURIComponent(_loanId) +
+        '&clientId=' + encodeURIComponent(_clientId) + '&owner=' + encodeURIComponent(_owner) + '&address=' + encodeURIComponent(_wsAddress || '');
+      var fDone = !!it.formCompletedAt;
+      formBtn = '<a class="btn' + (fDone ? ' ghost' : ' primary') + '" href="' + escH(fUrl) + '" style="text-decoration:none">' + (fDone ? '✍ Completed online ' + escH(String(it.formCompletedAt).slice(0,10)) + ' — open' : '✍ Complete online') + '</a>';
+      if (!fDone) uploadLabel = it.uploaded ? uploadLabel : 'Or upload a copy';
+    }
     return '<div class="item" id="item-' + escH(it.slug) + '">' +
       '<div class="item-head"><div><div class="item-name">' + escH(it.label) + '</div>' +
         (it.hint ? '<div class="item-hint">' + escH(it.hint) + '</div>' : '') + tmpl + '</div>' + pill + '</div>' +
       msg + files +
       '<div class="item-actions">' +
-        '<button class="btn primary" onclick="pickFile(\'' + escH(it.slug) + '\')">' + uploadLabel + '</button>' +
+        formBtn +
+        '<button class="btn' + (formBtn && !it.formCompletedAt ? ' ghost' : ' primary') + '" onclick="pickFile(\'' + escH(it.slug) + '\')">' + uploadLabel + '</button>' +
         manualBtn +
         '<input type="file" id="file-' + escH(it.slug) + '" accept="application/pdf,image/*" style="display:none" onchange="onFilePicked(event,\'' + escH(it.slug) + '\')" />' +
         '<span class="upstat" id="upstat-' + escH(it.slug) + '" style="font-size:12px;color:var(--muted)"></span>' +

@@ -129,6 +129,8 @@ async function handle(req, context) {
     return {
       slug: item.slug, label: item.label, hint: item.hint || '', optional: !!item.optional,
       multi: !!item.multi, templateUrl: item.templateUrl || '',
+      form: item.form || '', // Deploy 237.038 — self-serve borrower form id (vom / pm_questionnaire)
+      formCompletedAt: (d && d.borrowerForm && d.borrowerForm.status === 'completed') ? (d.borrowerForm.completedAt || '') : '',
       status: s.status, accepted: s.accepted, uploaded: s.uploaded, uploadedCount: s.uploadedCount,
       manualReviewRequested: !!(d && d.manualReviewRequested),
       aiVerdict: (d && d.aiVerdict) || '',

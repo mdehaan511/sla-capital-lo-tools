@@ -67,6 +67,10 @@ export const FORMS = {
     title: 'Property Management Questionnaire — For Self-Managed Properties',
     intro: 'Please answer the questions below about the properties you manage yourself.',
     signature: true,
+    // Deploy 237.038 (Mike) — DSCR borrowers complete this themselves from the
+    // portal checklist (like the RTL Track Record / SOW tools); processors can
+    // still send it by link.
+    portal: true, loanTypes: ['dscr'],
     fields: [
       { key: 'borrowerName', label: 'Borrower Name', type: 'text', required: true, prefill: 'borrowerName', max: 90 },
       { key: 'propertyAddress', label: 'Property Address', type: 'text', required: true, prefill: 'propertyAddress', max: 120 },
@@ -74,6 +78,30 @@ export const FORMS = {
       { key: 'unitsSelfManaged', label: 'How many units do you currently self-manage?', type: 'text', required: true, max: 40 },
       { key: 'sameArea', label: 'Are the properties you currently self-manage in the same geographic area as the subject property?', type: 'select', required: true, options: [['yes', 'Yes'], ['no', 'No']] },
       { key: 'distance', label: 'What is the distance between the subject property and your personal residence?', type: 'text', required: true, max: 60 },
+    ],
+  },
+  // Deploy 237.038 (Mike) — Request for Verification of Rent or Mortgage
+  // Account (the standard VOM/VOR). The borrower fills Part I (who to ask,
+  // which account) and signs item 9; the answers are written onto the official
+  // form (_templates/vom.pdf) and filed to the DSCR `vom` tray. Part II is the
+  // landlord / mortgage company's to complete — SLA sends the request to them
+  // directly, as the form requires. Self-serve from the portal for DSCR loans.
+  vom: {
+    id: 'vom', slug: 'vom', label: 'Verification of Mortgage / Rent',
+    title: 'Request for Verification of Rent or Mortgage Account',
+    intro: 'Your loan team needs to verify your current mortgage or rent payment history. Tell us who to contact and sign the request below — SLA Capital sends it directly to your landlord or mortgage company (the form must go from lender to lender, not through you).',
+    signature: true,
+    portal: true, loanTypes: ['dscr'],
+    fields: [
+      { key: 'accountType', label: 'What kind of account is this?', type: 'select', required: true, options: [['mortgage', 'Mortgage / land contract'], ['rental', 'Rent (I pay a landlord)']] },
+      { key: 'creditorName', label: 'Landlord or mortgage company name', type: 'text', required: true, max: 90 },
+      { key: 'creditorAddress', label: 'Their mailing address (street, city, state, ZIP)', type: 'text', required: true, max: 160 },
+      { key: 'creditorPhone', label: 'Their phone or fax (if you have it)', type: 'text', max: 40 },
+      { key: 'propertyAddress', label: 'Property address this mortgage or rent is for', type: 'text', required: true, prefill: 'homeAddressFull', max: 160 },
+      { key: 'accountName', label: 'The account is in the name of', type: 'text', required: true, prefill: 'borrowerName', max: 90 },
+      { key: 'accountNo', label: 'Account or loan number', type: 'text', max: 40, sensitive: true },
+      { key: 'applicantName', label: 'Applicant name(s)', type: 'text', required: true, prefill: 'borrowerName', max: 120 },
+      { key: 'applicantAddress', label: 'Applicant mailing address', type: 'text', required: true, prefill: 'homeAddressFull', max: 160 },
     ],
   },
   draw_wire: {
@@ -118,6 +146,35 @@ export function formForSlug(slug) {
 }
 export function formById(id) { return FORMS[String(id || '')] || null; }
 export function slugsWithForms() { return Object.keys(FORMS).map((id) => FORMS[id].slug); }
+/** Deploy 237.038 — forms a borrower may open from the portal checklist, by loan type. */
+export function portalForms(loanType) {
+  const t = String(loanType || '').toLowerCase();
+  return Object.keys(FORMS).map((id) => FORMS[id]).filter((f) => f.portal && (!f.loanTypes || !t || f.loanTypes.indexOf(t) >= 0));
+}
+/**
+ * Deploy 237.038 — the slice of loan + client the borrower page and the
+ * renderer need. Stored on a request at send time (so the borrower's page never
+ * reads the client blob) and built live for the portal path. Moved here from
+ * borrower-form-send so both paths agree.
+ */
+export function ctxSnapshot(loan, client) {
+  loan = loan || {}; client = client || {};
+  const ha = (client.homeAddress && typeof client.homeAddress === 'object') ? client.homeAddress : {};
+  return {
+    loan: {
+      id: loan.id, address: loan.address || '', entityName: loan.entityName || loan.vestingEntity || '',
+      toolType: loan.toolType || '', loanType: loan.loanType || '',
+      loanAmt: loan.loanAmt || '', finalLoanAmount: loan.finalLoanAmount || '',
+      fundingDate: loan.fundingDate || loan.originationDate || loan.desiredCloseDate || '',
+      slaDisplayId: loan.slaDisplayId || '',
+    },
+    client: {
+      id: client.id, firstName: client.firstName || '', lastName: client.lastName || '',
+      entityName: client.entityName || client.companyName || '', email: client.email || '',
+      homeAddress: { street: ha.street || client.address || '', city: ha.city || client.city || '', state: ha.state || client.state || '', zip: ha.zip || client.zip || '' },
+    },
+  };
+}
 
 // ── Prefill ───────────────────────────────────────────────────────────────
 function _ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -143,6 +200,7 @@ export function prefillFor(form, ctx) {
     propertyAddress: String(loan.address || '').trim(),
     homeStreet: String(ha.street || client.address || '').trim(),
     homeCityStateZip: [ha.city || client.city, [ha.state || client.state, ha.zip || client.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ').trim(),
+    homeAddressFull: [String(ha.street || client.address || '').trim(), [ha.city || client.city, [ha.state || client.state, ha.zip || client.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ').trim()].filter(Boolean).join(', '),
     today: _ymd(now),
     todayPlus30: _ymd(plus30),
     loanProgram: _programLabel(loan),
@@ -444,6 +502,74 @@ async function _renderW9(form, answers, ctx, signature) {
   return pdf.save();
 }
 
+// Deploy 237.038 — the standard "Request for Verification of Rent or Mortgage
+// Account" with Part I written into its boxes. Coordinates are PDF points
+// (origin bottom-left) read off the template's own label positions.
+export function loadVomTemplate() {
+  const candidates = [
+    join(_funcDir, '..', '_templates', 'vom.pdf'),
+    join(_funcDir, '_templates', 'vom.pdf'),
+    join(process.cwd(), 'netlify', 'functions', '_templates', 'vom.pdf'),
+    join(process.cwd(), 'deploy', 'netlify', 'functions', '_templates', 'vom.pdf'),
+  ];
+  for (const p of candidates) { try { return readFileSync(p); } catch (_) {} }
+  throw new Error('VOM template (vom.pdf) not found in the function bundle');
+}
+const VOM = {
+  toName: { x: 40, y: 632 }, toLines: { x: 40, y: 620, step: 10.5, w: 290, max: 3 },
+  date: { x: 334, y: 555 }, lenderNo: { x: 434, y: 555 },
+  property: { x: 38, y: 519, step: 10.5, w: 190, max: 2 },
+  acctName: { x: 241, y: 512, w: 230, whiteout: { x: 239, y: 506, w: 235, h: 16 } },
+  acctNo: { x: 484, y: 512, w: 88 },
+  boxMortgage: { x: 246, y: 489 }, boxRental: { x: 389, y: 489 },
+  applicant: { x: 38, y: 458, step: 10.5, w: 258, max: 4 },
+  sig: { x: 322, y: 447, whiteout: { x: 339, y: 446, w: 150, h: 16 } }, sigDate: { x: 322, y: 418 },
+  cert: { x: 36, y: 22 },
+};
+function _fmtShort(iso) {
+  const d = new Date(iso || Date.now());
+  return isNaN(d.getTime()) ? '' : (String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') + '/' + d.getFullYear());
+}
+async function _renderVom(form, answers, ctx, signature) {
+  const pdf = await PDFDocument.load(loadVomTemplate(), { ignoreEncryption: true });
+  const page = pdf.getPage(0);
+  const F = await _fonts(pdf);
+  const loan = (ctx && ctx.loan) || {};
+  const T = (s, x, y, size, font, color) => { if (s) page.drawText(String(s), { x, y, size: size || 9.5, font: font || F.helv, color: color || INK }); };
+  const lines = (text, spec, size) => {
+    const ls = _wrap(text, F.helv, size || 9.5, spec.w).slice(0, spec.max || 3);
+    ls.forEach((ln, i) => T(ln, spec.x, spec.y - i * spec.step, size || 9.5));
+  };
+  const white = (r) => page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(1, 1, 1) });
+
+  // Part I — item 1: who we're asking.
+  T(answers.creditorName, VOM.toName.x, VOM.toName.y, 10, F.bold);
+  const toRest = [answers.creditorAddress, answers.creditorPhone ? 'Phone/Fax: ' + answers.creditorPhone : ''].filter(Boolean).join(' · ');
+  lines(toRest, VOM.toLines, 9.5);
+  // Items 5-6: request date + our loan number.
+  T(_fmtShort(signature && signature.signedAt), VOM.date.x, VOM.date.y);
+  T(loan.slaDisplayId || '', VOM.lenderNo.x, VOM.lenderNo.y);
+  // Item 7: the account.
+  lines(answers.propertyAddress, VOM.property, 9.5);
+  white(VOM.acctName.whiteout); // covers the template's pre-printed "See Below"
+  T(_wrap(answers.accountName, F.helv, 9.5, VOM.acctName.w)[0] || '', VOM.acctName.x, VOM.acctName.y);
+  T(_wrap(answers.accountNo, F.helv, 9, VOM.acctNo.w)[0] || '', VOM.acctNo.x, VOM.acctNo.y, 9);
+  const box = answers.accountType === 'rental' ? VOM.boxRental : (answers.accountType === 'mortgage' ? VOM.boxMortgage : null);
+  if (box) page.drawText('X', { x: box.x, y: box.y, size: 10, font: F.bold, color: INK });
+  // Item 8: the applicant(s).
+  const app = [answers.applicantName, answers.applicantAddress].filter(Boolean).join(' — ');
+  lines(app, VOM.applicant, 9.5);
+  // Item 9: signature (covers the template's "See attached authorization").
+  if (signature && signature.name) {
+    white(VOM.sig.whiteout);
+    page.drawText(signature.name, { x: VOM.sig.x, y: VOM.sig.y, size: 13, font: F.sig, color: PLUM });
+    T('Signed electronically ' + _fmtShort(signature.signedAt), VOM.sigDate.x, VOM.sigDate.y, 7.5, F.helv, MUTED);
+    const bits = ['Electronically signed by ' + signature.name, signature.email, signature.signedAt ? new Date(signature.signedAt).toUTCString() : '', signature.ip ? 'IP ' + signature.ip : '', signature.seal ? 'seal ' + String(signature.seal).slice(0, 12) : '', 'ESIGN consent v' + (signature.consentVersion || ESIGN_CONSENT_VERSION)].filter(Boolean);
+    page.drawText(bits.join(' · ').slice(0, 170), { x: VOM.cert.x, y: VOM.cert.y, size: 6.5, font: F.helv, color: MUTED });
+  }
+  return pdf.save();
+}
+
 /**
  * Render the filed PDF. `signature` = { name, email, signedAt, ip, seal, consentVersion }.
  * Returns a Uint8Array.
@@ -452,6 +578,7 @@ export async function renderFormPdf(form, { answers, staffValues, ctx, signature
   if (!form) throw new Error('unknown form');
   let bytes;
   if (form.id === 'w9') bytes = await _renderW9(form, answers || {}, ctx, signature);
+  else if (form.id === 'vom') bytes = await _renderVom(form, answers || {}, ctx, signature);
   else if (form.id === 'commitment_letter') bytes = await _renderCommitmentLetter(form, staffValues || {}, ctx, signature);
   else bytes = await _renderSimpleForm(form, answers || {}, ctx, signature);
   return preview ? _watermarkPreview(bytes) : bytes;

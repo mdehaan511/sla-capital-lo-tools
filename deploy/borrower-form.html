@@ -11,6 +11,10 @@
        submit files the signed PDF straight into the tray. The token IS the
        auth. ES5 only — this page is opened on whatever the borrower has. -->
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <!-- Deploy 237.038 (Mike) — PORTAL mode: ?form=&loanId= (no token) opens the
+       same page for a signed-in borrower, auth = their portal login + loan
+       grant. sla-api.js supplies the token (Supabase or Identity). -->
+  <script src="/sla-api.js"></script>
   <style>
     :root { --bg:#f4f1ea; --card:#fff; --text:#1a1520; --dark:#261a36; --muted:#7a7488; --border:#e4dfd4; --gold:#c8813a; --gold-dark:#b5712d; --danger:#b3261e; --green:#2e7d4f; }
     * { box-sizing: border-box; }
@@ -55,16 +59,35 @@
   </div>
 <script>
 'use strict';
-var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+var _Q = new URLSearchParams(window.location.search);
+var TOKEN = _Q.get('t') || '';
+// Deploy 237.038 — portal mode (form + loanId, no token).
+var PORTAL = !TOKEN && !!(_Q.get('form') && _Q.get('loanId'));
+var P = { form: _Q.get('form') || '', loanId: _Q.get('loanId') || '', clientId: _Q.get('clientId') || '', owner: _Q.get('owner') || '', address: _Q.get('address') || '' };
+var _again = _Q.get('again') === '1';
 var DATA = null;
 var ANSWERS = {};
+function backUrl() {
+  return 'borrower-intake.html?loanId=' + encodeURIComponent(P.loanId) + '&clientId=' + encodeURIComponent(P.clientId) + '&owner=' + encodeURIComponent(P.owner);
+}
+function portalFetch(url, opts) {
+  opts = opts || {};
+  return (window.SLA && SLA.getToken ? SLA.getToken() : Promise.resolve('')).then(function(t) {
+    if (!t) throw new Error('Your session expired — please sign in to your portal again.');
+    opts.headers = Object.assign({}, opts.headers || {}, { 'Authorization': 'Bearer ' + t });
+    return fetch(url, opts);
+  });
+}
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escA(s) { return escH(s).replace(/"/g,'&quot;'); }
 function $(id) { return document.getElementById(id); }
 
 function load() {
-  if (!TOKEN) { $('root').innerHTML = '<div class="err-page">This link is missing its key. Please open the link exactly as it was sent to you.</div>'; return; }
-  fetch('/api/borrower-form-info?t=' + encodeURIComponent(TOKEN))
+  if (!TOKEN && !PORTAL) { $('root').innerHTML = '<div class="err-page">This link is missing its key. Please open the link exactly as it was sent to you.</div>'; return; }
+  var req = PORTAL
+    ? portalFetch('/api/borrower-form-info?form=' + encodeURIComponent(P.form) + '&loanId=' + encodeURIComponent(P.loanId) + '&clientId=' + encodeURIComponent(P.clientId) + '&owner=' + encodeURIComponent(P.owner))
+    : fetch('/api/borrower-form-info?t=' + encodeURIComponent(TOKEN));
+  req
     .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
     .then(function(x) {
       if (!x.ok) { $('root').innerHTML = '<div class="err-page">' + escH(x.body.error || 'Could not load this form.') + '</div>'; return; }
@@ -126,12 +149,16 @@ function renderFields() {
 
 function render() {
   var f = DATA.form;
-  var html = '<div class="hdr"><h1>' + escH(f.title) + '</h1>' +
+  var html = (PORTAL ? '<p style="margin:0 0 10px"><a href="' + escA(backUrl()) + '" style="color:var(--gold-dark);text-decoration:none;font-size:14px">&larr; Back to your documents</a></p>' : '') +
+    '<div class="hdr"><h1>' + escH(f.title) + '</h1>' +
     '<p>' + (DATA.loan && DATA.loan.address ? 'For your loan at <strong>' + escH(DATA.loan.address) + '</strong>' : '') + '</p></div>';
-  if (DATA.status === 'completed') {
-    html += '<div class="done"><strong>Thank you — this form was submitted' + (DATA.completedAt ? ' on ' + escH(new Date(DATA.completedAt).toLocaleString()) : '') + '.</strong><br>Your loan team has it on file. Nothing else is needed from you for this form.</div>';
+  if (DATA.status === 'completed' && !(PORTAL && _again)) {
+    html += '<div class="done"><strong>Thank you — this form was submitted' + (DATA.completedAt ? ' on ' + escH(new Date(DATA.completedAt).toLocaleString()) : '') + '.</strong><br>Your loan team has it on file. Nothing else is needed from you for this form.' +
+      (DATA.allowResubmit ? '<br><br><a href="?' + escA(_Q.toString()) + '&again=1" style="color:var(--gold-dark)">Need to correct something? Submit a new copy</a>' : '') +
+      (PORTAL ? '<br><br><a class="btn" href="' + escA(backUrl()) + '" style="display:inline-block;text-decoration:none">Back to your documents</a>' : '') + '</div>';
     $('root').innerHTML = html; return;
   }
+  if (DATA.readOnly) html += '<div class="note">Viewing as this borrower — read-only.</div>';
   html += '<div class="card">';
   if (DATA.note) html += '<div class="note"><strong>Note from ' + escH(DATA.senderName || 'your loan team') + ':</strong> ' + escH(DATA.note) + '</div>';
   if (f.intro) html += '<p class="intro">' + escH(f.intro) + '</p>';
@@ -166,7 +193,7 @@ function submitForm() {
     else if (fd.type === 'tin' && v && v.replace(/[^0-9]/g, '').length !== 9) errors[fd.key] = 'Enter all 9 digits';
     else if (fd.type === 'digits' && v && fd.min && v.length < fd.min) errors[fd.key] = 'Must be ' + (fd.min === fd.max ? 'exactly ' + fd.min : fd.min + '-' + fd.max) + ' digits';
   });
-  var body = { t: TOKEN, answers: ANSWERS };
+  var body = PORTAL ? { form: P.form, loanId: P.loanId, clientId: P.clientId, owner: P.owner, answers: ANSWERS } : { t: TOKEN, answers: ANSWERS };
   if (f.signature) {
     var signer = String(($('signer') || {}).value || '').trim();
     if (!$('consent').checked) { st.className = 'status err'; st.textContent = 'Please check the box to agree to sign electronically.'; return; }
@@ -176,10 +203,11 @@ function submitForm() {
   showErrors(errors);
   if (Object.keys(errors).length) { st.className = 'status err'; st.textContent = 'Please complete the highlighted fields.'; return; }
   btn.disabled = true; btn.textContent = 'Submitting…'; st.className = 'status'; st.textContent = '';
-  fetch('/api/borrower-form-submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  var opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  (PORTAL ? portalFetch('/api/borrower-form-submit', opts) : fetch('/api/borrower-form-submit', opts))
     .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
     .then(function(x) {
-      if (x.ok) { load(); window.scrollTo(0, 0); return; }
+      if (x.ok) { _again = false; load(); window.scrollTo(0, 0); return; }
       btn.disabled = false; btn.textContent = f.acknowledge ? 'Sign & Acknowledge' : 'Sign & Submit';
       showErrors(x.body && x.body.errors || {});
       st.className = 'status err'; st.textContent = (x.body && x.body.error) || 'Submit failed.';

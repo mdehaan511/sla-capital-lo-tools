@@ -10,7 +10,7 @@
 import { PDFDocument } from '../deploy/node_modules/pdf-lib/cjs/index.js';
 import {
   FORMS, formForSlug, formById, slugsWithForms, prefillFor, validateAnswers, scrubAnswers,
-  renderFormPdf, filedName, commitmentLetterText, loadW9Template, loadLogo, ESIGN_CONSENT_VERSION,
+  renderFormPdf, filedName, commitmentLetterText, loadW9Template, loadVomTemplate, loadLogo, ESIGN_CONSENT_VERSION, portalForms, ctxSnapshot,
 } from '../deploy/netlify/functions/_shared/borrower-forms.mjs';
 import { getChecklist } from '../deploy/netlify/functions/_shared/loan-review-checklists.mjs';
 
@@ -26,7 +26,9 @@ const slugsOf = (t) => getChecklist(t).map((e) => e.slug);
 console.log('borrower forms gate\n');
 
 // -- Every form files into a tray that exists on the checklist ---------------
-check('four forms', Object.keys(FORMS).sort(), ['commitment_letter', 'draw_wire', 'pm_questionnaire', 'w9']);
+check('five forms', Object.keys(FORMS).sort(), ['commitment_letter', 'draw_wire', 'pm_questionnaire', 'vom', 'w9']);
+check('VOM → vom on DSCR only (237.038)', [slugsOf('dscr').includes('vom'), slugsOf('rtl').includes('vom')], [true, false]);
+check('portal forms: DSCR gets PMQ + VOM, RTL gets none', [portalForms('dscr').map((f) => f.id).sort(), portalForms('rtl').map((f) => f.id)], [['pm_questionnaire', 'vom'], []]);
 check('W-9 → closing_w9 on DSCR and RTL', [slugsOf('dscr').includes('closing_w9'), slugsOf('rtl').includes('closing_w9')], [true, true]);
 check('PM questionnaire → property_mgmt_questionnaire on DSCR', slugsOf('dscr').includes('property_mgmt_questionnaire'), true);
 check('draw wire → draw_wire_form on RTL and GUC', [slugsOf('rtl').includes('draw_wire_form'), slugsOf('guc').includes('draw_wire_form')], [true, true]);
@@ -34,7 +36,7 @@ check('commitment letter → commitment_letter on DSCR, RTL, GUC', ['dscr', 'rtl
 check('new trays are storage-only + optional', getChecklist('rtl').filter((e) => ['draw_wire_form', 'commitment_letter'].includes(e.slug)).map((e) => [!!e.optional, !!e.noReview]), [[true, true], [true, true]]);
 check('formForSlug resolves per-property slugs through the base', formForSlug('property_mgmt_questionnaire__p2').id, 'pm_questionnaire');
 check('formForSlug is null for an ordinary tray', formForSlug('appraisal'), null);
-check('slugsWithForms', slugsWithForms().sort(), ['closing_w9', 'commitment_letter', 'draw_wire_form', 'property_mgmt_questionnaire']);
+check('slugsWithForms', slugsWithForms().sort(), ['closing_w9', 'commitment_letter', 'draw_wire_form', 'property_mgmt_questionnaire', 'vom']);
 check('formById', [formById('w9').slug, formById('nope')], ['closing_w9', null]);
 
 // -- Prefill -------------------------------------------------------------------
@@ -55,6 +57,11 @@ const ctx = {
     ['2026-09-10', '2026-10-10', 'Fix & Flip', 206500, '2026-10-01', 'Jessy Ortiz', 'Senior Loan Processor', 'jessy@slacapital.com']);
   check('  DSCR loan → DSCR Rental', prefillFor(FORMS.commitment_letter, { loan: { toolType: 'dscr' } }).loanProgram, 'DSCR Rental');
   check('PM prefill: borrower + property', (() => { const q = prefillFor(FORMS.pm_questionnaire, ctx); return [q.borrowerName, q.propertyAddress]; })(), ['Jamie Sample', ctx.loan.address]);
+  const vp = prefillFor(FORMS.vom, ctx);
+  check('VOM prefill: applicant name + home address, account name; never the creditor', [vp.applicantName, vp.applicantAddress, vp.propertyAddress, vp.accountName, 'creditorName' in vp],
+    ['Jamie Sample', '108 E Maryland St, Evansville, IN 47711', '108 E Maryland St, Evansville, IN 47711', 'Jamie Sample', false]);
+  const snap = ctxSnapshot({ id: 'l_1', address: '1 Main St', slaDisplayId: 'SLA-20260914-0001' }, { id: 'c_1', firstName: 'A', lastName: 'B', address: '9 Home Rd', city: 'Spokane', state: 'WA', zip: '99208' });
+  check('ctxSnapshot carries the SLA number + flat home address fallback', [snap.loan.slaDisplayId, snap.client.homeAddress.street, snap.client.homeAddress.city], ['SLA-20260914-0001', '9 Home Rd', 'Spokane']);
 }
 
 // -- Validation ----------------------------------------------------------------
@@ -91,7 +98,11 @@ const ctx = {
     pm_questionnaire: { borrowerName: 'Jamie Sample', propertyAddress: ctx.loan.address, yearsSelfManaged: '6 years', unitsSelfManaged: '14', sameArea: 'yes', distance: 'About 4 miles' },
     draw_wire: { accountName: 'Hawthorne Holdings LLC', bankName: 'Old National Bank', accountNumber: '0011223344', routingNumber: '086300012', routingConfirmed: true },
     commitment_letter: {},
+    vom: { accountType: 'mortgage', creditorName: 'Old National Bank Mortgage Servicing', creditorAddress: 'PO Box 3728, Evansville, IN 47736', creditorPhone: '(800) 555-0142', propertyAddress: '108 E Maryland St, Evansville, IN 47711', accountName: 'Jamie Sample', accountNo: '0044556677', applicantName: 'Jamie Sample', applicantAddress: '108 E Maryland St, Evansville, IN 47711' },
   };
+  check('VOM template is in the bundle (237.038)', loadVomTemplate().length > 100000, true);
+  { const s = scrubAnswers(FORMS.vom, answers.vom); check('VOM record keeps account last4 only', [s.accountNoLast4, 'accountNo' in s], ['6677', false]); }
+  { const vv = validateAnswers(FORMS.vom.fields, Object.assign({}, answers.vom, { accountType: 'nope' })); check('VOM validation rejects an unknown account type', vv.errors.accountType, 'Choose one of the options'); }
   const staffValues = Object.assign(prefillFor(FORMS.commitment_letter, ctx), { loanAmount: '206500' });
   for (const id of Object.keys(FORMS)) {
     const bytes = await renderFormPdf(FORMS[id], { answers: answers[id], staffValues, ctx, signature: sig });

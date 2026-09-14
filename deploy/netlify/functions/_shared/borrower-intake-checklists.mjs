@@ -56,6 +56,12 @@ const DSCR_ITEMS = [
   { slug: 'ein_letter',                 label: 'EIN Letter',                    hint: 'The IRS EIN assignment letter.' },
   { slug: 'lease_agreements',           label: 'Lease Agreements',              hint: 'Current signed lease(s) for the property.' },
   { slug: 'evidence_of_insurance',      label: 'Evidence of Insurance',         hint: 'The insurance binder or declarations page.' },
+  // Deploy 237.038 (Mike) — DSCR forms the borrower completes ONLINE from the
+  // checklist (like the RTL Track Record / SOW tools). `form` = the
+  // borrower-forms.mjs id; borrower-intake.html shows "Complete online" and
+  // borrower-form.html?form=… files the signed PDF into the tray.
+  { slug: 'vom',                        label: 'Verification of Mortgage / Rent', hint: 'Who to contact to verify your current mortgage or rent payments — fill it in and sign online; we send the request for you.', form: 'vom' },
+  { slug: 'property_mgmt_questionnaire', label: 'Property Management Questionnaire', hint: 'If you manage the property yourself: a few quick questions about your experience. Complete online in a minute.', optional: true, form: 'pm_questionnaire' },
 ];
 
 // Deploy 236.743 — entity paperwork only applies when the loan vests in an

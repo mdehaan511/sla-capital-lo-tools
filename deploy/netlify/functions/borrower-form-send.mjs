@@ -28,7 +28,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { locateLoan } from './_shared/loan-locate.mjs';
-import { formForSlug, prefillFor, validateAnswers, renderFormPdf, filedName } from './_shared/borrower-forms.mjs';
+import { formForSlug, prefillFor, validateAnswers, renderFormPdf, filedName, ctxSnapshot } from './_shared/borrower-forms.mjs';
 import { profileName } from './_shared/task-enrich.mjs';
 import { sendBorrowerEmail, escHtml } from './_shared/borrower-invite-core.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
@@ -43,24 +43,9 @@ export default async (req, context) => {
   }
 };
 
-// The slice of loan + client the public page and the renderer need — stored on
-// the request at send time so the borrower's page never reads the client blob.
-function _ctxSnapshot(loan, client) {
-  const ha = (client && client.homeAddress && typeof client.homeAddress === 'object') ? client.homeAddress : {};
-  return {
-    loan: {
-      id: loan.id, address: loan.address || '', entityName: loan.entityName || loan.vestingEntity || '',
-      toolType: loan.toolType || '', loanType: loan.loanType || '',
-      loanAmt: loan.loanAmt || '', finalLoanAmount: loan.finalLoanAmount || '',
-      fundingDate: loan.fundingDate || loan.originationDate || loan.desiredCloseDate || '',
-    },
-    client: {
-      id: client.id, firstName: client.firstName || '', lastName: client.lastName || '',
-      entityName: client.entityName || client.companyName || '', email: client.email || '',
-      homeAddress: { street: ha.street || '', city: ha.city || '', state: ha.state || '', zip: ha.zip || '' },
-    },
-  };
-}
+// Deploy 237.038 — _ctxSnapshot moved to _shared/borrower-forms.mjs (ctxSnapshot) so
+// the portal path builds the identical context.
+const _ctxSnapshot = ctxSnapshot;
 
 function _formEmail(name, address, formLabel, link, note, senderName) {
   const hi = name ? ('Hi ' + name + ',') : 'Hi there,';
