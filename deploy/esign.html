@@ -119,7 +119,12 @@
     .tool:hover { border-color: var(--gold); }
     .tool.active { background: var(--dark); color: #fff; border-color: var(--dark); }
     .hint { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
-    .pages { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+    .pages { display: flex; flex-direction: column; gap: 16px; align-items: center; overflow-x: auto; padding: 4px 2px 8px; }
+    .pages.zoomed { align-items: flex-start; }
+    .zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 2px; }
+    .zoom button { border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 700; width: 28px; height: 26px; border-radius: 6px; cursor: pointer; color: var(--text); }
+    .zoom button:hover { background: var(--gold-light); color: var(--gold-mid); }
+    .zoom .pct { font-family: 'DM Mono', monospace; font-size: 11.5px; color: var(--muted); min-width: 44px; text-align: center; }
     .pg { position: relative; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
     .pg canvas { display: block; }
     .pg .ov { position: absolute; inset: 0; }
@@ -206,6 +211,7 @@
         <button class="btn ghost sm" onclick="goList()">← Back</button>
         <input type="text" class="title" id="edTitle" placeholder="Document title" oninput="markDirty()">
         <span class="ed-save" id="edSaveState"></span>
+        <span class="zoom" title="Zoom (re-renders the pages sharply)"><button type="button" onclick="setZoom(_zoom / 1.25)">−</button><span class="pct" id="zoomPct">100%</span><button type="button" onclick="setZoom(_zoom * 1.25)">+</button><button type="button" onclick="setZoom(1)" style="width:auto;padding:0 8px;font-size:11px;font-weight:600">Fit</button></span>
         <button class="btn ghost sm" onclick="saveDraft(true)">Save</button>
         <button class="btn ghost sm" onclick="saveAsTemplate()">Save as template</button>
         <button class="btn sm" onclick="openSend()">Send for signature →</button>
@@ -310,12 +316,15 @@
   <div class="modal" style="width:min(520px,96vw);overflow:visible">
     <h2 id="signerModalTitle">Add signer</h2>
     <p class="sub">Start typing a borrower or team member and pick from the list, or enter anyone.</p>
-    <div class="field pos-rel"><label>Name</label><input type="text" id="sName" autocomplete="off" oninput="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="Jane Doe"><div class="suggest" id="sugName"></div></div>
-    <div class="field pos-rel"><label>Email</label><input type="email" id="sEmail" autocomplete="off" oninput="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="jane@example.com"><div class="suggest" id="sugEmail"></div></div>
+    <!-- Deploy 237.030 (Mike) — "Who is this" comes first and filters the
+         suggestions: team member → SLA users only, borrower → borrowers only,
+         other → anyone. -->
     <div class="row2">
-      <div class="field"><label>Who is this</label><select id="sKind"><option value="borrower">Borrower / guarantor</option><option value="user">SLA team member</option><option value="other">Other (title, broker, …)</option></select></div>
+      <div class="field"><label>Who is this</label><select id="sKind" onchange="signerSuggest(document.activeElement && document.activeElement.id === 'sEmail' ? document.getElementById('sEmail') : document.getElementById('sName'))"><option value="borrower">Borrower / guarantor</option><option value="user">SLA team member</option><option value="other">Other (title, broker, …)</option></select></div>
       <div class="field"><label>Signing order</label><input type="number" id="sOrder" min="1" max="10" value="1"></div>
     </div>
+    <div class="field pos-rel"><label>Name</label><input type="text" id="sName" autocomplete="off" oninput="signerSuggest(this)" onfocus="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="Jane Doe"><div class="suggest" id="sugName"></div></div>
+    <div class="field pos-rel"><label>Email</label><input type="email" id="sEmail" autocomplete="off" oninput="signerSuggest(this)" onfocus="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="jane@example.com"><div class="suggest" id="sugEmail"></div></div>
     <div class="actions">
       <button class="btn ghost" onclick="closeAddSigner()">Cancel</button>
       <button class="btn" onclick="commitSigner()">Add signer</button>
@@ -358,6 +367,10 @@ var _dirty = false, _saveTimer = null, _saving = false;
 var _tool = null, _activeSigner = null, _selField = null;
 var _pageEls = {};        // page -> { wrap, ov, w, h }
 var _pdfDoc = null, _pdfScale = 1;
+// Deploy 237.030 — zoom. Pages are re-rendered by pdf.js at the requested scale
+// and at the screen's real pixel density (browser zoom changes devicePixelRatio,
+// which the resize listener below catches), so zooming never blurs the page.
+var _zoom = 1, _rerenderTimer = null;
 var _peoplePool = null;   // borrowers + users for the signer picker
 var _sugIdx = -1, _sugRows = [];
 var _pendingFile = null;
@@ -686,37 +699,71 @@ function fetchPdfBytes(url) {
   });
 }
 function renderPdf(url) {
-  var host = document.getElementById('pages');
   return loadPdfjs().then(function () { return fetchPdfBytes(url); }).then(function (buf) {
     return window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-  }).then(function (pdf) {
-    _pdfDoc = pdf; host.innerHTML = ''; _pageEls = {};
-    var avail = Math.min(900, host.clientWidth || 800);
-    var chain = Promise.resolve();
-    for (var i = 1; i <= pdf.numPages; i++) (function (n) {
-      chain = chain.then(function () { return pdf.getPage(n); }).then(function (page) {
-        var vp1 = page.getViewport({ scale: 1 });
-        var scale = avail / vp1.width;
-        var dpr = Math.min(2, window.devicePixelRatio || 1);
-        var vp = page.getViewport({ scale: scale });
-        var wrap = document.createElement('div'); wrap.className = 'pg'; wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
-        var pn = document.createElement('div'); pn.className = 'pnum'; pn.textContent = 'Page ' + n + ' / ' + pdf.numPages; wrap.appendChild(pn);
-        var canvas = document.createElement('canvas');
-        canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
-        canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
-        wrap.appendChild(canvas);
-        var ov = document.createElement('div'); ov.className = 'ov'; ov.dataset.page = n; wrap.appendChild(ov);
-        ov.addEventListener('mousedown', function (e) { onOverlayDown(e, n); });
-        host.appendChild(wrap);
-        _pageEls[n] = { wrap: wrap, ov: ov, w: vp.width, h: vp.height, ptW: vp1.width, ptH: vp1.height };
-        var ctx = canvas.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        return page.render({ canvasContext: ctx, viewport: vp }).promise;
-      });
-    })(i);
-    return chain;
-  });
+  }).then(function (pdf) { _pdfDoc = pdf; return renderPages(); });
 }
+// Rasterize every page of _pdfDoc at the current zoom. Called on first load,
+// on zoom, and (debounced) on resize / browser-zoom so the bitmap always
+// matches the CSS size × devicePixelRatio — that's what keeps text crisp.
+function renderPages() {
+  var host = document.getElementById('pages');
+  var pdf = _pdfDoc;
+  if (!pdf) return Promise.resolve();
+  var scrollY = window.scrollY;
+  host.innerHTML = ''; _pageEls = {};
+  var base = Math.min(900, host.clientWidth || 800);
+  var avail = base * _zoom;
+  host.classList.toggle('zoomed', avail > (host.clientWidth || 800));
+  var dpr = Math.min(3, window.devicePixelRatio || 1);
+  var pct = document.getElementById('zoomPct'); if (pct) pct.textContent = Math.round(_zoom * 100) + '%';
+  var chain = Promise.resolve();
+  for (var i = 1; i <= pdf.numPages; i++) (function (n) {
+    chain = chain.then(function () { return pdf.getPage(n); }).then(function (page) {
+      var vp1 = page.getViewport({ scale: 1 });
+      var scale = avail / vp1.width;
+      var vp = page.getViewport({ scale: scale });
+      var wrap = document.createElement('div'); wrap.className = 'pg'; wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
+      var pn = document.createElement('div'); pn.className = 'pnum'; pn.textContent = 'Page ' + n + ' / ' + pdf.numPages; wrap.appendChild(pn);
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
+      canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
+      wrap.appendChild(canvas);
+      var ov = document.createElement('div'); ov.className = 'ov' + (_tool ? ' placing' : ''); ov.dataset.page = n; wrap.appendChild(ov);
+      ov.addEventListener('mousedown', function (e) { onOverlayDown(e, n); });
+      host.appendChild(wrap);
+      _pageEls[n] = { wrap: wrap, ov: ov, w: vp.width, h: vp.height, ptW: vp1.width, ptH: vp1.height };
+      var ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return page.render({ canvasContext: ctx, viewport: vp }).promise;
+    });
+  })(i);
+  return chain.then(function () { window.scrollTo(0, scrollY); });
+}
+function setZoom(z) {
+  _zoom = Math.max(0.5, Math.min(4, Math.round(z * 100) / 100));
+  if (!_doc || !_pdfDoc) return;
+  renderPages().then(function () { renderAllFields(); if (_selField) selectField(_selField); });
+}
+var _lastDpr = window.devicePixelRatio || 1;
+window.addEventListener('resize', function () {
+  if (!_doc || !_pdfDoc || document.getElementById('viewEditor').style.display === 'none') return;
+  clearTimeout(_rerenderTimer);
+  _rerenderTimer = setTimeout(function () {
+    var dprNow = window.devicePixelRatio || 1;
+    var pe = _pageEls[1];
+    var widthChanged = pe && Math.abs(Math.min(900, document.getElementById('pages').clientWidth || 800) * _zoom - pe.w) > 2;
+    if (dprNow === _lastDpr && !widthChanged) return;
+    _lastDpr = dprNow;
+    renderPages().then(function () { renderAllFields(); if (_selField) selectField(_selField); });
+  }, 250);
+});
+// Ctrl/Cmd + mouse wheel over the pages zooms the document instead of the browser.
+document.getElementById('pages').addEventListener('wheel', function (e) {
+  if (!(e.ctrlKey || e.metaKey) || !_pdfDoc) return;
+  e.preventDefault();
+  setZoom(_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+}, { passive: false });
 
 // Signers
 function signerById(id) { return (_doc.signers || []).filter(function (s) { return s.id === id; })[0] || null; }
@@ -815,11 +862,18 @@ function primePeople() {
   }).catch(function () {});
 }
 function signerSuggest(input) {
+  if (!input || (input.id !== 'sName' && input.id !== 'sEmail')) return;
   var q = String(input.value || '').toLowerCase().trim();
   var box = document.getElementById(input.id === 'sName' ? 'sugName' : 'sugEmail');
   hideSuggest();
   if (q.length < 2 || !_peoplePool) return;
-  var rows = _peoplePool.filter(function (p) { return p.name.toLowerCase().indexOf(q) >= 0 || p.email.indexOf(q) >= 0; }).slice(0, 8);
+  // Deploy 237.030 — only offer people of the selected kind ("Other" = anyone).
+  var kind = document.getElementById('sKind').value;
+  var rows = _peoplePool.filter(function (p) {
+    if (kind === 'user' && p.kind !== 'user') return false;
+    if (kind === 'borrower' && p.kind !== 'borrower') return false;
+    return p.name.toLowerCase().indexOf(q) >= 0 || p.email.indexOf(q) >= 0;
+  }).slice(0, 8);
   if (!rows.length) return;
   _sugRows = rows; _sugIdx = -1;
   box.innerHTML = rows.map(function (p, i) {
@@ -832,7 +886,8 @@ function pickPerson(i) {
   var p = _sugRows[i]; if (!p) return;
   document.getElementById('sName').value = p.name;
   document.getElementById('sEmail').value = p.email;
-  document.getElementById('sKind').value = p.kind;
+  // Keep an explicit "Other" choice; otherwise the pick's kind is the truth.
+  if (document.getElementById('sKind').value !== 'other') document.getElementById('sKind').value = p.kind;
   hideSuggest();
 }
 function suggestKey(e, input) {

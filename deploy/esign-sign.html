@@ -22,8 +22,13 @@
     .card h2 { font-family: 'Lora', serif; font-size: 20px; margin-bottom: 8px; }
     .card p { font-size: 14px; line-height: 1.55; }
     .msg { background: #F5E9D8; border-left: 3px solid var(--gold); padding: 10px 14px; border-radius: 4px; font-size: 13px; white-space: pre-wrap; margin-top: 10px; }
-    .pages { display: flex; flex-direction: column; gap: 14px; align-items: center; }
-    .pg { position: relative; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.14); max-width: 100%; }
+    .pages { display: flex; flex-direction: column; gap: 14px; align-items: center; overflow-x: auto; padding: 4px 2px 8px; }
+    .pages.zoomed { align-items: flex-start; }
+    .zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 2px; }
+    .zoom button { border: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 700; width: 30px; height: 28px; border-radius: 6px; cursor: pointer; color: var(--text); }
+    .zoom button:hover { background: rgba(200,129,58,.12); color: var(--gold-mid); }
+    .zoom .pct { font-size: 11.5px; color: var(--muted); min-width: 44px; text-align: center; }
+    .pg { position: relative; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.14); flex-shrink: 0; }
     .pg canvas { display: block; }
     .pg .ov { position: absolute; inset: 0; }
     .fld { position: absolute; border: 1.5px solid; border-radius: 3px; display: flex; align-items: center; overflow: hidden; font-size: 11px; }
@@ -101,6 +106,8 @@
 var TOKEN = (function () { var m = /[?&]t=([^&]+)/.exec(location.search); return m ? decodeURIComponent(m[1]) : ''; })();
 var _info = null, _fields = [], _mine = [], _pageEls = {}, _adopted = { signature: null, initials: null };
 var _sigWhich = 'signature', _sigMode = 'draw', _padCtx = null, _padDrawing = false, _padHasInk = false, _padLast = null;
+// Deploy 237.030 — zoom re-renders pages with pdf.js at the new scale × devicePixelRatio (never blurry).
+var _pdfDoc = null, _zoom = 1, _rerenderTimer = null, _lastDpr = window.devicePixelRatio || 1;
 var PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -148,7 +155,7 @@ function renderReady() {
     '<div class="consent card" id="consentCard" style="margin-top:14px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Electronic signature consent</div>' +
       '<div class="consent-box">' + esc(info.consent.text) + '</div>' +
       '<label><input type="checkbox" id="consentChk" onchange="updateBar()"><span>' + esc(info.consent.checkboxLabel) + '</span></label></div>';
-  document.body.insertAdjacentHTML('beforeend', '<div class="bar"><div class="inner"><div class="prog" id="prog"></div><button class="btn ghost sm" id="nextBtn" onclick="gotoNext()">Next field ↓</button><button class="btn" id="finishBtn" onclick="finish()" disabled>Finish &amp; sign</button></div></div>');
+  document.body.insertAdjacentHTML('beforeend', '<div class="bar"><div class="inner"><div class="prog" id="prog"></div><span class="zoom" title="Zoom"><button type="button" onclick="setZoom(_zoom / 1.25)">−</button><span class="pct" id="zoomPct">100%</span><button type="button" onclick="setZoom(_zoom * 1.25)">+</button></span><button class="btn ghost sm" id="nextBtn" onclick="gotoNext()">Next field ↓</button><button class="btn" id="finishBtn" onclick="finish()" disabled>Finish &amp; sign</button></div></div>');
   renderPdf().then(function () { renderAllFields(); updateBar(); }).catch(function (e) {
     document.getElementById('pages').innerHTML = card('<p style="color:var(--danger)">Could not render the PDF: ' + esc(e.message) + '. <a href="/api/esign-sign-pdf?t=' + encodeURIComponent(TOKEN) + '">Open it directly</a> and contact the sender.</p>');
   });
@@ -164,34 +171,64 @@ function loadPdfjs() {
   });
 }
 function renderPdf() {
-  var host = document.getElementById('pages');
   return loadPdfjs().then(function () {
     return fetch('/api/esign-sign-pdf?t=' + encodeURIComponent(TOKEN)).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); });
-  }).then(function (buf) { return window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise; }).then(function (pdf) {
-    host.innerHTML = ''; _pageEls = {};
-    var avail = Math.min(900, (host.clientWidth || document.body.clientWidth) - 2);
-    var chain = Promise.resolve();
-    for (var i = 1; i <= pdf.numPages; i++) (function (n) {
-      chain = chain.then(function () { return pdf.getPage(n); }).then(function (page) {
-        var vp1 = page.getViewport({ scale: 1 });
-        var scale = avail / vp1.width;
-        var dpr = Math.min(2, window.devicePixelRatio || 1);
-        var vp = page.getViewport({ scale: scale });
-        var wrap = document.createElement('div'); wrap.className = 'pg'; wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
-        var canvas = document.createElement('canvas');
-        canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
-        canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
-        wrap.appendChild(canvas);
-        var ov = document.createElement('div'); ov.className = 'ov'; wrap.appendChild(ov);
-        host.appendChild(wrap);
-        _pageEls[n] = { wrap: wrap, ov: ov, w: vp.width, h: vp.height, ptW: vp1.width, ptH: vp1.height };
-        var ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        return page.render({ canvasContext: ctx, viewport: vp }).promise;
-      });
-    })(i);
-    return chain;
-  });
+  }).then(function (buf) { return window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise; }).then(function (pdf) { _pdfDoc = pdf; return renderPages(); });
 }
+function renderPages() {
+  var host = document.getElementById('pages');
+  var pdf = _pdfDoc;
+  if (!pdf || !host) return Promise.resolve();
+  var scrollY = window.scrollY;
+  host.innerHTML = ''; _pageEls = {};
+  var base = Math.min(900, (host.clientWidth || document.body.clientWidth) - 2);
+  var avail = base * _zoom;
+  host.classList.toggle('zoomed', avail > (host.clientWidth || base));
+  var dpr = Math.min(3, window.devicePixelRatio || 1);
+  var pct = document.getElementById('zoomPct'); if (pct) pct.textContent = Math.round(_zoom * 100) + '%';
+  var chain = Promise.resolve();
+  for (var i = 1; i <= pdf.numPages; i++) (function (n) {
+    chain = chain.then(function () { return pdf.getPage(n); }).then(function (page) {
+      var vp1 = page.getViewport({ scale: 1 });
+      var scale = avail / vp1.width;
+      var vp = page.getViewport({ scale: scale });
+      var wrap = document.createElement('div'); wrap.className = 'pg'; wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
+      canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
+      wrap.appendChild(canvas);
+      var ov = document.createElement('div'); ov.className = 'ov'; wrap.appendChild(ov);
+      host.appendChild(wrap);
+      _pageEls[n] = { wrap: wrap, ov: ov, w: vp.width, h: vp.height, ptW: vp1.width, ptH: vp1.height };
+      var ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return page.render({ canvasContext: ctx, viewport: vp }).promise;
+    });
+  })(i);
+  return chain.then(function () { window.scrollTo(0, scrollY); });
+}
+function setZoom(z) {
+  _zoom = Math.max(0.5, Math.min(4, Math.round(z * 100) / 100));
+  if (!_pdfDoc) return;
+  renderPages().then(function () { renderAllFields(); updateBar(); });
+}
+window.addEventListener('resize', function () {
+  if (!_pdfDoc) return;
+  clearTimeout(_rerenderTimer);
+  _rerenderTimer = setTimeout(function () {
+    var host = document.getElementById('pages'); if (!host) return;
+    var dprNow = window.devicePixelRatio || 1;
+    var pe = _pageEls[1];
+    var widthChanged = pe && Math.abs(Math.min(900, (host.clientWidth || document.body.clientWidth) - 2) * _zoom - pe.w) > 2;
+    if (dprNow === _lastDpr && !widthChanged) return;
+    _lastDpr = dprNow;
+    renderPages().then(function () { renderAllFields(); updateBar(); });
+  }, 250);
+});
+document.addEventListener('wheel', function (e) {
+  if (!(e.ctrlKey || e.metaKey) || !_pdfDoc || !e.target.closest || !e.target.closest('.pages')) return;
+  e.preventDefault();
+  setZoom(_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+}, { passive: false });
 
 // ── Fields ──────────────────────────────────────────────────────
 function signerName(id) { var s = (_info.signers || []).filter(function (x) { return x.id === id; })[0]; return s ? s.name : (id === 'sender' ? (_info.doc.ownerName || 'Sender') : 'Signer'); }
