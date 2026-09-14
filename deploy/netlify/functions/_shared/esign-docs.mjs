@@ -102,6 +102,16 @@ export function projectDoc(d) {
     } : null,
     suggestionState: d.suggestionState || null,
     templateName: d.templateName || '',
+    // Deploy 237.023 — the loan this document was started from (Loan Details
+    // "E-Sign a Document" button). Lets Loan Details list its documents.
+    loan: d.loan && d.loan.loanId ? { clientId: d.loan.clientId, loanId: d.loan.loanId, ownerKey: d.loan.ownerKey, address: d.loan.address || '' } : null,
+  };
+}
+export function normalizeLoanRef(raw) {
+  if (!raw || typeof raw !== 'object' || !raw.loanId) return null;
+  return {
+    clientId: String(raw.clientId || '').slice(0, 80), loanId: String(raw.loanId || '').slice(0, 80),
+    ownerKey: normalizeEmail(raw.ownerKey || raw.owner || ''), address: String(raw.address || '').slice(0, 200),
   };
 }
 

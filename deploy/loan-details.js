@@ -1451,6 +1451,17 @@ function render() {
     '</button>';
   }
 
+  // Deploy 237.023 (Mike) — E-Sign tool shortcut. Opens esign.html with this
+  // loan + the borrower pre-filled (#new&loanId=…), so the LO only uploads the
+  // PDF and places fields. Documents started here (or filed here) show up in
+  // the Notes & Activity feed via _esignToolFeedEntries().
+  if (eSignVisible()) {
+    html += '<a id="ldEsignToolBtn" class="open-sizer-btn esign-btn" href="' + escAttr(_esignNewUrl()) + '">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11c1.5-3 3-4.5 4-3.5s-.8 3 0 3 2.2-2.2 3-2.2.8 1.5 1.5 1.5 1.5-.8 2.5-1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 13.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+      'E-Sign a Document' +
+    '</a>';
+  }
+
   // Deploy 236.82 — Generate Term Sheet button removed per Mike.
   // Functionality preserved in downloadTermSheet() for potential
   // future re-add; the button itself is no longer rendered.
@@ -6896,6 +6907,58 @@ function _esignFeedEntries() {
   });
   return out;
 }
+// Deploy 237.023 — E-Sign TOOL documents (esign.html) for this loan. Loaded
+// by refreshEnvelopes() alongside the term-sheet envelopes; rendered as feed
+// entries with the same look. Actions live on the E-Sign page (one link).
+function _esignNewUrl() {
+  var q = ['new', 'loanId=' + encodeURIComponent(_loanId || ''), 'clientId=' + encodeURIComponent(_clientId || '')];
+  if (_loEmail) q.push('owner=' + encodeURIComponent(_loEmail));
+  if (_loan && _loan.address) q.push('address=' + encodeURIComponent(_loan.address));
+  if (_client && _client.email) {
+    q.push('signerEmail=' + encodeURIComponent(_client.email));
+    q.push('signerName=' + encodeURIComponent(((_client.firstName || '') + ' ' + (_client.lastName || '')).trim()));
+  }
+  return '/esign.html#' + q.join('&');
+}
+function _esignToolFeedEntries() {
+  var docs = Array.isArray(window._esignDocs) ? window._esignDocs : [];
+  var out = [];
+  var me = (_user && _user.email ? String(_user.email) : '').toLowerCase();
+  docs.forEach(function(d) {
+    if (!d || !d.id) return;
+    var status = String(d.status || 'draft');
+    var other = d.ownerEmail && String(d.ownerEmail).toLowerCase() !== me;
+    var url = '/esign.html#' + (status === 'draft' ? 'edit=' : 'doc=') + encodeURIComponent(d.id) + (other ? '&owner=' + encodeURIComponent(d.ownerEmail) : '');
+    var lines = '';
+    (d.signers || []).forEach(function(s) {
+      var st = s.signedAt ? '<span style="color:#256940;font-weight:600">\u2713 signed ' + escH(new Date(s.signedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })) + '</span>'
+        : s.viewedAt ? '<span style="color:#1e40af;font-weight:600">viewed</span>'
+        : s.invitedAt ? '<span style="color:#9B5E1D;font-weight:600">sent</span>'
+        : '<span style="color:var(--muted,#7A7488)">' + (status === 'draft' ? 'not sent' : 'waiting') + '</span>';
+      lines += '<div>\u2022 ' + escH(s.name || s.email || 'Signer') + (s.email ? ' &lt;' + escH(s.email) + '&gt;' : '') + ' \u2014 ' + st + '</div>';
+    });
+    var filed = d.assignment ? '<div style="margin-top:4px;font-size:11.5px;color:#256940">Filed as ' + escH(d.assignment.slugLabel || d.assignment.slug || 'document') + '</div>' : '';
+    var badgeStatus = status === 'cancelled' ? 'voided' : status; // reuse env-status-badge colors
+    var html = '<div class="note-esign">' +
+      '<strong>' + escH(d.title || 'Untitled') + '</strong> \u2014 E-Sign ' +
+      '<span class="env-status-badge ' + escAttr(badgeStatus) + '" style="margin-left:4px">' + escH(status) + '</span>' +
+      (lines ? '<div style="margin-top:6px;font-size:11.5px;line-height:1.8">' + lines + '</div>' : '') + filed +
+      '<div style="margin-top:6px"><a href="' + escAttr(url) + '" style="font-size:10.5px;font-weight:600;padding:2px 8px;background:#fff;color:var(--gold,#C8813A);border:1px solid var(--gold,#C8813A);border-radius:3px;text-decoration:none">Open in E-Sign \u2192</a></div>' +
+    '</div>';
+    out.push({ id: 'esigntool_' + d.id, ts: d.sentAt || d.updatedAt || d.createdAt, kind: 'esign', author: 'E-Sign', text: (d.title || 'Document') + ' \u2014 ' + status, html: html });
+    if (d.completedAt) out.push({ id: 'esigntool_' + d.id + '_done', ts: d.completedAt, kind: 'esign', author: 'E-Sign', text: (d.title || 'Document') + ': all signers completed' });
+  });
+  return out;
+}
+function refreshEsignToolDocs() {
+  if (!_loanId || !(window.SLA && SLA.ESign)) return;
+  var opts = { loanId: _loanId };
+  if (_user && SLA.isStaff && SLA.isStaff(_user)) opts.all = true;
+  SLA.ESign.list(opts).then(function(r) {
+    window._esignDocs = (r && r.docs) || [];
+    try { renderNotesLog(); } catch (e) { console.warn('[SLA] esign tool feed:', e && e.message); }
+  }).catch(function(err) { console.warn('refreshEsignToolDocs failed:', err && err.message); });
+}
 function _copySigningLink(url) {
   if (!url) { showToast('No signing link on this envelope'); return; }
   var done = function() { showToast('Signing link copied \u2014 text it to the borrower'); };
@@ -6911,6 +6974,7 @@ function renderNotesLog() {
   if (!inner) return;
   var all = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
   all = all.concat(_esignFeedEntries()); // Deploy 236.967 -- envelopes live in this feed
+  all = all.concat(_esignToolFeedEntries()); // Deploy 237.023 -- E-Sign tool documents too
   // Deploy 236.800 — pinned notes float above the feed, regardless of the
   // note filter (that's the point of pinning: read-this-first). Most
   // recently pinned first. Processors/admins get pin/unpin controls.
@@ -11823,6 +11887,7 @@ function refreshEnvelopes() {
   // list (the section also hosts the Signature Confirmations pane).
   var listEl = document.getElementById('envelopesList');
   if (!listEl) return;
+  refreshEsignToolDocs(); // Deploy 237.023 — E-Sign tool docs for this loan (own fetch, own feed entries)
   var opts = { clientId: _clientId, loanId: _loanId };
   // Cross-owner: admin viewing another LO's loan → ask for that owner's envelopes
   if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;

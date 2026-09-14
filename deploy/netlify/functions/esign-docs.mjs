@@ -6,7 +6,8 @@
  *
  * GET  ?meta=1                 → { docTypes, consentVersion, maxPdfBytes, isStaff }
  * GET  ?id=&owner=             → { doc }  (full record, secrets stripped, live sign URLs)
- * GET  ?status=&all=1          → { docs: [summary, …] }  own docs; staff may pass all=1
+ * GET  ?status=&all=1&loanId=  → { docs: [summary, …] }  own docs; staff may pass all=1;
+ *                                loanId keeps docs started from / filed to that loan
  * POST { title, filename, pdfBase64 }            → { ok, doc }  new draft from an upload
  * POST { title, templateId }                     → { ok, doc }  new draft from a template
  *
@@ -20,7 +21,7 @@ import {
 import {
   MAX_PDF_BYTES, TOKEN_TTL_DAYS, docTypeOptions, listSummaries, readDoc, writeDoc, sanitizeDoc,
   newId, docKey, docPdfStore, tplStore, tplPdfStore, inspectPdf, pushHistory, fullName, baseUrl,
-  SIGNER_COLORS,
+  SIGNER_COLORS, normalizeLoanRef,
 } from './_shared/esign-docs.mjs';
 import { TERMSHEET_CONSENT_VERSION } from './_shared/native-esign.mjs';
 
@@ -67,6 +68,8 @@ export default async (req, context) => {
         docs = (byOwner[keySafe(selfEmail)] || []).slice();
       }
       if (status) docs = docs.filter((d) => d.status === status);
+      const loanId = String(url.searchParams.get('loanId') || '');
+      if (loanId) docs = docs.filter((d) => (d.loan && d.loan.loanId === loanId) || (d.assignment && d.assignment.loanId === loanId));
       docs.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
       return json(200, { docs, scope: all ? 'all' : 'self' });
     }
@@ -100,6 +103,8 @@ export default async (req, context) => {
       history: [],
       assignment: null, suggestion: null, suggestionState: null,
       templateId: null, templateName: '',
+      // Deploy 237.023 — optional loan the document was started from.
+      loan: normalizeLoanRef(body.loan),
     };
 
     let pdfBase64 = null;

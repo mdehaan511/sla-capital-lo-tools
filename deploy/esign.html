@@ -361,6 +361,9 @@ var _pdfDoc = null, _pdfScale = 1;
 var _peoplePool = null;   // borrowers + users for the signer picker
 var _sugIdx = -1, _sugRows = [];
 var _pendingFile = null;
+// Deploy 237.023 — Loan Details "E-Sign a Document" hands us the loan + borrower
+// via the hash (#new&loanId=…&signerEmail=…). Stashed here until the draft exists.
+var _prefill = null;
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function fmtDate(iso) { if (!iso) return '—'; var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
@@ -396,14 +399,26 @@ function parseHash() {
     var i = kv.indexOf('='); var k = i < 0 ? kv : kv.slice(0, i); var v = i < 0 ? '' : decodeURIComponent(kv.slice(i + 1));
     if (k === 'edit') { out.view = 'edit'; out.id = v; }
     else if (k === 'doc') { out.view = 'doc'; out.id = v; }
+    else if (k === 'new') { out.view = 'new'; }
     else if (k === 'owner') out.owner = v;
     else if (k === 'tab') out.tab = v;
+    else out[k] = v; // loanId, clientId, address, signerName, signerEmail, title (prefill)
   });
   return out;
 }
 function route() {
   var h = parseHash();
   _docOwner = h.owner && h.owner.toLowerCase() !== String(_user.email || '').toLowerCase() ? h.owner : '';
+  if (h.view === 'new') {
+    // Deploy 237.023 — arrived from Loan Details: remember the loan + borrower,
+    // then behave like the list view with the New Document modal open.
+    _prefill = h.loanId ? { loan: { loanId: h.loanId, clientId: h.clientId || '', ownerKey: h.owner || _user.email, address: h.address || '' },
+      signer: h.signerEmail ? { name: h.signerName || '', email: String(h.signerEmail).toLowerCase(), kind: 'borrower' } : null, title: h.title || '' } : null;
+    _docOwner = '';
+    showView('list'); loadDocs(); openNewDoc();
+    if (_prefill && _prefill.title) document.getElementById('newTitle').value = _prefill.title;
+    return;
+  }
   showView(h.view);
   if (h.view === 'edit') openEditor(h.id);
   else if (h.view === 'doc') openDetail(h.id);
@@ -506,7 +521,9 @@ function useTemplate(id) {
   var title = prompt('Title for this document:', t ? t.name : '');
   if (title === null) return;
   showToast('Creating draft…');
-  SLA.api('POST', '/api/esign-docs', { templateId: id, title: title }).then(function (r) {
+  var body = { templateId: id, title: title };
+  if (_prefill && _prefill.loan) body.loan = _prefill.loan;
+  SLA.api('POST', '/api/esign-docs', body).then(function (r) {
     _docOwner = '';
     location.hash = '#edit=' + encodeURIComponent(r.doc.id);
   }).catch(function (e) { showToast('Could not create draft: ' + e.message, 'err'); });
@@ -564,7 +581,10 @@ function createDoc() {
   go.disabled = true; go.textContent = 'Creating…';
   var p = tplId ? Promise.resolve({ templateId: tplId, title: title })
     : readAsBase64(_pendingFile).then(function (b64) { return { title: title, filename: _pendingFile.name, pdfBase64: b64 }; });
-  p.then(function (body) { return SLA.api('POST', '/api/esign-docs', body); }).then(function (r) {
+  p.then(function (body) {
+    if (_prefill && _prefill.loan) body.loan = _prefill.loan; // Deploy 237.023 — remember which loan this came from
+    return SLA.api('POST', '/api/esign-docs', body);
+  }).then(function (r) {
     closeNewDoc();
     _docOwner = '';
     location.hash = '#edit=' + encodeURIComponent(r.doc.id);
@@ -582,6 +602,7 @@ function openEditor(id) {
     if (_doc.status !== 'draft') { location.hash = hashFor('doc', _doc.id); return; }
     document.getElementById('edTitle').value = _doc.title || '';
     document.getElementById('edSequential').checked = _doc.sequential !== false;
+    applyPrefillSigner();
     _activeSigner = _doc.signers[0] ? _doc.signers[0].id : null;
     renderSigners();
     setSaveState('Saved');
@@ -593,6 +614,23 @@ function openEditor(id) {
   window.onbeforeunload = function () { return _dirty ? 'You have unsaved changes.' : null; };
 }
 function setSaveState(s) { document.getElementById('edSaveState').textContent = s; }
+// Deploy 237.023 — when the draft was started from Loan Details, drop the
+// borrower in as the first signer (or into the first empty borrower role of a
+// template) so the LO only has to place fields.
+function applyPrefillSigner() {
+  var ps = _prefill && _prefill.signer; _prefill = null;
+  if (!ps || !ps.email || !_doc) return;
+  if (_doc.signers.some(function (s) { return s.email === ps.email; })) return;
+  var slot = _doc.signers.filter(function (s) { return !s.email && s.kind !== 'user'; })[0];
+  if (slot) { slot.name = ps.name || slot.name; slot.email = ps.email; }
+  else {
+    var colors = (_meta && _meta.signerColors) || ['#C8813A', '#2563eb', '#256940'];
+    var used = {}; _doc.signers.forEach(function (x) { used[x.id] = 1; });
+    var n = 1; while (used['s' + n]) n++;
+    _doc.signers.push({ id: 's' + n, name: ps.name, email: ps.email, kind: 'borrower', order: 1, color: colors[_doc.signers.length % colors.length] });
+  }
+  markDirty();
+}
 function markDirty() {
   _dirty = true; setSaveState('Unsaved…');
   clearTimeout(_saveTimer); _saveTimer = setTimeout(function () { saveDraft(false); }, 1500);
@@ -1163,6 +1201,10 @@ function renderAssign() {
     html += '</div>';
     _assignOthers = others;
   } else if (s && !s.loanId) html += '<div class="box ai" style="font-size:12.5px;color:var(--muted)">No confident AI match' + (s.aiError ? ' (' + esc(s.aiError) + ')' : '') + '. Search for the loan below.</div>';
+  if (d.loan && d.loan.loanId && !_assignPick) {
+    html += '<div class="box" style="font-size:12.5px">Started from <strong>' + esc(d.loan.address || d.loan.loanId) + '</strong>. ' +
+      '<button class="btn xs ghost" onclick="useOriginLoan()">File there</button></div>';
+  }
   html += '<div class="field pos-rel"><label>Loan</label>' +
     (_assignPick ? '<div class="picked"><span>' + esc(_assignPick.slaNumber || '') + ' — ' + esc(_assignPick.address || '') + '<br><span style="color:var(--muted);font-size:11.5px">' + esc(_assignPick.borrower || '') + '</span></span><button class="btn xs ghost" onclick="_assignPick=null;renderAssign()">Change</button></div>' :
       '<input type="text" id="loanSearch" placeholder="Search address, borrower, entity or SLA-…" oninput="loanSearch(this.value)" autocomplete="off"><div class="results" id="loanResults" style="display:none"></div>') + '</div>' +
@@ -1173,6 +1215,7 @@ function renderAssign() {
   if (_assignPick) fillSlugs();
 }
 var _assignOthers = [];
+function useOriginLoan() { var l = _doc.loan; _assignPick = { loanId: l.loanId, clientId: l.clientId, ownerKey: l.ownerKey, address: l.address, borrower: '', slaNumber: '', slugHint: (_doc.suggestion || {}).slug }; renderAssign(); }
 function useSuggestion() { var s = _doc.suggestion; _assignPick = { loanId: s.loanId, clientId: s.clientId, ownerKey: s.ownerKey, address: s.address, borrower: s.borrower, slaNumber: s.slaNumber, slugHint: s.slug }; renderAssign(); }
 function pickCandidate(i) { var c = _assignOthers[i]; if (!c) return; _assignPick = { loanId: c.loanId, clientId: c.clientId, ownerKey: c.ownerKey, address: c.address, borrower: c.borrower, slaNumber: c.slaNumber, slugHint: (_doc.suggestion || {}).slug }; renderAssign(); }
 var _loanRows = [];

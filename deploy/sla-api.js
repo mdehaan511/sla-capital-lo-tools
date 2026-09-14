@@ -1649,6 +1649,7 @@
       var qs = [];
       if (opts.all) qs.push('all=1');
       if (opts.status) qs.push('status=' + encodeURIComponent(opts.status));
+      if (opts.loanId) qs.push('loanId=' + encodeURIComponent(opts.loanId)); // Deploy 237.023
       return api('GET', '/api/esign-docs' + (qs.length ? '?' + qs.join('&') : ''));
     },
     get: function (id, owner) {
