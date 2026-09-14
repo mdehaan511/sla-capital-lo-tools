@@ -106,7 +106,7 @@
 var TOKEN = (function () { var m = /[?&]t=([^&]+)/.exec(location.search); return m ? decodeURIComponent(m[1]) : ''; })();
 var _info = null, _fields = [], _mine = [], _pageEls = {}, _adopted = { signature: null, initials: null };
 var _sigWhich = 'signature', _sigMode = 'draw', _padCtx = null, _padDrawing = false, _padHasInk = false, _padLast = null;
-// Deploy 237.030 — zoom re-renders pages with pdf.js at the new scale × devicePixelRatio (never blurry).
+// Deploy 237.032 — zoom re-renders pages with pdf.js at the new scale × devicePixelRatio (never blurry).
 var _pdfDoc = null, _zoom = 1, _rerenderTimer = null, _lastDpr = window.devicePixelRatio || 1;
 var PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';

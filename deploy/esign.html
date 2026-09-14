@@ -316,7 +316,7 @@
   <div class="modal" style="width:min(520px,96vw);overflow:visible">
     <h2 id="signerModalTitle">Add signer</h2>
     <p class="sub">Start typing a borrower or team member and pick from the list, or enter anyone.</p>
-    <!-- Deploy 237.030 (Mike) — "Who is this" comes first and filters the
+    <!-- Deploy 237.032 (Mike) — "Who is this" comes first and filters the
          suggestions: team member → SLA users only, borrower → borrowers only,
          other → anyone. -->
     <div class="row2">
@@ -367,7 +367,7 @@ var _dirty = false, _saveTimer = null, _saving = false;
 var _tool = null, _activeSigner = null, _selField = null;
 var _pageEls = {};        // page -> { wrap, ov, w, h }
 var _pdfDoc = null, _pdfScale = 1;
-// Deploy 237.030 — zoom. Pages are re-rendered by pdf.js at the requested scale
+// Deploy 237.032 — zoom. Pages are re-rendered by pdf.js at the requested scale
 // and at the screen's real pixel density (browser zoom changes devicePixelRatio,
 // which the resize listener below catches), so zooming never blurs the page.
 var _zoom = 1, _rerenderTimer = null;
@@ -867,7 +867,7 @@ function signerSuggest(input) {
   var box = document.getElementById(input.id === 'sName' ? 'sugName' : 'sugEmail');
   hideSuggest();
   if (q.length < 2 || !_peoplePool) return;
-  // Deploy 237.030 — only offer people of the selected kind ("Other" = anyone).
+  // Deploy 237.032 — only offer people of the selected kind ("Other" = anyone).
   var kind = document.getElementById('sKind').value;
   var rows = _peoplePool.filter(function (p) {
     if (kind === 'user' && p.kind !== 'user') return false;
