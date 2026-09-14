@@ -108,7 +108,7 @@ export default async (req, context) => {
     await docSigStore().setJSON(key + '/' + signer.id, { signature: sigRec, initials: iniRec, signedAt });
     signer.audit = audit;
     signer.signedAt = signedAt;
-    // Deploy 237.033 (Mike: "Signing link not found" on the download button
+    // Deploy 237.034 (Mike: "Signing link not found" on the download button
     // right after signing) — the token used to be deleted here, which also
     // killed the "Download the signed PDF" link on the thank-you screen and
     // every re-open of the email link. Keep it as a READ key: signedAt above
