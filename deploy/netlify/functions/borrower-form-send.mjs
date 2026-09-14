@@ -99,6 +99,33 @@ async function handle(req, context) {
   const idx = getStore({ name: 'borrower-forms-token-idx', consistency: 'strong' });
   const now = new Date().toISOString();
 
+  // ── Deploy 237.040 — VOM follow-up: "I sent it to the landlord / lender" ──
+  if (body.followUpDone === true || body.followUpDone === false) {
+    const fu = tray.followUp;
+    if (!fu) return json(400, { error: 'Nothing to mark on this tray' });
+    fu.done = body.followUpDone === true;
+    fu.doneAt = fu.done ? now : ''; fu.doneBy = fu.done ? self : '';
+    if (fu.done && body.note) fu.note = String(body.note).slice(0, 300);
+    tray.history = Array.isArray(tray.history) ? tray.history.slice() : [];
+    tray.history.push({ ts: now, action: fu.done ? 'followup_done' : 'followup_reopened', by: self,
+      note: fu.done ? ('VOM sent to ' + ((fu.creditor && fu.creditor.name) || 'the landlord / mortgage company') + ' for Part II' + (fu.note ? ' — ' + fu.note : '')) : 'VOM send-out reopened' });
+    review.updatedAt = now; review.lastEditedBy = self; review.lastEditedAt = now;
+    await reviewStore.setJSON(keySafe(review.id), review);
+    // Close (or reopen) the matching task so the queue agrees with the tray.
+    if (fu.taskId) {
+      try {
+        const tasksStore = getStore({ name: 'tasks', consistency: 'strong' });
+        const tkey = (src.ownerKey ? keySafe(src.ownerKey) : '') + '/' + keySafe(fu.taskId);
+        const t = await tasksStore.get(tkey, { type: 'json' }).catch(() => null);
+        if (t) {
+          t.completed = fu.done; t.completedAt = fu.done ? now : ''; t.completedBy = fu.done ? self : ''; t.updatedAt = now; t.updatedBy = self;
+          await tasksStore.setJSON(tkey, t);
+        }
+      } catch (e) { console.warn('borrower-form-send: follow-up task update failed:', e && e.message); }
+    }
+    return json(200, { ok: true, review });
+  }
+
   // ── Void ────────────────────────────────────────────────────────────────
   if (body.void === true) {
     const cur = tray.borrowerForm;

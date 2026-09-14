@@ -241,6 +241,8 @@
       '.dr-root .dr-form-badge { display:inline-block; margin-top:6px; font-size:10.5px; font-weight:600; color:var(--muted); background:var(--bg, #f7f5f1); border:1px solid var(--border); border-radius:20px; padding:2px 9px; }',
       '.dr-root .dr-form-badge.done { color:var(--dr-green-text, #1f6b3a); border-color:var(--dr-green-border, #bfe0c9); background:rgba(46,125,79,0.08); }',
       '.dr-root .dr-form-act { cursor:pointer; text-decoration:underline; margin-left:8px; color:var(--gold-mid); }',
+      /* Deploy 237.040 — open VOM follow-up (send to landlord / lender). */
+      '.dr-root .dr-follow-badge { display:inline-block; margin-top:6px; font-size:10.5px; font-weight:700; color:#7c1f1f; background:rgba(124,31,31,0.08); border:1px solid rgba(124,31,31,0.35); border-radius:20px; padding:2px 9px; }',
       '.dr-modal-wrap { position:fixed; inset:0; background:rgba(26,21,32,0.45); z-index:9000; display:flex; align-items:center; justify-content:center; padding:20px; }',
       '.dr-modal { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:90vh; overflow:auto; padding:20px 22px; box-shadow:0 18px 50px rgba(0,0,0,0.25); font-size:13px; }',
       '.dr-modal h3 { margin:0 0 12px; font-size:16px; }',
@@ -1432,6 +1434,19 @@
     } else if (_bfs && _bfs.status === 'completed') {
       formBadge = '<div class="dr-form-badge done">&#x1F4DD; Completed and signed by the borrower ' + (_bfs.completedAt ? new Date(_bfs.completedAt).toLocaleDateString() : '') + '</div>';
     }
+    // Deploy 237.040 (Mike) — a VOM back from the borrower is Part I only: flag
+    // it until a processor has sent it to the landlord / mortgage company.
+    var _fu = d.followUp;
+    if (_fu && _fu.kind === 'vom_send') {
+      var _who = (_fu.creditor && _fu.creditor.name) || 'the landlord / mortgage company';
+      if (!_fu.done) {
+        formBadge += '<div class="dr-follow-badge" title="' + escAttr([_fu.creditor && _fu.creditor.address, _fu.creditor && _fu.creditor.phone].filter(Boolean).join(' · ')) + '">&#x26A0; Still needs to be sent to ' + escHtml(_who) + ' for Part II' +
+          '<span class="dr-form-act" onclick="event.stopPropagation();dr_followUpDone(\'' + escAttr(slug) + '\')">Mark as sent</span></div>';
+      } else {
+        formBadge += '<div class="dr-form-badge done">&#x2709; Sent to ' + escHtml(_who) + (_fu.doneAt ? ' ' + new Date(_fu.doneAt).toLocaleDateString() : '') + (_fu.doneBy ? ' by ' + escHtml(String(_fu.doneBy).split('@')[0]) : '') +
+          '<span class="dr-form-act" onclick="event.stopPropagation();dr_followUpDone(\'' + escAttr(slug) + '\', true)">Undo</span></div>';
+      }
+    }
     var mrBadge = d.manualReviewRequested
       ? '<div class="dr-mr-badge" title="' + escAttr(d.manualReviewNote || 'The borrower asked for a manual review of this document.') + '">⚠ Manual review requested by borrower</div>'
       : (d.uploadedByBorrower ? '<div class="dr-br-badge">⬆ Uploaded by borrower</div>' : '');
@@ -2400,6 +2415,21 @@
       showToast('Request cancelled.', 'success');
       render();
     }).catch(function(err) { showToast('Cancel failed: ' + ((err && err.message) || 'Unknown'), 'error'); });
+  };
+  // Deploy 237.040 — VOM follow-up: mark the Part II send-out done (or undo).
+  global.dr_followUpDone = function(slug, reopen) {
+    var body = { reviewId: _review.id, slug: slug, followUpDone: !reopen };
+    if (!reopen) {
+      var note = window.prompt('Mark the VOM as sent to the landlord / mortgage company?\n\nOptional note (how it was sent, confirmation #):', '');
+      if (note === null) return;
+      if (note) body.note = note;
+    }
+    global.SLA.api('POST', '/api/borrower-form-send', body).then(function(r) {
+      if (r && r.review) _review = r.review;
+      showToast(reopen ? 'Reopened — still needs to be sent.' : 'Marked as sent.', 'success');
+      render();
+      try { if (global.SLANav && global.SLANav.refreshTaskBadge) global.SLANav.refreshTaskBadge(); } catch (_) {}
+    }).catch(function(err) { showToast('Update failed: ' + ((err && err.message) || 'Unknown'), 'error'); });
   };
   global.dr_toggleBorrowerRequest = function(slug) {
     var d = (_review && _review.docs && _review.docs[slug]) || {};

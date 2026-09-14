@@ -115,6 +115,7 @@ async function handle(req, context) {
   // Stamp the tray completed (attach saved the review; re-read to layer the stamp).
   const reviewStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
   let docId = '';
+  let vomFollowUp = null;
   try {
     const review = await reviewStore.get(keySafe(rec.reviewId), { type: 'json' });
     const ds = review && review.docs && review.docs[rec.slug];
@@ -122,6 +123,18 @@ async function handle(req, context) {
       docId = ds.currentDocId || '';
       ds.borrowerForm = Object.assign({}, ds.borrowerForm || {}, { id: rec.id, formId: form.id, status: 'completed', completedAt: now, docId, link: '', source: portal ? 'portal' : (ds.borrowerForm && ds.borrowerForm.source) || 'sent' });
       ds.uploadedByBorrower = true;
+      // Deploy 237.040 (Mike) — a VOM back from the borrower is only Part I.
+      // SLA still has to send it to the landlord / mortgage company for Part
+      // II, so the tray carries an open follow-up until a processor marks it
+      // sent (borrower-form-send { followUpDone }). A task is created below.
+      if (form.id === 'vom') {
+        vomFollowUp = {
+          kind: 'vom_send', label: 'Send to the landlord / mortgage company for Part II',
+          creditor: { name: v.clean.creditorName || '', address: v.clean.creditorAddress || '', phone: v.clean.creditorPhone || '', accountType: v.clean.accountType || '' },
+          createdAt: now, done: false, doneAt: '', doneBy: '', taskId: '',
+        };
+        ds.followUp = vomFollowUp;
+      }
       ds.history = Array.isArray(ds.history) ? ds.history.slice() : [];
       ds.history.push({ ts: now, action: 'borrower_form_completed', by: 'borrower:' + (rec.to || ''), note: form.label + ' completed and signed by ' + signerName + ' — filed for review.' });
       review.updatedAt = now; review.lastEditedBy = 'borrower:' + (rec.to || ''); review.lastEditedAt = now;
@@ -135,20 +148,54 @@ async function handle(req, context) {
   await store.setJSON(keySafe(rec.id), rec);
 
   // Best-effort: a note on the loan + an email to whoever sent it.
+  const followUpText = vomFollowUp
+    ? ' STILL TO DO: send the VOM to ' + (vomFollowUp.creditor.name || 'the landlord / mortgage company') + ' for Part II — it must go lender-to-lender, not through the borrower.'
+    : '';
   try {
     const found = await locateLoan({ ownerKey: rec.ownerKey, clientId: rec.clientId, loanId: rec.loanId });
     if (found && found.loan && found.client) {
-      appendNoteEntry(found.loan, { kind: 'system', text: form.label + ' completed and signed by the borrower (' + signerName + ') — filed to Documents.', author: 'SLA Platform', authorEmail: 'system@slacapital.com' });
+      appendNoteEntry(found.loan, { kind: 'system', text: form.label + ' completed and signed by the borrower (' + signerName + ') — filed to Documents.' + followUpText, author: 'SLA Platform', authorEmail: 'system@slacapital.com' });
       found.loan.updatedAt = now;
       await writeClient(found.ownerKey || rec.ownerKey, found.client, {});
+      // Deploy 237.040 — the VOM send-out lands on the processing queue: a
+      // task for the loan's first assigned processor (else whoever sent the
+      // form / the LO), due in two business-ish days.
+      if (vomFollowUp) {
+        try {
+          const procs = Array.isArray(found.loan.assignedProcessors) ? found.loan.assignedProcessors : [];
+          const p0 = procs.find((a) => a && a.email) || null;
+          const assignee = p0 ? { email: String(p0.email).toLowerCase(), name: p0.name || '' } : { email: String(rec.sentBy || '').toLowerCase(), name: rec.senderName || '' };
+          const due = new Date(Date.now() + 2 * 86400000);
+          const dueYmd = due.getFullYear() + '-' + String(due.getMonth() + 1).padStart(2, '0') + '-' + String(due.getDate()).padStart(2, '0');
+          const taskOwnerKey = found.ownerKey || rec.ownerKey;
+          const task = {
+            id: 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            clientId: found.clientId || rec.clientId, loanId: rec.loanId, ownerKey: taskOwnerKey,
+            title: 'Send VOM to ' + (vomFollowUp.creditor.name || 'landlord / mortgage company') + ' (Part II)',
+            dueDate: dueYmd, assignedTo: assignee.email, assignedToName: assignee.name,
+            description: 'The borrower signed the Verification of Mortgage / Rent request. Send it to ' +
+              [vomFollowUp.creditor.name, vomFollowUp.creditor.address, vomFollowUp.creditor.phone].filter(Boolean).join(', ') +
+              ' for Part II — the form must go directly from SLA to them. Then mark it sent on the VOM tray in Documents.',
+            completed: false, completedAt: '', completedBy: '', completedByName: '',
+            createdAt: now, createdBy: 'system@slacapital.com', createdByName: 'SLA Platform', updatedAt: now, updatedBy: 'system@slacapital.com',
+            source: 'vom_followup', reviewId: rec.reviewId, slug: rec.slug,
+          };
+          await getStore({ name: 'tasks', consistency: 'strong' }).setJSON(taskOwnerKey + '/' + keySafe(task.id), task);
+          vomFollowUp.taskId = task.id;
+          const rv = await reviewStore.get(keySafe(rec.reviewId), { type: 'json' });
+          if (rv && rv.docs && rv.docs[rec.slug] && rv.docs[rec.slug].followUp) { rv.docs[rec.slug].followUp.taskId = task.id; await reviewStore.setJSON(keySafe(rv.id), rv); }
+        } catch (e) { console.warn('borrower-form-submit: VOM task failed (non-fatal):', e && e.message); }
+      }
     }
   } catch (e) { console.warn('borrower-form-submit: loan note failed:', e && e.message); }
   try {
     if (rec.sentBy && rec.sentBy.indexOf('@') > 0) {
       const link = PORTAL_ORIGIN + '/loan-details/' + encodeURIComponent(rec.loanId) + '?owner=' + encodeURIComponent(rec.ownerKey || '') + '#documents';
       const subject = 'Form completed: ' + form.label + (rec.address ? ' — ' + rec.address : '');
-      const text = form.label + ' was completed and signed by ' + signerName + ' (' + (rec.to || '') + ') and filed to the Documents tab.\n\n' + link;
-      const html = `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1520"><strong>${escHtml(form.label)}</strong> was completed and signed by ${escHtml(signerName)} (${escHtml(rec.to || '')}) and filed to the Documents tab${rec.address ? ' for ' + escHtml(rec.address) : ''}.</p><p><a href="${escHtml(link)}">Open the loan</a></p>`;
+      const text = form.label + ' was completed and signed by ' + signerName + ' (' + (rec.to || '') + ') and filed to the Documents tab.' + followUpText + '\n\n' + link;
+      const html = `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1520"><strong>${escHtml(form.label)}</strong> was completed and signed by ${escHtml(signerName)} (${escHtml(rec.to || '')}) and filed to the Documents tab${rec.address ? ' for ' + escHtml(rec.address) : ''}.</p>` +
+        (followUpText ? `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#7c1f1f;background:#fdf1ee;border:1px solid #f0c9c2;border-radius:8px;padding:10px 14px"><strong>Still to do:</strong> ${escHtml(followUpText.replace(/^ STILL TO DO: /, ''))}</p>` : '') +
+        `<p><a href="${escHtml(link)}">Open the loan</a></p>`;
       await sendBorrowerEmail(rec.sentBy, subject, text, html, '', null);
     }
   } catch (e) { console.warn('borrower-form-submit: notify failed:', e && e.message); }
