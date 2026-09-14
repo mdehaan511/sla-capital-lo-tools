@@ -15,7 +15,9 @@ export default async (req, context) => {
     if (!user) return json(401, { error: 'Not authenticated' });
     if (!isAdmin(user)) return json(403, { error: 'Admin only' });
     const store = getStore({ name: 'baseline_raw_audit', consistency: 'strong' });
-    const report = await store.get('latest', { type: 'json' }).catch(() => null);
+    // Deploy 237.025 — ?report=isio reads the interest-only rule pass instead.
+    const which = new URL(req.url).searchParams.get('report') === 'isio' ? 'isio-latest' : 'latest';
+    const report = await store.get(which, { type: 'json' }).catch(() => null);
     return json(200, { ok: true, report: report || null });
   } catch (e) {
     console.error('admin-baseline-raw-audit-status error:', e);

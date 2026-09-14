@@ -191,6 +191,67 @@ async function handle(req, context) {
   });
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+
+  // ── Deploy 237.025 (Mike) — mode 'isIO-rule': on Baseline-imported loans the
+  // amortization is a RULE, not a Baseline field: RTL → interest-only, anything
+  // else → amortized. Baseline's Amortization_Type disagreed on 35 loans and the
+  // gap-fill trusted it on blanks; this pass sets loan.isIO from the product.
+  // Report → key 'isio-latest'. dryRun default.
+  if (String(body.mode || '') === 'isIO-rule') {
+    const ir = { startedAt: report.startedAt, startedBy: actor, dryRun, status: 'running', loans: 0,
+      setInterestOnly: 0, setAmortized: 0, alreadyRight: 0, byType: {}, writeErrors: 0, changes: [] };
+    const isIoNow = (v) => v === true || v === 'true' || v === 'io' || v === 'yes' || v === 'interest_only';
+    for (const entry of byClient.values()) {
+      if (overBudget()) { ir.status = 'timed_out'; break; }
+      const client = await clientsStore.get(entry.ownerKey + '/' + keySafe(entry.clientId), { type: 'json' }).catch(() => null);
+      if (!client) continue;
+      const touched = [];
+      for (const loanId of entry.loanIds) {
+        const loan = (client.loans || []).find((l) => l && l.id === loanId);
+        if (!loan) continue;
+        ir.loans++;
+        const tt = String(loan.toolType || '').toLowerCase();
+        ir.byType[tt || '(blank)'] = (ir.byType[tt || '(blank)'] || 0) + 1;
+        const want = tt === 'rtl';
+        // Points stored as a decimal FRACTION (0.02 = 2 pts) by the first-generation
+        // import (String(b.Origination_Points)); every reader treats loan.points as
+        // whole points, so 0.02 priced as 0.02 pts. Same ×100 rule as the mapper.
+        const ptsNum = numOf(loan.points);
+        const ptsFix = (ptsNum != null && ptsNum > 0 && ptsNum < 0.1 && /^\s*0?\.\d+\s*$/.test(String(loan.points))) ? String(Math.round(ptsNum * 100000) / 1000) : null;
+        if (ptsFix != null) { ir.pointsNormalized = (ir.pointsNormalized || 0) + 1; ir.changes.push({ loanId, address: loan.address || '', field: 'points', from: loan.points, to: ptsFix }); }
+        const ioRight = isIoNow(loan.isIO) === want;
+        if (ioRight && ptsFix == null) { ir.alreadyRight++; continue; }
+        if (!ioRight) {
+          if (want) ir.setInterestOnly++; else ir.setAmortized++;
+          ir.changes.push({ loanId, address: loan.address || '', toolType: tt, field: 'isIO', from: loan.isIO, to: want });
+        }
+        if (!dryRun) {
+          if (!ioRight) loan.isIO = want;
+          if (ptsFix != null) loan.points = ptsFix;
+          loan.updatedAt = new Date().toISOString();
+          touched.push({ loanId, to: want, ioChanged: !ioRight, ptsFrom: ptsFix != null ? String(ptsNum) : null, ptsTo: ptsFix });
+        }
+      }
+      if (!dryRun && touched.length) {
+        try {
+          client.updatedAt = new Date().toISOString();
+          await writeClient(entry.ownerKey, client, { clientsStore });
+          for (const t of touched) {
+            const ch = [];
+            if (t.ioChanged) ch.push({ field: 'isIO', label: 'Amortization', from: t.to ? 'amortized' : 'interest-only', to: t.to ? 'interest-only (RTL rule)' : 'amortized (non-RTL rule)' });
+            if (t.ptsTo != null) ch.push({ field: 'points', label: 'Points', from: t.ptsFrom, to: t.ptsTo + ' (decimal fraction normalized)' });
+            await recordLoanChanges({ ownerKey: entry.ownerKey, clientId: client.id, loanId: t.loanId, actor, actorName: actor, source: 'Baseline raw audit', changes: ch }).catch(() => {});
+          }
+        } catch (e) { ir.writeErrors++; }
+      }
+    }
+    if (ir.status === 'running') ir.status = 'done';
+    ir.finishedAt = new Date().toISOString();
+    await reportStore.setJSON('isio-latest', ir).catch(() => {});
+    if (!dryRun) await reportStore.setJSON('isio-applied-' + Date.now(), ir).catch(() => {});
+    return json(200, { ok: true });
+  }
+
   const SKIP_LOAN = { toolType: 1 }; // never re-route a loan's product from the raw record
 
   for (const entry of byClient.values()) {
