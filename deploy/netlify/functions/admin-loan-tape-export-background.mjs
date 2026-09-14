@@ -114,22 +114,24 @@ async function handle(req, context) {
   meta.fciLoans = fciLoans.length; meta.spLoans = spLoansList.length;
 
   if (fciLoans.length && fciConfigured()) {
-    let fciErrors = 0;
-    await pool(fciLoans, 4, async ({ loan }) => {
-      if (Date.now() - started > BUDGET_MS) return;
-      const acct = String(loan.servicerLoanNumber).replace(/[^0-9A-Za-z-]/g, '');
-      try {
-        const d = await fciQuery('{ getLoanDeliquency(account:"' + acct + '" dateTo:"' + mdy(asOf) + '"){ detail{ account borrowerName current nextDueDate principalBalance upb1to30 upb31to60 upb61to90 upb121plus } } }', { timeoutMs: 30000 });
-        const det = (d.getLoanDeliquency && d.getLoanDeliquency.detail || []).find((x) => String(x.account || '').replace(/[^0-9A-Za-z-]/g, '') === acct) || (d.getLoanDeliquency && d.getLoanDeliquency.detail || [])[0];
-        if (!det) { ye.set(loan.id, { bucket: 'No FCI record at date', source: 'FCI', detail: 'Not on FCI book as of ' + asOf }); return; }
-        const b = (fciNum(det.upb121plus) > 0) ? '90+' : (fciNum(det.upb61to90) > 0) ? '61-90' : (fciNum(det.upb31to60) > 0) ? '31-60' : (fciNum(det.upb1to30) > 0) ? '1-30' : 'Current';
-        ye.set(loan.id, { bucket: b, source: 'FCI', nextDue: fciDate(det.nextDueDate) || '', upb: fciNum(det.principalBalance), detail: 'FCI delinquency report as of ' + asOf });
-      } catch (e) {
-        fciErrors++;
-        ye.set(loan.id, { bucket: 'FCI lookup failed', source: 'FCI', detail: String((e && e.message) || 'error').slice(0, 120) });
-      }
+    // ONE portfolio-wide call (account is optional). FCI rate-limits this
+    // method to a handful of calls per hour ("you will be able to request this
+    // method in 3600 sec"), so a per-loan fan-out dies after ~8 loans.
+    const norm = (v) => String(v || '').replace(/[^0-9A-Za-z-]/g, '');
+    let byAcct = null, fciErr = '';
+    try {
+      const d = await fciQuery('{ getLoanDeliquency(dateTo:"' + mdy(asOf) + '" limit:5000){ detail{ account borrowerName current nextDueDate principalBalance upb1to30 upb31to60 upb61to90 upb121plus } } }', { timeoutMs: 60000 });
+      byAcct = new Map();
+      (d.getLoanDeliquency && d.getLoanDeliquency.detail || []).forEach((x) => { if (x && x.account) byAcct.set(norm(x.account), x); });
+      meta.fciReportRows = byAcct.size;
+    } catch (e) { fciErr = String((e && e.message) || 'error').slice(0, 160); meta.notes.push('FCI delinquency report: ' + fciErr); }
+    fciLoans.forEach(({ loan }) => {
+      if (!byAcct) { ye.set(loan.id, { bucket: 'FCI lookup failed', source: 'FCI', detail: fciErr }); return; }
+      const det = byAcct.get(norm(loan.servicerLoanNumber));
+      if (!det) { ye.set(loan.id, { bucket: 'No FCI record at date', source: 'FCI', detail: 'Not on the FCI delinquency report as of ' + asOf + ' (boarded later or already off the book)' }); return; }
+      const b = (fciNum(det.upb121plus) > 0) ? '90+' : (fciNum(det.upb61to90) > 0) ? '61-90' : (fciNum(det.upb31to60) > 0) ? '31-60' : (fciNum(det.upb1to30) > 0) ? '1-30' : 'Current';
+      ye.set(loan.id, { bucket: b, source: 'FCI', nextDue: fciDate(det.nextDueDate) || '', upb: fciNum(det.principalBalance), detail: 'FCI delinquency report as of ' + asOf });
     });
-    if (fciErrors) meta.notes.push('FCI lookups failed: ' + fciErrors);
   } else if (fciLoans.length) {
     meta.notes.push('FCI_API_TOKEN not set — FCI year-end status unavailable');
   }
