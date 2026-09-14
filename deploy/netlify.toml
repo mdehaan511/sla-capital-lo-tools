@@ -1033,6 +1033,17 @@
   to = "/.netlify/functions/admin-baseline-raw-audit-status"
   status = 200
   force = true
+# Deploy 237.030 -- auditor loan tape (background build + status/download).
+[[redirects]]
+  from = "/api/admin-loan-tape-export"
+  to = "/.netlify/functions/admin-loan-tape-export-background"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/admin-loan-tape-export-status"
+  to = "/.netlify/functions/admin-loan-tape-export-status"
+  status = 200
+  force = true
 
 # Deploy 236.818: borrower-link — durable 72h portal sign-in links. GET
 # redeems (mints a fresh Supabase magic link at click time); POST resends

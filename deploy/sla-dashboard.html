@@ -155,6 +155,9 @@
            in the Profile menu for super-admins. Deploy 236.829 — Baseline
            Dashboard (legacy) link removed too; the page still serves at
            /dashboard-baseline.html for anyone who needs it directly. -->
+      <!-- Deploy 237.030 (Mike) — auditor loan tape: loans funded in a year + status
+           and delinquency cohort as of year-end (built server-side, ~1-3 min). -->
+      <button class="btn-primary" id="exportTapeBtn" onclick="exportLoanTape()" title="Loans funded in a year with year-end status and delinquency cohort (.xlsx)">Export loan tape</button>
       <button class="btn-primary" id="refreshBtn" onclick="loadAll(true)">Refresh</button>
     </div>
   </div>
@@ -1699,6 +1702,56 @@ function renderTable() {
   });
   html += '</tbody></table>';
   document.getElementById('loansTableWrap').innerHTML = html;
+}
+
+// ── Deploy 237.030 (Mike) — auditor loan tape export ─────────────────
+// Asks for the production year, starts the background build, polls the
+// status endpoint, then downloads the .xlsx (Summary / Loan Tape / Excluded).
+function exportLoanTape() {
+  var lastYear = new Date().getFullYear() - 1;
+  var y = prompt('Loan tape: which production year?', String(lastYear));
+  if (!y) return;
+  y = parseInt(y, 10);
+  if (!(y >= 2015 && y <= 2100)) { alert('Enter a year like ' + lastYear); return; }
+  var btn = document.getElementById('exportTapeBtn');
+  var orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Building ' + y + ' tape…';
+  var fail = function (msg) { btn.disabled = false; btn.textContent = orig; alert('Loan tape: ' + msg); };
+  SLA.getToken().then(function (tk) {
+    return fetch('/api/admin-loan-tape-export', { method: 'POST', headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: JSON.stringify({ year: y }) })
+      .then(function (r) { if (r.status !== 202 && !r.ok) return r.json().then(function (d) { throw new Error(d.error || ('HTTP ' + r.status)); }); return tk; });
+  }).then(function (tk) {
+    var startedAt = Date.now();
+    var tick = function () {
+      fetch('/api/admin-loan-tape-export-status?year=' + y, { headers: { Authorization: 'Bearer ' + tk } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var m = d && d.meta;
+          // A finished tape from before this click is stale — wait for the new run.
+          var fresh = m && m.startedAt && (Date.parse(m.startedAt) >= startedAt - 60000);
+          if (m && m.status === 'done' && fresh) return download(tk);
+          if (Date.now() - startedAt > 15 * 60000) return fail('timed out — try again');
+          btn.textContent = 'Building ' + y + ' tape… (' + ((m && fresh && m.phase) || 'starting') + ')';
+          setTimeout(tick, 5000);
+        }).catch(function (e) { fail(e.message || 'status check failed'); });
+    };
+    setTimeout(tick, 4000);
+  }).catch(function (e) { fail(e.message || 'could not start'); });
+  function download(tk) {
+    fetch('/api/admin-loan-tape-export-status?year=' + y + '&download=1', { headers: { Authorization: 'Bearer ' + tk } }).then(function (resp) {
+      if (!resp.ok) return resp.json().then(function (d) { throw new Error(d.error || ('HTTP ' + resp.status)); });
+      var cd = resp.headers.get('Content-Disposition') || '';
+      var fm = cd.match(/filename="([^"]+)"/);
+      return resp.blob().then(function (b) {
+        var u = URL.createObjectURL(b);
+        var a = document.createElement('a');
+        a.href = u; a.download = fm ? fm[1] : ('SLA ' + y + ' Loan Tape.xlsx');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+        btn.disabled = false; btn.textContent = orig;
+      });
+    }).catch(function (e) { fail(e.message || 'download failed'); });
+  }
 }
 </script>
 </body>
