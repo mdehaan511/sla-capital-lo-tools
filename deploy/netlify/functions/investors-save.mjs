@@ -59,6 +59,9 @@ async function handle(req, context) {
     pocPhone: String(body.pocPhone || '').trim(),
     criteria: String(body.criteria || '').trim(),
     notes:    String(body.notes    || '').trim(),
+    // Deploy 237.016 (Mike): closing fees vary by investor (DIYA $2,395). Dollars;
+    // blank = fall back to the DSCR rate-sheet schedule. Drives the Close Out default.
+    closingFees: (function (v) { var n = Number(String(v == null ? '' : v).replace(/[$,\s]/g, '')); return (String(v == null ? '' : v).trim() !== '' && isFinite(n) && n >= 0) ? String(n) : ''; })(body.closingFees),
   };
 
   let investor;

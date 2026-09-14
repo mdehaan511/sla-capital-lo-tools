@@ -134,6 +134,8 @@
         <div class="vm-field"><label>Contact Name</label><input type="text" id="imPocName" placeholder="Main point of contact"></div>
         <div class="vm-field"><label>Contact Phone</label><input type="tel" id="imPocPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)"></div>
         <div class="vm-field full"><label>Contact Email</label><input type="email" id="imPocEmail" placeholder="name@investor.com"></div>
+        <!-- Deploy 237.016 (Mike): closing fees vary by investor; prefills Close Out (still editable there). -->
+        <div class="vm-field"><label>Closing Fees ($)</label><input type="text" id="imClosingFees" inputmode="decimal" placeholder="e.g. 2395 — blank = rate sheet"></div>
         <div class="vm-field full"><label>Buy-Box / Criteria</label><textarea id="imCriteria" placeholder="What they buy — product types, LTV/DSCR limits, states, min/max loan, etc."></textarea></div>
         <div class="vm-field full"><label>Notes</label><textarea id="imNotes" placeholder="Anything else worth remembering"></textarea></div>
       </div>
@@ -270,6 +272,7 @@ function renderRow(i) {
   var emailHtml = i.pocEmail ? '<a href="mailto:' + escAttr(i.pocEmail) + '" onclick="event.stopPropagation()">' + escH(i.pocEmail) + '</a>' : '<span class="inv-sub">—</span>';
   var phoneHtml = i.pocPhone ? '<a href="tel:' + escAttr(String(i.pocPhone).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(i.pocPhone) + '</a>' : '<span class="inv-sub">—</span>';
   var ltSub = (Array.isArray(i.loanTypes) && i.loanTypes.length) ? i.loanTypes.join(', ') : '';
+  if (i.closingFees) ltSub += (ltSub ? ' · ' : '') + 'Closing fees $' + Number(i.closingFees).toLocaleString('en-US');
   return '<div class="inv-row" onclick="openInvestorModalById(\'' + escAttr(i.id) + '\')" title="Click to edit">' +
     '<div><div class="inv-name">' + escH(i.name || '(unnamed)') + '</div>' + (ltSub ? '<div class="inv-sub">' + escH(ltSub) + '</div>' : '') + '</div>' +
     '<div class="c-poc">' + escH(i.pocName || '') + '</div>' +
@@ -292,6 +295,7 @@ function openInvestorModal(inv) {
   document.getElementById('imPocEmail').value  = inv ? (inv.pocEmail|| '') : '';
   document.getElementById('imCriteria').value  = inv ? (inv.criteria|| '') : '';
   document.getElementById('imNotes').value     = inv ? (inv.notes   || '') : '';
+  document.getElementById('imClosingFees').value = inv ? (inv.closingFees || '') : '';
   var st = document.getElementById('imStatus'); st.textContent = ''; st.className = 'vm-status';
   document.getElementById('invModalBg').style.display = 'flex';
 }
@@ -313,6 +317,7 @@ function saveInvestor() {
     pocEmail: document.getElementById('imPocEmail').value.trim(),
     criteria: document.getElementById('imCriteria').value.trim(),
     notes:    document.getElementById('imNotes').value.trim(),
+    closingFees: document.getElementById('imClosingFees').value.trim(),
   };
   var id = document.getElementById('imId').value;
   if (id) body.id = id;

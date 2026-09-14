@@ -229,6 +229,7 @@ var _openAcc = { post_close: true, servicing: true, pending_sale: true, sold_rtl
   pending_boarding: true }; // Deploy 236.982 — open by default: it exists to be seen
 var _openDraws = {};         // loanKey -> bool
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
+var _investorBook = [];      // Deploy 237.016 — full investor records (id, name, closingFees)
 var _noteServicers = [];     // Deploy 236.628 — org-wide Note Servicer names (Vendors, role note_servicer)
 var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'funded',d:-1}, pending_sale:{k:'funded',d:-1},
   sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
@@ -388,13 +389,14 @@ function rateSheetClosingFees(){
   try { var F = window.SLA_DSCR && SLA_DSCR.FEES;
     if (F) return num(F.underwriting) + num(F.doc_prep) + num(F.legal_doc) + num(F.desktop_analysis);
   } catch(e){}
-  return 2315; // fallback = 995 + 700 + 500 + 120 (7.22.26 sheet)
+  return 2395; // fallback = 995 + 700 + 500 + 200 (Deploy 237.016: Desktop Analysis $200)
 }
 function _defaultTpo(){ try { return window.SLA_DSCR && SLA_DSCR.DIYA ? num(SLA_DSCR.DIYA.HIDDEN_TPO_PCT) : 1; } catch(e){ return 1; } }
 // Profitability (Sold-DSCR) = (TPO spread + origination points)% × loan + closing fees.
 function dscrProfitability(l){
   var amt = num(l.finalLoanAmount) || num(l.loanAmt); if (!(amt > 0)) return null;
-  var tpo = (l.tpoSpread != null && l.tpoSpread !== '') ? num(l.tpoSpread) : _defaultTpo();
+  var _t = _closingTabTpo({ tpoSpread: l.tpoSpread, tpo: l.tpo, tpoPremium: l.tpoPremium }); // 237.016 — snapshot, else Closing tab
+  var tpo = (l.tpoSpread != null && l.tpoSpread !== '') ? num(l.tpoSpread) : (_t !== '' ? num(_t) : _defaultTpo());
   var pts = num(l.points);
   var fees = (l.closingFees != null && l.closingFees !== '') ? num(l.closingFees) : rateSheetClosingFees();
   return (tpo + pts) / 100 * amt + fees;
@@ -531,7 +533,8 @@ function loadAll(){
   // Deploy 236.620 — platform investor book for the Investor dropdown (non-fatal).
   if (SLA.Investors && SLA.Investors.list) {
     SLA.Investors.list().then(function(r){
-      _investors = ((r && r.investors) || []).map(function(iv){ return String(iv.name || iv.company || '').trim(); }).filter(Boolean);
+      _investorBook = (r && r.investors) || []; // Deploy 237.016 — full records (id, closingFees)
+      _investors = _investorBook.map(function(iv){ return String(iv.name || iv.company || '').trim(); }).filter(Boolean);
     }).catch(function(){});
   }
   // Deploy 236.628 — Note Servicer book (Vendors, role note_servicer) for the
@@ -929,9 +932,29 @@ function _requireGate(){
 function _svcFieldMeta(k){ for (var i=0;i<SVC_FIELDS.length;i++){ if (SVC_FIELDS[i].k===k) return SVC_FIELDS[i]; } return { k:k, label:k, type:'text' }; }
 // Deploy 236.620 — the Investor field renders as a dropdown of platform investors
 // (from SLA.Investors). A stored value not in the book is kept as a selected option.
+// Deploy 237.016 (Mike) — investors are matched the way the Closing tab stores
+// them: by investorId first, then by a normalized name (case, punctuation and a
+// "(RTL)"/"(DSCR)" loan-type suffix ignored). Exact-string matching showed
+// "(not in book)" for investors that ARE in the book.
+function _invNorm(s){ return String(s||'').toLowerCase().replace(/\((rtl|dscr|new construction|multifamily|other)[^)]*\)/g,'').replace(/[^a-z0-9]/g,''); }
+function _bookInvestorFor(l){
+  if (!l) return null;
+  var id = String(l.investorId||'');
+  if (id) { for (var i=0;i<_investorBook.length;i++){ if (String(_investorBook[i].id)===id) return _investorBook[i]; } }
+  var n = _invNorm(l.investorName);
+  if (n) { for (var j=0;j<_investorBook.length;j++){ if (_invNorm(_investorBook[j].name)===n) return _investorBook[j]; } }
+  return null;
+}
+function _bookInvestorByName(name){
+  var n = _invNorm(name); if (!n) return null;
+  for (var j=0;j<_investorBook.length;j++){ if (_invNorm(_investorBook[j].name)===n) return _investorBook[j]; }
+  return null;
+}
+function _investorNameFor(l){ var b=_bookInvestorFor(l); return b ? String(b.name||'') : String((l&&l.investorName)||''); }
 function _investorSelect(id, cur, extraAttr){
   var opts = '<option value="">— select investor —</option>';
   var found = false;
+  if (cur && _investors.indexOf(cur) < 0) { var _bk = _bookInvestorByName(cur); if (_bk && _bk.name) cur = String(_bk.name); } // 237.016
   _investors.forEach(function(nm){ var sel=(nm===cur)?' selected':''; if(sel) found=true; opts += '<option value="'+escAttr(nm)+'"'+sel+'>'+escH(nm)+'</option>'; });
   if (cur && !found) opts = '<option value="'+escAttr(cur)+'" selected>'+escH(cur)+' (not in book)</option>' + opts;
   return '<select id="'+id+'" '+(extraAttr||'')+'>'+opts+'</select>';
@@ -1472,7 +1495,7 @@ function _closeOutHtml(it, typeVal, keepInvestor){
   var l=it.loan;
   var t = (typeVal!=null) ? String(typeVal).toLowerCase() : String(l.toolType||'').toLowerCase();
   if (t!=='rtl' && t!=='dscr') t=''; // guc/blank → force an explicit routing choice
-  var inv = (keepInvestor!=null) ? keepInvestor : (l.investorName||'');
+  var inv = (keepInvestor!=null) ? keepInvestor : _investorNameFor(l); // 237.016 — Closing tab investor (id, then name)
   _reqRegister('co_toolType','Loan Type');
   _reqRegister('co_investorName','Investor');
   var typeSel = '<select id="co_toolType" onchange="_rerenderCloseOut()">' +
@@ -1482,22 +1505,50 @@ function _closeOutHtml(it, typeVal, keepInvestor){
   '</select>';
   var html = '<div class="svc-fld" style="grid-column:1/-1"><label>Loan Type <span class="req">*</span> <span class="svc-hint">— routes the loan</span></label>'+typeSel+'</div>' +
     '<div class="svc-fld" style="grid-column:1/-1"><label>Investor (buying the loan) <span class="req">*</span></label>' +
-      _investorSelect('co_investorName', inv, 'onchange="_validateRequired()"') + '</div>';
+      _investorSelect('co_investorName', inv, 'onchange="_coInvestorChanged()"') + '</div>';
   if (t==='rtl'){
     _reqRegister('co_servicerName','Note Servicer');
     html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer <span class="req">*</span> <span class="svc-hint">— from Vendors</span></label>' +
       _servicerSelect('co_servicerName', l.servicerName||'', 'onchange="_validateRequired()"') + '</div>';
   } else if (t==='dscr'){
-    var tpo = (l.tpoSpread!=null && l.tpoSpread!=='') ? String(l.tpoSpread) : String(_defaultTpo());
+    // Deploy 237.016 (Mike) — TPO comes from the Closing tab (loan.tpo; Baseline
+    // migrations carry tpoPremium; an earlier Close Out stored tpoSpread). Only when
+    // all are blank does the user have to enter it — no silent default any more.
+    var tpo = _closingTabTpo(l);
     _reqRegister('co_tpoSpread','TPO Spread');
-    html += '<div class="svc-fld"><label>TPO Spread (points) <span class="req">*</span> <span class="svc-hint">verify</span></label>' +
-        '<input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" oninput="_validateRequired()" /></div>' +
-      '<div class="svc-fld"><label>Closing Fees <span class="svc-hint">rate sheet</span></label>' +
-        '<input type="text" value="'+escAttr(money(rateSheetClosingFees()))+'" readonly style="opacity:.7;cursor:not-allowed" /></div>';
+    var fees = _closeOutFeesDefault(l, inv);
+    html += '<div class="svc-fld"><label>TPO Spread (points) <span class="req">*</span> <span class="svc-hint">' + (tpo!=='' ? 'from Closing tab' : 'not set on the Closing tab — enter it') + '</span></label>' +
+        '<input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" placeholder="e.g. 1.5" inputmode="decimal" oninput="_validateRequired()" /></div>' +
+      '<div class="svc-fld"><label>Closing Fees <span class="svc-hint" id="co_feesHint">' + escH(fees.hint) + ' — editable</span></label>' +
+        '<input type="text" id="co_closingFees" data-auto="' + (fees.fromLoan ? '0' : '1') + '" value="'+escAttr(String(fees.amount))+'" inputmode="decimal" oninput="this.setAttribute(\'data-auto\',\'0\')" /></div>';
   } else {
     html += '<div class="svc-fld" style="grid-column:1/-1"><div class="cl-note" style="margin:0">Select the loan type to continue — RTL routes to Servicing + Pending Sale (with a Note Servicer); DSCR routes to Pending Sale (with a TPO spread).</div></div>';
   }
   return html;
+}
+// Deploy 237.016 — Closing tab TPO: tpo → tpoPremium → tpoSpread ('' when all blank).
+function _closingTabTpo(l){
+  var keys = ['tpo','tpoPremium','tpoSpread'];
+  for (var i=0;i<keys.length;i++){ var v=l[keys[i]]; if (v!=null && String(v).trim()!=='') return String(v).trim(); }
+  return '';
+}
+// Deploy 237.016 (Mike) — closing fees vary by investor: a value already saved on
+// the loan wins, then the investor's Closing Fees (Investors page), then the DSCR
+// rate-sheet schedule. Always editable in Close Out.
+function _closeOutFeesDefault(l, investorName){
+  if (l && l.closingFees!=null && String(l.closingFees).trim()!=='') return { amount: num(l.closingFees), hint: 'saved on loan', fromLoan: true };
+  var b = _bookInvestorByName(investorName) || _bookInvestorFor(l);
+  if (b && b.closingFees!=null && String(b.closingFees).trim()!=='') return { amount: num(b.closingFees), hint: (b.name||'investor') + ' default', fromLoan: false };
+  return { amount: rateSheetClosingFees(), hint: 'rate sheet', fromLoan: false };
+}
+function _coInvestorChanged(){
+  _validateRequired();
+  var fe = document.getElementById('co_closingFees'); if (!fe || fe.getAttribute('data-auto')!=='1' || !_svcTarget) return;
+  var inv = (document.getElementById('co_investorName')||{}).value || '';
+  var b = _bookInvestorByName(inv);
+  var f = (b && b.closingFees!=null && String(b.closingFees).trim()!=='') ? { amount: num(b.closingFees), hint: (b.name||'investor') + ' default' } : { amount: rateSheetClosingFees(), hint: 'rate sheet' };
+  fe.value = String(f.amount);
+  var h = document.getElementById('co_feesHint'); if (h) h.textContent = f.hint + ' — editable';
 }
 function _rerenderCloseOut(){
   if (!_svcTarget) return;
@@ -1524,8 +1575,16 @@ function confirmCloseOut(){
   var rtl = (type==='rtl');
   fields.toolType = type;
   fields.investorName = (document.getElementById('co_investorName')||{}).value || '';
+  var _coBook = _bookInvestorByName(fields.investorName);           // 237.016 — keep the Closing tab's id in step
+  if (_coBook && _coBook.id) fields.investorId = String(_coBook.id);
   if (rtl){ fields.servicerName = (document.getElementById('co_servicerName')||{}).value || ''; }
-  else { fields.tpoSpread = (document.getElementById('co_tpoSpread')||{}).value || ''; fields.closingFees = String(rateSheetClosingFees()); }
+  else {
+    fields.tpoSpread = String((document.getElementById('co_tpoSpread')||{}).value || '').trim();
+    // Entered here because the Closing tab was blank → write it back there too.
+    if (fields.tpoSpread && (l.tpo==null || String(l.tpo).trim()==='')) fields.tpo = fields.tpoSpread;
+    var _feeRaw = String((document.getElementById('co_closingFees')||{}).value || '').replace(/[$,\s]/g,'');
+    fields.closingFees = (_feeRaw!=='' && isFinite(Number(_feeRaw))) ? String(Number(_feeRaw)) : String(rateSheetClosingFees());
+  }
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
   // Deploy 236.784 — one atomic call (disposition + fields); see confirmDisposition.
@@ -1552,7 +1611,7 @@ function openMarkSold(clientId, loanId, ownerKey){
   // to the Closing tab's Buy Rate (loan.buyRate). Stored values still win.
   var _msToday = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
   var html = '<div class="svc-fld"><label>Sold Date <span class="req">*</span></label><input type="date" id="ms_soldDate" value="'+escAttr(l.soldDate||_msToday)+'" oninput="_validateRequired()" /></div>' +
-    '<div class="svc-fld"><label>Investor <span class="req">*</span></label>' + _investorSelect('ms_investorName', l.investorName||'', 'onchange="_validateRequired()"') + '</div>';
+    '<div class="svc-fld"><label>Investor <span class="req">*</span></label>' + _investorSelect('ms_investorName', _investorNameFor(l), 'onchange="_validateRequired()"') + '</div>';
   if (rtl){
     _reqRegister('ms_soldRate','Sold Rate');
     html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) <span class="req">*</span> <span class="svc-hint">drives yield spread — prefilled from the Closing tab Buy Rate</span></label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||l.buyRate||'')+'" placeholder="e.g. 8.5" oninput="_validateRequired()" /></div>';

@@ -135,7 +135,7 @@ function _feesReserveHtml(l, isDscr, p) {
   var brokerDol = brokerPts > 0 ? loanAmt * brokerPts / 100 : 0;
   var flat;
   if (isDscr) {
-    var F = (typeof SLA_DSCR !== 'undefined' && SLA_DSCR.FEES) || { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 120 };
+    var F = (typeof SLA_DSCR !== 'undefined' && SLA_DSCR.FEES) || { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 200 };
     flat = [
       { label: 'Underwriting Fee',        amount: F.underwriting },
       { label: 'Doc Prep Fee',            amount: F.doc_prep },

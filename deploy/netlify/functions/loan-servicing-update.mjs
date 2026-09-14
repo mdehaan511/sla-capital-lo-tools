@@ -47,6 +47,9 @@ const FIELDS = {
   // Sold-DSCR profitability; activelyTrading ('yes'/'no') is the Pending-Sale
   // trade-ready flag.
   tpoSpread: 1, closingFees: 1, activelyTrading: 1,
+  // Deploy 237.016 — Close Out snapshots the investor by id (the Closing tab's
+  // key) and backfills the Closing tab TPO when it was blank.
+  tpo: 1, investorId: 1,
   // Deploy 236.625 — Close Out lets staff set the loan type when it's missing
   // (Baseline imports arrive blank), since type routes RTL vs DSCR. projectLoan
   // maps loan.toolType -> the tool_type PG column, so this persists in the list.

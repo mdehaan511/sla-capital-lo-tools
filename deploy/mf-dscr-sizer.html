@@ -491,7 +491,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="mf-pricing.js?v=236994"></script>
+<script src="mf-pricing.js?v=237016"></script>
 <!-- Deploy 236.960 -- "Your expected commission" box under the results (shared comp model + sizer adapter). -->
 <script src="lo-comp.js?v=236963"></script>
 <script src="lo-comp-sizer.js?v=236964"></script>
@@ -932,12 +932,12 @@ var getFICOMin = SLA_DSCR.getFICOMin;
         <div class="fees-row"><span>Underwriting Fee</span><span>$995</span></div>
         <div class="fees-row"><span>Doc Prep Fee</span><span>$700</span></div>
         <div class="fees-row"><span>Legal Fee</span><span>$500</span></div>
-        <div class="fees-row"><span>Desktop Analysis</span><span>$120</span></div>
+        <div class="fees-row"><span>Desktop Analysis</span><span>$200</span></div>
       </div>
       <!-- Broker fee row(s) appear when a broker fee is entered.
            Populated by renderBrokerFeesCardRows(). -->
       <div id="brokerFeesCardRows"></div>
-      <div class="fees-row total"><span>Total</span><span id="feesCardTotal">$2,315</span></div>
+      <div class="fees-row total"><span>Total</span><span id="feesCardTotal">$2,395</span></div>
       <div class="fees-foot">Reference only — see rate sheet for current pricing.</div>
     </div>
   </div>
@@ -1247,8 +1247,8 @@ function renderCashToCloseCard(r, effLoan) {
     : (1 + (r.buydown || 0)) / 100; // origination + buy-down
   var ptsFee = effLoan * pts;
   // Deploy 236.526 — Admin Sandbox: flat fees come from the custom fee editor
-  // when Admin Mode is on; otherwise the standard $2,315 DSCR schedule.
-  var flatFees = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 120);
+  // when Admin Mode is on; otherwise the standard $2,395 DSCR schedule.
+  var flatFees = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 200);
   var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
   var brokerDol = effLoan * brokerPts / 100;
   // Deploy 236.376 — flat broker processing fee, labeled with the
@@ -1617,7 +1617,7 @@ function onAdminManualInput() {
 // cash-to-close + the rate-sheet PDF fee table). Origination stays
 // points-driven. Seeded from FEES the first time Admin Mode is enabled.
 function _dscrDefaultFees() {
-  var F = (typeof FEES !== 'undefined' && FEES) ? FEES : { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 120 };
+  var F = (typeof FEES !== 'undefined' && FEES) ? FEES : { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 200 };
   return [
     { label: 'Underwriting Fee',        amount: F.underwriting },
     { label: 'Doc Prep Fee',            amount: F.doc_prep },
@@ -1684,7 +1684,7 @@ function _renderSlaFeesCardRows() {
     { label: 'Underwriting Fee', amount: 995 },
     { label: 'Doc Prep Fee',     amount: 700 },
     { label: 'Legal Fee',        amount: 500 },
-    { label: 'Desktop Analysis', amount: 120 },
+    { label: 'Desktop Analysis', amount: 200 },
   ];
   var html = '';
   list.forEach(function (f) {
@@ -1735,7 +1735,7 @@ function escHtml(s) {
 // Refresh the right-side fees card with broker fee row(s) + new total.
 // Called from onBrokerFeeChange and from run() (the loan amount may have
 // changed). When brokerFee is 0, broker rows hide and total falls back
-// to SLA's flat $2,315.
+// to SLA's flat $2,395.
 function renderBrokerFeesCardRows() {
   var rowsEl  = document.getElementById('brokerFeesCardRows');
   var totalEl = document.getElementById('feesCardTotal');
@@ -1746,7 +1746,7 @@ function renderBrokerFeesCardRows() {
   // editor when Admin Mode is on. Re-render the itemized rows to match, and
   // total from the same source.
   _renderSlaFeesCardRows();
-  var FLAT = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 120);
+  var FLAT = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 200);
   if (pts <= 0 && proc <= 0) {
     rowsEl.innerHTML = '';
     totalEl.textContent = '$' + Math.round(FLAT).toLocaleString();
@@ -2911,7 +2911,7 @@ function _generateRateSheetPDF(opts) {
         ['Underwriting Fee',        995],
         ['Doc Prep Fee',            700],
         ['Legal / Document Review', 500],
-        ['Desktop Analysis',        120],
+        ['Desktop Analysis',        200],
       ];
   var feeRows;
   if (typeof __ovPtsFee === 'number' && isFinite(__ovPtsFee)) {

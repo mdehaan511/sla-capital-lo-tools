@@ -850,7 +850,7 @@
         var tpoDecimal = tpo < 0.1 ? tpo : (tpo / 100);
         pointsRevenue += amt * tpoDecimal;
       }
-      var flatFees = type === 'RTL' ? 2150 : 2315;
+      var flatFees = type === 'RTL' ? 2150 : 2395; // Deploy 237.016: DSCR Desktop Analysis $200
       var costOfCapital = type === 'RTL' ? (amt * 0.0025) : 1495;
       return pointsRevenue + flatFees - costOfCapital;
     }

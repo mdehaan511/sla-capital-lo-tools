@@ -238,7 +238,7 @@ async function generateRateSheetPDF({ snapshot, loan, client, loProfile, loanAmt
   const origFee = loanAmt * origPct;
   let flatFees = 0;
   if (snapshot.tool === 'dscr') {
-    flatFees = 995 + 700 + 500 + 120; // $2,315
+    flatFees = 995 + 700 + 500 + 200; // $2,395 (Deploy 237.016)
   } else {
     flatFees = 600 + 900 + 500 + 150; // $2,150
   }
@@ -252,7 +252,7 @@ async function generateRateSheetPDF({ snapshot, loan, client, loProfile, loanAmt
     drawAdjRow(page, M, y, W - 2*M, 'Underwriting Fee', fmtMoney(995), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
     drawAdjRow(page, M, y, W - 2*M, 'Doc Prep Fee',     fmtMoney(700), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
     drawAdjRow(page, M, y, W - 2*M, 'Legal Doc Fee',    fmtMoney(500), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
-    drawAdjRow(page, M, y, W - 2*M, 'Desktop Analysis', fmtMoney(120), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
+    drawAdjRow(page, M, y, W - 2*M, 'Desktop Analysis', fmtMoney(200), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
   } else {
     drawAdjRow(page, M, y, W - 2*M, 'Underwriting Fee', fmtMoney(600), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
     drawAdjRow(page, M, y, W - 2*M, 'Doc Prep Fee',     fmtMoney(900), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;

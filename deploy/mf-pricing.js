@@ -153,7 +153,7 @@ const FEES = {
   underwriting: 995,
   doc_prep: 700,
   legal_doc: 500,
-  desktop_analysis: 120,
+  desktop_analysis: 200,        // Deploy 237.016 (Mike): was 120 — same schedule as 1-4 unit DSCR
 };
 
 // ══════════════════════════════════════════════════════════════════

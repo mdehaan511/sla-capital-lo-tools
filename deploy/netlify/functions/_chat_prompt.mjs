@@ -81,7 +81,7 @@ The on-page banner and the sizer should reflect these; if a deal seems blocked w
 - Interior access required on every deal. Photos with underwriter approval as exception.
 
 **Standard fees** (these are baked into the sizers but worth knowing):
-- **DSCR — $2,315 total:** $995 Underwriting, $700 Doc Prep, $500 Legal, $120 Desktop Analysis.
+- **DSCR — $2,395 total:** $995 Underwriting, $700 Doc Prep, $500 Legal, $200 Desktop Analysis.
 - **RTL — $2,150 total:** $600 Underwriting, $900 Doc Prep, $500 Servicing/Processing, $150 Credit/Background Check.
 - **Per-draw fee on RTL: $150.**
 Our fees are standard for the BPL space. If a borrower says SLA's fees are "higher than others," they're almost certainly comparing to agency debt (which we are not). Ask for their competing term sheet — usually it doesn't materialize.
