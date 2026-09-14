@@ -7990,22 +7990,14 @@ function saveAppFields() {
     brokerCompany: (document.getElementById('af-brokerCompany')||{value:''}).value.trim(),
     brokerEmail:   (document.getElementById('af-brokerEmail')  ||{value:''}).value.trim().toLowerCase(),
     brokerPhone:   (document.getElementById('af-brokerPhone')  ||{value:''}).value.trim(),
-    updatedAt:     new Date().toISOString(),
   };
 
-  // Update the loan inside the client and save the whole client back
-  var loans = _client.loans || [];
-  var idx = loans.findIndex(function(l){ return l.id === _loanId; });
-  if (idx < 0) return;
-  loans[idx] = Object.assign({}, loans[idx], appFields);
-  _loan = loans[idx];
-  _client.loans = loans;
-
-  var saveOpts = _client;
-  if (_loEmail && _user && _loEmail !== _user.email) {
-    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
-  }
-  SLA.Clients.save(saveOpts).then(function() {
+  // Deploy 237.021 — deterministic clientId+loanId field save (same path as Loan
+  // Terms). The old whole-client save returned silently when the loan wasn't in
+  // _client.loans — always the case on the PG read path — so Save Changes did
+  // nothing and showed nothing.
+  SLA.Loans.saveFields(_clientId, _loanId, appFields, _ldOwnerOverride()).then(function() {
+    _ldMergeLoan(appFields);
     var s = document.getElementById('appStatus');
     if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
     showToast('Broker info saved');
@@ -8027,19 +8019,10 @@ function saveGcContact() {
     gcEmail:   (document.getElementById('af-gcEmail')   || { value: '' }).value.trim().toLowerCase(),
     gcPhone:   (document.getElementById('af-gcPhone')   || { value: '' }).value.trim(),
     gcLicense: (document.getElementById('af-gcLicense') || { value: '' }).value.trim(),
-    updatedAt: new Date().toISOString(),
   };
-  var loans = _client.loans || [];
-  var idx = loans.findIndex(function(l){ return l.id === _loanId; });
-  if (idx < 0) return;
-  loans[idx] = Object.assign({}, loans[idx], fields);
-  _loan = loans[idx];
-  _client.loans = loans;
-  var saveOpts = _client;
-  if (_loEmail && _user && _loEmail !== _user.email) {
-    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
-  }
-  SLA.Clients.save(saveOpts).then(function() {
+  // Deploy 237.021 — see saveAppFields: field save instead of the whole-client save.
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function() {
+    _ldMergeLoan(fields);
     var s = document.getElementById('gcStatus');
     if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
     showToast('General Contractor saved');
