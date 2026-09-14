@@ -2222,12 +2222,6 @@
   force = true
 
 [[redirects]]
-  from = "/api/baseline-graphql-probe"
-  to = "/.netlify/functions/baseline-graphql-probe"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/api/dscr-sold-backfill"
   to = "/.netlify/functions/dscr-sold-backfill"
   status = 200
@@ -2246,9 +2240,6 @@
   timeout = 26
 
 [functions.mail-backfill]
-  timeout = 26
-
-[functions.baseline-graphql-probe]
   timeout = 26
 
 [functions.dscr-sold-backfill]
