@@ -120,7 +120,7 @@ async function handle(req, context) {
     const norm = (v) => String(v || '').replace(/[^0-9A-Za-z-]/g, '');
     let byAcct = null, fciErr = '';
     try {
-      const d = await fciQuery('{ getLoanDeliquency(dateTo:"' + mdy(asOf) + '" limit:5000){ detail{ account borrowerName current nextDueDate principalBalance upb1to30 upb31to60 upb61to90 upb121plus } } }', { timeoutMs: 60000 });
+      const d = await fciQuery('{ getLoanDeliquency(dateTo:"' + mdy(asOf) + '"){ detail{ account borrowerName current nextDueDate principalBalance upb1to30 upb31to60 upb61to90 upb121plus } } }', { timeoutMs: 60000 });
       byAcct = new Map();
       (d.getLoanDeliquency && d.getLoanDeliquency.detail || []).forEach((x) => { if (x && x.account) byAcct.set(norm(x.account), x); });
       meta.fciReportRows = byAcct.size;
