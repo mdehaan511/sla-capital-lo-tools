@@ -13,7 +13,7 @@ import { getStore } from '@netlify/blobs';
 import { handleOptions, json, readJsonBody } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
 import { resolveByToken } from './_shared/borrower-info-token-index.mjs';
-import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing, refreshRecordBorrowerEmail } from './_shared/borrower-info-sync.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
 // Deploy 228 — parse single-line Google formatted_address to fill
@@ -75,6 +75,7 @@ async function handle(req) {
   const merged = mergeData(record.data || {}, incoming);
 
   record.data = merged;
+  refreshRecordBorrowerEmail(record); // Deploy 237.045 -- follow the email the borrower actually entered
   record.lastSavedAt = new Date().toISOString();
   record.updatedAt = record.lastSavedAt;
   if (record.status === 'pending') record.status = 'in_progress';

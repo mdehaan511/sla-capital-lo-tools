@@ -35,7 +35,7 @@ import {
 } from './_shared/auth.mjs';
 import { resolveByToken } from './_shared/borrower-info-token-index.mjs';
 import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
-import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing, refreshRecordBorrowerEmail } from './_shared/borrower-info-sync.mjs';
 import {
   ESIGN_CONSENT_VERSION, hashFormData, sealAudit, getClientIp, getUserAgent,
   generateBorrower2Token,
@@ -177,6 +177,10 @@ async function handle(req) {
   // ── 3. Capture audit context for borrower 1 ────────────────────
   const signedAt = new Date().toISOString();
   const dataHash = hashFormData(record.data);
+  // Deploy 237.045 (Mike) -- the signer's email is the CURRENT form email, not the
+  // request-time snapshot: the audit seal, the PDF certificate page, the courtesy
+  // copy and the LO notification all read b1Audit.signerEmail.
+  refreshRecordBorrowerEmail(record);
   const auditPre = {
     recordId: `${record.ownerKey}/${record.clientId}/${record.loanId || ''}`,
     signerName: body.signerName.trim().slice(0, 200),

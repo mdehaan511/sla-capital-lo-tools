@@ -17,7 +17,7 @@ import {
 } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
 import { loadRecord, saveRecord } from './_shared/borrower-info-keys.mjs';
-import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing, refreshRecordBorrowerEmail } from './_shared/borrower-info-sync.mjs';
 // Deploy 236.55 — re-render the stored signed-application PDF after an
 // LO edit so corrections (typos, address fixes, etc.) flow through to
 // the printed application without forcing the borrower to e-sign again.
@@ -72,6 +72,7 @@ async function handle(req, context) {
   // Merge incoming data: keep SSN encryption logic identical to borrower path
   const incoming = body.data || {};
   record.data = mergeData(record.data || {}, incoming);
+  refreshRecordBorrowerEmail(record); // Deploy 237.045 -- follow the email the LO corrected in the app
   record.lastSavedAt = new Date().toISOString();
   record.updatedAt = record.lastSavedAt;
   // Mark that an LO has reviewed/touched this record
