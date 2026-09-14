@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Book of Clients — SLA Capital</title>
+<title>Borrowers — SLA Capital</title>
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script src="sla-api.js"></script>
 <script src="sla-forms.js"></script>
@@ -235,8 +235,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="page">
   <div class="page-header">
     <div>
-      <h1>Book of Clients</h1>
-      <p id="pageSubtitle">All clients with loan history.</p>
+      <!-- Deploy 237.021 (Mike) — page renamed Borrowers (navbar menu is Contacts → Borrowers). -->
+      <h1>Borrowers</h1>
+      <p id="pageSubtitle">All borrowers with loan history.</p>
     </div>
     <div>
       <button class="add-contact-btn" onclick="openAddContact()">+ Add Contact</button>
@@ -245,7 +246,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   <!-- Admin view switcher -->
   <div class="view-tabs" id="viewTabs" style="display:none">
-    <button class="view-tab active" data-view="my" onclick="setView('my')">My Clients</button>
+    <button class="view-tab active" data-view="my" onclick="setView('my')">My Borrowers</button>
     <button class="view-tab" data-view="admin" onclick="setView('admin')">All Users</button>
   </div>
 
@@ -473,7 +474,7 @@ function renderSummary() {
   var total = _clients.length;
   var totalLoans = _clients.reduce(function(s,c){ return s+(c.loans||[]).length; }, 0);
   document.getElementById('summaryBar').innerHTML =
-    '<div class="summary-pill"><strong>'+total+'</strong> clients</div>' +
+    '<div class="summary-pill"><strong>'+total+'</strong> borrowers</div>' +
     '<div class="summary-pill"><strong>'+totalLoans+'</strong> total loans</div>';
 }
 
@@ -615,8 +616,8 @@ function setView(v) {
   document.getElementById('myView').style.display    = v==='my'    ? 'block':'none';
   document.getElementById('adminView').style.display = v==='admin' ? 'block':'none';
   document.getElementById('pageSubtitle').textContent = v==='my'
-    ? 'All clients with loan history.'
-    : 'All clients across all loan officers — admin view.';
+    ? 'All borrowers with loan history.'
+    : 'All borrowers across all loan officers — admin view.';
   // Hide the *other* view's alpha bar to avoid stale state
   var myBar = document.getElementById('alphaJump');
   var adminBar = document.getElementById('adminAlphaJump');
@@ -775,7 +776,7 @@ function _renderPagerHtml(page, totalPages, total, pageStart, pageEnd) {
   });
   var prevDisabled = page <= 1 ? ' disabled' : '';
   var nextDisabled = page >= totalPages ? ' disabled' : '';
-  return '<div class="pager-info">Showing ' + shownStart + '–' + shownEnd + ' of ' + total.toLocaleString() + ' clients</div>' +
+  return '<div class="pager-info">Showing ' + shownStart + '–' + shownEnd + ' of ' + total.toLocaleString() + ' borrowers</div>' +
     '<div class="pager-buttons">' +
       '<button class="pager-btn"' + prevDisabled + ' onclick="_clientsGoto(' + (page - 1) + ')">‹ Prev</button>' +
       numHtml +
@@ -1464,7 +1465,7 @@ function renderAdminClients() {
       });
     }).length;
     summaryEl.innerHTML =
-      '<div class="summary-pill"><strong>'+totalClients+'</strong> clients</div>' +
+      '<div class="summary-pill"><strong>'+totalClients+'</strong> borrowers</div>' +
       '<div class="summary-pill"><strong>'+totalLoans+'</strong> total loans</div>' +
       '<div class="summary-pill"><strong>'+loCount+'</strong> '+(loCount===1?'LO':'LOs')+'</div>';
   }

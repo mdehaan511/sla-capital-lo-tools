@@ -4,6 +4,7 @@
  * Deploy 236.23: pulled out into shared module so every page renders
  *   the same nav and adding a page only needs one edit.
  * Deploy 236.24: dropdown menus (Clients/Brokers/Loans + Profile/Signout),
+ *   (Deploy 237.021: Clients menu is now "Contacts"; new Tools menu.)
  *   removed standalone Admin link (Profile covers admin settings),
  *   removed sitewide search bar (sla-search.js dropped from page list).
  *
@@ -75,17 +76,20 @@
       ],
     },
     {
-      label: 'Clients',
-      // Grouped to declutter the navbar. Default label is "Clients" since
-      // it's the most-visited of the four. The dropdown lists all of
-      // them including Clients itself so the user always has a
+      // Deploy 237.021 (Mike) — menu renamed "Clients" → "Contacts" and the
+      // clients.html child renamed "Borrowers": the menu holds borrowers,
+      // brokers, partners, vendors and investors, so "Contacts" is the
+      // honest umbrella and "Borrowers" says what clients.html actually is.
+      label: 'Contacts',
+      // Grouped to declutter the navbar. The dropdown lists all of
+      // them including Borrowers itself so the user always has a
       // one-click path.
       // Deploy 236.115 (Phase E.2) — added Contacts: the cross-loan
       // view of additional contacts (Title Co / Insurance / etc.).
       // Deploy 236.188 — Loans moved out to its own top-level dropdown
       // below (with Submissions + Loan List).
       children: [
-        { label: 'Clients',  href: '/clients.html'  },
+        { label: 'Borrowers', href: '/clients.html'  },
         { label: 'Brokers',  href: '/brokers.html'  },
         // Deploy 236.859 — Preferred Partner portal admin. Sits next to
         // Brokers because a partner IS a broker, with portal access on
@@ -108,6 +112,22 @@
       children: [
         { label: 'Submissions', href: '/submissions.html', requires: 'admin' },
         { label: 'Loan List',   href: '/loans.html' },
+      ],
+    },
+    // Deploy 237.021 (Mike) — Tools menu: the sizers + guidelines that used
+    // to be reachable only from the Home tool cards, plus the new E-Sign
+    // tool (esign.html). Home keeps its cards; this is the one-click path
+    // from any page.
+    {
+      label: 'Tools',
+      children: [
+        { label: 'DSCR Sizer',             href: '/dscr-sizer.html' },
+        { label: 'RTL Sizer',              href: '/rtl-sizer.html' },
+        { label: 'GUC Sizer',              href: '/guc-sizer.html' },
+        // Same gate as the MF sizer page itself (admin or Senior LO).
+        { label: 'Multifamily DSCR Sizer', href: '/mf-dscr-sizer.html', requires: 'mf' },
+        { label: 'Guidelines',             href: '/guidelines-hub.html' },
+        { label: 'E-Sign',                 href: '/esign.html' },
       ],
     },
     // Deploy 236.121 — standalone Doc Review pages deleted; the
@@ -207,6 +227,11 @@
     if (link.requires === 'admin') return hasRole(user, 'admin');
     if (link.requires === 'super_admin') return hasRole(user, 'super_admin');
     if (link.requires === 'processor') return hasRole(user, 'processor');
+    // Deploy 237.021 — MF sizer gate mirrors mf-dscr-sizer.html's own guard
+    // (admin OR senior_lo).
+    if (link.requires === 'mf') {
+      return hasRole(user, 'admin') || _rawRoles(user).some(function (r) { return r === 'senior_lo'; });
+    }
     if (link.requires === 'mail') {
       // hasRole('processor') predates the Senior LO tier; the server's
       // canWorkMail includes senior_lo, so the link must too.
