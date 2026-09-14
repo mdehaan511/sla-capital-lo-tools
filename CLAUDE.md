@@ -94,6 +94,10 @@ to bypass owner scoping.
 | `borrower2_token_idx` | Borrower-2 (co-signer) token lookup | |
 | `pandadoc-send-log` | **Legacy read-only** — kept for audit history pre-Deploy 185 | |
 | `settings` | Admin settings (Slack webhook, etc.) | |
+| `esign-docs` / `esign-docs-index` | E-Sign tool (Deploy 237.022) document records + list index | `strong`; index via `store-index.mjs` |
+| `esign-doc-pdfs` / `esign-doc-final` / `esign-doc-sigs` | E-Sign original PDF, executed PDF, adopted signature images | keyed `ownerKey/docId[/signerId]` |
+| `esign-signer-idx` | E-Sign signer token → `{docKey, signerId}` | For `esign-sign.html?t=` |
+| `esign-templates` / `esign-template-pdfs` | E-Sign reusable layouts (org-wide library) | |
 
 ### Consistency choices
 
@@ -337,7 +341,8 @@ Pre-Claude-Code workflow (legacy, no longer in use): zips under
 | Add a new API endpoint | `netlify/functions/<name>.mjs` + redirect in `netlify.toml` + helper in `sla-api.js` |
 | Change pricing | `dscr-sizer.html` (DIYA const) or `rtl-sizer.html` (BASE_RATE/COLCHIS consts) |
 | Modify the term sheet PDF | `dscr-sizer.html` or `rtl-sizer.html`, search for `jsPDF` |
-| Touch eSign | `netlify/functions/_shared/native-esign.mjs` + the `envelopes-*.mjs` family |
+| Touch eSign (term sheets / extensions) | `netlify/functions/_shared/native-esign.mjs` + the `envelopes-*.mjs` family |
+| Touch the E-Sign tool (any PDF, placed fields, templates) | `esign.html`, `esign-sign.html`, `netlify/functions/_shared/esign-docs.mjs` + the `esign-*.mjs` family |
 | Update borrower long-app form | `borrower-info.html` (questionnaire) + `borrower-info-sign.mjs` + `borrower2-auth-sign.mjs` |
 | Change pipeline columns/cards | `pipeline.html` |
 | Add admin UI | Usually `profile.html` (admin tab) or a dedicated page |

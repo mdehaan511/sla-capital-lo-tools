@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E-Sign — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Deploy 237.022 (Mike) — E-Sign tool. Upload any PDF, drop signature /
+       initials / date / text / checkbox boxes on it, send to borrowers and
+       staff in signing order, track status, reuse layouts as templates, and
+       file the executed copy onto a loan (AI suggests which loan + doc type).
+       Backend: netlify/functions/esign-*.mjs + _shared/esign-docs.mjs.
+       Signer-facing page: esign-sign.html. -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10); --gold-border: rgba(200,129,58,0.28);
+      --dark: #261a36; --bg: #f0ece5; --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940; --blue: #1e40af; --r: 12px;
+    }
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .page { max-width: 100%; margin: 0 auto; padding-top: 1.25rem; }
+    .page-header { margin-bottom: 1rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; }
+    .page-header p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .btn { background: var(--gold); color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .btn:hover { background: var(--gold-mid); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .btn.ghost { background: #fff; border: 1px solid var(--border); color: var(--text); }
+    .btn.ghost:hover { border-color: var(--gold); color: var(--gold-mid); background: #fff; }
+    .btn.dark { background: var(--dark); } .btn.dark:hover { background: #3a2a52; }
+    .btn.danger { background: #fff; color: var(--danger); border: 1px solid rgba(124,31,31,.35); } .btn.danger:hover { background: rgba(124,31,31,.06); }
+    .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+    .btn.xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+    .tab { font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--muted); cursor: pointer; font-family: inherit; }
+    .tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .tab .count { margin-left: 6px; background: var(--gold); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 11px; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font: inherit; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus, input:focus, select:focus, textarea:focus { outline: none; border-color: var(--gold); }
+    .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+    .empty { color: var(--muted); font-size: 13px; padding: 40px 10px; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r); }
+    .loading { padding: 40px; text-align: center; color: var(--muted); }
+    /* list */
+    .doc-list { display: flex; flex-direction: column; gap: 8px; }
+    .doc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; align-items: center; cursor: pointer; }
+    .doc-card:hover { border-color: var(--gold); }
+    .doc-title { font-weight: 600; font-size: 14px; }
+    .doc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .doc-signers { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; grid-column: 1 / -1; }
+    .sig-chip { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--border); background: #fff; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+    .sig-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #c9c4bc; }
+    .sig-chip.signed { color: var(--success); border-color: rgba(37,105,64,.3); background: rgba(37,105,64,.06); } .sig-chip.signed .dot { background: var(--success); }
+    .sig-chip.viewed { color: var(--blue); border-color: rgba(30,64,175,.3); } .sig-chip.viewed .dot { background: var(--blue); }
+    .sig-chip.sent .dot { background: var(--gold); }
+    .status-pill { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 10px; border-radius: 10px; }
+    .status-pill.draft { background: rgba(122,116,136,.12); color: var(--muted); }
+    .status-pill.sent { background: rgba(200,129,58,.14); color: var(--gold-mid); }
+    .status-pill.completed { background: rgba(37,105,64,.12); color: var(--success); }
+    .status-pill.cancelled { background: rgba(124,31,31,.10); color: var(--danger); }
+    .card-actions { display: flex; gap: 6px; align-items: center; }
+    /* modal */
+    .modal-bg { position: fixed; inset: 0; background: rgba(20,14,28,0.55); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .modal { background: var(--surface); border-radius: 14px; width: min(640px, 96vw); max-height: 92vh; overflow: auto; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    .modal h2 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 6px; }
+    .modal p.sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+    .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 30px; text-align: center; color: var(--muted); font-size: 13px; cursor: pointer; }
+    .drop:hover, .drop.over { border-color: var(--gold); background: var(--gold-light); }
+    .drop strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+    .field { margin-top: 12px; }
+    .field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+    input[type=text], input[type=email], input[type=date], input[type=number], select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 13px; background: #fff; }
+    textarea { resize: vertical; min-height: 64px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    .tpl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .tpl-card:hover { border-color: var(--gold); }
+    .tpl-card .name { font-weight: 600; font-size: 14px; }
+    .tpl-card .meta { font-size: 12px; color: var(--muted); margin: 4px 0 10px; }
+    /* editor */
+    .ed-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; position: sticky; top: 0; z-index: 30; }
+    .ed-top input.title { flex: 1; min-width: 200px; font-size: 15px; font-weight: 600; border: 1px solid transparent; padding: 6px 8px; }
+    .ed-top input.title:hover, .ed-top input.title:focus { border-color: var(--border); }
+    .ed-save { font-size: 12px; color: var(--muted); min-width: 90px; }
+    .ed-layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+    @media (max-width: 900px) { .ed-layout { grid-template-columns: 1fr; } }
+    .side { position: sticky; top: 66px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 80px); overflow-y: auto; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .panel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .signer-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; font-size: 12.5px; background: #fff; }
+    .signer-row.active { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(200,129,58,.2); }
+    .signer-row .sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .signer-row .who { flex: 1; min-width: 0; }
+    .signer-row .who .n { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .signer-row .who .e { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .signer-row .ord { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); background: var(--bg); border-radius: 10px; padding: 1px 7px; }
+    .signer-row .x { color: var(--muted); border: 0; background: none; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; }
+    .signer-row .x:hover { color: var(--danger); }
+    .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .tool { border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 12px; font-weight: 600; background: #fff; cursor: pointer; text-align: left; font-family: inherit; display: flex; align-items: center; gap: 6px; }
+    .tool:hover { border-color: var(--gold); }
+    .tool.active { background: var(--dark); color: #fff; border-color: var(--dark); }
+    .hint { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+    .pages { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+    .pg { position: relative; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
+    .pg canvas { display: block; }
+    .pg .ov { position: absolute; inset: 0; }
+    .pg .ov.placing { cursor: crosshair; }
+    .pg .pnum { position: absolute; top: -18px; right: 0; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .fld { position: absolute; border: 1.5px solid; border-radius: 3px; background: rgba(200,129,58,.14); font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: move; user-select: none; overflow: hidden; white-space: nowrap; color: #1a1520; }
+    .fld.sel { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--dark); z-index: 5; }
+    .fld .rs { position: absolute; right: -4px; bottom: -4px; width: 10px; height: 10px; background: #fff; border: 1.5px solid var(--dark); border-radius: 2px; cursor: nwse-resize; display: none; }
+    .fld.sel .rs { display: block; }
+    .fld .lbl { pointer-events: none; padding: 0 4px; opacity: .9; }
+    .fld.ro { cursor: default; opacity: .9; }
+    .prop .row2 { margin-top: 8px; }
+    .kv { display: grid; grid-template-columns: 120px 1fr; gap: 5px 12px; font-size: 13px; }
+    .kv .k { color: var(--muted); }
+    /* detail */
+    .dt-layout { display: grid; grid-template-columns: minmax(320px, 440px) 1fr; gap: 14px; align-items: start; }
+    @media (max-width: 980px) { .dt-layout { grid-template-columns: 1fr; } }
+    .dt-signer { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
+    .dt-signer:first-of-type { border-top: 0; }
+    .dt-signer .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .dt-signer .who { flex: 1; min-width: 0; }
+    .dt-signer .who .e { color: var(--muted); font-size: 11.5px; }
+    .dt-signer .st { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .dt-signer .st.signed { color: var(--success); } .dt-signer .st.viewed { color: var(--blue); } .dt-signer .st.sent { color: var(--gold-mid); } .dt-signer .st.wait { color: var(--muted); }
+    .timeline { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 14px; margin-top: 6px; }
+    .ev { position: relative; padding: 0 0 10px; font-size: 12.5px; }
+    .ev::before { content: ''; position: absolute; left: -20px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); border: 2px solid #fff; }
+    .ev .when { color: var(--muted); font-size: 11px; }
+    .box { border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; margin-top: 10px; }
+    .box.ai { border-color: rgba(30,64,175,.3); background: rgba(30,64,175,.04); }
+    .box.filed { border-color: rgba(37,105,64,.35); background: rgba(37,105,64,.05); }
+    .results { border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; max-height: 220px; overflow-y: auto; background: #fff; }
+    .result { padding: 7px 10px; font-size: 12.5px; cursor: pointer; border-top: 1px solid #f0ece5; }
+    .result:first-child { border-top: none; } .result:hover { background: rgba(200,129,58,.08); }
+    .result .sub { color: var(--muted); font-size: 11.5px; }
+    .picked { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid rgba(37,105,64,.35); background: rgba(37,105,64,.06); border-radius: 7px; margin-top: 6px; font-size: 13px; }
+    .pdf-frame { width: 100%; height: 78vh; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+    .suggest { position: absolute; left: 0; right: 0; top: 100%; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 50; max-height: 220px; overflow-y: auto; display: none; }
+    .suggest.show { display: block; }
+    .suggest .row { padding: 7px 10px; cursor: pointer; font-size: 12.5px; border-top: 1px solid #f0ece5; }
+    .suggest .row:first-child { border-top: 0; } .suggest .row:hover, .suggest .row.hl { background: rgba(200,129,58,.08); }
+    .suggest .row .m { color: var(--muted); font-size: 11px; }
+    .kbadge { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .kbadge.borrower { background: rgba(200,129,58,.14); color: var(--gold-mid); } .kbadge.user { background: rgba(38,26,54,.1); color: var(--dark); } .kbadge.other { background: rgba(122,116,136,.14); color: var(--muted); }
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 20px; border-radius: 24px; background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,.18); opacity: 0; transition: opacity .2s; z-index: 5000; pointer-events: none; max-width: min(90vw, 560px); text-align: center; }
+    #toast.show { opacity: 1; }
+    #toast.err { background: var(--danger); } #toast.ok { background: var(--success); }
+    .pos-rel { position: relative; }
+    a { color: var(--gold-mid); }
+  </style>
+</head>
+<body>
+<div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+<div id="toast"></div>
+
+<div id="appWrap" style="display:none">
+  <nav class="nav" id="slaNav"></nav>
+  <div class="page">
+
+    <!-- ── LIST ─────────────────────────────────────────────── -->
+    <div id="viewList">
+      <div class="page-header">
+        <div><h1>E-Sign</h1><p>Send documents for electronic signature and track them here.</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="openNewDoc()">+ New Document</button>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="draft" onclick="setTab('draft')">Drafts<span class="count" id="cnt_draft" hidden></span></button>
+        <button class="tab" data-tab="sent" onclick="setTab('sent')">Sent<span class="count" id="cnt_sent" hidden></span></button>
+        <button class="tab" data-tab="completed" onclick="setTab('completed')">Completed<span class="count" id="cnt_completed" hidden></span></button>
+        <button class="tab" data-tab="cancelled" onclick="setTab('cancelled')">Cancelled<span class="count" id="cnt_cancelled" hidden></span></button>
+        <button class="tab" data-tab="templates" onclick="setTab('templates')">Templates</button>
+        <span style="flex:1"></span>
+        <label class="chk" id="allUsersWrap" style="display:none"><input type="checkbox" id="allUsers" onchange="loadDocs(true)"> All users</label>
+        <input type="text" class="search-box" id="listSearch" placeholder="Search title, signer, email…" oninput="renderList()">
+      </div>
+      <div id="listBody"><div class="loading">Loading…</div></div>
+    </div>
+
+    <!-- ── EDITOR ───────────────────────────────────────────── -->
+    <div id="viewEditor" style="display:none">
+      <div class="ed-top">
+        <button class="btn ghost sm" onclick="goList()">← Back</button>
+        <input type="text" class="title" id="edTitle" placeholder="Document title" oninput="markDirty()">
+        <span class="ed-save" id="edSaveState"></span>
+        <button class="btn ghost sm" onclick="saveDraft(true)">Save</button>
+        <button class="btn ghost sm" onclick="saveAsTemplate()">Save as template</button>
+        <button class="btn sm" onclick="openSend()">Send for signature →</button>
+      </div>
+      <div class="ed-layout">
+        <div class="side">
+          <div class="panel">
+            <h3>Signers <button class="btn xs ghost" onclick="openAddSigner()">+ Add</button></h3>
+            <div id="signerList"></div>
+            <div class="hint" id="signerHint">Add the people who need to sign. Click a signer, then place their fields on the page.</div>
+            <label class="chk" style="margin-top:8px"><input type="checkbox" id="edSequential" onchange="markDirty();renderSigners()"> Sign in order (one at a time)</label>
+          </div>
+          <div class="panel">
+            <h3>Fields</h3>
+            <div class="tools">
+              <button class="tool" data-tool="signature" onclick="setTool('signature')">✍️ Signature</button>
+              <button class="tool" data-tool="initials" onclick="setTool('initials')">🔤 Initials</button>
+              <button class="tool" data-tool="date" onclick="setTool('date')">📅 Date signed</button>
+              <button class="tool" data-tool="text" onclick="setTool('text')">🔡 Text</button>
+              <button class="tool" data-tool="checkbox" onclick="setTool('checkbox')">☑️ Checkbox</button>
+            </div>
+            <div class="hint" id="toolHint">Pick a field type, then click on the page where it goes. Drag to move; drag the corner to resize; Delete key removes.</div>
+          </div>
+          <div class="panel prop" id="propPanel" style="display:none">
+            <h3>Selected field <button class="btn xs danger" onclick="deleteSelected()">Delete</button></h3>
+            <div class="field"><label>Assigned to</label><select id="pSigner" onchange="propChange()"></select></div>
+            <div class="row2">
+              <div class="field"><label>Type</label><select id="pType" onchange="propChange()">
+                <option value="signature">Signature</option><option value="initials">Initials</option><option value="date">Date signed</option><option value="text">Text</option><option value="checkbox">Checkbox</option>
+              </select></div>
+              <div class="field"><label>Font size</label><input type="number" id="pFont" min="6" max="24" step="1" onchange="propChange()"></div>
+            </div>
+            <div class="field"><label>Label (shown to signer)</label><input type="text" id="pLabel" placeholder="e.g. Title, Company, Phone" oninput="propChange()"></div>
+            <div class="field" id="pValueWrap" style="display:none"><label>Value (you fill this in)</label><input type="text" id="pValue" oninput="propChange()"></div>
+            <label class="chk" style="margin-top:10px"><input type="checkbox" id="pRequired" onchange="propChange()"> Required</label>
+            <div class="hint" id="pPos"></div>
+          </div>
+        </div>
+        <div>
+          <div class="pages" id="pages"><div class="loading">Rendering PDF…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DETAIL ───────────────────────────────────────────── -->
+    <div id="viewDetail" style="display:none">
+      <div class="page-header">
+        <div>
+          <div style="margin-bottom:6px"><a href="#" onclick="goList();return false" style="font-size:12px;text-decoration:none">← All documents</a></div>
+          <h1 id="dtTitle"></h1>
+          <p id="dtSub"></p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap" id="dtActions"></div>
+      </div>
+      <div class="dt-layout">
+        <div>
+          <div class="panel">
+            <h3>Signers</h3>
+            <div id="dtSigners"></div>
+          </div>
+          <div class="panel" id="dtAssignPanel" style="margin-top:12px;display:none">
+            <h3>File to a loan</h3>
+            <div id="dtAssign"></div>
+          </div>
+          <div class="panel" style="margin-top:12px">
+            <h3>History</h3>
+            <div class="timeline" id="dtHistory"></div>
+          </div>
+        </div>
+        <div>
+          <div class="panel" style="padding:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px 8px;font-size:12px;color:var(--muted)"><span id="dtPdfLabel">Document</span><span id="dtPdfMeta"></span></div>
+            <iframe class="pdf-frame" id="dtPdf" title="Document preview"></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New document modal -->
+<div class="modal-bg" id="newModal" style="display:none" onclick="if(event.target===this)closeNewDoc()">
+  <div class="modal">
+    <h2>New document</h2>
+    <p class="sub">Upload a PDF, or start from a template.</p>
+    <div class="drop" id="drop" onclick="document.getElementById('pdfFile').click()">
+      <strong>Drop a PDF here or click to choose</strong>
+      Up to <span id="maxMb">4.5</span> MB. Scanned or generated PDFs both work.
+      <input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none" onchange="onFileChosen(this.files)">
+    </div>
+    <div class="field"><label>Title</label><input type="text" id="newTitle" placeholder="Defaults to the file name"></div>
+    <div class="field" id="tplPickWrap"><label>Or use a template</label><select id="tplPick"><option value="">— choose a template —</option></select></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeNewDoc()">Cancel</button>
+      <button class="btn" id="newGo" onclick="createDoc()">Create draft</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add signer modal -->
+<div class="modal-bg" id="signerModal" style="display:none" onclick="if(event.target===this)closeAddSigner()">
+  <div class="modal" style="width:min(520px,96vw);overflow:visible">
+    <h2 id="signerModalTitle">Add signer</h2>
+    <p class="sub">Start typing a borrower or team member and pick from the list, or enter anyone.</p>
+    <div class="field pos-rel"><label>Name</label><input type="text" id="sName" autocomplete="off" oninput="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="Jane Doe"><div class="suggest" id="sugName"></div></div>
+    <div class="field pos-rel"><label>Email</label><input type="email" id="sEmail" autocomplete="off" oninput="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="jane@example.com"><div class="suggest" id="sugEmail"></div></div>
+    <div class="row2">
+      <div class="field"><label>Who is this</label><select id="sKind"><option value="borrower">Borrower / guarantor</option><option value="user">SLA team member</option><option value="other">Other (title, broker, …)</option></select></div>
+      <div class="field"><label>Signing order</label><input type="number" id="sOrder" min="1" max="10" value="1"></div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeAddSigner()">Cancel</button>
+      <button class="btn" onclick="commitSigner()">Add signer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Send modal -->
+<div class="modal-bg" id="sendModal" style="display:none" onclick="if(event.target===this)closeSend()">
+  <div class="modal" style="width:min(560px,96vw)">
+    <h2>Send for signature</h2>
+    <p class="sub" id="sendSummary"></p>
+    <div class="field"><label>Message to signers (optional)</label><textarea id="sendMessage" placeholder="Please review and sign at your earliest convenience."></textarea></div>
+    <div id="sendProblems" style="color:var(--danger);font-size:12.5px;margin-top:8px"></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeSend()">Cancel</button>
+      <button class="btn ghost" onclick="doSend(true)">Create links only</button>
+      <button class="btn" id="sendGo" onclick="doSend(false)">Send emails</button>
+    </div>
+  </div>
+</div>
+
+<!-- Links modal (after link-only send) -->
+<div class="modal-bg" id="linksModal" style="display:none" onclick="if(event.target===this)document.getElementById('linksModal').style.display='none'">
+  <div class="modal" style="width:min(640px,96vw)">
+    <h2>Signing links</h2>
+    <p class="sub">Each link is unique to that signer and expires in 30 days. Share them however you like.</p>
+    <div id="linksBody"></div>
+    <div class="actions"><button class="btn" onclick="document.getElementById('linksModal').style.display='none'">Done</button></div>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+var _user = null, _isStaff = false, _meta = null;
+var _docs = [], _templates = [], _tab = 'draft';
+var _doc = null;          // the document open in the editor / detail
+var _docOwner = '';       // owner email when a staff user opens another LO's doc
+var _dirty = false, _saveTimer = null, _saving = false;
+var _tool = null, _activeSigner = null, _selField = null;
+var _pageEls = {};        // page -> { wrap, ov, w, h }
+var _pdfDoc = null, _pdfScale = 1;
+var _peoplePool = null;   // borrowers + users for the signer picker
+var _sugIdx = -1, _sugRows = [];
+var _pendingFile = null;
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function fmtDate(iso) { if (!iso) return '—'; var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+function fmtWhen(iso) { if (!iso) return '—'; var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+function showToast(msg, kind) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (kind ? ' ' + kind : '');
+  clearTimeout(t._tm); t._tm = setTimeout(function () { t.className = ''; }, 3200);
+}
+function ownerQs() { return _docOwner ? '&owner=' + encodeURIComponent(_docOwner) : ''; }
+function ownerBody(b) { if (_docOwner) b.owner = _docOwner; return b; }
+
+// ── Boot ────────────────────────────────────────────────────────
+window.netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isStaff = !!(window.SLA && SLA.isStaff && SLA.isStaff(user));
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  if (_isStaff) document.getElementById('allUsersWrap').style.display = '';
+  SLA.api('GET', '/api/esign-docs?meta=1').then(function (m) {
+    _meta = m;
+    document.getElementById('maxMb').textContent = String(Math.round((m.maxPdfBytes || 0) / 1024 / 1024 * 10) / 10);
+  }).catch(function () { _meta = { docTypes: [], maxPdfBytes: 4.5 * 1024 * 1024 }; });
+  route();
+});
+window.addEventListener('hashchange', route);
+
+function parseHash() {
+  var h = String(location.hash || '').replace(/^#/, '');
+  var out = { view: 'list', id: '', owner: '' };
+  h.split('&').forEach(function (kv) {
+    var i = kv.indexOf('='); var k = i < 0 ? kv : kv.slice(0, i); var v = i < 0 ? '' : decodeURIComponent(kv.slice(i + 1));
+    if (k === 'edit') { out.view = 'edit'; out.id = v; }
+    else if (k === 'doc') { out.view = 'doc'; out.id = v; }
+    else if (k === 'owner') out.owner = v;
+    else if (k === 'tab') out.tab = v;
+  });
+  return out;
+}
+function route() {
+  var h = parseHash();
+  _docOwner = h.owner && h.owner.toLowerCase() !== String(_user.email || '').toLowerCase() ? h.owner : '';
+  showView(h.view);
+  if (h.view === 'edit') openEditor(h.id);
+  else if (h.view === 'doc') openDetail(h.id);
+  else { if (h.tab) _tab = h.tab; loadDocs(); }
+}
+function showView(v) {
+  // Hash navigation keeps the page alive, so close any modal left open by the previous view.
+  ['newModal', 'signerModal', 'sendModal', 'linksModal'].forEach(function (id) { var m = document.getElementById(id); if (m) m.style.display = 'none'; });
+  document.getElementById('viewList').style.display = v === 'list' ? '' : 'none';
+  document.getElementById('viewEditor').style.display = v === 'edit' ? '' : 'none';
+  document.getElementById('viewDetail').style.display = v === 'doc' ? '' : 'none';
+  if (v !== 'edit') { window.onbeforeunload = null; }
+}
+function goList() {
+  if (_dirty) saveDraft(false);
+  var target = _tab && _tab !== 'draft' ? '#tab=' + _tab : '#';
+  // replaceState so a same-hash return still re-routes (hashchange only fires on a change).
+  try { history.replaceState(null, '', location.pathname + location.search + target); } catch (_) { location.hash = target; }
+  route();
+}
+function hashFor(view, id) { return '#' + view + '=' + encodeURIComponent(id) + (_docOwner ? '&owner=' + encodeURIComponent(_docOwner) : ''); }
+
+// ── List ────────────────────────────────────────────────────────
+function setTab(t) {
+  _tab = t;
+  document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === t); });
+  if (t === 'templates') loadTemplates(); else renderList();
+}
+function loadDocs(force) {
+  document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === _tab); });
+  if (_tab === 'templates') { loadTemplates(); return; }
+  var all = _isStaff && document.getElementById('allUsers').checked;
+  if (!_docs.length || force) document.getElementById('listBody').innerHTML = '<div class="loading">Loading…</div>';
+  SLA.api('GET', '/api/esign-docs' + (all ? '?all=1' : '')).then(function (r) {
+    _docs = (r && r.docs) || [];
+    renderList();
+  }).catch(function (e) { document.getElementById('listBody').innerHTML = '<div class="empty">Could not load documents: ' + esc(e.message) + '</div>'; });
+}
+function renderList() {
+  var q = String(document.getElementById('listSearch').value || '').toLowerCase().trim();
+  var counts = { draft: 0, sent: 0, completed: 0, cancelled: 0 };
+  _docs.forEach(function (d) { if (counts[d.status] !== undefined) counts[d.status]++; });
+  Object.keys(counts).forEach(function (k) { var el = document.getElementById('cnt_' + k); el.hidden = !counts[k]; el.textContent = counts[k]; });
+  var rows = _docs.filter(function (d) {
+    if (d.status !== _tab) return false;
+    if (!q) return true;
+    var hay = [d.title, d.ownerEmail, d.ownerName, d.templateName].concat((d.signers || []).map(function (s) { return s.name + ' ' + s.email; })).join(' ').toLowerCase();
+    return hay.indexOf(q) >= 0;
+  });
+  var body = document.getElementById('listBody');
+  if (!rows.length) {
+    var msg = { draft: 'No drafts. Click “+ New Document” to upload a PDF.', sent: 'Nothing out for signature right now.', completed: 'No completed documents yet.', cancelled: 'No cancelled documents.' }[_tab] || 'Nothing here.';
+    body.innerHTML = '<div class="empty">' + msg + '</div>';
+    return;
+  }
+  var me = String(_user.email || '').toLowerCase();
+  body.innerHTML = '<div class="doc-list">' + rows.map(function (d) {
+    var other = d.ownerEmail && d.ownerEmail.toLowerCase() !== me;
+    var target = (d.status === 'draft' ? '#edit=' : '#doc=') + encodeURIComponent(d.id) + (other ? '&owner=' + encodeURIComponent(d.ownerEmail) : '');
+    var when = d.status === 'completed' ? 'Completed ' + fmtDate(d.completedAt) : d.status === 'sent' ? 'Sent ' + fmtDate(d.sentAt) : d.status === 'cancelled' ? 'Cancelled ' + fmtDate(d.cancelledAt) : 'Updated ' + fmtDate(d.updatedAt);
+    var chips = (d.signers || []).map(function (s) {
+      var cls = s.signedAt ? 'signed' : s.viewedAt ? 'viewed' : s.invitedAt ? 'sent' : '';
+      var st = s.signedAt ? 'Signed' : s.viewedAt ? 'Viewed' : s.invitedAt ? 'Sent' : (d.status === 'draft' ? '' : 'Waiting');
+      return '<span class="sig-chip ' + cls + '"><span class="dot"></span>' + esc(s.name || s.email || 'Signer') + (st ? ' · ' + st : '') + '</span>';
+    }).join('');
+    var assigned = d.assignment ? ' · <span style="color:var(--success)">Filed to ' + esc(d.assignment.slaNumber || d.assignment.address || 'loan') + '</span>' :
+      (d.status === 'completed' && d.suggestion ? ' · <span style="color:var(--blue)">AI suggests ' + esc(d.suggestion.address || 'a loan') + '</span>' : '');
+    return '<div class="doc-card" onclick="location.hash=\'' + target.replace(/'/g, '') + '\'">' +
+      '<div><div class="doc-title">' + esc(d.title || 'Untitled') + '</div>' +
+      '<div class="doc-meta">' + when + ' · ' + (d.pageCount || 0) + ' page' + (d.pageCount === 1 ? '' : 's') + (other ? ' · ' + esc(d.ownerName || d.ownerEmail) : '') + (d.templateName ? ' · from “' + esc(d.templateName) + '”' : '') + assigned + '</div></div>' +
+      '<div class="card-actions"><span class="status-pill ' + esc(d.status) + '">' + esc(d.status) + '</span></div>' +
+      (chips ? '<div class="doc-signers">' + chips + '</div>' : '') +
+    '</div>';
+  }).join('') + '</div>';
+}
+
+// ── Templates ───────────────────────────────────────────────────
+function loadTemplates() {
+  document.getElementById('listBody').innerHTML = '<div class="loading">Loading templates…</div>';
+  SLA.api('GET', '/api/esign-templates').then(function (r) {
+    _templates = (r && r.templates) || [];
+    renderTemplates();
+  }).catch(function (e) { document.getElementById('listBody').innerHTML = '<div class="empty">Could not load templates: ' + esc(e.message) + '</div>'; });
+}
+function renderTemplates() {
+  var body = document.getElementById('listBody');
+  if (!_templates.length) { body.innerHTML = '<div class="empty">No templates yet. Open any draft and click “Save as template”.</div>'; return; }
+  var me = String(_user.email || '').toLowerCase();
+  body.innerHTML = '<div class="tpl-grid">' + _templates.map(function (t) {
+    var canEdit = _isStaff || (t.ownerEmail || '').toLowerCase() === me;
+    return '<div class="tpl-card"><div class="name">' + esc(t.name) + '</div>' +
+      '<div class="meta">' + (t.pageCount || 0) + ' page' + (t.pageCount === 1 ? '' : 's') + ' · ' + (t.fieldCount || 0) + ' fields · ' + (t.roles || []).length + ' signer role' + ((t.roles || []).length === 1 ? '' : 's') +
+        (t.sequential ? ' · in order' : '') + '<br>by ' + esc(t.ownerName || t.ownerEmail) + ' · used ' + (t.useCount || 0) + '×</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" onclick="useTemplate(\'' + esc(t.id) + '\')">Use template</button>' +
+      (canEdit ? '<button class="btn sm danger" onclick="deleteTemplate(\'' + esc(t.id) + '\',\'' + esc(t.name).replace(/'/g, '') + '\')">Delete</button>' : '') + '</div></div>';
+  }).join('') + '</div>';
+}
+function useTemplate(id) {
+  var t = _templates.filter(function (x) { return x.id === id; })[0];
+  var title = prompt('Title for this document:', t ? t.name : '');
+  if (title === null) return;
+  showToast('Creating draft…');
+  SLA.api('POST', '/api/esign-docs', { templateId: id, title: title }).then(function (r) {
+    _docOwner = '';
+    location.hash = '#edit=' + encodeURIComponent(r.doc.id);
+  }).catch(function (e) { showToast('Could not create draft: ' + e.message, 'err'); });
+}
+function deleteTemplate(id, name) {
+  if (!confirm('Delete template “' + name + '”? Documents already created from it are not affected.')) return;
+  SLA.api('POST', '/api/esign-templates', { action: 'delete', id: id }).then(function () { showToast('Template deleted', 'ok'); loadTemplates(); })
+    .catch(function (e) { showToast(e.message, 'err'); });
+}
+
+// ── New document ────────────────────────────────────────────────
+function openNewDoc() {
+  _pendingFile = null;
+  document.getElementById('newTitle').value = '';
+  document.getElementById('pdfFile').value = '';
+  document.getElementById('drop').querySelector('strong').textContent = 'Drop a PDF here or click to choose';
+  document.getElementById('newModal').style.display = 'flex';
+  var sel = document.getElementById('tplPick');
+  sel.innerHTML = '<option value="">— choose a template —</option>';
+  SLA.api('GET', '/api/esign-templates').then(function (r) {
+    (r.templates || []).forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); });
+  }).catch(function () {});
+}
+function closeNewDoc() { document.getElementById('newModal').style.display = 'none'; }
+function onFileChosen(files) {
+  var f = files && files[0];
+  if (!f) return;
+  if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') { showToast('Please choose a PDF file', 'err'); return; }
+  var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
+  if (f.size > max) { showToast('That PDF is ' + (f.size / 1024 / 1024).toFixed(1) + ' MB — the limit is ' + (max / 1024 / 1024).toFixed(1) + ' MB. Compress it first.', 'err'); return; }
+  _pendingFile = f;
+  document.getElementById('drop').querySelector('strong').textContent = f.name + ' (' + (f.size / 1024).toFixed(0) + ' KB)';
+  if (!document.getElementById('newTitle').value) document.getElementById('newTitle').value = f.name.replace(/\.pdf$/i, '');
+  document.getElementById('tplPick').value = '';
+}
+(function wireDrop() {
+  var d = document.getElementById('drop');
+  d.addEventListener('dragover', function (e) { e.preventDefault(); d.classList.add('over'); });
+  d.addEventListener('dragleave', function () { d.classList.remove('over'); });
+  d.addEventListener('drop', function (e) { e.preventDefault(); d.classList.remove('over'); onFileChosen(e.dataTransfer.files); });
+})();
+function readAsBase64(file) {
+  return new Promise(function (resolve, reject) {
+    var r = new FileReader();
+    r.onload = function () { resolve(String(r.result).replace(/^data:[^;]*;base64,/, '')); };
+    r.onerror = function () { reject(new Error('Could not read file')); };
+    r.readAsDataURL(file);
+  });
+}
+function createDoc() {
+  var title = document.getElementById('newTitle').value.trim();
+  var tplId = document.getElementById('tplPick').value;
+  var go = document.getElementById('newGo');
+  if (!_pendingFile && !tplId) { showToast('Choose a PDF or a template first', 'err'); return; }
+  go.disabled = true; go.textContent = 'Creating…';
+  var p = tplId ? Promise.resolve({ templateId: tplId, title: title })
+    : readAsBase64(_pendingFile).then(function (b64) { return { title: title, filename: _pendingFile.name, pdfBase64: b64 }; });
+  p.then(function (body) { return SLA.api('POST', '/api/esign-docs', body); }).then(function (r) {
+    closeNewDoc();
+    _docOwner = '';
+    location.hash = '#edit=' + encodeURIComponent(r.doc.id);
+  }).catch(function (e) { showToast('Could not create: ' + e.message, 'err'); })
+    .then(function () { go.disabled = false; go.textContent = 'Create draft'; });
+}
+
+// ── Editor ──────────────────────────────────────────────────────
+function openEditor(id) {
+  _doc = null; _selField = null; _tool = null; _dirty = false; _pageEls = {};
+  document.getElementById('pages').innerHTML = '<div class="loading">Loading…</div>';
+  document.getElementById('propPanel').style.display = 'none';
+  SLA.api('GET', '/api/esign-docs?id=' + encodeURIComponent(id) + ownerQs()).then(function (r) {
+    _doc = r.doc;
+    if (_doc.status !== 'draft') { location.hash = hashFor('doc', _doc.id); return; }
+    document.getElementById('edTitle').value = _doc.title || '';
+    document.getElementById('edSequential').checked = _doc.sequential !== false;
+    _activeSigner = _doc.signers[0] ? _doc.signers[0].id : null;
+    renderSigners();
+    setSaveState('Saved');
+    primePeople();
+    return renderPdf('/api/esign-doc-pdf?id=' + encodeURIComponent(_doc.id) + ownerQs()).then(function () { renderAllFields(); });
+  }).catch(function (e) {
+    document.getElementById('pages').innerHTML = '<div class="empty">Could not open: ' + esc(e.message) + '</div>';
+  });
+  window.onbeforeunload = function () { return _dirty ? 'You have unsaved changes.' : null; };
+}
+function setSaveState(s) { document.getElementById('edSaveState').textContent = s; }
+function markDirty() {
+  _dirty = true; setSaveState('Unsaved…');
+  clearTimeout(_saveTimer); _saveTimer = setTimeout(function () { saveDraft(false); }, 1500);
+}
+function collectEditor() {
+  return ownerBody({
+    id: _doc.id,
+    title: document.getElementById('edTitle').value,
+    sequential: document.getElementById('edSequential').checked,
+    signers: _doc.signers, fields: _doc.fields, message: _doc.message || '',
+  });
+}
+function saveDraft(explicit) {
+  if (!_doc || _saving) { if (explicit && _saving) showToast('Saving…'); return Promise.resolve(); }
+  clearTimeout(_saveTimer);
+  _saving = true; setSaveState('Saving…');
+  return SLA.api('POST', '/api/esign-doc-save', collectEditor()).then(function (r) {
+    _dirty = false; _saving = false;
+    // Take the server's normalized ids/fields but keep our selection.
+    var selId = _selField && _selField.id;
+    _doc.signers = r.doc.signers; _doc.fields = r.doc.fields; _doc.title = r.doc.title;
+    _selField = selId ? _doc.fields.filter(function (f) { return f.id === selId; })[0] || null : null;
+    renderSigners(); renderAllFields();
+    setSaveState('Saved ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    if (explicit) showToast('Draft saved', 'ok');
+  }).catch(function (e) {
+    _saving = false; setSaveState('Save failed');
+    showToast('Save failed: ' + e.message, 'err');
+  });
+}
+
+// pdf.js rendering (same CDN build sla-api.js uses for PDF compression)
+var PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+var _pdfjsReady = null;
+function loadPdfjs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (_pdfjsReady) return _pdfjsReady;
+  _pdfjsReady = new Promise(function (resolve, reject) {
+    var s = document.createElement('script'); s.src = PDFJS_SRC;
+    s.onload = function () { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; resolve(); };
+    s.onerror = function () { reject(new Error('Could not load the PDF renderer')); };
+    document.head.appendChild(s);
+  });
+  return _pdfjsReady;
+}
+function fetchPdfBytes(url) {
+  return SLA.getToken().then(function (token) {
+    return fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+  }).then(function (r) {
+    if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) { throw new Error(d.error || ('HTTP ' + r.status)); });
+    return r.arrayBuffer();
+  });
+}
+function renderPdf(url) {
+  var host = document.getElementById('pages');
+  return loadPdfjs().then(function () { return fetchPdfBytes(url); }).then(function (buf) {
+    return window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  }).then(function (pdf) {
+    _pdfDoc = pdf; host.innerHTML = ''; _pageEls = {};
+    var avail = Math.min(900, host.clientWidth || 800);
+    var chain = Promise.resolve();
+    for (var i = 1; i <= pdf.numPages; i++) (function (n) {
+      chain = chain.then(function () { return pdf.getPage(n); }).then(function (page) {
+        var vp1 = page.getViewport({ scale: 1 });
+        var scale = avail / vp1.width;
+        var dpr = Math.min(2, window.devicePixelRatio || 1);
+        var vp = page.getViewport({ scale: scale });
+        var wrap = document.createElement('div'); wrap.className = 'pg'; wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
+        var pn = document.createElement('div'); pn.className = 'pnum'; pn.textContent = 'Page ' + n + ' / ' + pdf.numPages; wrap.appendChild(pn);
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
+        canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
+        wrap.appendChild(canvas);
+        var ov = document.createElement('div'); ov.className = 'ov'; ov.dataset.page = n; wrap.appendChild(ov);
+        ov.addEventListener('mousedown', function (e) { onOverlayDown(e, n); });
+        host.appendChild(wrap);
+        _pageEls[n] = { wrap: wrap, ov: ov, w: vp.width, h: vp.height, ptW: vp1.width, ptH: vp1.height };
+        var ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return page.render({ canvasContext: ctx, viewport: vp }).promise;
+      });
+    })(i);
+    return chain;
+  });
+}
+
+// Signers
+function signerById(id) { return (_doc.signers || []).filter(function (s) { return s.id === id; })[0] || null; }
+function signerColor(id) { var s = signerById(id); return s ? s.color : '#7a7488'; }
+function renderSigners() {
+  var host = document.getElementById('signerList');
+  var seq = document.getElementById('edSequential').checked;
+  var list = (_doc.signers || []).slice().sort(function (a, b) { return (a.order || 1) - (b.order || 1); });
+  host.innerHTML = list.map(function (s) {
+    var label = s.name || s.roleName || 'Unnamed signer';
+    return '<div class="signer-row' + (s.id === _activeSigner ? ' active' : '') + '" onclick="selectSigner(\'' + esc(s.id) + '\')">' +
+      '<span class="sw" style="background:' + esc(s.color) + '"></span>' +
+      '<div class="who"><div class="n">' + esc(label) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span></div><div class="e">' + esc(s.email || (s.roleName ? 'click to fill in' : 'no email yet')) + '</div></div>' +
+      (seq ? '<span class="ord" title="Signing order">#' + (s.order || 1) + '</span>' : '') +
+      '<button class="x" title="Remove signer" onclick="event.stopPropagation();removeSigner(\'' + esc(s.id) + '\')">×</button></div>';
+  }).join('') +
+  '<div class="signer-row' + (_activeSigner === 'sender' ? ' active' : '') + '" onclick="selectSigner(\'sender\')" style="border-style:dashed"><span class="sw" style="background:#7a7488"></span><div class="who"><div class="n">You fill in (before sending)</div><div class="e">Text, date and checkbox fields you complete yourself</div></div></div>';
+  document.getElementById('signerHint').style.display = list.length ? 'none' : '';
+  // property panel signer select
+  var sel = document.getElementById('pSigner');
+  sel.innerHTML = list.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.name || s.roleName || s.id) + '</option>'; }).join('') + '<option value="sender">You (sender)</option>';
+  if (_selField) sel.value = _selField.signerId;
+}
+function selectSigner(id) {
+  _activeSigner = id; renderSigners();
+  var s = id !== 'sender' && signerById(id);
+  if (s && (!s.name || !s.email)) openAddSigner(id);
+}
+function removeSigner(id) {
+  var s = signerById(id); if (!s) return;
+  var n = _doc.fields.filter(function (f) { return f.signerId === id; }).length;
+  if (!confirm('Remove ' + (s.name || s.roleName || 'this signer') + (n ? ' and their ' + n + ' field' + (n === 1 ? '' : 's') : '') + '?')) return;
+  _doc.signers = _doc.signers.filter(function (x) { return x.id !== id; });
+  _doc.fields = _doc.fields.filter(function (f) { return f.signerId !== id; });
+  if (_activeSigner === id) _activeSigner = _doc.signers[0] ? _doc.signers[0].id : null;
+  _selField = null; document.getElementById('propPanel').style.display = 'none';
+  renderSigners(); renderAllFields(); markDirty();
+}
+var _editingSignerId = null;
+function openAddSigner(existingId) {
+  _editingSignerId = existingId || null;
+  var s = existingId ? signerById(existingId) : null;
+  document.getElementById('signerModalTitle').textContent = s ? 'Signer: ' + (s.roleName || s.name || '') : 'Add signer';
+  document.getElementById('sName').value = s ? (s.name || '') : '';
+  document.getElementById('sEmail').value = s ? (s.email || '') : '';
+  document.getElementById('sKind').value = s ? s.kind : 'borrower';
+  var maxOrder = (_doc.signers || []).reduce(function (m, x) { return Math.max(m, x.order || 1); }, 0);
+  document.getElementById('sOrder').value = s ? (s.order || 1) : (document.getElementById('edSequential').checked ? maxOrder + 1 : 1);
+  document.getElementById('signerModal').style.display = 'flex';
+  primePeople();
+  setTimeout(function () { document.getElementById('sName').focus(); }, 50);
+}
+function closeAddSigner() { document.getElementById('signerModal').style.display = 'none'; hideSuggest(); }
+function commitSigner() {
+  var name = document.getElementById('sName').value.trim();
+  var email = document.getElementById('sEmail').value.trim().toLowerCase();
+  var kind = document.getElementById('sKind').value;
+  var order = parseInt(document.getElementById('sOrder').value, 10) || 1;
+  if (!name) { showToast('Name is required', 'err'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email', 'err'); return; }
+  var dupe = _doc.signers.filter(function (s) { return s.email === email && s.id !== _editingSignerId; })[0];
+  if (dupe) { showToast(email + ' is already a signer', 'err'); return; }
+  if (_editingSignerId) {
+    var s = signerById(_editingSignerId);
+    s.name = name; s.email = email; s.kind = kind; s.order = order;
+  } else {
+    var used = {}; _doc.signers.forEach(function (x) { used[x.id] = 1; });
+    var n = 1; while (used['s' + n]) n++;
+    var colors = (_meta && _meta.signerColors) || ['#C8813A', '#2563eb', '#256940', '#7c1f1f', '#7a5218', '#4a7a8a'];
+    var ns = { id: 's' + n, name: name, email: email, kind: kind, order: order, color: colors[(_doc.signers.length) % colors.length] };
+    _doc.signers.push(ns); _activeSigner = ns.id;
+  }
+  closeAddSigner(); renderSigners(); renderAllFields(); markDirty();
+}
+
+// People picker: borrowers (clients) + SLA users
+function primePeople() {
+  if (_peoplePool) return;
+  _peoplePool = [];
+  var pc = _isStaff ? SLA.Clients.list({ all: true }) : SLA.Clients.list({});
+  pc.then(function (r) {
+    var pool = [];
+    if (r && r.byOwner) Object.keys(r.byOwner).forEach(function (k) { (r.byOwner[k] || []).forEach(function (c) { pool.push(c); }); });
+    else pool = (r && r.clients) || [];
+    pool.forEach(function (c) {
+      if (!c || !c.email || c._isBroker) return;
+      var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.name || c.email;
+      _peoplePool.push({ name: name, email: String(c.email).toLowerCase(), kind: 'borrower', meta: c.entityName || (c.loans && c.loans.length ? c.loans.length + ' loan' + (c.loans.length === 1 ? '' : 's') : '') });
+    });
+  }).catch(function () {});
+  SLA.Users.directory().then(function (r) {
+    ((r && r.users) || []).forEach(function (u) {
+      if (!u || !u.email) return;
+      _peoplePool.push({ name: u.name || u.email, email: String(u.email).toLowerCase(), kind: 'user', meta: (u.roles || []).join(', ') });
+    });
+  }).catch(function () {});
+}
+function signerSuggest(input) {
+  var q = String(input.value || '').toLowerCase().trim();
+  var box = document.getElementById(input.id === 'sName' ? 'sugName' : 'sugEmail');
+  hideSuggest();
+  if (q.length < 2 || !_peoplePool) return;
+  var rows = _peoplePool.filter(function (p) { return p.name.toLowerCase().indexOf(q) >= 0 || p.email.indexOf(q) >= 0; }).slice(0, 8);
+  if (!rows.length) return;
+  _sugRows = rows; _sugIdx = -1;
+  box.innerHTML = rows.map(function (p, i) {
+    return '<div class="row" data-i="' + i + '" onmousedown="event.preventDefault();pickPerson(' + i + ')">' + esc(p.name) + '<span class="kbadge ' + p.kind + '">' + (p.kind === 'user' ? 'SLA' : p.kind) + '</span><div class="m">' + esc(p.email) + (p.meta ? ' · ' + esc(p.meta) : '') + '</div></div>';
+  }).join('');
+  box.classList.add('show');
+}
+function hideSuggest() { document.getElementById('sugName').classList.remove('show'); document.getElementById('sugEmail').classList.remove('show'); _sugRows = []; _sugIdx = -1; }
+function pickPerson(i) {
+  var p = _sugRows[i]; if (!p) return;
+  document.getElementById('sName').value = p.name;
+  document.getElementById('sEmail').value = p.email;
+  document.getElementById('sKind').value = p.kind;
+  hideSuggest();
+}
+function suggestKey(e, input) {
+  if (!_sugRows.length) return;
+  var box = document.getElementById(input.id === 'sName' ? 'sugName' : 'sugEmail');
+  var rows = box.querySelectorAll('.row');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    _sugIdx = e.key === 'ArrowDown' ? Math.min(rows.length - 1, _sugIdx + 1) : Math.max(0, _sugIdx - 1);
+    rows.forEach(function (r, i) { r.classList.toggle('hl', i === _sugIdx); });
+  } else if (e.key === 'Enter' && _sugIdx >= 0) { e.preventDefault(); pickPerson(_sugIdx); }
+  else if (e.key === 'Escape') hideSuggest();
+}
+document.addEventListener('click', function (e) { if (!e.target.closest || !e.target.closest('.pos-rel')) hideSuggest(); });
+
+// Fields — placement, drag, resize
+var DEFAULT_PT = { signature: [170, 38], initials: [56, 30], date: [96, 22], text: [170, 22], checkbox: [16, 16] };
+function setTool(t) {
+  _tool = _tool === t ? null : t;
+  document.querySelectorAll('.tool').forEach(function (b) { b.classList.toggle('active', b.dataset.tool === _tool); });
+  Object.keys(_pageEls).forEach(function (n) { _pageEls[n].ov.classList.toggle('placing', !!_tool); });
+  if (_tool && !_doc.signers.length && _tool !== 'text' && _tool !== 'date' && _tool !== 'checkbox') { showToast('Add a signer first', 'err'); }
+  if (_tool && (_tool === 'signature' || _tool === 'initials') && _activeSigner === 'sender') {
+    _activeSigner = _doc.signers[0] ? _doc.signers[0].id : null; renderSigners();
+  }
+}
+function fieldLabel(f) {
+  var s = f.signerId === 'sender' ? 'You' : (signerById(f.signerId) || {}).name || (signerById(f.signerId) || {}).roleName || '?';
+  var t = { signature: 'Sign', initials: 'Initials', date: 'Date', text: f.label || 'Text', checkbox: '' }[f.type];
+  if (f.type === 'checkbox') return f.value ? '✓' : '';
+  if (f.signerId === 'sender' && f.value) return String(f.value);
+  return t + (f.type === 'signature' || f.type === 'initials' ? ' · ' + s.split(' ')[0] : '');
+}
+function renderAllFields() {
+  Object.keys(_pageEls).forEach(function (n) { _pageEls[n].ov.innerHTML = ''; });
+  (_doc.fields || []).forEach(renderField);
+}
+function renderField(f) {
+  var pe = _pageEls[f.page]; if (!pe) return;
+  var el = document.createElement('div');
+  el.className = 'fld' + (_selField && _selField.id === f.id ? ' sel' : '');
+  el.dataset.id = f.id;
+  var col = signerColor(f.signerId === 'sender' ? '' : f.signerId);
+  if (f.signerId === 'sender') col = '#7a7488';
+  el.style.left = (f.x * pe.w) + 'px'; el.style.top = (f.y * pe.h) + 'px';
+  el.style.width = (f.w * pe.w) + 'px'; el.style.height = (f.h * pe.h) + 'px';
+  el.style.borderColor = col; el.style.background = hexA(col, 0.16);
+  var fs = Math.max(8, Math.min(13, f.h * pe.h * 0.5));
+  el.innerHTML = '<span class="lbl" style="font-size:' + fs + 'px">' + esc(fieldLabel(f)) + '</span><span class="rs"></span>';
+  el.addEventListener('mousedown', function (e) { onFieldDown(e, f, el); });
+  pe.ov.appendChild(el);
+}
+function hexA(hex, a) { var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || ''); if (!m) return 'rgba(122,116,136,' + a + ')'; return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')'; }
+function onOverlayDown(e, page) {
+  if (e.target.closest('.fld')) return;
+  if (!_tool) { selectField(null); return; }
+  var pe = _pageEls[page];
+  var r = pe.ov.getBoundingClientRect();
+  var px = (e.clientX - r.left) / pe.w, py = (e.clientY - r.top) / pe.h;
+  var d = DEFAULT_PT[_tool];
+  var w = d[0] / pe.ptW, h = d[1] / pe.ptH;
+  var signerId = (_tool === 'signature' || _tool === 'initials') ? (_activeSigner === 'sender' ? (_doc.signers[0] || {}).id : _activeSigner) : (_activeSigner || 'sender');
+  if (!signerId) { showToast('Add a signer first', 'err'); return; }
+  var f = { id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), type: _tool, signerId: signerId, page: page,
+    x: Math.max(0, Math.min(1 - w, px - w / 2)), y: Math.max(0, Math.min(1 - h, py - h / 2)), w: w, h: h, required: true, label: '', fontSize: 10 };
+  _doc.fields.push(f);
+  renderField(f); selectField(f); markDirty();
+  if (!e.shiftKey) setTool(_tool); // one placement per click unless Shift is held
+}
+function selectField(f) {
+  _selField = f;
+  document.querySelectorAll('.fld').forEach(function (el) { el.classList.toggle('sel', !!f && el.dataset.id === f.id); });
+  var p = document.getElementById('propPanel');
+  if (!f) { p.style.display = 'none'; return; }
+  p.style.display = '';
+  document.getElementById('pSigner').value = f.signerId;
+  document.getElementById('pType').value = f.type;
+  document.getElementById('pFont').value = f.fontSize || 10;
+  document.getElementById('pLabel').value = f.label || '';
+  document.getElementById('pRequired').checked = f.required !== false;
+  var vw = document.getElementById('pValueWrap');
+  var senderFill = f.signerId === 'sender' && (f.type === 'text' || f.type === 'date' || f.type === 'checkbox');
+  vw.style.display = senderFill ? '' : 'none';
+  var pv = document.getElementById('pValue');
+  if (f.type === 'checkbox') { pv.type = 'checkbox'; pv.checked = !!f.value; pv.style.width = 'auto'; }
+  else { pv.type = f.type === 'date' ? 'date' : 'text'; pv.value = f.value || ''; pv.style.width = ''; }
+  document.getElementById('pPos').textContent = 'Page ' + f.page + ' · ' + Math.round(f.x * 100) + '%, ' + Math.round(f.y * 100) + '% · ' + Math.round(f.w * 100) + '% × ' + Math.round(f.h * 100) + '%';
+}
+function propChange() {
+  var f = _selField; if (!f) return;
+  var newType = document.getElementById('pType').value;
+  var newSigner = document.getElementById('pSigner').value;
+  if ((newType === 'signature' || newType === 'initials') && newSigner === 'sender') { newSigner = (_doc.signers[0] || {}).id || 'sender'; document.getElementById('pSigner').value = newSigner; }
+  if (newType !== f.type) {
+    var pe = _pageEls[f.page]; var d = DEFAULT_PT[newType];
+    f.w = d[0] / pe.ptW; f.h = d[1] / pe.ptH; delete f.value;
+  }
+  f.type = newType; f.signerId = newSigner;
+  f.fontSize = parseInt(document.getElementById('pFont').value, 10) || 10;
+  f.label = document.getElementById('pLabel').value;
+  f.required = document.getElementById('pRequired').checked;
+  if (f.signerId === 'sender' && (f.type === 'text' || f.type === 'date' || f.type === 'checkbox')) {
+    var pv = document.getElementById('pValue');
+    f.value = f.type === 'checkbox' ? pv.checked : pv.value;
+  } else if (f.signerId !== 'sender') delete f.value;
+  renderAllFields(); selectField(f); markDirty();
+}
+function deleteSelected() {
+  if (!_selField) return;
+  _doc.fields = _doc.fields.filter(function (x) { return x.id !== _selField.id; });
+  selectField(null); renderAllFields(); markDirty();
+}
+document.addEventListener('keydown', function (e) {
+  if (document.getElementById('viewEditor').style.display === 'none' || !_selField) return;
+  var tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
+  var step = (e.shiftKey ? 10 : 1);
+  var pe = _pageEls[_selField.page]; if (!pe) return;
+  var dx = 0, dy = 0;
+  if (e.key === 'ArrowLeft') dx = -step; else if (e.key === 'ArrowRight') dx = step; else if (e.key === 'ArrowUp') dy = -step; else if (e.key === 'ArrowDown') dy = step; else return;
+  e.preventDefault();
+  _selField.x = Math.max(0, Math.min(1 - _selField.w, _selField.x + dx / pe.w));
+  _selField.y = Math.max(0, Math.min(1 - _selField.h, _selField.y + dy / pe.h));
+  renderAllFields(); selectField(_selField); markDirty();
+});
+var _drag = null;
+function onFieldDown(e, f, el) {
+  e.stopPropagation(); e.preventDefault();
+  selectField(f);
+  var pe = _pageEls[f.page];
+  var resize = !!e.target.closest('.rs');
+  _drag = { f: f, el: el, pe: pe, sx: e.clientX, sy: e.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, resize: resize, moved: false };
+  document.addEventListener('mousemove', onDragMove);
+  document.addEventListener('mouseup', onDragUp);
+}
+function onDragMove(e) {
+  if (!_drag) return;
+  var d = _drag, dx = (e.clientX - d.sx) / d.pe.w, dy = (e.clientY - d.sy) / d.pe.h;
+  if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 2) d.moved = true;
+  if (d.resize) {
+    d.f.w = Math.max(0.01, Math.min(1 - d.f.x, d.ow + dx));
+    d.f.h = Math.max(0.006, Math.min(1 - d.f.y, d.oh + dy));
+    if (d.f.type === 'checkbox') { var s = Math.min(d.f.w * d.pe.w, d.f.h * d.pe.h); d.f.w = s / d.pe.w; d.f.h = s / d.pe.h; }
+  } else {
+    d.f.x = Math.max(0, Math.min(1 - d.f.w, d.ox + dx));
+    d.f.y = Math.max(0, Math.min(1 - d.f.h, d.oy + dy));
+  }
+  d.el.style.left = (d.f.x * d.pe.w) + 'px'; d.el.style.top = (d.f.y * d.pe.h) + 'px';
+  d.el.style.width = (d.f.w * d.pe.w) + 'px'; d.el.style.height = (d.f.h * d.pe.h) + 'px';
+}
+function onDragUp() {
+  document.removeEventListener('mousemove', onDragMove);
+  document.removeEventListener('mouseup', onDragUp);
+  if (_drag && _drag.moved) { selectField(_drag.f); markDirty(); }
+  _drag = null;
+}
+
+// Templates from the editor
+function saveAsTemplate() {
+  if (!_doc) return;
+  var p = saveDraft(false);
+  p.then(function () {
+    if (_doc.templateId && confirm('Update the template “' + _doc.templateName + '” with this layout?\n\nOK = update it · Cancel = create a new template')) {
+      var roles = _doc.signers.map(function (s) { return { id: s.id, name: s.roleName || s.name || s.id, kind: s.kind, order: s.order, color: s.color }; });
+      return SLA.api('POST', '/api/esign-templates', { action: 'update', id: _doc.templateId, roles: roles, fields: _doc.fields, sequential: document.getElementById('edSequential').checked, message: _doc.message || '' })
+        .then(function () { showToast('Template updated', 'ok'); });
+    }
+    var name = prompt('Template name:', _doc.title || '');
+    if (!name) return;
+    return SLA.api('POST', '/api/esign-templates', { name: name, fromDocId: _doc.id, fromOwner: _docOwner || undefined })
+      .then(function () { showToast('Template “' + name + '” saved', 'ok'); });
+  }).catch(function (e) { showToast(e.message, 'err'); });
+}
+
+// Send
+function openSend() {
+  if (!_doc) return;
+  var problems = [];
+  if (!_doc.signers.length) problems.push('Add at least one signer.');
+  _doc.signers.forEach(function (s) {
+    if (!s.name || !s.email) problems.push('Fill in the name and email for ' + (s.roleName || s.name || s.id) + '.');
+    if (!_doc.fields.some(function (f) { return f.signerId === s.id; })) problems.push((s.name || s.roleName || s.id) + ' has no fields — place a signature (or other field) for them.');
+  });
+  _doc.fields.forEach(function (f) { if (f.signerId === 'sender' && f.required && (f.value === undefined || f.value === '' || f.value === false)) problems.push('Fill in your “' + (f.label || f.type) + '” field on page ' + f.page + '.'); });
+  document.getElementById('sendProblems').innerHTML = problems.map(function (p) { return '• ' + esc(p); }).join('<br>');
+  document.getElementById('sendGo').disabled = !!problems.length;
+  var seq = document.getElementById('edSequential').checked;
+  var list = _doc.signers.slice().sort(function (a, b) { return (a.order || 1) - (b.order || 1); });
+  document.getElementById('sendSummary').innerHTML = (seq ? 'Signers will be emailed one at a time, in this order: ' : 'All signers will be emailed at once: ') +
+    list.map(function (s) { return '<strong>' + esc(s.name || s.roleName || '?') + '</strong>' + (seq ? ' (#' + (s.order || 1) + ')' : ''); }).join(', ') + '.';
+  document.getElementById('sendMessage').value = _doc.message || '';
+  document.getElementById('sendModal').style.display = 'flex';
+}
+function closeSend() { document.getElementById('sendModal').style.display = 'none'; }
+function doSend(linksOnly) {
+  _doc.message = document.getElementById('sendMessage').value;
+  var go = document.getElementById('sendGo'); go.disabled = true;
+  showToast(linksOnly ? 'Creating links…' : 'Sending…');
+  saveDraft(false).then(function () {
+    return SLA.api('POST', '/api/esign-doc-send', ownerBody({ id: _doc.id, skipEmail: !!linksOnly }));
+  }).then(function (r) {
+    closeSend();
+    _dirty = false; window.onbeforeunload = null;
+    var failed = (r.emailResults || []).filter(function (x) { return !x.ok; });
+    if (failed.length) showToast('Sent, but ' + failed.length + ' email' + (failed.length === 1 ? '' : 's') + ' failed: ' + failed.map(function (x) { return x.to; }).join(', ') + '. Use Resend on the status page.', 'err');
+    else showToast(linksOnly ? 'Links created' : 'Sent for signature', 'ok');
+    if (linksOnly) showLinks(r.doc);
+    location.hash = hashFor('doc', _doc.id);
+  }).catch(function (e) { go.disabled = false; showToast('Send failed: ' + e.message, 'err'); });
+}
+function showLinks(doc) {
+  var rows = (doc.signers || []).filter(function (s) { return s.signUrl; });
+  document.getElementById('linksBody').innerHTML = rows.length ? rows.map(function (s) {
+    return '<div class="field"><label>' + esc(s.name) + ' · ' + esc(s.email) + '</label><div style="display:flex;gap:6px"><input type="text" readonly value="' + esc(s.signUrl) + '" onclick="this.select()"><button class="btn sm ghost" onclick="copyText(\'' + esc(s.signUrl) + '\')">Copy</button></div></div>';
+  }).join('') : '<p class="sub">No live links yet. With “sign in order” only the current signer has a link; the next one gets theirs after this one signs.</p>';
+  document.getElementById('linksModal').style.display = 'flex';
+}
+function copyText(t) {
+  var done = function () { showToast('Copied', 'ok'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, function () { fallbackCopy(t); done(); });
+  else { fallbackCopy(t); done(); }
+}
+function fallbackCopy(t) { var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (_) {} document.body.removeChild(ta); }
+
+// ── Detail / status ─────────────────────────────────────────────
+var _assignPick = null, _assignSlugs = [], _loanSearchTimer = null;
+function openDetail(id) {
+  _doc = null; _assignPick = null;
+  document.getElementById('dtTitle').textContent = 'Loading…';
+  document.getElementById('dtSub').textContent = '';
+  document.getElementById('dtActions').innerHTML = ''; document.getElementById('dtSigners').innerHTML = ''; document.getElementById('dtHistory').innerHTML = '';
+  document.getElementById('dtAssignPanel').style.display = 'none';
+  document.getElementById('dtPdf').src = 'about:blank';
+  SLA.api('GET', '/api/esign-docs?id=' + encodeURIComponent(id) + ownerQs()).then(function (r) {
+    _doc = r.doc;
+    if (_doc.status === 'draft') { location.hash = hashFor('edit', _doc.id); return; }
+    renderDetail();
+    loadDetailPdf();
+    if (_doc.status === 'completed' && _doc.suggestionState === 'pending') pollSuggestion(0);
+  }).catch(function (e) { document.getElementById('dtTitle').textContent = 'Could not open: ' + e.message; });
+}
+function pollSuggestion(n) {
+  if (n > 12 || !_doc) return;
+  setTimeout(function () {
+    if (!_doc) return;
+    SLA.api('GET', '/api/esign-docs?id=' + encodeURIComponent(_doc.id) + ownerQs()).then(function (r) {
+      if (!_doc || r.doc.id !== _doc.id) return;
+      if (r.doc.suggestionState !== 'pending') { _doc = r.doc; renderAssign(); }
+      else pollSuggestion(n + 1);
+    }).catch(function () {});
+  }, n < 3 ? 4000 : 10000);
+}
+function renderDetail() {
+  var d = _doc;
+  document.getElementById('dtTitle').textContent = d.title || 'Untitled';
+  var me = String(_user.email || '').toLowerCase();
+  document.getElementById('dtSub').innerHTML = '<span class="status-pill ' + esc(d.status) + '">' + esc(d.status) + '</span> &nbsp; ' +
+    (d.status === 'completed' ? 'Completed ' + fmtWhen(d.completedAt) : d.status === 'sent' ? 'Sent ' + fmtWhen(d.sentAt) + (d.sequential ? ' · signing in order' : '') : 'Cancelled ' + fmtWhen(d.cancelledAt) + (d.cancelReason ? ' — ' + esc(d.cancelReason) : '')) +
+    ' · ' + (d.pdf ? d.pdf.pageCount : 0) + ' pages' + (d.ownerEmail && d.ownerEmail.toLowerCase() !== me ? ' · ' + esc(d.ownerName || d.ownerEmail) : '') +
+    (d.finalizeError ? '<br><span style="color:var(--danger)">Stamping failed: ' + esc(d.finalizeError) + '</span>' : '');
+  var acts = [];
+  if (d.status === 'completed') acts.push('<button class="btn" onclick="downloadFinal()">⬇ Download signed PDF</button>');
+  if (d.status === 'sent') acts.push('<button class="btn ghost" onclick="showLinks(_doc)">Signing links</button>', '<button class="btn danger" onclick="cancelDoc()">Cancel document</button>');
+  acts.push('<button class="btn ghost" onclick="saveDetailAsTemplate()">Save as template</button>');
+  if (d.status === 'cancelled') acts.push('<button class="btn danger" onclick="deleteDoc()">Delete</button>');
+  document.getElementById('dtActions').innerHTML = acts.join('');
+  // signers
+  var list = (d.signers || []).slice().sort(function (a, b) { return (a.order || 1) - (b.order || 1); });
+  document.getElementById('dtSigners').innerHTML = list.map(function (s) {
+    var st, cls;
+    if (s.signedAt) { st = 'Signed ' + fmtWhen(s.signedAt); cls = 'signed'; }
+    else if (d.status !== 'sent') { st = d.status === 'cancelled' ? 'Cancelled' : '—'; cls = 'wait'; }
+    else if (s.viewedAt) { st = 'Viewed ' + fmtWhen(s.viewedAt); cls = 'viewed'; }
+    else if (s.invitedAt) { st = 'Sent ' + fmtWhen(s.invitedAt); cls = 'sent'; }
+    else if (s.signUrl) { st = 'Link ready (not emailed)'; cls = 'sent'; }
+    else { st = 'Waiting for turn'; cls = 'wait'; }
+    var acts2 = '';
+    if (d.status === 'sent' && !s.signedAt && s.signUrl) acts2 = '<button class="btn xs ghost" onclick="copyText(\'' + esc(s.signUrl) + '\')">Copy link</button> <button class="btn xs ghost" onclick="resendSigner(\'' + esc(s.id) + '\')">Resend</button>';
+    return '<div class="dt-signer"><span class="sw" style="background:' + esc(s.color) + '"></span><div class="who"><div>' + esc(s.name) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span>' + (d.sequential ? ' <span style="color:var(--muted);font-size:11px">#' + (s.order || 1) + '</span>' : '') + '</div><div class="e">' + esc(s.email) + (s.audit && s.audit.ipAddress ? ' · IP ' + esc(s.audit.ipAddress) : '') + '</div></div>' +
+      '<div style="text-align:right"><div class="st ' + cls + '">' + st + '</div><div style="margin-top:3px">' + acts2 + '</div></div></div>';
+  }).join('');
+  // history
+  document.getElementById('dtHistory').innerHTML = (d.history || []).slice().reverse().map(function (h) {
+    return '<div class="ev"><div>' + esc(h.note || h.event) + (h.by ? ' <span style="color:var(--muted)">— ' + esc(h.by) + '</span>' : '') + '</div><div class="when">' + fmtWhen(h.ts) + '</div></div>';
+  }).join('') || '<div class="ev">No events yet.</div>';
+  // assign
+  if (d.status === 'completed') { document.getElementById('dtAssignPanel').style.display = ''; renderAssign(); }
+}
+function loadDetailPdf() {
+  var which = _doc.status === 'completed' ? 'final' : 'original';
+  document.getElementById('dtPdfLabel').textContent = which === 'final' ? 'Executed document (with certificate page)' : 'Original document';
+  document.getElementById('dtPdfMeta').textContent = _doc.pdf ? (_doc.pdf.filename || '') : '';
+  fetchPdfBytes('/api/esign-doc-pdf?id=' + encodeURIComponent(_doc.id) + '&which=' + which + '&inline=1' + ownerQs()).then(function (buf) {
+    var url = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
+    document.getElementById('dtPdf').src = url;
+  }).catch(function (e) { document.getElementById('dtPdfMeta').textContent = 'Preview unavailable: ' + e.message; });
+}
+function downloadFinal() {
+  showToast('Preparing download…');
+  SLA.getToken().then(function (token) {
+    return fetch('/api/esign-doc-pdf?id=' + encodeURIComponent(_doc.id) + '&which=final' + ownerQs(), { headers: { Authorization: 'Bearer ' + token } });
+  }).then(function (r) {
+    if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) { throw new Error(d.error || ('HTTP ' + r.status)); });
+    return r.blob().then(function (blob) {
+      var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href = url;
+      var m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+      a.download = m ? m[1] : 'signed.pdf'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+  }).catch(function (e) { showToast('Download failed: ' + e.message, 'err'); });
+}
+function resendSigner(signerId) {
+  var s = (_doc.signers || []).filter(function (x) { return x.id === signerId; })[0];
+  if (!confirm('Re-send the signing email to ' + (s ? s.email : 'this signer') + '? (A fresh 30-day link is generated.)')) return;
+  SLA.api('POST', '/api/esign-doc-send', ownerBody({ id: _doc.id, signerId: signerId })).then(function (r) {
+    _doc = r.doc; renderDetail();
+    var f = (r.emailResults || []).filter(function (x) { return !x.ok; })[0];
+    showToast(f ? 'Link regenerated but email failed: ' + f.error : 'Email re-sent', f ? 'err' : 'ok');
+  }).catch(function (e) { showToast(e.message, 'err'); });
+}
+function cancelDoc() {
+  var reason = prompt('Cancel this document? Every signing link stops working. Reason (optional):');
+  if (reason === null) return;
+  SLA.api('POST', '/api/esign-doc-cancel', ownerBody({ id: _doc.id, reason: reason })).then(function (r) { _doc = r.doc; renderDetail(); showToast('Document cancelled', 'ok'); })
+    .catch(function (e) { showToast(e.message, 'err'); });
+}
+function deleteDoc() {
+  if (!confirm('Permanently delete this document and its PDF?')) return;
+  SLA.api('POST', '/api/esign-doc-cancel', ownerBody({ id: _doc.id, delete: true })).then(function () { showToast('Deleted', 'ok'); _docs = []; location.hash = '#tab=cancelled'; })
+    .catch(function (e) { showToast(e.message, 'err'); });
+}
+function saveDetailAsTemplate() {
+  var name = prompt('Template name:', _doc.title || '');
+  if (!name) return;
+  SLA.api('POST', '/api/esign-templates', { name: name, fromDocId: _doc.id, fromOwner: _docOwner || undefined })
+    .then(function () { showToast('Template “' + name + '” saved', 'ok'); }).catch(function (e) { showToast(e.message, 'err'); });
+}
+
+// Assign to loan
+function renderAssign() {
+  var d = _doc, host = document.getElementById('dtAssign');
+  if (d.assignment) {
+    var a = d.assignment;
+    var where = a.filed && a.filed.where === 'review' ? 'Documents → ' + esc(a.slugLabel || a.slug) : 'loan documents (no Doc Review tray yet)';
+    host.innerHTML = '<div class="box filed"><div style="font-weight:600">Filed to ' + esc(a.slaNumber || '') + ' — ' + esc(a.address || '') + '</div>' +
+      '<div style="font-size:12.5px;margin-top:3px">' + esc(a.borrower || '') + ' · as <strong>' + esc(a.slugLabel || a.slug || 'document') + '</strong> · in ' + where + '</div>' +
+      '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">by ' + esc(a.byName || a.by) + ' · ' + fmtWhen(a.at) + (a.aiAgreed ? ' · matched the AI suggestion' : '') + '</div>' +
+      '<div style="margin-top:8px;display:flex;gap:6px"><a class="btn sm ghost" href="/loan-details.html?clientId=' + encodeURIComponent(a.clientId) + '&loanId=' + encodeURIComponent(a.loanId) + '&owner=' + encodeURIComponent(a.ownerKey) + '" style="text-decoration:none">Open loan →</a>' +
+      '<button class="btn sm ghost" onclick="unassign()">File elsewhere</button></div></div>';
+    return;
+  }
+  var s = d.suggestion;
+  var html = '';
+  if (d.suggestionState === 'pending') html += '<div class="box ai"><div style="font-size:12.5px;color:var(--blue)">🤖 Working out which loan this belongs to…</div></div>';
+  else if (s && (s.loanId || s.slug)) {
+    html += '<div class="box ai"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--blue)">AI suggestion — confirm before filing</div>';
+    if (s.loanId) html += '<div style="margin-top:6px;font-weight:600">' + esc(s.slaNumber || '') + ' — ' + esc(s.address || '') + '</div><div style="font-size:12.5px">' + esc(s.borrower || '') + (s.entity ? ' · ' + esc(s.entity) : '') + ' · <span style="color:var(--muted)">' + esc(s.confidence || '') + ' confidence</span></div>';
+    if (s.slug) html += '<div style="font-size:12.5px;margin-top:4px">Looks like: <strong>' + esc(s.slugLabel || s.slug) + '</strong> <span style="color:var(--muted)">(' + esc(s.slugConfidence || '') + ')</span></div>';
+    if (s.reason) html += '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + esc(s.reason) + '</div>';
+    if (s.loanId) html += '<div style="margin-top:8px"><button class="btn sm" onclick="useSuggestion()">Use this suggestion</button></div>';
+    var others = (s.candidates || []).filter(function (c) { return c.loanId !== s.loanId; }).slice(0, 4);
+    if (others.length) html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--gold-mid)">Other possible matches</summary>' + others.map(function (c, i) {
+      return '<div class="result" onclick="pickCandidate(' + i + ')">' + esc(c.slaNumber || '') + ' — ' + esc(c.address || '') + '<div class="sub">' + esc(c.borrower || '') + (c.why ? ' · ' + esc(c.why) : '') + '</div></div>';
+    }).join('') + '</details>';
+    html += '</div>';
+    _assignOthers = others;
+  } else if (s && !s.loanId) html += '<div class="box ai" style="font-size:12.5px;color:var(--muted)">No confident AI match' + (s.aiError ? ' (' + esc(s.aiError) + ')' : '') + '. Search for the loan below.</div>';
+  html += '<div class="field pos-rel"><label>Loan</label>' +
+    (_assignPick ? '<div class="picked"><span>' + esc(_assignPick.slaNumber || '') + ' — ' + esc(_assignPick.address || '') + '<br><span style="color:var(--muted);font-size:11.5px">' + esc(_assignPick.borrower || '') + '</span></span><button class="btn xs ghost" onclick="_assignPick=null;renderAssign()">Change</button></div>' :
+      '<input type="text" id="loanSearch" placeholder="Search address, borrower, entity or SLA-…" oninput="loanSearch(this.value)" autocomplete="off"><div class="results" id="loanResults" style="display:none"></div>') + '</div>' +
+    '<div class="field"><label>Document type</label><select id="assignSlug"' + (_assignPick ? '' : ' disabled') + '><option value="">' + (_assignPick ? '— choose —' : 'Pick a loan first') + '</option></select></div>' +
+    '<div class="field"><label>Note (optional)</label><input type="text" id="assignNote" placeholder="e.g. Signed at closing"></div>' +
+    '<div style="margin-top:12px"><button class="btn" id="assignGo" onclick="confirmAssign()"' + (_assignPick ? '' : ' disabled') + '>File to loan</button></div>';
+  host.innerHTML = html;
+  if (_assignPick) fillSlugs();
+}
+var _assignOthers = [];
+function useSuggestion() { var s = _doc.suggestion; _assignPick = { loanId: s.loanId, clientId: s.clientId, ownerKey: s.ownerKey, address: s.address, borrower: s.borrower, slaNumber: s.slaNumber, slugHint: s.slug }; renderAssign(); }
+function pickCandidate(i) { var c = _assignOthers[i]; if (!c) return; _assignPick = { loanId: c.loanId, clientId: c.clientId, ownerKey: c.ownerKey, address: c.address, borrower: c.borrower, slaNumber: c.slaNumber, slugHint: (_doc.suggestion || {}).slug }; renderAssign(); }
+var _loanRows = [];
+function loanSearch(q) {
+  clearTimeout(_loanSearchTimer);
+  var box = document.getElementById('loanResults'); if (!box) return;
+  if (String(q || '').trim().length < 2) { box.style.display = 'none'; return; }
+  _loanSearchTimer = setTimeout(function () {
+    SLA.api('GET', '/api/esign-loan-search?q=' + encodeURIComponent(q)).then(function (r) {
+      _loanRows = (r && r.loans) || [];
+      box.style.display = '';
+      box.innerHTML = _loanRows.length ? _loanRows.map(function (c, i) {
+        return '<div class="result" onclick="pickResult(' + i + ')">' + esc(c.slaNumber || '') + ' — ' + esc(c.address || '') + '<div class="sub">' + esc(c.borrower || '') + (c.entity ? ' · ' + esc(c.entity) : '') + ' · ' + esc(c.status || '') + ' · ' + esc(c.ownerKey || '') + '</div></div>';
+      }).join('') : '<div class="result" style="color:var(--muted)">No loans match</div>';
+    }).catch(function (e) { box.style.display = ''; box.innerHTML = '<div class="result" style="color:var(--danger)">' + esc(e.message) + '</div>'; });
+  }, 250);
+}
+function pickResult(i) { var c = _loanRows[i]; if (!c) return; _assignPick = { loanId: c.loanId, clientId: c.clientId, ownerKey: c.ownerKey, address: c.address, borrower: c.borrower, slaNumber: c.slaNumber, slugHint: (_doc.suggestion || {}).slug }; renderAssign(); }
+function fillSlugs() {
+  var sel = document.getElementById('assignSlug'); if (!sel || !_assignPick) return;
+  sel.innerHTML = '<option value="">Loading document types…</option>';
+  SLA.api('GET', '/api/esign-loan-search?slugsFor=' + encodeURIComponent(_assignPick.loanId) + '&clientId=' + encodeURIComponent(_assignPick.clientId || '') + '&owner=' + encodeURIComponent(_assignPick.ownerKey || '')).then(function (r) {
+    _assignSlugs = (r && r.slugs) || [];
+    var groups = {};
+    _assignSlugs.forEach(function (s) { var g = s.sectionLabel || s.section || 'Other'; (groups[g] = groups[g] || []).push(s); });
+    sel.innerHTML = '<option value="">— choose —</option>' + Object.keys(groups).map(function (g) {
+      return '<optgroup label="' + esc(g) + '">' + groups[g].map(function (s) { return '<option value="' + esc(s.slug) + '">' + esc(s.label) + '</option>'; }).join('') + '</optgroup>';
+    }).join('');
+    if (!r.hasReview) sel.innerHTML += '<option value="" disabled>— this loan has no Doc Review yet; the PDF is stored in its loan documents —</option>';
+    var hint = _assignPick.slugHint;
+    if (hint && _assignSlugs.some(function (s) { return s.slug === hint; })) sel.value = hint;
+  }).catch(function (e) { sel.innerHTML = '<option value="">Could not load types: ' + esc(e.message) + '</option>'; });
+}
+function confirmAssign() {
+  if (!_assignPick) return;
+  var slug = document.getElementById('assignSlug').value;
+  if (!slug) { showToast('Choose a document type', 'err'); return; }
+  var s = _assignSlugs.filter(function (x) { return x.slug === slug; })[0];
+  var go = document.getElementById('assignGo'); go.disabled = true; go.textContent = 'Filing…';
+  SLA.api('POST', '/api/esign-doc-assign', ownerBody({ id: _doc.id, loanId: _assignPick.loanId, clientId: _assignPick.clientId, loanOwner: _assignPick.ownerKey, slug: slug, slugLabel: s ? s.label : slug, note: document.getElementById('assignNote').value }))
+    .then(function (r) { _doc = r.doc; renderDetail(); showToast(r.filed && r.filed.where === 'review' ? 'Filed to Documents → ' + (s ? s.label : slug) : 'Filed to the loan\'s documents', 'ok'); })
+    .catch(function (e) { go.disabled = false; go.textContent = 'File to loan'; showToast('Filing failed: ' + e.message, 'err'); });
+}
+function unassign() {
+  if (!confirm('Clear this assignment so you can file the document to a different loan? The copy already on the loan stays there.')) return;
+  SLA.api('POST', '/api/esign-doc-assign', ownerBody({ id: _doc.id, unassign: true })).then(function (r) { _doc = r.doc; _assignPick = null; renderDetail(); }).catch(function (e) { showToast(e.message, 'err'); });
+}
+</script>
+</body>
+</html>

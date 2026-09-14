@@ -2244,3 +2244,86 @@
 
 [functions.dscr-sold-backfill]
   timeout = 26
+
+# Deploy 237.022 (Mike) — E-Sign tool: upload any PDF, place signature / initials /
+# date / text / checkbox fields, send to borrowers + staff in signing order, track
+# status, templates, file the executed copy to a loan (AI-suggested). Public
+# signer endpoints are esign-sign-*; everything else requires auth.
+[[redirects]]
+  from = "/api/esign-docs"
+  to = "/.netlify/functions/esign-docs"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-doc-save"
+  to = "/.netlify/functions/esign-doc-save"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-doc-send"
+  to = "/.netlify/functions/esign-doc-send"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-doc-cancel"
+  to = "/.netlify/functions/esign-doc-cancel"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-doc-pdf"
+  to = "/.netlify/functions/esign-doc-pdf"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-doc-assign"
+  to = "/.netlify/functions/esign-doc-assign"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-templates"
+  to = "/.netlify/functions/esign-templates"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-loan-search"
+  to = "/.netlify/functions/esign-loan-search"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-sign-info"
+  to = "/.netlify/functions/esign-sign-info"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-sign-pdf"
+  to = "/.netlify/functions/esign-sign-pdf"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-sign-submit"
+  to = "/.netlify/functions/esign-sign-submit"
+  status = 200
+  force = true
+
+# Uploads carry the whole PDF (base64) and templates/assign copy bytes between
+# stores; the final signature stamps every field + emails every party.
+[functions.esign-docs]
+  timeout = 26
+[functions.esign-templates]
+  timeout = 26
+[functions.esign-doc-send]
+  timeout = 26
+[functions.esign-doc-assign]
+  timeout = 26
+[functions.esign-sign-submit]
+  timeout = 26

@@ -1638,6 +1638,37 @@
     },
   };
 
+  // ── E-Sign tool (Deploy 237.022) ────────────────────────────────
+  // General-purpose e-sign: upload any PDF, place fields, send in order,
+  // templates, file the executed copy to a loan. esign.html is the only
+  // consumer today; exposed here so Loan Details can deep-link / list
+  // documents for a loan later without re-implementing the calls.
+  var ESign = {
+    list: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.all) qs.push('all=1');
+      if (opts.status) qs.push('status=' + encodeURIComponent(opts.status));
+      return api('GET', '/api/esign-docs' + (qs.length ? '?' + qs.join('&') : ''));
+    },
+    get: function (id, owner) {
+      return api('GET', '/api/esign-docs?id=' + encodeURIComponent(id) + (owner ? '&owner=' + encodeURIComponent(owner) : ''));
+    },
+    create: function (data) { return api('POST', '/api/esign-docs', data); },
+    save: function (data) { return api('POST', '/api/esign-doc-save', data); },
+    send: function (id, opts) {
+      opts = opts || {};
+      return api('POST', '/api/esign-doc-send', { id: id, owner: opts.owner, skipEmail: !!opts.skipEmail, signerId: opts.signerId });
+    },
+    cancel: function (id, opts) {
+      opts = opts || {};
+      return api('POST', '/api/esign-doc-cancel', { id: id, owner: opts.owner, reason: opts.reason, delete: !!opts.delete });
+    },
+    assign: function (data) { return api('POST', '/api/esign-doc-assign', data); },
+    templates: function () { return api('GET', '/api/esign-templates'); },
+    searchLoans: function (q) { return api('GET', '/api/esign-loan-search?q=' + encodeURIComponent(q)); },
+  };
+
   // ── Envelopes (native e-signature, Deploy 185) ─────────────────
   // The old PandaDoc integration has been replaced by SLA Capital\u2019s
   // own e-signature flow. Signers get a unique tokenized link by
@@ -2937,6 +2968,7 @@
     Brevo: Brevo,
     Baseline: Baseline,
     Envelopes: Envelopes,
+    ESign: ESign, // Deploy 237.022
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     ESignConsent: ESignConsent,
