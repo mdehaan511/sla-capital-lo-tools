@@ -233,10 +233,10 @@
               <button class="tool" data-tool="text" onclick="setTool('text')">🔡 Text</button>
               <button class="tool" data-tool="checkbox" onclick="setTool('checkbox')">☑️ Checkbox</button>
             </div>
-            <div class="hint" id="toolHint">Pick a field type, then click on the page where it goes. Drag to move; drag the corner to resize; Delete key removes.</div>
+            <div class="hint" id="toolHint">Pick a field type, then click on the page where it goes. Drag to move; drag the corner to resize; Delete removes. Ctrl+C / Ctrl+V copies a box (pastes under the mouse); Ctrl+D duplicates.</div>
           </div>
           <div class="panel prop" id="propPanel" style="display:none">
-            <h3>Selected field <button class="btn xs danger" onclick="deleteSelected()">Delete</button></h3>
+            <h3>Selected field <span><button class="btn xs ghost" onclick="duplicateSelected()" title="Ctrl+D">Duplicate</button> <button class="btn xs danger" onclick="deleteSelected()">Delete</button></span></h3>
             <div class="field"><label>Assigned to</label><select id="pSigner" onchange="propChange()"></select></div>
             <div class="row2">
               <div class="field"><label>Type</label><select id="pType" onchange="propChange()">
@@ -656,23 +656,35 @@ function collectEditor() {
     signers: _doc.signers, fields: _doc.fields, message: _doc.message || '',
   });
 }
+var _savePromise = null, _saveQueued = false;
 function saveDraft(explicit) {
-  if (!_doc || _saving) { if (explicit && _saving) showToast('Saving…'); return Promise.resolve(); }
+  if (!_doc) return Promise.resolve();
+  // Deploy 237.036 (Mike: "text box snaps back to full size when resizing") —
+  // a save was already in flight from placing the box; the resize's save was
+  // dropped and the in-flight response overwrote the fields with the
+  // pre-resize copy. Now: a save requested mid-flight is queued and runs
+  // right after, and the server copy is only adopted when nothing changed
+  // locally while the request was out.
+  if (_saving) { _saveQueued = true; if (explicit) showToast('Saving…'); return _savePromise || Promise.resolve(); }
   clearTimeout(_saveTimer);
-  _saving = true; setSaveState('Saving…');
-  return SLA.api('POST', '/api/esign-doc-save', collectEditor()).then(function (r) {
-    _dirty = false; _saving = false;
-    // Take the server's normalized ids/fields but keep our selection.
-    var selId = _selField && _selField.id;
-    _doc.signers = r.doc.signers; _doc.fields = r.doc.fields; _doc.title = r.doc.title;
-    _selField = selId ? _doc.fields.filter(function (f) { return f.id === selId; })[0] || null : null;
-    renderSigners(); renderAllFields();
-    setSaveState('Saved ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+  _saving = true; _dirty = false; setSaveState('Saving…');
+  _savePromise = SLA.api('POST', '/api/esign-doc-save', collectEditor()).then(function (r) {
+    _saving = false;
+    if (!_dirty) {
+      // Take the server's normalized copy but keep our selection.
+      var selId = _selField && _selField.id;
+      _doc.signers = r.doc.signers; _doc.fields = r.doc.fields; _doc.title = r.doc.title;
+      _selField = selId ? _doc.fields.filter(function (f) { return f.id === selId; })[0] || null : null;
+      if (!_drag) { renderSigners(); renderAllFields(); if (_selField) selectField(_selField); }
+      setSaveState('Saved ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    }
     if (explicit) showToast('Draft saved', 'ok');
+    if (_saveQueued || _dirty) { _saveQueued = false; return saveDraft(false); }
   }).catch(function (e) {
-    _saving = false; setSaveState('Save failed');
+    _saving = false; _dirty = true; setSaveState('Save failed');
     showToast('Save failed: ' + e.message, 'err');
   });
+  return _savePromise;
 }
 
 // pdf.js rendering (same CDN build sla-api.js uses for PDF compression)
@@ -1000,10 +1012,49 @@ function deleteSelected() {
   _doc.fields = _doc.fields.filter(function (x) { return x.id !== _selField.id; });
   selectField(null); renderAllFields(); markDirty();
 }
+// Deploy 237.036 (Mike) — copy / paste / duplicate fields. Ctrl+C copies the
+// selected box, Ctrl+V pastes it under the mouse (if it's over a page) or
+// just below the original, Ctrl+D duplicates in place. Same type, signer,
+// size, label and font — the usual case is a column of identical boxes.
+var _clipField = null, _hover = null;
+function copySelected() {
+  if (!_selField) return;
+  _clipField = JSON.parse(JSON.stringify(_selField));
+  showToast('Field copied — Ctrl+V to paste (under the mouse, or below the original)');
+}
+function pasteField(atHover) {
+  if (!_clipField || !_doc) return;
+  var f = JSON.parse(JSON.stringify(_clipField));
+  f.id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  if (f.signerId !== 'sender' && !signerById(f.signerId)) f.signerId = _doc.signers[0] ? _doc.signers[0].id : 'sender';
+  if (atHover && _hover && _pageEls[_hover.page]) {
+    f.page = _hover.page; f.x = _hover.x - f.w / 2; f.y = _hover.y - f.h / 2;
+  } else {
+    var pe = _pageEls[f.page];
+    f.y = f.y + f.h + (pe ? 6 / pe.h : 0.01);
+  }
+  f.x = Math.max(0, Math.min(1 - f.w, f.x)); f.y = Math.max(0, Math.min(1 - f.h, f.y));
+  _doc.fields.push(f);
+  renderField(f); selectField(f); markDirty();
+}
+function duplicateSelected() { if (!_selField) return; _clipField = JSON.parse(JSON.stringify(_selField)); pasteField(false); }
+document.addEventListener('mousemove', function (e) {
+  var ov = e.target && e.target.closest && e.target.closest('.ov');
+  if (!ov) { return; }
+  var page = parseInt(ov.dataset.page, 10); var pe = _pageEls[page]; if (!pe) return;
+  var r = ov.getBoundingClientRect();
+  _hover = { page: page, x: (e.clientX - r.left) / pe.w, y: (e.clientY - r.top) / pe.h };
+});
+document.getElementById('pages').addEventListener('mouseleave', function () { _hover = null; });
 document.addEventListener('keydown', function (e) {
-  if (document.getElementById('viewEditor').style.display === 'none' || !_selField) return;
+  if (document.getElementById('viewEditor').style.display === 'none') return;
   var tag = (e.target && e.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  var mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === 'c' || e.key === 'C') && _selField) { e.preventDefault(); copySelected(); return; }
+  if (mod && (e.key === 'v' || e.key === 'V') && _clipField) { e.preventDefault(); pasteField(true); return; }
+  if (mod && (e.key === 'd' || e.key === 'D') && _selField) { e.preventDefault(); duplicateSelected(); return; }
+  if (!_selField) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   var step = (e.shiftKey ? 10 : 1);
   var pe = _pageEls[_selField.page]; if (!pe) return;
