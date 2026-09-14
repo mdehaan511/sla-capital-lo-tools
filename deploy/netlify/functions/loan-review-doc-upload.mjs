@@ -611,6 +611,7 @@ function buildLoanContext(review) {
     borrowerName:  borrowerName,
     borrowerEmail: client.email || '',
     entityName:    client.entityName || '',
+    articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
     loanType:      review.loanType || '',
     fundingDate:   pick('fundingDate') || review.expectedCloseDate || '',
   };

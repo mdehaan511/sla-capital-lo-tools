@@ -304,7 +304,7 @@ function buildSystemPrompt(opts) {
     idx += 1;
   }
   if (opts.loanAppBytes && opts.loanAppBytes.length) {
-    lines.push(`  ${idx}. LOAN APPLICATION PDF (SLA's signed loan application for this loan) — source of truth for borrower name, LLC / entity name, property address, loan amount, and other application-level fields. When the per-doc rubric says "match X to the loan application", you MUST cross-reference the loan application PDF directly rather than guessing or claiming the data is unavailable.`);
+    lines.push(`  ${idx}. LOAN APPLICATION PDF (SLA's signed loan application for this loan) — source of truth for borrower name, property address, loan amount, and other application-level fields. When the per-doc rubric says "match X to the loan application", you MUST cross-reference the loan application PDF directly rather than guessing or claiming the data is unavailable.`);
     idx += 1;
   }
   lines.push(`  ${idx}. THE DOCUMENT BEING REVIEWED — the focus of your review. The conditions in the user prompt apply to THIS document.`);
@@ -313,6 +313,10 @@ function buildSystemPrompt(opts) {
   lines.push("• ONLY evaluate the conditions listed in the per-doc rubric. Do NOT invent additional checks.");
   lines.push("• Many borrower/entity/guarantor documents (Articles of Organization, OFAC reports, ID, credit reports, etc.) do NOT contain the property address or loan amount — that's normal. Do NOT flag missing property address or missing loan amount as an issue UNLESS the per-doc rubric explicitly says to verify it.");
   lines.push("• When the rubric says 'matches loan application' or 'matches the loan' — LOOK in the attached Loan Application PDF. Do not claim the data is unavailable when the PDF is right there.");
+  // Deploy 237.041 (Dan, via Mike) -- the entity name is governed by the recorded
+  // Articles, not the loan application. The Articles tray's extracted name is handed
+  // in as the ENTITY NAME OF RECORD line in the user prompt.
+  lines.push("• The ENTITY / LLC NAME is governed by the recorded Articles of Organization, NOT the loan application. When a rubric says 'matches the Articles' or 'ENTITY NAME OF RECORD', compare against the ENTITY NAME OF RECORD line in the user prompt (the name extracted from the Articles tray on this loan); ignore letter case and punctuation, but a different word (e.g. 'Drive' vs 'DR', a missing 'LLC', a different word order) is a mismatch. If that line says the Articles have not been reviewed yet, mark the name-match condition 'unclear' and say so. NEVER claim the Articles do not exist, and NEVER fail a document merely because its entity name differs from the loan application — a loan-application name that differs from the Articles is a defect on the loan application.");
   lines.push("• A finding's `condition` field should paraphrase one of the explicit rubric conditions you actually checked — not a check you made up.");
   lines.push("• `verdict: 'approved'` requires every applicable rubric condition to be met. Issues elsewhere in the doc that aren't part of the rubric do NOT downgrade the verdict.");
   return lines.join('\n');
@@ -333,9 +337,19 @@ function buildPrompt(opts) {
   const ctxLines = [];
   if (ctx.loanAmount)    ctxLines.push('- Loan amount: $' + Number(ctx.loanAmount).toLocaleString());
   if (ctx.borrowerName)  ctxLines.push('- Borrower name: ' + ctx.borrowerName);
-  if (ctx.entityName)    ctxLines.push('- Borrowing entity / LLC: ' + ctx.entityName);
+  if (ctx.entityName)    ctxLines.push('- Borrowing entity / LLC per the loan record (reference only — the recorded Articles govern the name): ' + ctx.entityName);
   if (ctx.address)       ctxLines.push('- Property address: ' + ctx.address);
   const hasLoanApp = !!(opts.loanAppBytes && opts.loanAppBytes.length);
+  // Deploy 237.041 (Dan, via Mike) -- the recorded Articles of Organization are the
+  // source of truth for the ENTITY NAME. The Articles tray's extracted llcName is
+  // handed in as ctx.articlesEntityName; COGS / EIN / loan-application rubrics
+  // compare against it (never the loan app). Always present -- even when the loan
+  // application PDF is attached -- so 'matches the Articles' is actually checkable
+  // (3528 Park: the EIN review said no Articles existed because none were handed in).
+  const _articlesName = String(ctx.articlesEntityName || '').trim();
+  const _articlesBlock = _articlesName
+    ? 'ENTITY NAME OF RECORD (from the recorded Articles of Organization on file for this loan): "' + _articlesName + '". This — not the loan application — governs the borrowing entity name.'
+    : 'ENTITY NAME OF RECORD: the Articles of Organization have NOT been reviewed yet for this loan, so no name of record is available. For any "matches the Articles" condition, mark it "unclear" and say the Articles are not yet reviewed. Do NOT say the Articles do not exist, and do NOT fail this document for a name that differs from the loan application.';
 
   // Deploy 236.500 — targeted field extraction (UW / Lightning auto-grab).
   // Builds an `extracted_fields` schema block from opts.extractFields so the
@@ -386,8 +400,10 @@ function buildPrompt(opts) {
     'REQUIRED CONDITIONS for approval (per-doc rubric):',
     opts.docConditions || '(no conditions specified)',
     '',
+    _articlesBlock,
+    '',
     hasLoanApp
-      ? 'CROSS-REFERENCE: when the rubric says "match X to the loan application" or similar, look it up directly in the attached Loan Application PDF. That PDF is the source of truth for borrower name, entity / LLC name, property address, and loan amount.'
+      ? 'CROSS-REFERENCE: when the rubric says "match X to the loan application" or similar, look it up directly in the attached Loan Application PDF. That PDF is the source of truth for borrower name, property address, and loan amount — but NOT the entity / LLC name, which is governed by the ENTITY NAME OF RECORD above (from the Articles).'
       : (ctxLines.length
           ? 'LOAN APPLICATION NOT ATTACHED — fall back to this text snapshot for cross-references:\n' + ctxLines.join('\n')
           : 'LOAN APPLICATION NOT ATTACHED — limit your review to the per-doc rubric.'),
