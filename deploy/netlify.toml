@@ -2216,6 +2216,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/mail-backfill"
+  to = "/.netlify/functions/mail-backfill"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/stable-webhook"
   to = "/.netlify/functions/stable-webhook-background"
   status = 200
@@ -2225,4 +2231,7 @@
   timeout = 26
 
 [functions.mail-sync]
+  timeout = 26
+
+[functions.mail-backfill]
   timeout = 26

@@ -159,7 +159,8 @@ async function storeImage(store, item, kind, url) {
   }
 }
 
-async function ingestNew(store, node) {
+async function ingestNew(store, node, opts) {
+  opts = opts || {};
   const now = new Date().toISOString();
   const r = node.recipients || {};
   const loc = node.location || {};
@@ -176,13 +177,13 @@ async function ingestNew(store, node) {
     locationAddress: [la.line1, la.line2, la.city, la.state, la.postalCode].filter(Boolean).join(', '),
     receivedAt: node.createdAt || now,
     firstSeenAt: now,
-    sort: 'unsorted',
+    sort: opts.archive ? 'archived' : 'unsorted',  // Deploy 237.012 — backfilled history is archived, not queued
     location: node.isReturnedToSender ? 'returned' : 'at_stable',
     category: '',
     stable: stableBlock(node),
     scanSummary: (node.scanDetails && node.scanDetails.summary) || '',
     events: [],
-    needsAi: true,
+    needsAi: opts.archive ? false : true,
   };
   pushEvent(item, 'received', { note: 'Received at Stable' + (item.locationAddress ? ' (' + item.locationAddress + ')' : '') });
   await storeImage(store, item, 'envelope', node.imageUrl);
@@ -193,9 +194,13 @@ async function ingestNew(store, node) {
     pushEvent(item, 'scanned', { note: 'Opened and scanned at Stable' });
   }
   await putItem(item, store);
-  await setPointer('unsorted', item, null, store);
+  // Deploy 237.012 — an archival backfill piece goes into All Mail only,
+  // never the Unsorted daily queue or the AI-suggestion queue (that would
+  // flood both and hijack the "open the oldest to review" jump). It is on
+  // file, searchable, and can still be filed to a loan from its detail pane.
+  if (!opts.archive) await setPointer('unsorted', item, null, store);
   await setPointer('all', item, null, store);
-  await setPointer('needsai', item, null, store);
+  if (!opts.archive) await setPointer('needsai', item, null, store);
   if (isPending(item)) await setPointer('pending', item, null, store);
   return item;
 }
@@ -317,6 +322,70 @@ export async function runSync(opts) {
   opts = opts || {};
   if (opts.dryRun) return syncOnce(opts);
   return withLock(mailStore(), 'meta/lock', (opts.budgetMs || 20000) + 30000, opts.actor, () => syncOnce(opts));
+}
+
+// ── Backfill (Deploy 237.012) ─────────────────────────────────────────────
+// One-time archival import of the ENTIRE Stable mailbox history. Pages the
+// whole list (no createdAt floor), ingesting each not-yet-stored piece as an
+// ARCHIVE item — All Mail only, out of the daily Unsorted queue. Resumable
+// via meta/backfill; the caller re-POSTs until { done:true }. Never touches
+// the forward sync watermark (meta/sync).
+async function backfillOnce(opts) {
+  const store = opts.store || mailStore();
+  const dryRun = !!opts.dryRun;
+  const budgetMs = opts.budgetMs || 20000;
+  const t0 = Date.now();
+  const meta = (await store.get('meta/backfill', { type: 'json' }).catch(() => null)) || {};
+  const out = {
+    dryRun, done: false, scanned: 0, created: 0, alreadyStored: 0,
+    totalCount: (typeof meta.totalCount === 'number' ? meta.totalCount : null),
+    totalCreated: meta.created || 0, errors: [], budgetStopped: false,
+  };
+  if (meta.done && !opts.restart) { out.done = true; out.note = 'already complete'; return out; }
+  let after = opts.restart ? null : (meta.cursor || null);
+  while (true) {
+    if (Date.now() - t0 > budgetMs) { out.budgetStopped = true; break; }
+    let r;
+    try { r = await listMailItems({ first: 50, after: after || undefined }); }
+    catch (e) { out.errors.push({ error: 'list: ' + ((e && e.message) || String(e)) }); break; }
+    if (typeof r.totalCount === 'number') out.totalCount = r.totalCount;
+    for (const node of (r.items || [])) {
+      if (Date.now() - t0 > budgetMs) { out.budgetStopped = true; break; }
+      out.scanned += 1;
+      try {
+        const existing = await getItem(node.id, store);
+        if (existing) { out.alreadyStored += 1; continue; }
+        if (!dryRun) await ingestNew(store, node, { archive: true });
+        out.created += 1;
+      } catch (e) { out.errors.push({ id: node.id, error: (e && e.message) || String(e) }); }
+    }
+    if (out.budgetStopped) break;
+    const nextCursor = (r.pageInfo && r.pageInfo.endCursor) || '';
+    if (!r.pageInfo || !r.pageInfo.hasNextPage || !nextCursor) { out.done = true; break; }
+    after = nextCursor;
+    if (dryRun) break; // probe: one page yields totalCount
+  }
+  out.totalCreated = (meta.created || 0) + out.created;
+  if (!dryRun) {
+    await store.setJSON('meta/backfill', {
+      cursor: out.done ? '' : (after || ''),
+      done: out.done,
+      totalCount: out.totalCount,
+      scanned: (meta.scanned || 0) + out.scanned,
+      created: out.totalCreated,
+      startedAt: meta.startedAt || new Date(t0).toISOString(),
+      lastRunAt: new Date(t0).toISOString(),
+      actor: opts.actor || 'auto:mail-backfill',
+    });
+  }
+  out.ms = Date.now() - t0;
+  return out;
+}
+
+export async function runBackfill(opts) {
+  opts = opts || {};
+  if (opts.dryRun) return backfillOnce(opts);
+  return withLock(mailStore(), 'meta/lock-backfill', (opts.budgetMs || 20000) + 30000, opts.actor, () => backfillOnce(opts));
 }
 
 async function syncOnce(opts) {

@@ -183,6 +183,7 @@
       <div style="display:flex;gap:8px;align-items:center">
         <span id="syncStatus" style="font-size:12px;color:var(--muted)"></span>
         <button type="button" class="btn ghost" id="syncBtn" onclick="syncNow()">↻ Check for new mail</button>
+        <button type="button" class="btn ghost" id="backfillBtn" onclick="importPastMail()" style="display:none" title="Import the full Stable mail history into the archive (All Mail)">⇩ Import past mail</button>
       </div>
     </div>
     <div id="configBanner"></div>
@@ -209,6 +210,7 @@ var _items = [];
 var _meta = null;
 var _selId = '';
 var _autoOpened = false; // Deploy 237.011 — one-time auto-open of the oldest piece to review
+var _user = null;        // Deploy 237.012 — for the admin-only Import Past Mail button
 var _sel = null;          // full record of the selected piece
 var _picked = null;       // loan picked in the assign form
 var _thumbUrls = {};      // id|kind -> object URL
@@ -852,6 +854,29 @@ function syncNow() {
   }).catch(function (e) { st.textContent = e.message || 'Sync failed'; btn.disabled = false; });
 }
 
+// Deploy 237.012 (Mike) — import ALL past mail from Stable into the archive.
+// Each POST does one time-budgeted chunk and returns a resumable cursor, so we
+// loop until done. Archived pieces land in All Mail (searchable, fileable),
+// never the daily Unsorted queue.
+function importPastMail() {
+  var btn = document.getElementById('backfillBtn'), st = document.getElementById('syncStatus');
+  if (!confirm('Import ALL past mail from Stable into the portal archive?\n\nOlder pieces are stored on file and appear under All Mail (and on a loan once you file them there). They do NOT enter the daily Unsorted queue. This can take a few minutes; keep this tab open while it runs.')) return;
+  btn.disabled = true;
+  function step() {
+    api('POST', '/api/mail-backfill', {}).then(function (r) {
+      var made = (r.totalCreated != null) ? r.totalCreated : (r.created || 0);
+      if (r.done) {
+        st.textContent = 'Past mail imported — ' + made + ' archived' + (r.totalCount ? ' (' + r.totalCount + ' in the mailbox)' : '') + '.';
+        btn.disabled = false; loadList();
+        return;
+      }
+      st.textContent = 'Importing past mail… ' + made + ' archived so far' + (r.totalCount ? ' of ' + r.totalCount : '');
+      setTimeout(step, 400);
+    }).catch(function (e) { st.textContent = 'Import failed: ' + (e.message || 'error') + ' — re-run to resume'; btn.disabled = false; });
+  }
+  step();
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────
 window.netlifyIdentity.on('init', function (user) {
   if (!user) { window.location.replace('/'); return; }
@@ -859,6 +884,8 @@ window.netlifyIdentity.on('init', function (user) {
   if (!ok) { window.location.replace('/'); return; }
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
+  _user = user; // Deploy 237.012
+  if (window.SLA && SLA.isAdmin && SLA.isAdmin(user)) { var _bf = document.getElementById('backfillBtn'); if (_bf) _bf.style.display = ''; }
   api('GET', '/api/mail?action=meta').then(function (m) {
     _meta = m;
     loadList();
