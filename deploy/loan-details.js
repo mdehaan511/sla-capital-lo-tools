@@ -5624,7 +5624,11 @@ function refreshBorrowerAccessList() {
     // Deploy 236.895 (Mike) — "see a borrower's portal as an admin". Opens the
     // REAL portal page in read-only admin view, so what's on screen is exactly
     // what the borrower sees rather than a mock-up that drifts from it.
-    var _canViewPortal = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
+    // Deploy 237.036 (Mike) — the "View portal" (view-as-borrower) button now
+    // shows for the processor tier too, not admins only. resolveViewAs gates the
+    // same way server-side (canOverrideOwner), so an LO who forces the button
+    // still gets their own portal with no view.
+    var _canViewPortal = !!(window.SLA && ((SLA.isAdmin && SLA.isAdmin(_user)) || (SLA.isProcessor && SLA.isProcessor(_user))));
     listEl.innerHTML = grants.map(function(g) {
       var viewBtn = _canViewPortal
         ? '<button type="button" onclick="viewBorrowerPortal(\'' + escAttr(g.email) + '\')" title="Open this borrower\'s portal, read-only" style="font-size:11px;color:var(--ink,#222);background:#fff;border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;margin-right:6px">👁 View portal</button>'

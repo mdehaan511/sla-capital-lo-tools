@@ -22,7 +22,8 @@
  * This shows the same facts arranged the way the borrower sees them, which is
  * the point — "what is my borrower actually looking at right now".
  */
-import { json, isAdmin, normalizeEmail } from './auth.mjs';
+import { json, normalizeEmail } from './auth.mjs';
+import { canOverrideOwner } from './access.mjs';
 
 /**
  * @returns {{email:string, viewingAs:boolean, actor:string, error:Response|null}}
@@ -41,11 +42,13 @@ export function resolveViewAs(req, user) {
     return { email: self, viewingAs: false, actor: self, error: null };
   }
 
-  // Deliberately isAdmin, not canOverrideOwner: reading a borrower's portal is
-  // a different question from working another LO's loan, and this is the
-  // narrow end to start from. Widening later is a one-line change.
-  if (!isAdmin(user)) {
-    return { email: self, viewingAs: false, actor: self, error: json(403, { error: 'Admin only' }) };
+  // Deploy 237.036 (Mike: "give all processors the ability to view loan as a
+  // borrower") — widened from isAdmin to the processor tier (canOverrideOwner:
+  // admins + processors + senior LOs). Processors work every LO's book, so
+  // seeing what a borrower is actually looking at is in scope for them too.
+  // Still not a general LO capability.
+  if (!canOverrideOwner(user).ok) {
+    return { email: self, viewingAs: false, actor: self, error: json(403, { error: 'Processor or admin only' }) };
   }
   if (target.indexOf('@') < 0) {
     return { email: self, viewingAs: false, actor: self, error: json(400, { error: 'viewAs must be an email address' }) };
