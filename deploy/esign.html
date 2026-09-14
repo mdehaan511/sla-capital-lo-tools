@@ -1263,7 +1263,8 @@ function renderAssign() {
   html += '<div class="field pos-rel"><label>Loan</label>' +
     (_assignPick ? '<div class="picked"><span>' + esc(_assignPick.slaNumber || '') + ' — ' + esc(_assignPick.address || '') + '<br><span style="color:var(--muted);font-size:11.5px">' + esc(_assignPick.borrower || '') + '</span></span><button class="btn xs ghost" onclick="_assignPick=null;renderAssign()">Change</button></div>' :
       '<input type="text" id="loanSearch" placeholder="Search address, borrower, entity or SLA-…" oninput="loanSearch(this.value)" autocomplete="off"><div class="results" id="loanResults" style="display:none"></div>') + '</div>' +
-    '<div class="field"><label>Document type</label><select id="assignSlug"' + (_assignPick ? '' : ' disabled') + '><option value="">' + (_assignPick ? '— choose —' : 'Pick a loan first') + '</option></select></div>' +
+    '<div class="field"><label>Document type</label><select id="assignSlug" onchange="onSlugChange()"' + (_assignPick ? '' : ' disabled') + '><option value="">' + (_assignPick ? '— choose —' : 'Pick a loan first') + '</option></select></div>' +
+    '<div class="field" id="assignOtherWrap" style="display:none"><label>Describe the document</label><input type="text" id="assignOtherLabel" placeholder="e.g. Signed Broker Agreement" maxlength="120"></div>' +
     '<div class="field"><label>Note (optional)</label><input type="text" id="assignNote" placeholder="e.g. Signed at closing"></div>' +
     '<div style="margin-top:12px"><button class="btn" id="assignGo" onclick="confirmAssign()"' + (_assignPick ? '' : ' disabled') + '>File to loan</button></div>';
   host.innerHTML = html;
@@ -1299,19 +1300,34 @@ function fillSlugs() {
     sel.innerHTML = '<option value="">— choose —</option>' + Object.keys(groups).map(function (g) {
       return '<optgroup label="' + esc(g) + '">' + groups[g].map(function (s) { return '<option value="' + esc(s.slug) + '">' + esc(s.label) + '</option>'; }).join('') + '</optgroup>';
     }).join('');
+    // Deploy 237.035 (Mike) — "Other": anything that isn't a Doc Review tray.
+    // Filed into the loan's documents with the description you type.
+    sel.innerHTML += '<optgroup label="Anything else"><option value="other">Other (describe it)</option></optgroup>';
     if (!r.hasReview) sel.innerHTML += '<option value="" disabled>— this loan has no Doc Review yet; the PDF is stored in its loan documents —</option>';
     var hint = _assignPick.slugHint;
     if (hint && _assignSlugs.some(function (s) { return s.slug === hint; })) sel.value = hint;
+    onSlugChange();
   }).catch(function (e) { sel.innerHTML = '<option value="">Could not load types: ' + esc(e.message) + '</option>'; });
+}
+function onSlugChange() {
+  var sel = document.getElementById('assignSlug'); var wrap = document.getElementById('assignOtherWrap');
+  if (!sel || !wrap) return;
+  wrap.style.display = sel.value === 'other' ? '' : 'none';
+  if (sel.value === 'other') { var inp = document.getElementById('assignOtherLabel'); if (inp && !inp.value && _doc) inp.value = _doc.title || ''; inp && inp.focus(); }
 }
 function confirmAssign() {
   if (!_assignPick) return;
   var slug = document.getElementById('assignSlug').value;
   if (!slug) { showToast('Choose a document type', 'err'); return; }
   var s = _assignSlugs.filter(function (x) { return x.slug === slug; })[0];
+  var label = s ? s.label : slug;
+  if (slug === 'other') {
+    label = String(document.getElementById('assignOtherLabel').value || '').trim();
+    if (!label) { showToast('Describe the document (e.g. "Signed Broker Agreement")', 'err'); document.getElementById('assignOtherLabel').focus(); return; }
+  }
   var go = document.getElementById('assignGo'); go.disabled = true; go.textContent = 'Filing…';
-  SLA.api('POST', '/api/esign-doc-assign', ownerBody({ id: _doc.id, loanId: _assignPick.loanId, clientId: _assignPick.clientId, loanOwner: _assignPick.ownerKey, slug: slug, slugLabel: s ? s.label : slug, note: document.getElementById('assignNote').value }))
-    .then(function (r) { _doc = r.doc; renderDetail(); showToast(r.filed && r.filed.where === 'review' ? 'Filed to Documents → ' + (s ? s.label : slug) : 'Filed to the loan\'s documents', 'ok'); })
+  SLA.api('POST', '/api/esign-doc-assign', ownerBody({ id: _doc.id, loanId: _assignPick.loanId, clientId: _assignPick.clientId, loanOwner: _assignPick.ownerKey, slug: slug, slugLabel: label, note: document.getElementById('assignNote').value }))
+    .then(function (r) { _doc = r.doc; renderDetail(); showToast(r.filed && r.filed.where === 'review' ? 'Filed to Documents → ' + label : 'Filed to the loan\'s documents as "' + label + '"', 'ok'); })
     .catch(function (e) { go.disabled = false; go.textContent = 'File to loan'; showToast('Filing failed: ' + e.message, 'err'); });
 }
 function unassign() {

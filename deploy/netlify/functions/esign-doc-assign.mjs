@@ -76,6 +76,9 @@ export default async (req, context) => {
     const slug = String(body.slug || '').slice(0, 80);
     const cat = findCategory(slug) || docTypeOptions().find((d) => d.slug === slug) || null;
     const slugLabel = String(body.slugLabel || (cat && cat.label) || slug || 'Signed document').slice(0, 120);
+    // Deploy 237.035 (Mike) — slug 'other' = not a Doc Review tray. Skips the
+    // tray attach and lands in the loan's documents under the typed description.
+    const isOther = slug === 'other';
 
     const finalB64 = await docFinalStore().get(docKey(ownerKey, doc.id), { type: 'text' }).catch(() => null);
     if (!finalB64) return json(404, { error: 'Executed PDF not on file' });
@@ -84,7 +87,7 @@ export default async (req, context) => {
 
     // 1. Doc Review tray (the Documents tab) when it exists.
     let filed = { where: 'none' };
-    if (slug) {
+    if (slug && !isOther) {
       const r = await attachFileToReviewSlug({
         ownerKey: loanOwnerKey, clientId: resolvedClientId, loanId, address: loan.address || '',
         slug, bytes, filename, mimeType: 'application/pdf',
@@ -101,7 +104,7 @@ export default async (req, context) => {
       const docId = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       const rec = {
         id: docId, clientId: resolvedClientId, loanId, ownerKey: loanOwnerKey,
-        category: 'closing', filename, mimeType: 'application/pdf', sizeBytes: bytes.length,
+        category: isOther ? 'other' : 'closing', filename, mimeType: 'application/pdf', sizeBytes: bytes.length,
         notes: 'E-Sign: ' + slugLabel + (slug ? ' (' + slug + ')' : ''), uploadedAt: now, uploadedBy: selfEmail,
         uploadedByName: actorName, updatedAt: now, esignDocId: doc.id, esignSlug: slug,
       };
