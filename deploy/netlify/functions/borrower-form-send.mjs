@@ -99,7 +99,7 @@ async function handle(req, context) {
   const idx = getStore({ name: 'borrower-forms-token-idx', consistency: 'strong' });
   const now = new Date().toISOString();
 
-  // ── Deploy 237.040 — VOM follow-up: "I sent it to the landlord / lender" ──
+  // ── Deploy 237.042 — VOM follow-up: "I sent it to the landlord / lender" ──
   if (body.followUpDone === true || body.followUpDone === false) {
     const fu = tray.followUp;
     if (!fu) return json(400, { error: 'Nothing to mark on this tray' });

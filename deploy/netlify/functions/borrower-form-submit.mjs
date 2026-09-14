@@ -123,7 +123,7 @@ async function handle(req, context) {
       docId = ds.currentDocId || '';
       ds.borrowerForm = Object.assign({}, ds.borrowerForm || {}, { id: rec.id, formId: form.id, status: 'completed', completedAt: now, docId, link: '', source: portal ? 'portal' : (ds.borrowerForm && ds.borrowerForm.source) || 'sent' });
       ds.uploadedByBorrower = true;
-      // Deploy 237.040 (Mike) — a VOM back from the borrower is only Part I.
+      // Deploy 237.042 (Mike) — a VOM back from the borrower is only Part I.
       // SLA still has to send it to the landlord / mortgage company for Part
       // II, so the tray carries an open follow-up until a processor marks it
       // sent (borrower-form-send { followUpDone }). A task is created below.
@@ -157,7 +157,7 @@ async function handle(req, context) {
       appendNoteEntry(found.loan, { kind: 'system', text: form.label + ' completed and signed by the borrower (' + signerName + ') — filed to Documents.' + followUpText, author: 'SLA Platform', authorEmail: 'system@slacapital.com' });
       found.loan.updatedAt = now;
       await writeClient(found.ownerKey || rec.ownerKey, found.client, {});
-      // Deploy 237.040 — the VOM send-out lands on the processing queue: a
+      // Deploy 237.042 — the VOM send-out lands on the processing queue: a
       // task for the loan's first assigned processor (else whoever sent the
       // form / the LO), due in two business-ish days.
       if (vomFollowUp) {
