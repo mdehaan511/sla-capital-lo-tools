@@ -614,9 +614,52 @@ var _LD_STAGE_LABELS = {
   'pp_approved':  'Cleared to Close',
   'pp_closed':    'Closed',
 };
+// Deploy 237.017 (Mike) — once a loan closes, the header badge shows its Closing
+// Pipeline status (Closed Loans page) instead of the processing stage:
+// "Closed: Post Close" / "Closed: Servicing" / "Closed: Pending Sale" /
+// "Closed: Sold – DSCR" / "Closed: Paid Off". The rules below MIRROR
+// closed-loans.html isClosedLoan / dispositionOf / displayBucket / DISP_LABEL —
+// keep the two in sync.
+var _LD_DISP_LABEL = { post_close: 'Post Close', servicing: 'Servicing', pending_sale: 'Pending Sale',
+  sold: 'Sold', sold_rtl: 'Sold \u2013 RTL', sold_dscr: 'Sold \u2013 DSCR', paid_off: 'Paid Off' };
+function _ldNormDisp(v) { return String(v || '').toLowerCase().replace(/[_\s]+/g, ' ').trim(); }
+function _ldIsClosedForPipeline(l) {
+  if (!l) return false;
+  var dsp = _ldNormDisp(l.disposition);
+  if (dsp === 'sold' || dsp === 'servicing' || dsp === 'pending sale' || dsp === 'paid off' || dsp === 'post close') return true;
+  var st = String(l.status || '').toLowerCase().trim();
+  if (st === 'closed' || st === 'sold' || st === 'liquidated') return true;
+  if (String(l.processingStage || '').toLowerCase().trim() === 'pp_closed') return true;
+  var bl = _ldNormDisp(l.baselineStatus);
+  return bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off' || bl === 'closed';
+}
+function _ldClosedStatus(l) {
+  if (!_ldIsClosedForPipeline(l)) return null;
+  var d = _ldNormDisp(l.disposition), key = '';
+  if (d === 'post close') key = 'post_close';
+  else if (d === 'servicing') key = 'servicing';
+  else if (d === 'pending sale') key = 'pending_sale';
+  else if (d === 'sold') key = 'sold';
+  else if (d === 'paid off' || d === 'payoff') key = 'paid_off';
+  else {
+    var bl = _ldNormDisp(l.baselineStatus), st = String(l.status || '').toLowerCase().trim();
+    if (bl === 'sold') key = 'sold';
+    else if (bl === 'paid off' || bl === 'liquidated') key = 'paid_off';
+    else if (bl === 'in servicing' || bl === 'servicing') key = 'servicing';
+    else if (st === 'sold') key = 'sold';
+    else if (st === 'liquidated') key = 'paid_off';
+    else key = 'post_close'; // freshly closed → Post Close until staff clicks Close Out
+  }
+  if (key === 'sold') key = String(l.toolType || '').toLowerCase() === 'rtl' ? 'sold_rtl' : 'sold_dscr';
+  return { key: key, label: _LD_DISP_LABEL[key] || key };
+}
 function _pipelineBadgeContent(loan, pipelineColFallback) {
   var stage = String(loan && loan.processingStage || '').toLowerCase().trim();
   var sub   = String(loan && loan.processingSubstatus || '').trim();
+  var _closed = _ldClosedStatus(loan);
+  if (_closed) {
+    return { lbl: 'Closed:', val: _closed.label, title: 'Closing Pipeline: ' + _closed.label + ' — open Closed Loans', href: '/closed-loans.html' };
+  }
   // Deploy 236.583 — a terminally-closed loan reads "Closed" even when its
   // processingStage was never advanced past an earlier stage (Baseline-closed
   // loans keep their pre-close stage). Status wins over the stale stage, so the
@@ -1027,6 +1070,12 @@ function render() {
       (function(){
         var pp = _pipelineBadgeContent(l, pipelineCol);
         if (!pp) return '';
+        // Deploy 237.017 — a closed loan's badge links to Closed Loans.
+        if (pp.href) {
+          return '<a class="pipeline-badge" href="' + escAttr(pp.href) + '" title="' + escAttr(pp.title) + '" style="text-decoration:none;color:inherit">' +
+                   '<span class="lbl">' + escH(pp.lbl) + '</span>' + escH(pp.val) +
+                 '</a>';
+        }
         return '<span class="pipeline-badge" title="' + escAttr(pp.title) + '">' +
                  '<span class="lbl">' + escH(pp.lbl) + '</span>' + escH(pp.val) +
                '</span>';
