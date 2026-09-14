@@ -59,7 +59,14 @@ function keyOf(street, state) {
   const toks = s.split(' ');
   const house = toks.shift() || '';
   const rest = toks.map((w) => DMAP[w] || w).filter((w) => !SUFS[w] && !DIRS[w]);
-  return house + ' ' + rest.join(' ') + '|' + String(state || '').toLowerCase().trim();
+  // Deploy 237.020 — key on house number + FIRST street-name word + state.
+  // Many Baseline-imported addresses have no comma before the city ("158
+  // Ivanhoe Ave Cincinnati, OH"), which mushes the city into the street field;
+  // matching on the whole street core then missed them and they fell to the
+  // default (4 loans were wrongly defaulted to DIYA on the first run and had to
+  // be corrected). First-word + state is robust to a trailing mushed city, and
+  // collisions within the small curated lists are effectively nil.
+  return house + ' ' + (rest[0] || '') + '|' + String(state || '').toLowerCase().trim();
 }
 function slaKey(addr) {
   const up = String(addr || '').toUpperCase();

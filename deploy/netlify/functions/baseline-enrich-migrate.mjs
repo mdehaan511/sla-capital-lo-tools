@@ -118,7 +118,7 @@ function _rentalType(v) {
 
 // Build the field-updates from a mirror record. Only returns keys we can
 // confidently map + that have a value (so we never blank existing data).
-function mapMirrorToFields(m) {
+export function mapMirrorToFields(m) { // Deploy 237.022 — exported for admin-baseline-raw-audit
   const f = {};
   const set = (k, v) => { if (v !== '' && v != null) f[k] = v; };
 
@@ -176,7 +176,7 @@ function mapMirrorToFields(m) {
 }
 
 // The vesting LLC (entity borrower) + the guarantor person, from the mirror.
-function mapPeople(m) {
+export function mapPeople(m) { // Deploy 237.022 — exported for admin-baseline-raw-audit
   const out = { llcName: '', guarantor: null };
   if (String(m.Borrower_Type || '').toLowerCase() === 'entity') {
     const nm = _str(m.Borrower_Name);

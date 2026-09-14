@@ -78,6 +78,11 @@ const FIELDS = {
   // placeholder parking sets it with no real broker; staff can clear the
   // phantom mode once a real borrower holds the loan (Locust Ave).
   _isBrokerLoan: 1,
+  // Deploy 237.021 — Broker Info + General Contractor boxes on Loan Details moved off the
+  // whole-client save (which silently did nothing on the PG read path, where the
+  // client arrives without loans[]). Plain strings.
+  brokerName: 1, brokerCompany: 1, brokerEmail: 1, brokerPhone: 1,
+  gcName: 1, gcCompany: 1, gcEmail: 1, gcPhone: 1, gcLicense: 1,
   // Deploy 236.750 — MF (5+) operating-statement fields, edited in the Loan
   // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
   // Deploy 236.762 — + rent (Total Monthly Rent): the MF box is the only

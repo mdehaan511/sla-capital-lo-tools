@@ -311,8 +311,13 @@ var DISP_LABEL = { post_close:'Post Close', servicing:'Servicing', pending_sale:
 // The nightly FCI sync stamps boardingStatus='boarded' automatically;
 // generating the FCI boarding sheet stamps 'sent'.
 function needsBoarding(l){
+  // Deploy 237.026 (Mike) — SLA does NOT board DSCR loans: they are sold to the
+  // investor and never serviced by us, so a DSCR never needs boarding. Only RTL
+  // (and the legacy 'servicing' tag, which is RTL) can. This clears every DSCR
+  // out of the Pending Boarding spotlight — they live in Sold – DSCR only.
+  if (!isRtl(l)) return false;
   var b = displayBucket(l);
-  if (b!=='sold_rtl' && b!=='sold_dscr' && b!=='servicing') return false;
+  if (b!=='sold_rtl' && b!=='servicing') return false;
   if (String(l.boardingStatus||'')==='boarded') return false;
   return !String(l.servicerLoanNumber||'').trim();
 }
@@ -795,20 +800,25 @@ function _dispBody(group, disp, includeDisp){
 // (freshly closed → Close Out). 'servicing' (legacy manual tag) only shows if a
 // loan is actually tagged that way, so it doesn't double-list Pending Sale RTLs.
 function renderAll(items){
-  var order = ['post_close','pending_sale','sold_rtl','sold_dscr','paid_off'];
-  if (items.some(function(it){ return displayBucket(it.loan)==='servicing'; })) order.splice(1,0,'servicing');
-  // Deploy 236.982 (Mike) — Pending Boarding SPOTLIGHT accordion, first. The
-  // loans still appear in their own disposition bucket below; this list
-  // exists so unboarded loans can't get lost as the serviced book grows.
-  // Loans drop out automatically when the FCI sync confirms them.
-  var pb = items.filter(function(it){ return needsBoarding(it.loan); });
-  var pbAcc = accordion('pending_boarding', pb, '', _pbBody(pb));
-  return pbAcc + order.map(function(d){
+  // Deploy 237.026 (Mike) — Post Close LEADS the All tab (freshly closed loans
+  // waiting for Close Out), above the Pending Boarding spotlight. The rest keep
+  // their order; 'servicing' (legacy manual tag) still only shows when a loan is
+  // actually tagged that way, so it doesn't double-list Pending Sale RTLs.
+  var order = ['pending_sale','sold_rtl','sold_dscr','paid_off'];
+  if (items.some(function(it){ return displayBucket(it.loan)==='servicing'; })) order.splice(0,0,'servicing');
+  function bucketAcc(d){
     var desc = _colDesc(d);
     var group = sortItems(items.filter(function(it){ return displayBucket(it.loan)===d; }), desc.tab, desc.sort);
     var body = group.length ? _dispBody(group, d, true) : '<div class="cl-empty">No '+escH((DISP_LABEL[d]||d).toLowerCase())+' loans.</div>';
     return accordion(d, group, '', body);
-  }).join('');
+  }
+  // Deploy 236.982 (Mike) — Pending Boarding SPOTLIGHT accordion. The loans still
+  // appear in their own disposition bucket below; this list exists so unboarded
+  // loans can't get lost. DSCRs never appear here (see needsBoarding). Loans drop
+  // out automatically when the FCI sync confirms them.
+  var pb = items.filter(function(it){ return needsBoarding(it.loan); });
+  var pbAcc = accordion('pending_boarding', pb, '', _pbBody(pb));
+  return bucketAcc('post_close') + pbAcc + order.map(bucketAcc).join('');
 }
 // Manual disposition picker (All tab). 'sold' is the primary value staff pick;
 // the RTL/DSCR split is derived. Legacy 'servicing' is offered only if the loan

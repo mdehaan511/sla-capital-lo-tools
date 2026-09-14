@@ -1022,6 +1022,17 @@
   to = "/.netlify/functions/admin-summary-save-recovery-status"
   status = 200
   force = true
+# Deploy 237.022 -- Baseline raw-record audit / gap-fill (background job + report).
+[[redirects]]
+  from = "/api/admin-baseline-raw-audit"
+  to = "/.netlify/functions/admin-baseline-raw-audit-background"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/admin-baseline-raw-audit-status"
+  to = "/.netlify/functions/admin-baseline-raw-audit-status"
+  status = 200
+  force = true
 
 # Deploy 236.818: borrower-link — durable 72h portal sign-in links. GET
 # redeems (mints a fresh Supabase magic link at click time); POST resends
