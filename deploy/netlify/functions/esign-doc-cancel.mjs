@@ -1,7 +1,7 @@
 /**
  * esign-doc-cancel.mjs — POST /api/esign-doc-cancel
  *
- * Deploy 237.022 (Mike): cancels a SENT document (every outstanding link dies,
+ * Deploy 237.028 (Mike): cancels a SENT document (every outstanding link dies,
  * status → cancelled, it stays in the Cancelled tab for the record), or
  * DELETES a draft / cancelled document outright (record + bytes).
  *

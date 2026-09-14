@@ -1,5 +1,5 @@
 /**
- * esign-docs.mjs — Deploy 237.022 (Mike): general-purpose E-Sign tool.
+ * esign-docs.mjs — Deploy 237.028 (Mike): general-purpose E-Sign tool.
  *
  * The native eSign that shipped in Deploy 185 (native-esign.mjs + the
  * envelopes-* family) only signs PDFs the app itself generates — the sizer
@@ -102,7 +102,7 @@ export function projectDoc(d) {
     } : null,
     suggestionState: d.suggestionState || null,
     templateName: d.templateName || '',
-    // Deploy 237.023 — the loan this document was started from (Loan Details
+    // Deploy 237.029 — the loan this document was started from (Loan Details
     // "E-Sign a Document" button). Lets Loan Details list its documents.
     loan: d.loan && d.loan.loanId ? { clientId: d.loan.clientId, loanId: d.loan.loanId, ownerKey: d.loan.ownerKey, address: d.loan.address || '' } : null,
   };

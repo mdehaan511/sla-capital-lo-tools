@@ -4,7 +4,7 @@
  * Deploy 236.23: pulled out into shared module so every page renders
  *   the same nav and adding a page only needs one edit.
  * Deploy 236.24: dropdown menus (Clients/Brokers/Loans + Profile/Signout),
- *   (Deploy 237.021: Clients menu is now "Contacts"; new Tools menu.)
+ *   (Deploy 237.027: Clients menu is now "Contacts"; new Tools menu.)
  *   removed standalone Admin link (Profile covers admin settings),
  *   removed sitewide search bar (sla-search.js dropped from page list).
  *
@@ -76,7 +76,7 @@
       ],
     },
     {
-      // Deploy 237.021 (Mike) — menu renamed "Clients" → "Contacts" and the
+      // Deploy 237.027 (Mike) — menu renamed "Clients" → "Contacts" and the
       // clients.html child renamed "Borrowers": the menu holds borrowers,
       // brokers, partners, vendors and investors, so "Contacts" is the
       // honest umbrella and "Borrowers" says what clients.html actually is.
@@ -114,7 +114,7 @@
         { label: 'Loan List',   href: '/loans.html' },
       ],
     },
-    // Deploy 237.021 (Mike) — Tools menu: the sizers + guidelines that used
+    // Deploy 237.027 (Mike) — Tools menu: the sizers + guidelines that used
     // to be reachable only from the Home tool cards, plus the new E-Sign
     // tool (esign.html). Home keeps its cards; this is the one-click path
     // from any page.
@@ -227,7 +227,7 @@
     if (link.requires === 'admin') return hasRole(user, 'admin');
     if (link.requires === 'super_admin') return hasRole(user, 'super_admin');
     if (link.requires === 'processor') return hasRole(user, 'processor');
-    // Deploy 237.021 — MF sizer gate mirrors mf-dscr-sizer.html's own guard
+    // Deploy 237.027 — MF sizer gate mirrors mf-dscr-sizer.html's own guard
     // (admin OR senior_lo).
     if (link.requires === 'mf') {
       return hasRole(user, 'admin') || _rawRoles(user).some(function (r) { return r === 'senior_lo'; });

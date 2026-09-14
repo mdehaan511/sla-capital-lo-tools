@@ -1,7 +1,7 @@
 /**
  * esign-sign-info.mjs — GET /api/esign-sign-info?t=<token>
  *
- * Deploy 237.022 (Mike): PUBLIC (no auth). The signer landing page
+ * Deploy 237.028 (Mike): PUBLIC (no auth). The signer landing page
  * (esign-sign.html) calls this first. Returns everything the page needs to
  * render: document meta + page sizes, this signer, every field (the signer's
  * own to fill, everyone else's to display), prior signers' adopted signatures

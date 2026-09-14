@@ -10,7 +10,7 @@
   <script src="sla-notifications.js"></script>
   <script src="sla-chat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <!-- Deploy 237.022 (Mike) — E-Sign tool. Upload any PDF, drop signature /
+  <!-- Deploy 237.028 (Mike) — E-Sign tool. Upload any PDF, drop signature /
        initials / date / text / checkbox boxes on it, send to borrowers and
        staff in signing order, track status, reuse layouts as templates, and
        file the executed copy onto a loan (AI suggests which loan + doc type).
@@ -361,7 +361,7 @@ var _pdfDoc = null, _pdfScale = 1;
 var _peoplePool = null;   // borrowers + users for the signer picker
 var _sugIdx = -1, _sugRows = [];
 var _pendingFile = null;
-// Deploy 237.023 — Loan Details "E-Sign a Document" hands us the loan + borrower
+// Deploy 237.029 — Loan Details "E-Sign a Document" hands us the loan + borrower
 // via the hash (#new&loanId=…&signerEmail=…). Stashed here until the draft exists.
 var _prefill = null;
 
@@ -410,7 +410,7 @@ function route() {
   var h = parseHash();
   _docOwner = h.owner && h.owner.toLowerCase() !== String(_user.email || '').toLowerCase() ? h.owner : '';
   if (h.view === 'new') {
-    // Deploy 237.023 — arrived from Loan Details: remember the loan + borrower,
+    // Deploy 237.029 — arrived from Loan Details: remember the loan + borrower,
     // then behave like the list view with the New Document modal open.
     _prefill = h.loanId ? { loan: { loanId: h.loanId, clientId: h.clientId || '', ownerKey: h.owner || _user.email, address: h.address || '' },
       signer: h.signerEmail ? { name: h.signerName || '', email: String(h.signerEmail).toLowerCase(), kind: 'borrower' } : null, title: h.title || '' } : null;
@@ -582,7 +582,7 @@ function createDoc() {
   var p = tplId ? Promise.resolve({ templateId: tplId, title: title })
     : readAsBase64(_pendingFile).then(function (b64) { return { title: title, filename: _pendingFile.name, pdfBase64: b64 }; });
   p.then(function (body) {
-    if (_prefill && _prefill.loan) body.loan = _prefill.loan; // Deploy 237.023 — remember which loan this came from
+    if (_prefill && _prefill.loan) body.loan = _prefill.loan; // Deploy 237.029 — remember which loan this came from
     return SLA.api('POST', '/api/esign-docs', body);
   }).then(function (r) {
     closeNewDoc();
@@ -614,7 +614,7 @@ function openEditor(id) {
   window.onbeforeunload = function () { return _dirty ? 'You have unsaved changes.' : null; };
 }
 function setSaveState(s) { document.getElementById('edSaveState').textContent = s; }
-// Deploy 237.023 — when the draft was started from Loan Details, drop the
+// Deploy 237.029 — when the draft was started from Loan Details, drop the
 // borrower in as the first signer (or into the first empty borrower role of a
 // template) so the LO only has to place fields.
 function applyPrefillSigner() {

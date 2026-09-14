@@ -1,7 +1,7 @@
 /**
  * esign-doc-pdf.mjs — GET /api/esign-doc-pdf
  *
- * Deploy 237.022 (Mike): streams PDF bytes to the E-Sign editor / detail page.
+ * Deploy 237.028 (Mike): streams PDF bytes to the E-Sign editor / detail page.
  *   ?id=&owner=&which=original   the uploaded PDF (editor render)
  *   ?id=&owner=&which=final      the executed PDF (completed docs only)
  *   ?templateId=                 a template's PDF (editor render)

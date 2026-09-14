@@ -1638,7 +1638,7 @@
     },
   };
 
-  // ── E-Sign tool (Deploy 237.022) ────────────────────────────────
+  // ── E-Sign tool (Deploy 237.028) ────────────────────────────────
   // General-purpose e-sign: upload any PDF, place fields, send in order,
   // templates, file the executed copy to a loan. esign.html is the only
   // consumer today; exposed here so Loan Details can deep-link / list
@@ -1649,7 +1649,7 @@
       var qs = [];
       if (opts.all) qs.push('all=1');
       if (opts.status) qs.push('status=' + encodeURIComponent(opts.status));
-      if (opts.loanId) qs.push('loanId=' + encodeURIComponent(opts.loanId)); // Deploy 237.023
+      if (opts.loanId) qs.push('loanId=' + encodeURIComponent(opts.loanId)); // Deploy 237.029
       return api('GET', '/api/esign-docs' + (qs.length ? '?' + qs.join('&') : ''));
     },
     get: function (id, owner) {
@@ -2969,7 +2969,7 @@
     Brevo: Brevo,
     Baseline: Baseline,
     Envelopes: Envelopes,
-    ESign: ESign, // Deploy 237.022
+    ESign: ESign, // Deploy 237.028
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     ESignConsent: ESignConsent,

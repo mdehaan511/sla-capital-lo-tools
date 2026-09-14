@@ -1451,7 +1451,7 @@ function render() {
     '</button>';
   }
 
-  // Deploy 237.023 (Mike) — E-Sign tool shortcut. Opens esign.html with this
+  // Deploy 237.029 (Mike) — E-Sign tool shortcut. Opens esign.html with this
   // loan + the borrower pre-filled (#new&loanId=…), so the LO only uploads the
   // PDF and places fields. Documents started here (or filed here) show up in
   // the Notes & Activity feed via _esignToolFeedEntries().
@@ -6907,7 +6907,7 @@ function _esignFeedEntries() {
   });
   return out;
 }
-// Deploy 237.023 — E-Sign TOOL documents (esign.html) for this loan. Loaded
+// Deploy 237.029 — E-Sign TOOL documents (esign.html) for this loan. Loaded
 // by refreshEnvelopes() alongside the term-sheet envelopes; rendered as feed
 // entries with the same look. Actions live on the E-Sign page (one link).
 function _esignNewUrl() {
@@ -6974,7 +6974,7 @@ function renderNotesLog() {
   if (!inner) return;
   var all = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
   all = all.concat(_esignFeedEntries()); // Deploy 236.967 -- envelopes live in this feed
-  all = all.concat(_esignToolFeedEntries()); // Deploy 237.023 -- E-Sign tool documents too
+  all = all.concat(_esignToolFeedEntries()); // Deploy 237.029 -- E-Sign tool documents too
   // Deploy 236.800 — pinned notes float above the feed, regardless of the
   // note filter (that's the point of pinning: read-this-first). Most
   // recently pinned first. Processors/admins get pin/unpin controls.
@@ -11887,7 +11887,7 @@ function refreshEnvelopes() {
   // list (the section also hosts the Signature Confirmations pane).
   var listEl = document.getElementById('envelopesList');
   if (!listEl) return;
-  refreshEsignToolDocs(); // Deploy 237.023 — E-Sign tool docs for this loan (own fetch, own feed entries)
+  refreshEsignToolDocs(); // Deploy 237.029 — E-Sign tool docs for this loan (own fetch, own feed entries)
   var opts = { clientId: _clientId, loanId: _loanId };
   // Cross-owner: admin viewing another LO's loan → ask for that owner's envelopes
   if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;

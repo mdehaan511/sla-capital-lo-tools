@@ -1,7 +1,7 @@
 /**
  * esign-docs.mjs — GET/POST /api/esign-docs
  *
- * Deploy 237.022 (Mike): general-purpose E-Sign tool. See _shared/esign-docs.mjs
+ * Deploy 237.028 (Mike): general-purpose E-Sign tool. See _shared/esign-docs.mjs
  * for the record model.
  *
  * GET  ?meta=1                 → { docTypes, consentVersion, maxPdfBytes, isStaff }
@@ -103,7 +103,7 @@ export default async (req, context) => {
       history: [],
       assignment: null, suggestion: null, suggestionState: null,
       templateId: null, templateName: '',
-      // Deploy 237.023 — optional loan the document was started from.
+      // Deploy 237.029 — optional loan the document was started from.
       loan: normalizeLoanRef(body.loan),
     };
 

@@ -94,7 +94,7 @@ to bypass owner scoping.
 | `borrower2_token_idx` | Borrower-2 (co-signer) token lookup | |
 | `pandadoc-send-log` | **Legacy read-only** — kept for audit history pre-Deploy 185 | |
 | `settings` | Admin settings (Slack webhook, etc.) | |
-| `esign-docs` / `esign-docs-index` | E-Sign tool (Deploy 237.022) document records + list index | `strong`; index via `store-index.mjs` |
+| `esign-docs` / `esign-docs-index` | E-Sign tool (Deploy 237.028) document records + list index | `strong`; index via `store-index.mjs` |
 | `esign-doc-pdfs` / `esign-doc-final` / `esign-doc-sigs` | E-Sign original PDF, executed PDF, adopted signature images | keyed `ownerKey/docId[/signerId]` |
 | `esign-signer-idx` | E-Sign signer token → `{docKey, signerId}` | For `esign-sign.html?t=` |
 | `esign-templates` / `esign-template-pdfs` | E-Sign reusable layouts (org-wide library) | |
