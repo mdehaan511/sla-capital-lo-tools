@@ -50,8 +50,16 @@ function sameValue(field, sla, mapped) {
     return Math.abs(na - nb) < 0.0005;
   }
   if (field === 'isIO') return (sla === true || sla === 'true' || sla === 'io') === !!mapped;
+  if (field === 'prepay') {
+    // SLA stores "54321" / "321" / "none"; older records carry "5y6m"-style
+    // labels. Treat a label whose leading year count equals the step-down
+    // length as the same schedule (5y6m ≈ 54321).
+    const norm = (v) => { const s = String(v).trim().toLowerCase(); if (!s || /none|no /.test(s)) return 'none'; const y = s.match(/^(\d)y/); if (y) return y[1]; const d = s.replace(/[^0-9]/g, ''); return d ? String(d.length) : s; };
+    return norm(sla) === norm(mapped);
+  }
   const a = numOf(sla), b = numOf(mapped);
-  if (a != null && b != null && /^[\d.,$\s-]+$/.test(String(sla)) && /^[\d.,$\s-]+$/.test(String(mapped))) return Math.abs(a - b) < 0.005;
+  const numLike = (v) => /^[\d.,$\s-]+(\s*(pts?|points?|%))?$/i.test(String(v).trim());
+  if (a != null && b != null && numLike(sla) && numLike(mapped)) return Math.abs(a - b) < 0.005;
   return String(sla).trim().toLowerCase() === String(mapped).trim().toLowerCase();
 }
 
@@ -67,11 +75,30 @@ function parseRaw(l) {
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return null; }
 }
 
-function extraLoanFields(raw) {
+function extraLoanFields(raw, mapped) {
   const f = {};
   const s = (v) => (v == null ? '' : String(v).trim());
   if (s(raw.Address_Project_Summary)) f.projectDescription = s(raw.Address_Project_Summary);
   if (String(raw.Borrower_Type || '').toLowerCase() === 'entity' && s(raw.Borrower_Name)) f.entityName = s(raw.Borrower_Name);
+  // Fallbacks for raw keys the bulk mapper never read (seen on live records):
+  //   Term (months) when Amortization_Term is blank; top-level Purchase_Price when
+  //   Address_Purchase_Price is blank; Prepayment_Type ("No Prepayment") when
+  //   Prepayment_Penalty is blank; Regular_Payment → paymentAmount (FCI's nightly
+  //   sync overwrites it on serviced loans, so this only seeds the blank ones).
+  if (isEmpty(mapped.loanTerm) && numOf(raw.Term) != null && numOf(raw.Term) > 0) f.loanTerm = String(numOf(raw.Term));
+  if (isEmpty(mapped.purchasePrice) && numOf(raw.Purchase_Price) != null && numOf(raw.Purchase_Price) > 0) f.purchasePrice = String(numOf(raw.Purchase_Price));
+  if (isEmpty(mapped.prepay) && s(raw.Prepayment_Type)) {
+    const pt = s(raw.Prepayment_Type).toLowerCase();
+    f.prepay = /no prepay|none/.test(pt) ? 'none' : (pt.replace(/[^0-9]/g, '') || '');
+    if (!f.prepay) delete f.prepay;
+  }
+  // Top-level valuation keys (older records) when the Address_* copies are blank.
+  const asIs = numOf(raw.As_Is_Value);
+  if (isEmpty(mapped.propValue) && asIs != null && asIs > 0) { f.propValue = String(asIs); if (isEmpty(mapped.aivBpo)) f.aivBpo = String(asIs); }
+  const arv = numOf(raw.After_Repair_Value_ARV);
+  if (isEmpty(mapped.arv) && arv != null && arv > 0) f.arv = String(arv);
+  const pay = numOf(raw.Regular_Payment) != null ? numOf(raw.Regular_Payment) : numOf(raw.Principal_Interest);
+  if (pay != null && pay > 0) f.paymentAmount = String(Math.round(pay * 100) / 100);
   return f;
 }
 
@@ -87,6 +114,10 @@ function clientFields(raw, client) {
   if (flips != null && flips >= 0) f.flips = String(Math.round(flips));
   const phone = raw.Guarantor_Phone == null ? '' : String(raw.Guarantor_Phone).trim();
   if (phone) f.phone = phone;
+  const dob = String(raw.Guarantor_Date_Birth || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(dob)) f.dob = dob.slice(0, 10);
+  const cit = String(raw.Guarantor_Citizenship || '').toLowerCase();
+  if (/u\.?s\.? ?citizen/.test(cit)) f.usCitizen = 'yes';
   return f;
 }
 
@@ -176,7 +207,8 @@ async function handle(req, context) {
       if (!raw) { report.loansNoRaw++; continue; }
       report.loansWithRaw++;
 
-      const mapped = Object.assign({}, mapMirrorToFields(raw), extraLoanFields(raw));
+      const base = mapMirrorToFields(raw);
+      const mapped = Object.assign({}, base, extraLoanFields(raw, base));
       const skip = Object.assign({}, SKIP_LOAN);
       if (loan.loanAmtLocked) skip.loanAmt = 1;
       if (loan._rateOverride) skip.rate = 1;
@@ -208,7 +240,12 @@ async function handle(req, context) {
           loan.pricingSnapshot = Object.assign({}, loan.pricingSnapshot || {});
           if (isEmpty(loan.pricingSnapshot.downPayment)) loan.pricingSnapshot.downPayment = c.gaps.downPayment;
         }
-        if (wantLLC) loan.vestingLLCs = [{ name: people.llcName }];
+        if (wantLLC) {
+          const llc = { name: people.llcName };
+          if (raw.Borrower_Jurisdiction) llc.state = String(raw.Borrower_Jurisdiction).trim();
+          if (raw.Borrower_Entity_Type) llc.entityType = String(raw.Borrower_Entity_Type).trim();
+          loan.vestingLLCs = [llc];
+        }
         Object.keys(cc.gaps).forEach((k) => { client[k] = cc.gaps[k]; });
         loan._baselineRawAuditedAt = new Date().toISOString();
         loan.updatedAt = loan._baselineRawAuditedAt;
