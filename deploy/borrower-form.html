@@ -11,7 +11,7 @@
        submit files the signed PDF straight into the tray. The token IS the
        auth. ES5 only — this page is opened on whatever the borrower has. -->
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
-  <!-- Deploy 237.038 (Mike) — PORTAL mode: ?form=&loanId= (no token) opens the
+  <!-- Deploy 237.039 (Mike) — PORTAL mode: ?form=&loanId= (no token) opens the
        same page for a signed-in borrower, auth = their portal login + loan
        grant. sla-api.js supplies the token (Supabase or Identity). -->
   <script src="/sla-api.js"></script>
@@ -61,7 +61,7 @@
 'use strict';
 var _Q = new URLSearchParams(window.location.search);
 var TOKEN = _Q.get('t') || '';
-// Deploy 237.038 — portal mode (form + loanId, no token).
+// Deploy 237.039 — portal mode (form + loanId, no token).
 var PORTAL = !TOKEN && !!(_Q.get('form') && _Q.get('loanId'));
 var P = { form: _Q.get('form') || '', loanId: _Q.get('loanId') || '', clientId: _Q.get('clientId') || '', owner: _Q.get('owner') || '', address: _Q.get('address') || '' };
 var _again = _Q.get('again') === '1';

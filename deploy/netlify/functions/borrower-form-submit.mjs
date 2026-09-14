@@ -46,7 +46,7 @@ async function handle(req, context) {
   let rec, form, portal = null;
 
   if (!token && body.loanId && body.form) {
-    // Deploy 237.038 — PORTAL mode: the signed-in borrower (loan grant) submits
+    // Deploy 237.039 — PORTAL mode: the signed-in borrower (loan grant) submits
     // a self-serve form. A fresh request record is minted here (no token) so
     // the tray + the record read the same as a processor-sent one, and the
     // loan's LO gets the completion email. Re-submitting replaces the tray's

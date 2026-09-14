@@ -2306,7 +2306,7 @@
   var BORROWER_FORMS = {
     closing_w9: 'Form W-9',
     property_mgmt_questionnaire: 'Property Management Questionnaire',
-    vom: 'Verification of Mortgage / Rent', // Deploy 237.038
+    vom: 'Verification of Mortgage / Rent', // Deploy 237.039
     draw_wire_form: 'Construction Draw Wire Information Form',
     commitment_letter: 'Loan Commitment Letter',
   };

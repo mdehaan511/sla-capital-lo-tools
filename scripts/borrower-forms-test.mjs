@@ -27,7 +27,7 @@ console.log('borrower forms gate\n');
 
 // -- Every form files into a tray that exists on the checklist ---------------
 check('five forms', Object.keys(FORMS).sort(), ['commitment_letter', 'draw_wire', 'pm_questionnaire', 'vom', 'w9']);
-check('VOM → vom on DSCR only (237.038)', [slugsOf('dscr').includes('vom'), slugsOf('rtl').includes('vom')], [true, false]);
+check('VOM → vom on DSCR only (237.039)', [slugsOf('dscr').includes('vom'), slugsOf('rtl').includes('vom')], [true, false]);
 check('portal forms: DSCR gets PMQ + VOM, RTL gets none', [portalForms('dscr').map((f) => f.id).sort(), portalForms('rtl').map((f) => f.id)], [['pm_questionnaire', 'vom'], []]);
 check('W-9 → closing_w9 on DSCR and RTL', [slugsOf('dscr').includes('closing_w9'), slugsOf('rtl').includes('closing_w9')], [true, true]);
 check('PM questionnaire → property_mgmt_questionnaire on DSCR', slugsOf('dscr').includes('property_mgmt_questionnaire'), true);
@@ -100,7 +100,7 @@ const ctx = {
     commitment_letter: {},
     vom: { accountType: 'mortgage', creditorName: 'Old National Bank Mortgage Servicing', creditorAddress: 'PO Box 3728, Evansville, IN 47736', creditorPhone: '(800) 555-0142', propertyAddress: '108 E Maryland St, Evansville, IN 47711', accountName: 'Jamie Sample', accountNo: '0044556677', applicantName: 'Jamie Sample', applicantAddress: '108 E Maryland St, Evansville, IN 47711' },
   };
-  check('VOM template is in the bundle (237.038)', loadVomTemplate().length > 100000, true);
+  check('VOM template is in the bundle (237.039)', loadVomTemplate().length > 100000, true);
   { const s = scrubAnswers(FORMS.vom, answers.vom); check('VOM record keeps account last4 only', [s.accountNoLast4, 'accountNo' in s], ['6677', false]); }
   { const vv = validateAnswers(FORMS.vom.fields, Object.assign({}, answers.vom, { accountType: 'nope' })); check('VOM validation rejects an unknown account type', vv.errors.accountType, 'Choose one of the options'); }
   const staffValues = Object.assign(prefillFor(FORMS.commitment_letter, ctx), { loanAmount: '206500' });

@@ -56,7 +56,7 @@ const DSCR_ITEMS = [
   { slug: 'ein_letter',                 label: 'EIN Letter',                    hint: 'The IRS EIN assignment letter.' },
   { slug: 'lease_agreements',           label: 'Lease Agreements',              hint: 'Current signed lease(s) for the property.' },
   { slug: 'evidence_of_insurance',      label: 'Evidence of Insurance',         hint: 'The insurance binder or declarations page.' },
-  // Deploy 237.038 (Mike) — DSCR forms the borrower completes ONLINE from the
+  // Deploy 237.039 (Mike) — DSCR forms the borrower completes ONLINE from the
   // checklist (like the RTL Track Record / SOW tools). `form` = the
   // borrower-forms.mjs id; borrower-intake.html shows "Complete online" and
   // borrower-form.html?form=… files the signed PDF into the tray.

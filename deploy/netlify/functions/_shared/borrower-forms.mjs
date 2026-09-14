@@ -67,7 +67,7 @@ export const FORMS = {
     title: 'Property Management Questionnaire — For Self-Managed Properties',
     intro: 'Please answer the questions below about the properties you manage yourself.',
     signature: true,
-    // Deploy 237.038 (Mike) — DSCR borrowers complete this themselves from the
+    // Deploy 237.039 (Mike) — DSCR borrowers complete this themselves from the
     // portal checklist (like the RTL Track Record / SOW tools); processors can
     // still send it by link.
     portal: true, loanTypes: ['dscr'],
@@ -80,7 +80,7 @@ export const FORMS = {
       { key: 'distance', label: 'What is the distance between the subject property and your personal residence?', type: 'text', required: true, max: 60 },
     ],
   },
-  // Deploy 237.038 (Mike) — Request for Verification of Rent or Mortgage
+  // Deploy 237.039 (Mike) — Request for Verification of Rent or Mortgage
   // Account (the standard VOM/VOR). The borrower fills Part I (who to ask,
   // which account) and signs item 9; the answers are written onto the official
   // form (_templates/vom.pdf) and filed to the DSCR `vom` tray. Part II is the
@@ -146,13 +146,13 @@ export function formForSlug(slug) {
 }
 export function formById(id) { return FORMS[String(id || '')] || null; }
 export function slugsWithForms() { return Object.keys(FORMS).map((id) => FORMS[id].slug); }
-/** Deploy 237.038 — forms a borrower may open from the portal checklist, by loan type. */
+/** Deploy 237.039 — forms a borrower may open from the portal checklist, by loan type. */
 export function portalForms(loanType) {
   const t = String(loanType || '').toLowerCase();
   return Object.keys(FORMS).map((id) => FORMS[id]).filter((f) => f.portal && (!f.loanTypes || !t || f.loanTypes.indexOf(t) >= 0));
 }
 /**
- * Deploy 237.038 — the slice of loan + client the borrower page and the
+ * Deploy 237.039 — the slice of loan + client the borrower page and the
  * renderer need. Stored on a request at send time (so the borrower's page never
  * reads the client blob) and built live for the portal path. Moved here from
  * borrower-form-send so both paths agree.
@@ -502,7 +502,7 @@ async function _renderW9(form, answers, ctx, signature) {
   return pdf.save();
 }
 
-// Deploy 237.038 — the standard "Request for Verification of Rent or Mortgage
+// Deploy 237.039 — the standard "Request for Verification of Rent or Mortgage
 // Account" with Part I written into its boxes. Coordinates are PDF points
 // (origin bottom-left) read off the template's own label positions.
 export function loadVomTemplate() {

@@ -31,7 +31,7 @@ async function handle(req, context) {
   const url = new URL(req.url);
   const token = String(url.searchParams.get('t') || '').trim();
 
-  // Deploy 237.038 — PORTAL mode: ?loanId=&form= with the borrower's login
+  // Deploy 237.039 — PORTAL mode: ?loanId=&form= with the borrower's login
   // (no token). The DSCR PM questionnaire + VOM are self-serve from the
   // checklist; the tray's borrowerForm stamp says whether it's already done.
   if (!token && url.searchParams.get('loanId') && url.searchParams.get('form')) {
