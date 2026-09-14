@@ -1298,8 +1298,11 @@
     var dz =
       '<label class="dropzone" id="dr-dz_' + escAttr(slug) + '" ondragover="dr_dzOver(event,\'' + escAttr(slug) + '\')" ondragleave="dr_dzLeave(event,\'' + escAttr(slug) + '\')" ondrop="dr_dzDrop(event,\'' + escAttr(slug) + '\')">' +
         '<div class="dz-icon">📄</div>' +
-        '<div class="dz-text">' + (d.currentDocId ? 'Replace document' : 'Drop a PDF here') + '</div>' +
-        '<div class="dz-hint">' + (d.currentDocId ? 'A new upload will move the current doc into Prior Reviews' : 'or click to choose a file') + '</div>' +
+        // Deploy 237.011 (Mike) — say "Add document": a new upload is kept in
+        // ADDITION to the current one by default (the Add/Replace modal defaults
+        // to Add). "Replace" made it sound like the old doc was discarded.
+        '<div class="dz-text">' + (d.currentDocId ? 'Add document' : 'Drop a PDF here') + '</div>' +
+        '<div class="dz-hint">' + (d.currentDocId ? 'Adds alongside the current doc (or choose to replace)' : 'or click to choose a file') + '</div>' +
         // Deploy 236.166 — accept images alongside PDFs. Drivers
         // licenses, voided checks, IDs commonly come in as JPEG /
         // PNG / HEIC; the AI helper now routes them through the

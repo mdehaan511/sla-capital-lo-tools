@@ -208,6 +208,7 @@ var _view = 'unsorted';
 var _items = [];
 var _meta = null;
 var _selId = '';
+var _autoOpened = false; // Deploy 237.011 — one-time auto-open of the oldest piece to review
 var _sel = null;          // full record of the selected piece
 var _picked = null;       // loan picked in the assign form
 var _thumbUrls = {};      // id|kind -> object URL
@@ -460,6 +461,14 @@ function loadList() {
     _items = r.items || [];
     renderStats(r);
     renderList();
+    // Deploy 237.011 (Mike) — on first load, jump straight to the oldest piece
+    // still to be reviewed so it opens ready to sort. Unsorted pointers list
+    // oldest-first (by receivedAt), so _items[0] is the one waiting longest. A
+    // deep-link (?item=) sets _selId first, so this defers to it.
+    if (!_autoOpened && _view === 'unsorted' && !_selId && _items.length) {
+      _autoOpened = true;
+      selectItem(_items[0].id);
+    }
     if (_selId && !_items.some(function (i) { return i.id === _selId; }) && _view === 'unsorted') {
       // selected piece was just filed — keep the detail open for its confirmation
     }
