@@ -659,7 +659,7 @@ function collectEditor() {
 var _savePromise = null, _saveQueued = false;
 function saveDraft(explicit) {
   if (!_doc) return Promise.resolve();
-  // Deploy 237.036 (Mike: "text box snaps back to full size when resizing") —
+  // Deploy 237.037 (Mike: "text box snaps back to full size when resizing") —
   // a save was already in flight from placing the box; the resize's save was
   // dropped and the in-flight response overwrote the fields with the
   // pre-resize copy. Now: a save requested mid-flight is queued and runs
@@ -1012,7 +1012,7 @@ function deleteSelected() {
   _doc.fields = _doc.fields.filter(function (x) { return x.id !== _selField.id; });
   selectField(null); renderAllFields(); markDirty();
 }
-// Deploy 237.036 (Mike) — copy / paste / duplicate fields. Ctrl+C copies the
+// Deploy 237.037 (Mike) — copy / paste / duplicate fields. Ctrl+C copies the
 // selected box, Ctrl+V pastes it under the mouse (if it's over a page) or
 // just below the original, Ctrl+D duplicates in place. Same type, signer,
 // size, label and font — the usual case is a column of identical boxes.
