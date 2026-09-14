@@ -4,8 +4,9 @@
  * Gate for admin "view as a borrower" (_shared/portal-view-as.mjs).
  *
  * This is a permission boundary, so the checks that matter are the negative
- * ones: a non-admin must not be able to read someone else's portal by typing
- * a query parameter, and NOTHING may be written while viewing.
+ * ones: a borrower or plain LO must not read someone else's portal by typing a
+ * query parameter (admins + the processor tier may — Deploy 237.036), and
+ * NOTHING may be written while viewing.
  *
  * Run: node scripts/portal-view-as-test.mjs
  */
@@ -43,7 +44,7 @@ console.log('portal view-as gate\n');
   // Someone ELSE's portal — the actual threat. (A borrower naming their own
   // address is not a view at all; that case is covered below.)
   const q = '?viewAs=someone.else%40example.com';
-  for (const [who, user] of [['borrower', borrower], ['LO', lo], ['processor', processor]]) {
+  for (const [who, user] of [['borrower', borrower], ['LO', lo]]) {
     const r = resolveViewAs(req(q), user);
     check(who + ' cannot view another portal', status(r.error), 403);
     check('  ' + who + ' is not silently granted the view', r.viewingAs, false);
@@ -63,6 +64,13 @@ console.log('portal view-as gate\n');
   const r = resolveViewAs(req('?viewAs=borrower%40example.com'), admin);
   check('admin may view', [r.email, r.viewingAs, status(r.error)], ['borrower@example.com', true, null]);
   check('  actor stays the admin, not the borrower', r.actor, 'mike@slacapital.com');
+}
+
+// ── The processor path (Deploy 237.036 — processors may view too) ──────────
+{
+  const r = resolveViewAs(req('?viewAs=borrower%40example.com'), processor);
+  check('processor may view', [r.email, r.viewingAs, status(r.error)], ['borrower@example.com', true, null]);
+  check('  actor stays the processor, not the borrower', r.actor, 'proc@slacapital.com');
 }
 
 // ── Normalisation and odd input ───────────────────────────────────────────
