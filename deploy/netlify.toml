@@ -2222,6 +2222,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/baseline-graphql-probe"
+  to = "/.netlify/functions/baseline-graphql-probe"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/stable-webhook"
   to = "/.netlify/functions/stable-webhook-background"
   status = 200
@@ -2234,4 +2240,7 @@
   timeout = 26
 
 [functions.mail-backfill]
+  timeout = 26
+
+[functions.baseline-graphql-probe]
   timeout = 26
