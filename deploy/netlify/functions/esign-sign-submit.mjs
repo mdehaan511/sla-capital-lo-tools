@@ -24,7 +24,7 @@ import {
   TERMSHEET_CONSENT_VERSION, sealSignature, getClientIp, getUserAgent,
 } from './_shared/native-esign.mjs';
 import {
-  lookupByToken, pendingSigners, signerFields, coerceValue, docSigStore, docKey, writeDoc, retireToken,
+  lookupByToken, pendingSigners, signerFields, coerceValue, docSigStore, docKey, writeDoc,
   mintToken, sendInviteEmail, sendSignedNotice, finalizeDocument, queueSuggestion, pushHistory, baseUrl, signUrl,
 } from './_shared/esign-docs.mjs';
 
@@ -108,7 +108,13 @@ export default async (req, context) => {
     await docSigStore().setJSON(key + '/' + signer.id, { signature: sigRec, initials: iniRec, signedAt });
     signer.audit = audit;
     signer.signedAt = signedAt;
-    await retireToken(signer);
+    // Deploy 237.033 (Mike: "Signing link not found" on the download button
+    // right after signing) — the token used to be deleted here, which also
+    // killed the "Download the signed PDF" link on the thank-you screen and
+    // every re-open of the email link. Keep it as a READ key: signedAt above
+    // is what blocks a second signature (checked before anything else), and
+    // esign-sign-pdf serves the executed copy once the document completes.
+    signer.tokenUsedAt = signedAt;
     pushHistory(doc, 'signed', (signer.name || signer.email) + ' signed', signer.email);
 
     const base = baseUrl(req);
