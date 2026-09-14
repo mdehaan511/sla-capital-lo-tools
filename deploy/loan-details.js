@@ -75,6 +75,23 @@ function _isDscrTool(tt) {
 }
 // Deploy 236.701 — GUC land/construction fields for the Loan Financials display.
 function _isGucLoan(l) { return String((l && l.toolType) || '').toLowerCase() === 'guc'; }
+// Deploy 237.018 (Mike) — the rehab / construction holdback that a Non-Dutch loan's
+// initial advance excludes. Baseline-imported loans often carry it ONLY inside the
+// raw Baseline record (Holdback / Rehab_Cost) with rehabBudget blank, which made
+// the Loan tab price interest on the FULL note ("$312,307.73 initial advance").
+function _ldRehabHoldback(l) {
+  var fd = (l && l.formData) || {};
+  var v = (l && l.rehabBudget) || fd.rehabBudget || '';
+  if (String(v).trim() !== '' && parseFloat(String(v).replace(/[^0-9.\-]/g, '')) > 0) return v;
+  var raw = l && l._baselineRaw;
+  if (!raw) return v;
+  try {
+    var b = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    var cands = [b.Holdback, b.Rehab_Cost, b.Address_Total_Rehab];
+    for (var i = 0; i < cands.length; i++) { var n = parseFloat(cands[i]); if (isFinite(n) && n > 0) return String(n); }
+  } catch (_) {}
+  return v;
+}
 function _loanTypeLabel(l) {
   var fd = (l && l.formData) || {};
   var t = String((l && l.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
@@ -949,7 +966,7 @@ function render() {
   var isIO      = l.isIO       || fd.isIO       || '';
   // RTL specific
   var purchasePrice = l.purchasePrice || fd.purchasePrice || '';
-  var rehabBudget   = l.rehabBudget   || fd.rehabBudget   || '';
+  var rehabBudget   = _ldRehabHoldback(l); // Deploy 237.018 — Baseline Holdback fallback
   var arv           = l.arv           || fd.arv           || '';
   var experience    = l.experience    || fd.experience    || '';
   var experienceDisplay = l.experienceLabel || fd.experienceLabel || experience || '';
@@ -4867,7 +4884,10 @@ function ldDrawsRender(){
     // whole undrawn budget.
     var isDutch = String(l.dutchInterest || (_isGucLoan(l) ? 'non_dutch' : 'dutch')).toLowerCase() !== 'non_dutch';
     var total = _ldDrawsNum(l.finalLoanAmount) || _ldDrawsNum(l.loanAmt);
-    var initAdv = (total > 0) ? Math.max(0, total - (e.budget.budgetedCents||0)/100) : null;
+    // Deploy 237.018 — Sitewire's construction budget is the holdback; when it is 0
+    // (property not budgeted yet) fall back to the loan's rehab holdback.
+    var holdback = (e.budget.budgetedCents||0)/100 || _ldDrawsNum(_ldRehabHoldback(l));
+    var initAdv = (total > 0) ? Math.max(0, total - holdback) : null;
     var upb = isDutch ? total : (initAdv != null ? initAdv + (e.budget.approvedCents||0)/100 : null);
     // Rollup tiles
     function tile(label, val){ return '<div style="flex:1;min-width:150px;background:var(--bg,#f7f4ee);border:1px solid var(--border);border-radius:8px;padding:12px 14px">' +
@@ -8227,7 +8247,7 @@ function _ldInterestBits(l, closingYmd, dutchVal) {
   var ratePct = _ldRatePctOf(l.rate || fd._finalRate || '');
   var dutchStr = String(dutchVal || l.dutchInterest || fd.dutchInterest || (_isGucLoan(l) ? 'non_dutch' : 'dutch')).toLowerCase();
   var dutch = dutchStr !== 'non_dutch';
-  var m = _ldInterestMath(amount, ratePct, closingYmd, dutch, l.rehabBudget || fd.rehabBudget || '');
+  var m = _ldInterestMath(amount, ratePct, closingYmd, dutch, _ldRehabHoldback(l)); // Deploy 237.018
   var closeD = _ldParseYmd(closingYmd);
   var nextFirst = closeD ? new Date(closeD.getFullYear(), closeD.getMonth() + 1, 1, 12, 0, 0) : null;
   function md(d) { return (d.getMonth() + 1) + '/' + d.getDate(); }
@@ -8495,6 +8515,10 @@ function saveLoanTerms() {
     else if (fields.isIO === 'amortized') merged.isIO = false;
     else delete merged.isIO;
     _ldMergeLoan(merged);
+    // Deploy 237.018 — Interest Structure / holdback changes must reach the Loan
+    // Financials card and the Draws tab (both read loan.dutchInterest at render
+    // time; the Draws tab kept showing the Dutch UPB until a reload).
+    try { render(); } catch (e) { console.warn('[SLA] loan-terms re-render:', e && e.message); }
     var s = document.getElementById('loanTermsStatus');
     if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
     showToast('Loan terms saved');
