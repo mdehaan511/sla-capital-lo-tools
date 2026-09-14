@@ -8326,11 +8326,20 @@ function _ldOwnerOverride() {
   return (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
 }
 function _ldMergeLoan(fields) {
-  if (!_client || !Array.isArray(_client.loans)) return;
-  var idx = _client.loans.findIndex(function(l){ return l.id === _loanId; });
-  if (idx < 0) return;
-  _client.loans[idx] = Object.assign({}, _client.loans[idx], fields);
-  _loan = _client.loans[idx];
+  if (!_loan) return;
+  // Deploy 237.020 (Mike) — on the PG read path _client arrives WITHOUT a loans
+  // array, so the old "not in _client.loans → return" left _loan STALE after
+  // Loan Terms / Funding Plan / Property / Post Close saves: the Draws tab kept
+  // the Dutch UPB (full note) after Interest Structure was switched to
+  // Non-Dutch until a reload. Always merge into _loan; keep _client.loans in
+  // step when it does hold the loan.
+  var idx = (_client && Array.isArray(_client.loans)) ? _client.loans.findIndex(function(l){ return l && l.id === _loanId; }) : -1;
+  if (idx >= 0) {
+    _client.loans[idx] = Object.assign({}, _client.loans[idx], fields);
+    _loan = _client.loans[idx];
+  } else {
+    Object.assign(_loan, fields);
+  }
 }
 // Read a numeric field — strip currency/formatting, keep digits/./-.
 function _ldNum(id) {
