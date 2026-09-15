@@ -321,6 +321,12 @@ function buildSystemPrompt(opts) {
   // the holder may be the entity OR any guarantor (100% owned; no outside holder).
   lines.push("• ARTICLES OF ORGANIZATION: the item to identify is the LLC / ENTITY NAME as filed. Organizer, member, manager, and registered-agent names on the filing are NOT the entity name. Never compare the Articles to the guarantor or borrower name.");
   lines.push("• BANK STATEMENTS / ACCOUNT OWNERSHIP: when a rubric checks the account holder, ANY name in the ACCEPTABLE ACCOUNT HOLDERS line of the user prompt satisfies it (the borrowing entity or any guarantor). The account must be 100% owned by those parties -- an additional holder who is not on that list (another person or another entity) fails the ownership condition. Only full bank-generated statements or a bank-generated Account Transaction History are acceptable; screenshots and photos of an online-banking page are not.");
+  // Deploy 237.075 (Mike) -- guarantor legal names come from the ID; per-guarantor docs state
+  // coverage; insurance carries the expected mortgagee; valuations flag a low AIV.
+  lines.push("• GUARANTOR LEGAL NAMES: a guarantor's legal name is governed by their government ID (GUARANTOR LEGAL NAMES OF RECORD in the user prompt). The application, credit report, OFAC, background check, PFS, and entity documents must carry that name INCLUDING the middle name. A nickname ('Mike' for 'Michael'), a dropped middle name, or a different surname is a name discrepancy: flag it on the document that departs from the ID (on the loan application when the application used the nickname). If no ID has been reviewed yet, mark legal-name conditions unclear rather than failing them.");
+  lines.push("• PER-GUARANTOR DOCUMENTS (ID, credit report, OFAC personal, background check, citizenship, PFS): the loan's guarantors are listed in GUARANTORS ON THIS LOAN. One document may cover one person - never fail it for covering only one guarantor; instead state in the summary exactly which guarantor(s) this document covers, so the underwriter can confirm every guarantor has one.");
+  lines.push("• INSURANCE: the mortgagee clause must read the EXPECTED MORTGAGEE CLAUSE in the user prompt (ISAOA/ATIMA); a different lender name is a defect. Named insured is the borrowing entity of record or a guarantor. Report the policy number as policyNumber in extracted_entities.");
+  lines.push("• VALUATIONS (BPO / appraisal): report asIsValue and afterRepairValue in extracted_entities, and flag when the as-is value is below the purchase price or below the loan amount.");
   lines.push("• A finding's `condition` field should paraphrase one of the explicit rubric conditions you actually checked — not a check you made up.");
   lines.push("• `verdict: 'approved'` requires every applicable rubric condition to be met. Issues elsewhere in the doc that aren't part of the rubric do NOT downgrade the verdict.");
   return lines.join('\n');
@@ -357,6 +363,24 @@ function buildPrompt(opts) {
   (_articlesName ? [_articlesName] : []).concat(ctx.entityName && !_articlesName ? [String(ctx.entityName).trim()] : [])
     .concat(Array.isArray(ctx.guarantorNames) ? ctx.guarantorNames : []).concat(ctx.borrowerName ? [String(ctx.borrowerName).trim()] : [])
     .forEach(function (n) { n = String(n || '').replace(/\s+/g, ' ').trim(); if (n && !_holders.some(function (h) { return h.toLowerCase() === n.toLowerCase(); })) _holders.push(n); });
+  // Deploy 237.075 (Mike) -- guarantor roster, legal names per the IDs on file, expected mortgagee.
+  const _q = function (h) { return '"' + String(h).replace(/"/g, '') + '"'; };
+  const _gNames = (Array.isArray(ctx.guarantorNames) ? ctx.guarantorNames : []).filter(Boolean);
+  const _guarantorsBlock = _gNames.length ? 'GUARANTORS ON THIS LOAN (' + _gNames.length + '): ' + _gNames.map(_q).join(', ') + '. A per-guarantor document must exist for every one of them.' : '';
+  const _idNames = (Array.isArray(ctx.idNames) ? ctx.idNames : []).filter(Boolean);
+  const _idBlock = _idNames.length
+    ? 'GUARANTOR LEGAL NAMES OF RECORD (from the government IDs on file): ' + _idNames.map(_q).join(', ') + '. These govern each guarantor\'s legal name, including the middle name; nicknames on any other document are a discrepancy on that document.'
+    : 'GUARANTOR LEGAL NAMES OF RECORD: no guarantor ID has been reviewed yet for this loan. For any "matches the ID" / legal-name condition, mark it unclear rather than failing it.';
+  const _mortgageeBlock = ctx.mortgagee ? 'EXPECTED MORTGAGEE CLAUSE: ' + _q(ctx.mortgagee) + '.' : '';
+  // Loan terms of record (from the loan snapshot) -- PSA / assignment / SOW / valuation rubrics compare to these.
+  const _money = function (v) { var n = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) && n > 0 ? '$' + Math.round(n).toLocaleString('en-US') : ''; };
+  const _terms = [];
+  if (_money(ctx.loanAmount)) _terms.push('loan amount ' + _money(ctx.loanAmount));
+  if (_money(ctx.purchasePrice)) _terms.push('purchase price ' + _money(ctx.purchasePrice) + ' (an assignment fee may be at most 15% of it: ' + _money(Number(String(ctx.purchasePrice).replace(/[^0-9.]/g, '')) * 0.15) + ')');
+  if (_money(ctx.rehabBudget)) _terms.push('rehab budget per the term sheet ' + _money(ctx.rehabBudget));
+  if (_money(ctx.arv)) _terms.push('ARV ' + _money(ctx.arv));
+  if (ctx.fundingDate) _terms.push('expected close date ' + String(ctx.fundingDate).slice(0, 10));
+  const _termsBlock = _terms.length ? 'LOAN TERMS OF RECORD: ' + _terms.join('; ') + '.' : '';
   const _holdersBlock = _holders.length
     ? 'ACCEPTABLE ACCOUNT HOLDERS (any ONE of these names satisfies an account-holder / account-ownership condition; the account must be 100% owned by these parties): ' + _holders.map(function (h) { return '"' + h + '"'; }).join(', ') + '.'
     : '';
@@ -415,6 +439,10 @@ function buildPrompt(opts) {
     '',
     _articlesBlock,
     _holdersBlock,
+    _guarantorsBlock,
+    _idBlock,
+    _mortgageeBlock,
+    _termsBlock,
     '',
     hasLoanApp
       ? 'CROSS-REFERENCE: when the rubric says "match X to the loan application" or similar, look it up directly in the attached Loan Application PDF. That PDF is the source of truth for borrower name, property address, and loan amount — but NOT the entity / LLC name, which is governed by the ENTITY NAME OF RECORD above (from the Articles).'
@@ -440,6 +468,15 @@ function buildPrompt(opts) {
     '  "extracted_entities": {',
     '    "llcName":         "<entity / LLC name on this doc, or null>",',
     '    "borrowerName":    "<personal borrower name on this doc, or null>",',
+    // Deploy 237.075 -- insurance policy number + valuation values ride the same extraction.
+    '    "policyNumber":    "<insurance policy number on this doc, or null>",',
+    '    "asIsValue":       <as-is / current value concluded on this valuation doc as a number, or null>,',
+    '    "afterRepairValue": <after-repair value on this valuation doc as a number, or null>,',
+    '    "buyerName":       "<buyer / assignee named on a purchase contract or assignment, or null>",',
+    '    "sellerName":      "<seller / assignor named on a purchase contract or assignment, or null>",',
+    '    "contractPrice":   <contract / purchase price on a purchase contract or assignment as a number, or null>,',
+    '    "assignmentFee":   <assignment fee on an assignment agreement as a number, or null>,',
+    '    "closingDate":     "<YYYY-MM-DD closing date on a purchase contract or assignment, or null>",',
     '    "propertyAddress": "<full property address on this doc, or null>",',
     '    "loanAmount":      <numeric loan amount on this doc, or null>,',
     // Deploy 236.165 — expiration extraction. Two date fields:

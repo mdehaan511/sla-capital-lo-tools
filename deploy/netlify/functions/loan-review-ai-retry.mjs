@@ -31,8 +31,8 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
-import { queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
+import { getChecklist, staleAfterFor, expectedMortgagee } from './_shared/loan-review-checklists.mjs';
+import { queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
@@ -68,6 +68,7 @@ async function handle(req, context) {
   // Deploy 237.049 -- remember the Articles' previous extracted name so the
   // dependent-tray re-grade can tell "same name, already graded" from a change.
   const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
+  const _prevIds = { name: guarantorIdNames(review).join(' | '), aiReviewedAt: String(docState.aiReviewedAt || '') }; // Deploy 237.075
   if (!docState.currentDocId) return json(400, { error: 'No document uploaded for this tray yet' });
   // Deploy 236.752 — storage-only trays (Executed Closing Documents) are never AI-reviewed.
   if (docState.noReview) return json(200, { ok: true, review, skipped: 'noReview' });
@@ -282,6 +283,7 @@ async function handle(req, context) {
   if (body.slug === 'articles_of_organization' && isCurrentTarget) {
     try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
   }
+  if (body.slug === 'guarantor_id' && isCurrentTarget) { try { await queueIdNameDependents(body.reviewId, _prevIds); } catch (_) {} } // Deploy 237.075
 
   if (_props && _canWriteFields) {
     try { await writeFieldProposals(review.source, _props, normalizeEmail(user.email)); }
@@ -314,6 +316,8 @@ function _buildLoanContext(review) {
     entityName:      client.entityName || '',
     articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
     guarantorNames: (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
+    idNames: guarantorIdNames(review), // Deploy 237.075 -- legal names per the IDs on file
+    mortgagee: expectedMortgagee({ loanType: review.loanType, investor: review.investor, investorName: loan.investorName }), // Deploy 237.075
     loanType:        review.loanType || '',
     fundingDate:     pick('fundingDate') || review.expectedCloseDate || '',
   };

@@ -53,11 +53,12 @@
     voided_check:             { label: 'Voided Check', section: 'borrower', conditions: 'Account borrower wants payment from. If different than borrower name get 3rd-party payee form.' },
     borrower_loe:             { label: 'Borrower Letter of Explanation', section: 'borrower', conditions: 'As required.', optional: true },
 
-    guarantor_background_check:{ label: 'Guarantor Background Check', section: 'guarantor', conditions: 'No bankruptcies, liens, or judgements; criminal report < 90 days old.' },
+    // Deploy 237.075 (Mike) -- one per guarantor; names must match the ID incl. middle name.
+    guarantor_background_check:{ label: 'Guarantor Background Check', section: 'guarantor', conditions: 'One per guarantor. Run on the full legal name per the ID plus DOB. No bankruptcies, liens, or judgements. Criminal report < 90 days old.' },
     credit_authorization:     { label: 'Credit Authorization', section: 'guarantor', conditions: 'Signed by all guarantors.' },
-    credit_report:            { label: 'Credit Report', section: 'guarantor', conditions: 'Middle score above 690? Any lates or past-due accounts? Report is < 90 days old?' },
-    guarantor_id:             { label: 'Guarantor ID (Driver’s License or Passport)', section: 'guarantor', conditions: 'Matches name on application; not expired; birth date matches.' },
-    ofac_personal:            { label: 'OFAC Check (Personal)', section: 'guarantor', conditions: 'Personal name of all guarantors must match exactly.' },
+    credit_report:            { label: 'Credit Report', section: 'guarantor', conditions: 'One per guarantor. Name is the full legal name per the ID. Middle score above 690? Any lates or past-due accounts? Report is < 90 days old?' },
+    guarantor_id:             { label: 'Guarantor ID (Driver’s License or Passport)', section: 'guarantor', conditions: 'Unexpired government photo ID for EACH guarantor. Full legal name incl. middle name as printed. Every other document must match it (no nicknames). Birth date matches the application.' },
+    ofac_personal:            { label: 'OFAC Check (Personal)', section: 'guarantor', conditions: 'One per guarantor. Name searched is the full legal name per the ID incl. middle name. No unresolved matches.' },
     pfs:                      { label: 'Personal Financial Statement (PFS)', section: 'guarantor', conditions: 'Signed by borrower.' },
     voh_corrfirst:            { label: 'Verification of Housing Cost (CorrFirst Only)', section: 'guarantor', conditions: 'Copy of primary home’s mortgage or lease agreement along with proof of payment.', optional: true },
     guarantor_loe:            { label: 'Guarantor Letter of Explanation', section: 'guarantor', conditions: 'As required.', optional: true },
@@ -67,9 +68,9 @@
     appraisal_receipt:        { label: 'Appraisal Receipt', section: 'collateral', conditions: 'Paid-in-full receipt for the appraisal.' },
     air:                      { label: 'AIR (Appraisal Independence Report)', section: 'collateral', conditions: 'Appraisal Independence Report signed.' },
     cda_report:               { label: 'CDA Report', section: 'collateral', conditions: 'Value >= Appraised value.' },
-    evidence_of_insurance:    { label: 'Evidence of Insurance', section: 'collateral', conditions: 'Mortgagee clause; borrower name/LLC; insurance => loan value; $1M liability coverage.' },
+    evidence_of_insurance:    { label: 'Evidence of Insurance', section: 'collateral', conditions: 'Mortgagee clause reads the expected lender (ISAOA/ATIMA). Named insured is the borrowing entity or a guarantor. Coverage at least the loan value. $1M liability. Policy number noted.' },
     flood_certificate:        { label: 'Flood Certificate & Insurance', section: 'collateral', conditions: 'If property is in a flood zone, request flood insurance EOI.', optional: true },
-    proof_of_insurance_pif:   { label: 'Proof of Insurance Paid in Full (PIF)', section: 'collateral', conditions: 'Quote showing policy number and total cost — or — receipt showing $0 owed.' },
+    proof_of_insurance_pif:   { label: 'Proof of Insurance Paid in Full (PIF)', section: 'collateral', conditions: 'Receipt or invoice showing $0 owed (paid in full). Property address matches the subject. Policy number matches the EOI. Coverage is not verified here.' },
     lease_agreements:         { label: 'Lease Agreements', section: 'collateral', conditions: '12 months in length? Non-corporate tenant? Signed by landlord and tenant?' },
     property_mgmt_agreement:  { label: 'Property Management Agreement', section: 'collateral', conditions: 'PMA signed; covers the subject property.' },
     property_mgmt_questionnaire: { label: 'Property Management Questionnaire', section: 'collateral', conditions: 'PMQ completed in full.' },
@@ -84,7 +85,7 @@
     psa:                      { label: 'Purchase and Sale Agreement (PSA)', section: 'collateral', conditions: 'Borrower listed as buyer; all parties signed; price matches application.' },
     sow:                      { label: 'Statement of Work (SOW)', section: 'collateral', conditions: 'Budget = Requested rehab $$.' },
     vom:                      { label: 'VOM (Verification of Mortgage)', section: 'collateral', conditions: 'Existing mortgage information verified.', optional: true },
-    bpo_valuation:            { label: 'BPO / Valuation', section: 'collateral', conditions: 'Value >= loan amount.' },
+    bpo_valuation:            { label: 'BPO / Valuation', section: 'collateral', conditions: 'As-is value is not below the purchase price or the loan amount. ARV supports the loan amount within the LTARV cap. Comps recent and nearby.' },
 
     loan_application:         { label: 'Loan Application', section: 'loan', conditions: 'Verify all information filled out and is accurate; signatures present.' },
     term_sheet:               { label: 'Term Sheet', section: 'loan', conditions: 'Ensure it is the most up-to-date terms.' },
@@ -1333,6 +1334,63 @@
   // can't see the basis for.
   function _fmtMoney(v) { var n = _num(v); return n ? '$' + Math.round(n).toLocaleString() : ''; }
   function _num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+  // Deploy 237.075 (Mike) -- legal names per the ID tray, expected mortgagee (mirrors
+  // _shared/loan-review-checklists.mjs expectedMortgagee), per-guarantor coverage,
+  // and valuation minimums (RTL caps from window.SLA_RTL, loaded on Loan Details).
+  function _idNamesOf() {
+    var tray = (_review.docs || {}).guarantor_id || {}; var out = [];
+    function push(n) { n = String(n || '').replace(/\s+/g, ' ').trim(); if (!n || /^(null|n\/?a|none|unknown)$/i.test(n)) return; for (var i = 0; i < out.length; i++) if (out[i].toLowerCase() === n.toLowerCase()) return; out.push(n); }
+    (tray.documents || []).forEach(function(d) { if (d && !d.hidden && d.aiReviewedAt && d.aiExtractedEntities) push(d.aiExtractedEntities.borrowerName); });
+    if (tray.aiReviewedAt && tray.aiExtractedEntities) push(tray.aiExtractedEntities.borrowerName);
+    return out;
+  }
+  function _expectedMortgagee(L) {
+    var inv = String(L.investorName || '') + ' ' + String(_review.investor || '');
+    if (/diya|re investments/i.test(inv)) return 'RE Investments Loans LLC, ISAOA/ATIMA';
+    if (/king arthur|\bkaf\b/i.test(inv)) return 'King Arthur Fund 1 LLC, ISAOA/ATIMA';
+    if (/sir lends|sla capital|\bsla\b/i.test(inv)) return 'Sir Lends A Lot LLC, ISAOA/ATIMA';
+    if (String(_review.loanType || '').toLowerCase() === 'dscr') return 'RE Investments Loans LLC, ISAOA/ATIMA';
+    return 'Sir Lends A Lot LLC, ISAOA/ATIMA or King Arthur Fund 1 LLC, ISAOA/ATIMA';
+  }
+  function _coverageFor(slug, guarantors) {
+    var tray = (_review.docs || {})[slug] || {};
+    var docs = (tray.documents || []).filter(function(d) { return d && !d.hidden; });
+    var names = docs.map(function(d) { var ee = d.aiExtractedEntities || {}; return String((ee.borrowerName || '') + ' ' + (d.filename || '')).toLowerCase(); });
+    return guarantors.map(function(g) {
+      var parts = String(g).toLowerCase().split(/\s+/).filter(Boolean); var last = parts[parts.length - 1] || ''; var first = parts[0] || '';
+      var ok = !!last && names.some(function(n) { return n.indexOf(last) >= 0 && (!first || n.indexOf(first) >= 0 || n.indexOf(first.charAt(0) + ' ') >= 0 || n.indexOf(first.charAt(0) + '.') >= 0); });
+      return { name: g, ok: ok };
+    });
+  }
+  function _valuationFacts(L, loanAmt, pp, rehab, arv, isDscr, purpose) {
+    var fd = L.formData || {};
+    var bpo = (_review.docs || {}).bpo_valuation || {}; var apr = (_review.docs || {}).appraisal || {};
+    function xf(dd, k) { var f = dd.aiExtractedFields && dd.aiExtractedFields[k]; return (f && f.found !== false) ? _num(f.value) : 0; }
+    function xe(dd, k) { return _num((dd.aiExtractedEntities || {})[k]); }
+    var aiv = _num(L.aivBpo) || xf(bpo, 'aivBpo') || xe(bpo, 'asIsValue') || xf(apr, 'asIsPrice') || xe(apr, 'asIsValue');
+    var docArv = _num(L.arvBpo) || xf(bpo, 'arvBpo') || xe(bpo, 'afterRepairValue') || xe(apr, 'afterRepairValue');
+    var out = { aiv: aiv, docArv: docArv, minArv: 0, minAiv: 0, caps: '', flags: [] };
+    var isRefi = /cash|rate|refi/i.test(purpose);
+    if (!isDscr && window.SLA_RTL && typeof window.SLA_RTL.priceRTL === 'function') {
+      try {
+        var core = window.SLA_RTL.priceRTL({ lt: fd.loanType || L.loanType || 'light', fr: parseInt(fd.fico || L.fico, 10) || 0, exp: parseInt(fd.experience || fd.numFlips || 0, 10) || 0, pt: fd.propType || L.propType || 'sfr', pp: pp, arv: arv, rb: rehab, term: parseInt(fd.loanTerm || L.loanTerm || 12, 10) || 12, purp: fd.loanPurpose || L.loanPurpose || 'purchase', zhvi: fd.zhvi || '', sa: fd.propState || '', state: fd.propState || '' });
+        if (core && !core.rErr) {
+          if (isRefi && core.refiLtv > 0) { out.minAiv = loanAmt / core.refiLtv; out.caps = 'max LTV ' + Math.round(core.refiLtv * 100) + '%'; }
+          else {
+            if (core.mLarv > 0) out.minArv = loanAmt / core.mLarv;
+            if (core.mLtp > 0) { var initial = (rehab && loanAmt > rehab) ? loanAmt - rehab : loanAmt; out.minAiv = initial / core.mLtp; }
+            out.caps = [core.mLtp > 0 ? 'max LTP ' + Math.round(core.mLtp * 100) + '%' : '', core.mLtc > 0 ? 'max LTC ' + Math.round(core.mLtc * 100) + '%' : '', core.mLarv > 0 ? 'max LTARV ' + Math.round(core.mLarv * 100) + '%' : ''].filter(Boolean).join(', ');
+          }
+        }
+      } catch (e) {}
+    }
+    if (isDscr) { var pv = _num(L.propValue); if (pv && loanAmt) { out.minAiv = pv; out.caps = 'priced at ' + (Math.round(loanAmt / pv * 1000) / 10) + '% LTV off ' + _fmtMoney(pv); } }
+    if (aiv && pp && aiv < pp) out.flags.push('as-is value ' + _fmtMoney(aiv) + ' is BELOW the purchase price ' + _fmtMoney(pp));
+    if (aiv && loanAmt && aiv < loanAmt) out.flags.push('as-is value ' + _fmtMoney(aiv) + ' is BELOW the loan amount ' + _fmtMoney(loanAmt));
+    if (out.minAiv && aiv && aiv < out.minAiv) out.flags.push('as-is value is below the ' + _fmtMoney(out.minAiv) + ' minimum needed to hold the loan amount at max leverage');
+    if (out.minArv && docArv && docArv < out.minArv) out.flags.push('ARV ' + _fmtMoney(docArv) + ' is BELOW the ' + _fmtMoney(out.minArv) + ' minimum needed for this loan amount');
+    return out;
+  }
   function _loanFacts() {
     var L = _review.sourceLoanSnapshot || _review.snapshotLoan || {}; // Deploy 237.074 -- borrower-created reviews store snapshotLoan
     var C = _review.sourceClientSnapshot || _review.snapshotClient || {};
@@ -1369,10 +1427,13 @@
         ' + 6 months interest ' + (interest6 ? _fmtMoney(interest6) : '') +
         (total ? ' = ' + _fmtMoney(total) : ''));
     }
+    var idNames = _idNamesOf(); // Deploy 237.075
+    var mortgagee = _expectedMortgagee(L);
+    var val = _valuationFacts(L, loanAmt, pp, rehab, arv, isDscr, purpose);
     return {
-      entity: entity, entityOfRecord: entityOfRecord, borrower: borrower, guarantors: gs,
+      entity: entity, entityOfRecord: entityOfRecord, borrower: borrower, guarantors: gs, idNames: idNames, mortgagee: mortgagee, val: val,
       address: _review.address || L.address || '', loanAmt: loanAmt, purchasePrice: pp, rehab: rehab, arv: arv,
-      rate: rate, points: points, rent: _num(L.rent), isDscr: isDscr, liquidity: liq.join('; '),
+      rate: rate, points: points, rent: _num(L.rent), isDscr: isDscr, liquidity: liq.join('; '), term: _num(L.loanTerm), // Deploy 237.075
       close: _review.expectedCloseDate || L.fundingDate || L.closeDate || '',
     };
   }
@@ -1386,15 +1447,29 @@
     [/^(ein_or_w9|ein_letter)$/, ['entity', 'docDate']],
     [/^(ofac_entity|entity_background_check|foreign_entity_registration)$/, ['entity']],
     [/^operating_agreement$/, ['entity', 'members']],
-    [/^(guarantor_id|proof_of_citizenship|credit_authorization|guarantor_background_check|ofac_personal|pfs|guarantor_loe|borrower_loe|track_record|track_record_reo|vom|voh_corrfirst)$/, ['guarantors']],
-    [/^credit_report$/, ['guarantors', 'fico', 'fresh']],
+    // Deploy 237.075 (Mike) -- every guarantor listed; legal name per the ID (incl. middle name, no
+    // nicknames); per-guarantor trays show which guarantors have a copy on file.
+    [/^(guarantor_id|proof_of_citizenship|guarantor_background_check|ofac_personal|pfs)$/, ['guarantorsAll', 'legalName', 'copies']],
+    [/^(credit_authorization|guarantor_loe|borrower_loe|track_record|track_record_reo|vom|voh_corrfirst)$/, ['guarantorsAll', 'legalName']],
+    [/^credit_report$/, ['guarantorsAll', 'legalName', 'copies', 'fico', 'fresh']],
     [/^bank_stmt_(current|previous)$/, ['holder', 'liquidity', 'fresh']],
     [/^(voided_check|voided_check_ach|executed_ach_form|draw_wire_form)$/, ['holderOnly']], // Deploy 237.074 -- entity (per Articles) or any guarantor
-    [/^(loan_application|term_sheet|commitment_letter|revised_loan_terms|letter_of_intent|outstanding_conditions|exception_request)$/, ['borrower', 'entity', 'address', 'loanAmt', 'rate', 'points']],
-    [/^(psa|assignment_agreement|cost_basis)$/, ['buyer', 'purchasePrice', 'address']],
-    [/^sow$/, ['rehab', 'address']],
-    [/^(appraisal|appraisal_receipt|bpo_valuation|air|cda_report|property_profile|property_condition_assessment|environmental_survey|feasibility_study)/, ['address', 'purchasePrice', 'arv', 'loanAmt']],
-    [/^(evidence_of_insurance|property_insurance_binder|insurance_invoice|proof_of_insurance_pif|flood_insurance_policy|condo_insurance)$/, ['insured', 'address', 'coverage']],
+    // Deploy 237.075 (Mike) -- term sheet + application: every party and every pricing term, so the UW can match them.
+    [/^(loan_application|term_sheet|commitment_letter|revised_loan_terms|letter_of_intent|outstanding_conditions|exception_request)$/, ['borrower', 'guarantorsAll', 'legalName', 'entity', 'address', 'loanAmt', 'purchasePrice', 'rehab', 'arv', 'rate', 'points', 'term', 'close']],
+    // Deploy 237.075 (Mike) -- PSA: buyer is the entity or a guarantor, price, address, closing date, signatures.
+    // Assignment: seller on it = the PSA buyer; assignee = entity / guarantor; fee stated and at most 15% of price.
+    [/^psa$/, ['buyerParty', 'purchasePrice', 'address', 'close', 'signed']],
+    [/^assignment_agreement$/, ['assignor', 'buyerParty', 'assignmentFee', 'purchasePrice', 'address', 'close', 'signed']],
+    [/^cost_basis$/, ['buyer', 'purchasePrice', 'address']],
+    [/^sow$/, ['rehabTerms', 'address']],
+    [/^cpl$/, ['borrowerEntity', 'lender', 'address']], // Deploy 237.075 (Mike) -- CPL: borrower/entity + lender name
+    // Deploy 237.075 (Mike) -- valuations: AIV to verify, minimum ARV / AIV for the loan amount, flags.
+    [/^(appraisal|bpo_valuation|cda_report)/, ['address', 'purchasePrice', 'loanAmt', 'aiv', 'arvMin', 'valuationFlags']],
+    [/^(appraisal_receipt|air|property_profile|property_condition_assessment|environmental_survey|feasibility_study)/, ['address', 'purchasePrice', 'arv', 'loanAmt']],
+    // Deploy 237.075 (Mike) -- EOI: named insured (entity or guarantor), expected mortgagee, policy number;
+    // paid-in-full: $0 owed + address + policy number only (coverage is not verified there).
+    [/^(evidence_of_insurance|property_insurance_binder|flood_insurance_policy|condo_insurance)$/, ['insured', 'mortgagee', 'address', 'coverage', 'policy']],
+    [/^(proof_of_insurance_pif|insurance_invoice)$/, ['pifBalance', 'address', 'policy']],
     [/^(flood_certificate|condo_documents|condo_hoa_docs|architectural_plans|building_permits|gc_review)$/, ['address']],
     [/^(lease_agreements|proof_of_security_deposit|property_mgmt_summary|property_mgmt_agreement|property_mgmt_questionnaire)$/, ['landlord', 'address', 'rent']],
     [/^(title_commitment|cpl|title_eo_insurance|title_escrow_contact|prelim_settlement|final_hud|tax_certificate|wire_instructions|emd_receipt|borrower_closing_funds_receipt|payoff_demand|mortgage_statements_payoffs|closing_w9|executed_closing_documents|executed_deed|original_doc_tracking|invoice)$/, ['entity', 'address', 'loanAmt', 'title', 'close']],
@@ -1416,10 +1491,28 @@
         case 'holder':   out.push(['Account holder (any ONE of)', [].concat(f.entity ? [f.entity] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); out.push(['Ownership', '100% by the entity / guarantors above — no non-guarantor person or other entity on the account']); out.push(['Format', 'Full bank-generated statement or Account Transaction History — not a screenshot or photo']); break;
         case 'llcToFind': out.push(['LLC name to identify', 'the entity name as filed with the state' + (f.entity ? ' — expected: ' + f.entity + (f.entityOfRecord ? ' (per this tray\'s last review)' : ' (per loan record; the Articles govern if they differ)') : '')]); out.push(['Not the', 'organizer / member / guarantor name']); break;
         case 'members':  if (f.guarantors.length) out.push(['Members / guarantors', f.guarantors.join(', ')]); break;
+        // Deploy 237.075 (Mike) -- guarantor roster / legal names / copies per guarantor; valuation minimums; insurance.
+        case 'guarantorsAll': if (f.guarantors.length) out.push([f.guarantors.length > 1 ? 'Guarantors (' + f.guarantors.length + ') — verify against EACH' : 'Guarantor', f.guarantors.join(' / ')]); break;
+        case 'legalName': out.push(['Legal name per ID', f.idNames.length ? f.idNames.join(' / ') + ' — every document must match INCLUDING the middle name; no nicknames' : 'no guarantor ID reviewed yet — compare the full name (incl. middle) to the driver\'s license before approving; no nicknames']); break;
+        case 'copies': (function () { var cov = _coverageFor(slug, f.guarantors); if (!cov.length) return; var have = 0; cov.forEach(function(c) { if (c.ok) have++; }); out.push(['Copies on file', cov.map(function(c) { return c.name + (c.ok ? ' ✓' : ' ✗ missing'); }).join(' · ') + (cov.length > 1 ? ' (' + have + ' of ' + cov.length + ' guarantors)' : '')]); })(); break;
+        case 'aiv': out.push(['As-is value (AIV)', (f.val.aiv ? _fmtMoney(f.val.aiv) + ' per the valuation' : 'read it off the report') + (f.val.minAiv ? ' — minimum ' + _fmtMoney(f.val.minAiv) + ' to hold the loan amount' : '') + (f.purchasePrice ? '; must not be below the purchase price ' + _fmtMoney(f.purchasePrice) : '') + (f.loanAmt ? ' or the loan amount ' + _fmtMoney(f.loanAmt) : '')]); break;
+        case 'arvMin': if (!f.isDscr) out.push(['ARV', (f.val.docArv ? _fmtMoney(f.val.docArv) + ' per the valuation' : (f.arv ? _fmtMoney(f.arv) + ' per the loan' : 'read it off the report')) + (f.val.minArv ? ' — minimum ' + _fmtMoney(f.val.minArv) + ' to keep this loan amount within ' + (f.val.caps || 'the LTARV cap') : (f.val.caps ? ' — ' + f.val.caps : ''))]); else if (f.val.caps) out.push(['Value', f.val.caps]); break;
+        case 'valuationFlags': if (f.val.flags.length) out.push(['⚠ FLAG', f.val.flags.join('; ')]); break;
+        case 'mortgagee': out.push(['Mortgagee clause', f.mortgagee]); break;
+        case 'policy': (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var pn = String(((dd.aiExtractedEntities || {}).policyNumber) || '').trim(); var eoi = (_review.docs || {}).evidence_of_insurance || {}; var epn = String(((eoi.aiExtractedEntities || {}).policyNumber) || '').trim(); var isEoi = slug === 'evidence_of_insurance'; out.push(['Policy number', pn ? pn + (!isEoi && epn && epn !== pn ? ' — EOI shows ' + epn + ' (MISMATCH)' : '') : (!isEoi && epn ? epn + ' (per the EOI) — confirm it matches' : 'read it off the document')]); })(); break;
+        case 'pifBalance': out.push(['Balance owed', '$0 — paid in full (coverage amounts are not verified on this document)']); break;
+        case 'buyerParty': out.push(['Buyer (any ONE of)', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
+        case 'assignor': (function () { var psa = (_review.docs || {}).psa || {}; var pe = psa.aiExtractedEntities || {}; var pb = String(pe.buyerName || pe.llcName || pe.borrowerName || '').trim(); out.push(['Seller on the assignment', pb ? 'must be the PSA buyer: ' + pb : 'must be the buyer named on the PSA (PSA not reviewed yet — check it by hand)']); })(); break;
+        case 'assignmentFee': (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var fee = _num((dd.aiExtractedEntities || {}).assignmentFee); var cap = f.purchasePrice ? f.purchasePrice * 0.15 : 0; out.push(['Assignment fee', (fee ? _fmtMoney(fee) + ' per the assignment' : 'must be clearly stated — read it off the assignment') + (cap ? ' — maximum ' + _fmtMoney(cap) + ' (15% of the ' + _fmtMoney(f.purchasePrice) + ' purchase price)' : '') + (fee && cap && fee > cap ? ' ⚠ OVER THE 15% LIMIT' : '')]); })(); break;
+        case 'signed': out.push(['Signatures', 'fully signed AND dated by every party' + (slug === 'assignment_agreement' ? ' (assignor and assignee)' : ' (buyer and seller)')]); break;
+        case 'rehabTerms': out.push(['Rehab budget per the term sheet', f.rehab ? _fmtMoney(f.rehab) + ' — the SOW total must match it' : 'no rehab budget on the loan record — confirm against the term sheet']); break;
+        case 'term':     if (f.term) out.push(['Term', f.term + ' months']); break;
+        case 'borrowerEntity': out.push(['Borrower / entity', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
+        case 'lender':   out.push(['Lender name', String(f.mortgagee || '').replace(/, ISAOA\/ATIMA/g, '')]); break;
         case 'holderOnly': out.push(['Account holder (any ONE of)', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
         case 'docDate':  (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var ee = dd.aiExtractedEntities || {}; var dt = String(ee.documentDate || ee.expirationDate || '').trim(); out.push(['Document date', dt ? dt + ' (per the last AI read — confirm on the document)' : 'confirm the issue date printed on the document']); })(); break;
         case 'buyer':    if (f.entity) out.push(['Buyer', f.entity]); break;
-        case 'insured':  if (f.entity) out.push(['Named insured', f.entity]); break;
+        case 'insured':  out.push(['Named insured (any ONE of)', [].concat(f.entity ? [f.entity] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break; // Deploy 237.075
         case 'landlord': if (f.entity) out.push(['Landlord', f.entity]); break;
         case 'address':  if (f.address) out.push(['Property', f.address]); break;
         case 'loanAmt':  if (f.loanAmt) out.push(['Loan amount', _fmtMoney(f.loanAmt)]); break;

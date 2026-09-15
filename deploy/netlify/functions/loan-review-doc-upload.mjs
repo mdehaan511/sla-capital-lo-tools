@@ -29,8 +29,8 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
-import { queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
+import { getChecklist, staleAfterFor, expectedMortgagee } from './_shared/loan-review-checklists.mjs';
+import { queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
 import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
@@ -232,6 +232,7 @@ async function handle(req, context) {
   // Deploy 237.049 -- remember the Articles' previous extracted name so the
   // dependent-tray re-grade can tell "same name, already graded" from a change.
   const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
+  const _prevIds = { name: guarantorIdNames(review).join(' | '), aiReviewedAt: String(docState.aiReviewedAt || '') }; // Deploy 237.075
   docState.verdict = 'pending';
   docState.processorNotes = '';
   docState.aiVerdict = '';
@@ -597,6 +598,7 @@ async function handle(req, context) {
   if (body.slug === 'articles_of_organization' && !_bgQueued && docState.aiReviewedAt) {
     try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
   }
+  if (body.slug === 'guarantor_id' && !_bgQueued && docState.aiReviewedAt) { try { await queueIdNameDependents(body.reviewId, _prevIds); } catch (_) {} } // Deploy 237.075
   // Deploy 237.072 (Mike, item 8) -- was that the last required document? Then the
   // processor + admins hear about it (bell + email), once per review.
   try { await checkFullFile(body.reviewId); } catch (_) {}
@@ -620,12 +622,15 @@ function buildLoanContext(review) {
   const borrowerName = ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || review.borrowerName || '';
   return {
     loanAmount:    pick('loanAmt') || review.loanAmount || '',
+    purchasePrice: pick('purchasePrice'), rehabBudget: pick('rehabBudget'), arv: pick('arv'), // Deploy 237.075 -- LOAN TERMS OF RECORD
     address:       pick('address') || review.address || '',
     borrowerName:  borrowerName,
     borrowerEmail: client.email || '',
     entityName:    client.entityName || '',
     articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
     guarantorNames: (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
+    idNames: guarantorIdNames(review), // Deploy 237.075 -- legal names per the IDs on file
+    mortgagee: expectedMortgagee({ loanType: review.loanType, investor: review.investor, investorName: loan.investorName }), // Deploy 237.075
     loanType:      review.loanType || '',
     fundingDate:   pick('fundingDate') || review.expectedCloseDate || '',
   };

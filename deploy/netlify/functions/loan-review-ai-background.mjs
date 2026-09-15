@@ -19,7 +19,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
+import { getChecklist, staleAfterFor, expectedMortgagee } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 // Deploy 236.768 — this path must run the per-field auto-grab too. A large BPO
@@ -27,7 +27,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // never written — exactly the big BPOs the feature exists for.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
-import { internalBgSig, queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 236.818 / 237.049
+import { internalBgSig, queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs'; // Deploy 236.818 / 237.049
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
 const BG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -68,6 +68,7 @@ async function handle(req, context) {
   // Deploy 237.049 -- remember the Articles' previous extracted name so the
   // dependent-tray re-grade can tell "same name, already graded" from a change.
   const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
+  const _prevIds = { name: guarantorIdNames(review).join(' | '), aiReviewedAt: String(docState.aiReviewedAt || '') }; // Deploy 237.075
   if (!docState.currentDocId) return json(400, { error: 'No document uploaded for this tray yet' });
   if (docState.noReview) return json(200, { ok: true, skipped: 'noReview' });
 
@@ -235,6 +236,7 @@ async function handle(req, context) {
   if (saved && body.slug === 'articles_of_organization' && isCurrentTarget) {
     try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
   }
+  if (saved && body.slug === 'guarantor_id' && isCurrentTarget) { try { await queueIdNameDependents(body.reviewId, _prevIds); } catch (_) {} } // Deploy 237.075
 
   // Write the loan fields AFTER the review is saved, so a proposal-write failure
   // can never lose the review itself (same ordering as the upload path).
@@ -265,6 +267,8 @@ function _buildLoanContext(review) {
     entityName:      client.entityName || '',
     articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
     guarantorNames: (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
+    idNames: guarantorIdNames(review), // Deploy 237.075 -- legal names per the IDs on file
+    mortgagee: expectedMortgagee({ loanType: review.loanType, investor: review.investor, investorName: loan.investorName }), // Deploy 237.075
     loanType:        review.loanType || '',
     fundingDate:     pick('fundingDate') || review.expectedCloseDate || '',
   };

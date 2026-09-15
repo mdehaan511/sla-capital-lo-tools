@@ -110,19 +110,49 @@ export const ENTITY_NAME_DEPENDENT_SLUGS = [
   'operating_agreement', 'entity_background_check', 'foreign_entity_registration', 'loan_application',
 ];
 export async function queueEntityNameDependents(reviewId, prevArticles) {
+  return _queueDependents(reviewId, {
+    sourceSlug: 'articles_of_organization', slugs: ENTITY_NAME_DEPENDENT_SLUGS, auditKey: 'lastEntityNameRequeue', tag: 'entity-name',
+    prev: { name: (prevArticles && prevArticles.llcName) || '', aiReviewedAt: (prevArticles && prevArticles.aiReviewedAt) || '' },
+    nameOf: (r) => { const art = r && r.docs && r.docs.articles_of_organization; const ee = (art && art.aiExtractedEntities) || {}; return (art && art.aiReviewedAt && typeof ee.llcName === 'string') ? ee.llcName.trim() : ''; },
+  });
+}
+
+// Deploy 237.075 (Mike) -- the same pattern for GUARANTOR LEGAL NAMES: the government ID
+// tray governs each guarantor's legal name (incl. middle name; nicknames on the
+// application were slipping through). Every live ID document's extracted
+// borrowerName is a name of record; once an ID is (re)reviewed, the trays whose
+// rubric compares a person's name to the ID are re-graded.
+export function guarantorIdNames(review) {
+  const tray = review && review.docs && review.docs.guarantor_id;
+  if (!tray) return [];
+  const out = [];
+  const push = (n) => { n = String(n || '').replace(/\s+/g, ' ').trim(); if (n && !/^(null|n\/?a|none|unknown)$/i.test(n) && !out.some((x) => x.toLowerCase() === n.toLowerCase())) out.push(n); };
+  (Array.isArray(tray.documents) ? tray.documents : []).forEach((d) => { if (d && !d.hidden && d.aiReviewedAt && d.aiExtractedEntities) push(d.aiExtractedEntities.borrowerName); });
+  if (tray.aiReviewedAt && tray.aiExtractedEntities) push(tray.aiExtractedEntities.borrowerName);
+  return out;
+}
+export const ID_NAME_DEPENDENT_SLUGS = [
+  'credit_report', 'ofac_personal', 'guarantor_background_check', 'proof_of_citizenship', 'credit_authorization', 'pfs', 'loan_application',
+];
+export async function queueIdNameDependents(reviewId, prevIds) {
+  return _queueDependents(reviewId, {
+    sourceSlug: 'guarantor_id', slugs: ID_NAME_DEPENDENT_SLUGS, auditKey: 'lastIdNameRequeue', tag: 'id-name',
+    prev: prevIds || {}, nameOf: (r) => guarantorIdNames(r).join(' | '),
+  });
+}
+async function _queueDependents(reviewId, o) {
   try {
     if (!reviewId || !_secret()) return { ok: false, queued: [] };
     const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
     const review = await store.get(keySafe(reviewId), { type: 'json' });
-    const art = review && review.docs && review.docs.articles_of_organization;
-    const ee = (art && art.aiExtractedEntities) || {};
-    const name = (art && art.aiReviewedAt && typeof ee.llcName === 'string') ? ee.llcName.trim() : '';
-    if (!name) return { ok: true, queued: [] };
-    const prevName = String((prevArticles && prevArticles.llcName) || '').trim();
-    const prevAt = String((prevArticles && prevArticles.aiReviewedAt) || '');
+    const art = review && review.docs && review.docs[o.sourceSlug];
+    const name = review ? String(o.nameOf(review) || '').trim() : '';
+    if (!name || !art) return { ok: true, queued: [] };
+    const prevName = String((o.prev && o.prev.name) || '').trim();
+    const prevAt = String((o.prev && o.prev.aiReviewedAt) || '');
     const nameChanged = !prevName || prevName.toLowerCase() !== name.toLowerCase();
     const queued = [];
-    for (const slug of ENTITY_NAME_DEPENDENT_SLUGS) {
+    for (const slug of o.slugs) {
       const ds = review.docs[slug];
       if (!ds || !ds.currentDocId || ds.hidden || ds.noReview || ds.aiReviewing) continue;
       if (ds.verdict === 'approved' || ds.verdict === 'na') continue;
@@ -133,7 +163,7 @@ export async function queueEntityNameDependents(reviewId, prevArticles) {
       queued.push(slug);
     }
     if (!queued.length) return { ok: true, queued };
-    review.lastEntityNameRequeue = { at: new Date().toISOString(), name, slugs: queued };
+    review[o.auditKey] = { at: new Date().toISOString(), name, slugs: queued };
     review.updatedAt = new Date().toISOString();
     await store.setJSON(keySafe(review.id), review);
     const base = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://portal.slacapital.ai';
@@ -156,7 +186,7 @@ export async function queueEntityNameDependents(reviewId, prevArticles) {
         } catch (_) {}
       }
     }
-    console.log('[review-truth] entity-name requeue', review.id, name, queued.join(','));
+    console.log('[review-truth] ' + o.tag + ' requeue', review.id, name, queued.join(','));
     return { ok: true, queued };
   } catch (e) {
     console.warn('[review-truth] entity-name requeue failed (non-fatal):', e && e.message);
