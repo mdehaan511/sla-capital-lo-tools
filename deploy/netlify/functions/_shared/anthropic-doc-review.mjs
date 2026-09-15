@@ -380,6 +380,22 @@ function buildPrompt(opts) {
   if (_money(ctx.rehabBudget)) _terms.push('rehab budget per the term sheet ' + _money(ctx.rehabBudget));
   if (_money(ctx.arv)) _terms.push('ARV ' + _money(ctx.arv));
   if (ctx.fundingDate) _terms.push('expected close date ' + String(ctx.fundingDate).slice(0, 10));
+  // Deploy 237.078 (Mike) -- spell out the RTL liquidity requirement so the bank-statement
+  // review checks a NUMBER, not a formula it has to assemble from the snapshot.
+  (function () {
+    const n = function (v) { const x = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(x) ? x : 0; };
+    const loan = n(ctx.loanAmount), pp = n(ctx.purchasePrice), rehab = n(ctx.rehabBudget);
+    let rate = n(ctx.rate); if (rate > 1) rate = rate / 100;
+    const isDscr = String(ctx.loanType || '').toLowerCase() === 'dscr';
+    if (isDscr || !loan) return;
+    const initial = (rehab && loan > rehab) ? loan - rehab : loan;
+    const down = (pp && pp > initial) ? pp - initial : 0;
+    const twenty = rehab * 0.2;
+    const interest6 = rate ? loan * rate / 12 * 6 : 0;
+    const total = down + twenty + interest6;
+    if (!total) return;
+    _terms.push('LIQUIDITY REQUIRED ' + _money(total) + ' = down payment ' + _money(down) + ' (purchase price minus the initial advance of ' + _money(initial) + ') + 20% of rehab ' + (_money(twenty) || '$0') + ' + 6 months interest ' + (_money(interest6) || '(rate unknown)'));
+  })();
   const _termsBlock = _terms.length ? 'LOAN TERMS OF RECORD: ' + _terms.join('; ') + '.' : '';
   const _holdersBlock = _holders.length
     ? 'ACCEPTABLE ACCOUNT HOLDERS (any ONE of these names satisfies an account-holder / account-ownership condition; the account must be 100% owned by these parties): ' + _holders.map(function (h) { return '"' + h + '"'; }).join(', ') + '.'

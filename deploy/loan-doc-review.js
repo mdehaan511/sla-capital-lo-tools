@@ -125,6 +125,8 @@
   var _opts = null;
   var _user = null;
   var _review = null;
+  var _liveLoan = null; // Deploy 237.078 -- the CURRENT loan record from Loan Details (opts.loan / window._loan)
+  var _autoSynced = {}; // Deploy 237.078 -- reviewId|fingerprint -> true once the auto truth-refresh fired
   var _activeTab = 'pending';
   var _activeCollateralProperty = 0; // Deploy 236.690 — portfolio collateral tab
   var _expanded = {};
@@ -643,6 +645,7 @@
 
     _root = rootEl;
     _opts = opts;
+    _liveLoan = opts.loan || global._loan || null; // Deploy 237.078
     _user = opts.user || (global.netlifyIdentity && global.netlifyIdentity.currentUser && global.netlifyIdentity.currentUser());
     // Reset module state per-mount so reopening a different review
     // doesn't leak prior _expanded / _activeTab.
@@ -666,6 +669,7 @@
     global.SLA.LoanReviews.get(_opts.reviewId).then(function(r) {
       _review = r.review;
       render();
+      try { _autoSyncIfStale(); } catch (_) {} // Deploy 237.078
       // Deploy 236.677 — self-heal: backfill any standard checklist categories
       // this review is missing (created before the category existed). Runs after
       // the first paint so it never delays load; re-renders only if it added
@@ -1334,6 +1338,51 @@
   // can't see the basis for.
   function _fmtMoney(v) { var n = _num(v); return n ? '$' + Math.round(n).toLocaleString() : ''; }
   function _num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+  // Deploy 237.078 (Mike, Marianne's 1401 loan) -- the verify panel computed the liquidity
+  // requirement off the review's SNAPSHOT (loan $228,750 from 8/29) while the live loan
+  // had been re-priced to $217,500 off the BPO -- a bigger down payment the UW never
+  // saw. The panel now overlays the CURRENT loan's material terms (Loan Details hands
+  // its _loan in), flags the drift, and queues the truth refresh once so the AI
+  // re-reviews against the same numbers. Field list mirrors review-truth.mjs
+  // TRUTH_MATERIAL_FIELDS.
+  var _TRUTH_FIELDS = ['loanAmt', 'purchasePrice', 'rehabBudget', 'arv', 'arvBpo', 'aivBpo', 'propValue', 'currentLoanAmt',
+    'rate', 'points', 'loanTerm', 'loanType', 'isIO', 'downPayment', 'initialAdvance', 'holdback',
+    'loanPurpose', 'purpose', 'transactionType', 'address', 'entityName', 'llcName', 'rent', 'monthlyRent',
+    'toolType', 'fundingDate', 'expectedCloseDate', 'closeDate'];
+  function _liveFor(review) {
+    var src = (review && review.source) || {};
+    return (_liveLoan && _liveLoan.id && src.loanId && _liveLoan.id === src.loanId) ? _liveLoan : null;
+  }
+  function _termsDrift(review) {
+    var live = _liveFor(review); if (!live) return [];
+    var snap = review.sourceLoanSnapshot || review.snapshotLoan || {};
+    function norm(v) { return v == null ? '' : String(v).trim(); }
+    return _TRUTH_FIELDS.filter(function(k) { return norm(snap[k]) !== norm(live[k]); });
+  }
+  function _autoSyncIfStale() {
+    if (!_review || !_review.id) return;
+    if (document.body.classList.contains('dr-lo-readonly')) return;
+    if (global.SLA && typeof global.SLA.isProcessor === 'function' && !global.SLA.isProcessor(_user)) return;
+    var drift = _termsDrift(_review); if (!drift.length) return;
+    var key = _review.id + '|' + drift.join(',');
+    if (_autoSynced[key]) return;
+    try { if (global.sessionStorage && global.sessionStorage.getItem('dr-autosync:' + key)) return; } catch (_) {}
+    _autoSynced[key] = true;
+    try { global.sessionStorage.setItem('dr-autosync:' + key, '1'); } catch (_) {}
+    var src = _review.source || {};
+    var clientId = (global._client && global._client.id) || src.clientId;
+    var loanId = global._loanId || src.loanId;
+    var owner = (typeof global._ldOwnerOverride === 'function' && global._ldOwnerOverride()) || (global._loEmail || src.ownerKey || '');
+    if (!clientId || !loanId || !owner) return;
+    SLA.getToken().then(function(tok) {
+      return fetch('/api/loan-review-refresh-truth', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: owner, clientId: clientId, loanId: loanId, reason: 'loan terms changed since the review snapshot: ' + drift.slice(0, 6).join(', ') }),
+      });
+    }).then(function(r) {
+      if (r.status === 202 || r.ok) { showToast('Loan terms changed since the last review (' + drift.slice(0, 4).join(', ') + ') — snapshot refreshed, AI re-reviews queued.', 'info'); setTimeout(function() { loadReview(); }, 5000); }
+    }).catch(function() {});
+  }
   // Deploy 237.075 (Mike) -- legal names per the ID tray, expected mortgagee (mirrors
   // _shared/loan-review-checklists.mjs expectedMortgagee), per-guarantor coverage,
   // and valuation minimums (RTL caps from window.SLA_RTL, loaded on Loan Details).
@@ -1397,6 +1446,9 @@
   }
   function _loanFacts() {
     var L = _review.sourceLoanSnapshot || _review.snapshotLoan || {}; // Deploy 237.074 -- borrower-created reviews store snapshotLoan
+    // Deploy 237.078 -- overlay the LIVE loan's material terms so the UW sees today's numbers.
+    var _drift = _termsDrift(_review);
+    if (_drift.length) { var _lv = _liveFor(_review); L = Object.assign({}, L); _TRUTH_FIELDS.forEach(function(k) { if (_lv[k] != null && _lv[k] !== '') L[k] = _lv[k]; else if (_drift.indexOf(k) >= 0) L[k] = _lv[k]; }); }
     var C = _review.sourceClientSnapshot || _review.snapshotClient || {};
     var art = (_review.docs || {}).articles_of_organization || {};
     var ee = art.aiExtractedEntities || {};
@@ -1438,6 +1490,7 @@
       entity: entity, entityOfRecord: entityOfRecord, borrower: borrower, guarantors: gs, idNames: idNames, mortgagee: mortgagee, val: val,
       address: _review.address || L.address || '', loanAmt: loanAmt, purchasePrice: pp, rehab: rehab, arv: arv,
       rate: rate, points: points, rent: _num(L.rent), isDscr: isDscr, liquidity: liq.join('; '), term: _num(L.loanTerm), // Deploy 237.075
+      drift: _drift, // Deploy 237.078
       close: _review.expectedCloseDate || L.fundingDate || L.closeDate || '',
     };
   }
@@ -1484,6 +1537,7 @@
     for (var i = 0; i < _EXPECT_RULES.length; i++) { if (_EXPECT_RULES[i][0].test(base)) { keys = _EXPECT_RULES[i][1]; break; } }
     var f = _loanFacts();
     var out = [];
+    if (f.drift && f.drift.length) out.push(['⚠ Terms changed', 'the loan changed since the AI last reviewed (' + f.drift.slice(0, 5).join(', ') + ') — figures below are the CURRENT loan; the AI re-review is queued automatically']); // Deploy 237.078
     var ficoM = /(\d{3})/.exec(String((meta && meta.conditions) || ''));
     var staleDays = { bank_stmt_current: 60, bank_stmt_previous: 60, certificate_of_good_standing: 90, entity_background_check: 90, guarantor_background_check: 90, ofac_entity: 90, ofac_personal: 90, credit_report: 120, appraisal: 120, appraisal_receipt: 120 };
     keys.forEach(function(k) {

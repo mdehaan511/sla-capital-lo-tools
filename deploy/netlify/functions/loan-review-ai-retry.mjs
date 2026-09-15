@@ -309,6 +309,7 @@ function _buildLoanContext(review) {
   return {
     propertyAddress: review.address || loan.address || '',
     loanAmount:      pick('loanAmt'),
+    rate:            pick('rate'), // Deploy 237.078
     purchasePrice:   pick('purchasePrice'),
     arv:             pick('arv'),
     rehabBudget:     pick('rehabBudget'),

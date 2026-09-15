@@ -633,6 +633,7 @@ function buildLoanContext(review) {
     mortgagee: expectedMortgagee({ loanType: review.loanType, investor: review.investor, investorName: loan.investorName }), // Deploy 237.075
     loanType:      review.loanType || '',
     fundingDate:   pick('fundingDate') || review.expectedCloseDate || '',
+    rate:          pick('rate'), // Deploy 237.078
   };
 }
 

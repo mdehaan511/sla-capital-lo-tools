@@ -5852,6 +5852,7 @@ function _renderDocReviewIframe(reviewId) {
   SLA.DocReview.mount(root, {
     reviewId: reviewId,
     user: _user,
+    loan: _loan, // Deploy 237.078 -- live terms for the UW verify panel
     onDeleted: function() {
       // After delete/finalize, swap back to the "Start Document
       // Review" empty state so the LO can create a fresh review.
