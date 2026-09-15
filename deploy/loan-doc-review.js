@@ -125,6 +125,7 @@
   var _activeTab = 'pending';
   var _activeCollateralProperty = 0; // Deploy 236.690 — portfolio collateral tab
   var _expanded = {};
+  var _aiDetailsOpen = {}; // Deploy 237.070 -- AI block "Details" open per doc (slug|docId)
   var _pendingOverride = null;
   var _pendingNa = null;
   var _docSearch = '';
@@ -398,6 +399,9 @@
       '.dr-root .ai-label.pending  { color:var(--gold-mid); }',
       '.dr-root .ai-cost { font-size:10px; color:var(--muted); font-family:"DM Mono", monospace; }',
       '.dr-root .ai-summary { font-size:12px; color:var(--text); margin-top:6px; line-height:1.5; }',
+      // Deploy 237.070 (Mike) -- compact AI block: verdict + per-condition checks only;
+      // the summary and each finding's detail sit behind the Details toggle.
+      '.dr-root .ai-block.compact .ai-summary, .dr-root .ai-block.compact .f-detail { display:none; }',
       '.dr-root .ai-findings { margin-top:8px; }',
       '.dr-root .ai-finding { display:flex; gap:8px; align-items:flex-start; font-size:11px; padding:4px 0; line-height:1.5; border-top:1px dashed var(--border); padding-top:6px; margin-top:6px; }',
       '.dr-root .ai-finding:first-child { border-top:0; padding-top:0; margin-top:0; }',
@@ -595,6 +599,7 @@
     _review = null;
     _activeTab = 'pending';
     _expanded = {};
+    _aiDetailsOpen = {}; // Deploy 237.070
     _pendingOverride = null;
     _pendingNa = null;
     _docSearch = '';
@@ -1389,7 +1394,6 @@
       var approveLabel = (d.aiVerdict === 'issues') ? '✓ Override AI &amp; Approve' : '✓ Approve';
       verdictBtns =
         '<button class="v-btn approve" onclick="' + approveOnclick + '"' + (d.currentDocId ? '' : ' disabled title="Upload a doc first"') + '>' + approveLabel + '</button>' +
-        '<button class="v-btn issues" onclick="dr_setVerdict(\'' + escAttr(slug) + '\',\'issues\')">⚠ Flag Issues</button>' +
         '<button class="v-btn na" onclick="dr_openNaModal(\'' + escAttr(slug) + '\')">○ Mark N/A</button>';
     }
     // Deploy 236.161 — hide/unhide control. Trays the LO marks
@@ -1725,11 +1729,18 @@
         '</div>';
       }).join('') + '</div>';
     }
-    return '<div class="ai-block ' + cls + '">' +
+    // Deploy 237.070 (Mike) -- compact by default: the verdict + the per-condition
+    // checks only; the AI's summary and per-finding detail sit behind "Details"
+    // (remembered per doc for the page session) so a tray reads in one glance.
+    var _dkey = slug + '|' + (docId || '');
+    var _compact = !_aiDetailsOpen[_dkey];
+    var _hasDetails = !!(src.aiNotes || (Array.isArray(src.aiFindings) && src.aiFindings.some(function(f) { return f && f.detail; })));
+    return '<div class="ai-block ' + cls + (_compact ? ' compact' : '') + '" data-dkey="' + escAttr(_dkey) + '">' +
       '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
         '<span class="ai-label ' + cls + '">' + icon + '</span>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
           (src.aiReviewedAt ? '<span class="ai-cost">' + formatDate(src.aiReviewedAt) + '</span>' : '') +
+          (_hasDetails ? '<button class="small-btn" onclick="dr_toggleAiDetails(this)" title="Show the AI\'s summary and the detail behind each check">' + (_compact ? 'Details \u25b8' : 'Hide details \u25be') + '</button>' : '') +
           '<button class="small-btn" onclick="dr_retryAi(' + _retryArgs + ')" title="Re-run the AI against this document">↻ Retry</button>' +
         '</div>' +
       '</div>' +
@@ -2143,10 +2154,103 @@
   };
 
   global.dr_viewDoc = function(docId) {
-    global.SLA.LoanReviews.viewDoc(_review.id, docId).catch(function(err) {
-      showToast('Could not open doc: ' + (err.message || 'Unknown'), 'error');
-    });
+    _openDocViewer(docId); // Deploy 237.070 -- in-page viewer (was a new tab)
   };
+  // ── Deploy 237.070 (Mike) — in-page document viewer ──────────────────
+  // "View" used to fetch the bytes and pop a NEW TAB (popup blockers, tab
+  // sprawl, losing the review). Now it opens a full-height overlay with the
+  // PDF (iframe) or image inline; "Open in new tab" and Esc/click-outside are
+  // there for the odd file the browser can't render inline.
+  var _viewerUrl = null, _viewerDocId = null;
+  function _docFilename(docId) {
+    var docs = (_review && _review.docs) || {};
+    var slugs = Object.keys(docs);
+    for (var i = 0; i < slugs.length; i++) {
+      var d = docs[slugs[i]] || {};
+      var list = Array.isArray(d.documents) ? d.documents : [];
+      for (var j = 0; j < list.length; j++) { if (list[j] && list[j].docId === docId) return list[j].filename || d.currentFilename || ''; }
+      if (d.currentDocId === docId) return d.currentFilename || '';
+      var hist = Array.isArray(d.history) ? d.history : [];
+      for (var k = 0; k < hist.length; k++) { if (hist[k] && hist[k].docId === docId) return hist[k].filename || ''; }
+    }
+    return '';
+  }
+  function _ensureViewer() {
+    var v = document.getElementById('dr-viewer');
+    if (v) return v;
+    v = document.createElement('div');
+    v.id = 'dr-viewer';
+    v.style.cssText = 'display:none;position:fixed;inset:0;z-index:10000;background:rgba(20,14,26,0.72);align-items:center;justify-content:center;padding:18px;box-sizing:border-box';
+    v.innerHTML =
+      '<div style="background:#fff;border-radius:12px;width:min(1200px,100%);height:100%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,0.35)">' +
+        '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #e6e0d6">' +
+          '<strong id="dr-viewer-title" style="flex:1;font-size:13px;color:#1a1520;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Document</strong>' +
+          '<button class="small-btn" onclick="dr_viewerNewTab()">Open in new tab</button>' +
+          '<button class="small-btn" onclick="dr_closeDocViewer()">\u2715 Close</button>' +
+        '</div>' +
+        '<div id="dr-viewer-body" style="flex:1;min-height:0;background:#2b2530;display:flex;align-items:center;justify-content:center"></div>' +
+      '</div>';
+    v.addEventListener('click', function(e) { if (e.target === v) global.dr_closeDocViewer(); });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && v.style.display !== 'none') global.dr_closeDocViewer(); });
+    document.body.appendChild(v);
+    return v;
+  }
+  function _openDocViewer(docId) {
+    var v = _ensureViewer();
+    var body = document.getElementById('dr-viewer-body');
+    var title = document.getElementById('dr-viewer-title');
+    if (title) title.textContent = _docFilename(docId) || 'Document';
+    if (body) body.innerHTML = '<div style="color:#fff;font-size:13px"><span class="ai-spinner"></span> Loading\u2026</div>';
+    v.style.display = 'flex';
+    if (_viewerUrl) { try { URL.revokeObjectURL(_viewerUrl); } catch (_) {} _viewerUrl = null; }
+    _viewerDocId = docId;
+    var url = global.SLA.LoanReviews.docUrl(_review.id, docId);
+    global.SLA.getToken().then(function(token) {
+      return fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob();
+    }).then(function(blob) {
+      if (_viewerDocId !== docId) return; // another doc was opened meanwhile
+      _viewerUrl = URL.createObjectURL(blob);
+      var isImg = /^image\//.test(blob.type || '');
+      if (!body) return;
+      body.innerHTML = isImg
+        ? '<img src="' + _viewerUrl + '" alt="" style="max-width:100%;max-height:100%;object-fit:contain">'
+        : '<iframe src="' + _viewerUrl + '" title="Document" style="width:100%;height:100%;border:0;background:#fff"></iframe>';
+    }).catch(function(err) {
+      if (body) body.innerHTML = '<div style="color:#fff;font-size:13px;padding:20px;text-align:center">Could not load this document (' + escHtml((err && err.message) || 'unknown') + ').<br>' +
+        '<button class="small-btn" style="margin-top:10px" onclick="dr_viewerNewTab()">Try opening in a new tab</button></div>';
+    });
+  }
+  global.dr_closeDocViewer = function() {
+    var v = document.getElementById('dr-viewer');
+    if (!v) return;
+    v.style.display = 'none';
+    var body = document.getElementById('dr-viewer-body');
+    if (body) body.innerHTML = '';
+    if (_viewerUrl) { try { URL.revokeObjectURL(_viewerUrl); } catch (_) {} _viewerUrl = null; }
+    _viewerDocId = null;
+  };
+  global.dr_viewerNewTab = function() {
+    if (_viewerUrl) { window.open(_viewerUrl, '_blank'); return; }
+    if (_viewerDocId) {
+      global.SLA.LoanReviews.viewDoc(_review.id, _viewerDocId).catch(function(err) {
+        showToast('Could not open doc: ' + (err.message || 'Unknown'), 'error');
+      });
+    }
+  };
+  // Deploy 237.070 -- "Details" toggle on the compact AI block (per doc, page session).
+  global.dr_toggleAiDetails = function(btn) {
+    var block = btn && btn.closest ? btn.closest('.ai-block') : null;
+    if (!block) return;
+    var key = block.getAttribute('data-dkey') || '';
+    var opening = block.classList.contains('compact');
+    block.classList.toggle('compact', !opening);
+    _aiDetailsOpen[key] = opening;
+    btn.textContent = opening ? 'Hide details \u25be' : 'Details \u25b8';
+  };
+
 
   // Deploy 236.161 — hide / unhide a tray on the review record.
   // Patches docs[slug].hidden = true|false; render() filters
