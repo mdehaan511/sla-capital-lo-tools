@@ -638,7 +638,42 @@ function svcVal(it, k){
   if (k==='payoff') return num(l.payoffAmount);
   if (k==='payment') return num(l.paymentAmount);
   if (k==='amount') return num(l.finalLoanAmount||l.loanAmt);
+  if (k==='pmtStatus') return _pmtStatus(l).rank;
+  if (k==='daysLate') return num(l.daysLate);
+  if (k==='nextDue') return l.nextDueDate||'';
+  if (k==='paidTo') return l.paidToDate||'';
   return '';
+}
+// Deploy 237.051 (Mike) — payment status from the servicer sync. daysLate /
+// nextDueDate / paidToDate are stamped nightly by fci-portfolio-sync and
+// servicingpros-portfolio-sync; fciSyncedAt / spSyncedAt say how fresh.
+// rank: 0 current … 4 = 90+ so the column sorts worst-first when descending.
+function _pmtStatus(l){
+  var synced = l.fciSyncedAt || l.spSyncedAt || '';
+  var asOf = synced ? ' (as of ' + fmtDate(String(synced).slice(0,10)) + ')' : '';
+  var dl = (l.daysLate === '' || l.daysLate == null) ? null : num(l.daysLate);
+  var st = String(l.fciLoanStatus||'').toUpperCase();
+  if (/PAID ?OFF/.test(st) || dispositionOf(l)==='paid_off') return { label:'Paid off', cls:'ok', rank:-1, title:'Paid off' + asOf };
+  if (dl == null) {
+    if (!l.servicerLoanNumber) return { label:'No servicer #', cls:'muted', rank:5, title:'No servicer loan number on file — add it on the Servicing tab so the nightly sync can find this loan' };
+    return { label:'No sync yet', cls:'muted', rank:5, title:'Servicer sync has not reported this loan yet' };
+  }
+  if (dl <= 0)  return { label:'Current', cls:'ok',   rank:0, title:'Current' + asOf };
+  if (dl < 30)  return { label:dl + ' days late', cls:'warn', rank:1, title:'Late, under 30 days' + asOf };
+  if (dl < 60)  return { label:'30+ late', cls:'bad', rank:2, title:dl + ' days late' + asOf };
+  if (dl < 90)  return { label:'60+ late', cls:'bad', rank:3, title:dl + ' days late' + asOf };
+  return { label:'90+ late', cls:'bad', rank:4, title:dl + ' days late' + asOf };
+}
+function _pmtStatusCells(l){
+  var ps = _pmtStatus(l);
+  var style = ps.cls==='ok' ? 'background:var(--d-servicing-bg);color:var(--d-servicing)'
+            : ps.cls==='warn' ? 'background:var(--d-pending-bg);color:var(--d-pending)'
+            : ps.cls==='bad' ? 'background:rgba(124,31,31,.10);color:var(--danger)'
+            : 'background:rgba(122,116,136,.10);color:var(--muted)';
+  var dl = (l.daysLate === '' || l.daysLate == null) ? null : num(l.daysLate);
+  return '<td><span class="stpill" style="'+style+'" title="'+escAttr(ps.title)+'">'+escH(ps.label)+'</span></td>' +
+    '<td class="cl-num">'+(dl==null?'<span class="cl-ph">—</span>':escH(String(dl)))+'</td>' +
+    _tdDate(l.nextDueDate) + _tdDate(l.paidToDate);
 }
 
 // Deploy 236.620 — withLoan inserts Loan Amount + Close Date after Type (used by
@@ -646,7 +681,10 @@ function svcVal(it, k){
 function svcHeadCols(tab, extra, withLoan){
   var cols = th(tab,'address','Property') + th(tab,'borrower','Borrower') + th(tab,'type','Type') +
              (withLoan ? (th(tab,'amount','Loan Amount') + th(tab,'funded','Close Date')) : '') +
-             th(tab,'maturity','Maturity') + th(tab,'payoff','Payoff') + th(tab,'payment','Payment');
+             th(tab,'maturity','Maturity') + th(tab,'payoff','Payoff') + th(tab,'payment','Payment') +
+             // Deploy 237.051 (Mike) — current payment status / delinquency from the
+             // servicer sync (FCI nightly, Servicing Pros nightly).
+             (withLoan ? (th(tab,'pmtStatus','Payment Status') + th(tab,'daysLate','Days Late') + th(tab,'nextDue','Next Due') + th(tab,'paidTo','Paid To')) : '');
   return extra ? cols + extra : cols;
 }
 function svcRow(it, extraCells, withLoan){
@@ -708,6 +746,7 @@ function _cName(it){ var l=it.loan;
 function _svcCellsFull(it){ var l=it.loan;
   return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdDate(l.maturityDate) +
     _tdMoney(l.payoffAmount) + _tdMoney(l.paymentAmount) +
+    _pmtStatusCells(l) +
     '<td>'+(l.servicerName?escH(l.servicerName):'<span class="cl-ph">—</span>')+'</td>' +
     '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>';
 }
