@@ -390,7 +390,10 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
           if (!loan) { errors.push({ account: r.account, error: 'loan vanished' }); continue; }
           let changed = false;
           const cur = String(loan.disposition || '').toLowerCase();
-          if (cur && cur !== r.disposition && !overwriteManual) {
+          // Deploy 237.066 (Mike) — the servicer saying PAID OFF is authoritative: move the
+          // loan to Paid Off even over a hand-set disposition, so it leaves the
+          // Servicing list on its own. Other dispositions still defer to staff.
+          if (cur && cur !== r.disposition && !overwriteManual && r.disposition !== 'paid_off') {
             dispositionSkipped += 1;   // hand-set and disagrees — leave it alone
           } else if (cur !== r.disposition) {
             loan.disposition = r.disposition;

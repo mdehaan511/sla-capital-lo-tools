@@ -1149,6 +1149,11 @@
   to = "/.netlify/functions/payment-history-warm-background"
   status = 200
   force = true
+[[redirects]]
+  from = "/api/servicingpros-probe"
+  to = "/.netlify/functions/servicingpros-probe"
+  status = 200
+  force = true
 # Deploy 236.806 — read-only preview of who the maturity cron would email next
 # run, and the exact copy. Sends nothing; the cron itself is scheduled via its
 # own config export (16:20 UTC).

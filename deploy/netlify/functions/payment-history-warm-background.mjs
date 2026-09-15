@@ -129,6 +129,12 @@ const daysBetween = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.pa
 // Deploy 237.058 (Mike) — an NSF is only OPEN until a good payment for that due date
 // (or a later one) is received after it. Cured NSFs must not alert.
 const isOpenNsf = (nsf, rows) => !rows.some((p) => isGood(p) && String(p.dateReceived) > String(nsf.dateReceived) && String(p.dateDue || '') >= String(nsf.dateDue || ''));
+// Deploy 237.066 (Mike) — a good payment that was later returned NSF (same due date, or the
+// same amount within a day) never counted: paid-to must skip it, so the loan
+// reads LATE for that due date, not "Current · NSF".
+const isReversed = (p, rows) => rows.some((n) => /nsf|revers|return|reject/i.test(String(n.type || '')) && n.dateReceived && String(n.dateReceived) >= String(p.dateReceived) &&
+  ((n.dateDue && p.dateDue && String(n.dateDue) === String(p.dateDue)) || (n.amount != null && p.amount != null && Math.abs(Math.abs(Number(n.amount)) - Number(p.amount)) < 0.01)));
+const isEffective = (p, rows) => isGood(p) && !isReversed(p, rows);
 
 async function evaluateAlerts(targets) {
   const out = { checked: 0, late: 0, nsf: 0, notified: 0, emailed: 0, skippedAlreadySent: 0, errors: [] };
@@ -148,7 +154,7 @@ async function evaluateAlerts(targets) {
     if (!hit || !Array.isArray(hit.rows)) continue;
     out.checked++;
     let paidTo = '';
-    hit.rows.forEach((p) => { if (isGood(p) && String(p.dateDue || '') > paidTo) paidTo = String(p.dateDue || ''); });
+    hit.rows.forEach((p) => { if (isEffective(p, hit.rows) && String(p.dateDue || '') > paidTo) paidTo = String(p.dateDue || ''); });
     // No good payment on record at the servicer → fall back to the synced next
     // due date (fresh daily now that the full-book refresh runs first).
     const nextDue = paidTo ? addMonths(paidTo, 1) : String(r.next_due || '').slice(0, 10);
@@ -170,7 +176,7 @@ async function evaluateAlerts(targets) {
     hit.rows.forEach((p) => {
       if (!/nsf/i.test(String(p.type || '')) || !p.dateReceived) return;
       if (daysBetween(p.dateReceived, today) > 30) return;
-      if (!isOpenNsf(p, hit.rows)) return;                       // Deploy 237.058 — cured
+      if (!isOpenNsf(p, hit.rows)) return;                       // Deploy 237.058 — cured (an open NSF also makes the loan LATE above)
       const key = r.id + '|nsf|' + (p.reference || p.dateReceived);
       openKeys.add(key);
       if (state.nsf[key]) { out.skippedAlreadySent++; return; }

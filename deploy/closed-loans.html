@@ -665,6 +665,12 @@ function svcVal(it, k){
 // fields until the history arrives. Paid off = FCI loan status / disposition /
 // zero balance with a payoff date. NSF within 90 days is flagged.
 function _isGoodPayment(p){ return !!(p && p.dateReceived && !/nsf|revers|return|reject/i.test(String(p.type||'')) && (p.amount == null || Number(p.amount) > 0)); }
+// Deploy 237.066 (Mike) — a payment later returned NSF (same due date, or same amount) did
+// not happen: it must not advance paid-to, so the loan reads LATE, not Current.
+function _isReversed(p, rows){
+  return rows.some(function(n){ return /nsf|revers|return|reject/i.test(String(n.type||'')) && n.dateReceived && String(n.dateReceived) >= String(p.dateReceived) &&
+    ((n.dateDue && p.dateDue && String(n.dateDue) === String(p.dateDue)) || (n.amount != null && p.amount != null && Math.abs(Math.abs(Number(n.amount)) - Number(p.amount)) < 0.01)); });
+}
 function _addMonthsYmd(y, n){ var m = String(y||'').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return ''; var d = new Date(Date.UTC(+m[1], +m[2]-1+n, +m[3])); return d.toISOString().slice(0,10); }
 function _pmtDerive(l, it){
   var out = { paidTo: l.paidToDate || '', nextDue: l.nextDueDate || '', daysLate: null, source: 'sync', nsf: null, lastPaid: '' };
@@ -673,7 +679,7 @@ function _pmtDerive(l, it){
   if (rows && rows.length) {
     var paidTo = '', last = '', nsf = null, cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
     rows.forEach(function(p){
-      if (_isGoodPayment(p)) { if (String(p.dateDue||'') > paidTo) paidTo = String(p.dateDue||''); if (String(p.dateReceived||'') > last) last = String(p.dateReceived||''); }
+      if (_isGoodPayment(p) && !_isReversed(p, rows)) { if (String(p.dateDue||'') > paidTo) paidTo = String(p.dateDue||''); if (String(p.dateReceived||'') > last) last = String(p.dateReceived||''); }
       else if (/nsf/i.test(String(p.type||'')) && p.dateReceived && parseLocalDate(p.dateReceived) >= cutoff) { if (!nsf || p.dateReceived > nsf.dateReceived) nsf = p; }
     });
     // Deploy 237.058 (Mike) — an NSF is only flagged while OPEN: a good payment for that
@@ -703,7 +709,7 @@ function _pmtStatus(l, it){
     return { label:'No sync yet', cls:'muted', rank:-2, title:'Servicer has not reported this loan yet', d:d };
   }
   var nsfTag = d.nsf ? ' · NSF ' + fmtDate(d.nsf.dateReceived) : '';
-  if (dl <= 0)  return { label:'Current' + nsfTag, cls:(d.nsf?'warn':'ok'), rank:(d.nsf?1:0), title:'Current' + asOf, d:d };
+  if (dl <= 0)  return { label:'Current' + nsfTag, cls:(d.nsf?'warn':'ok'), rank:(d.nsf?1:0), title:(d.nsf ? 'Open NSF — no good payment since' : 'Current') + asOf, d:d };
   if (dl < 30)  return { label:dl + ' days late' + nsfTag, cls:(dl > 5 ? 'bad' : 'warn'), rank:1 + dl/100, title:'Late, under 30 days' + asOf, d:d };
   if (dl < 60)  return { label:'30+ late' + nsfTag, cls:'bad', rank:2 + dl/1000, title:dl + ' days late' + asOf, d:d };
   if (dl < 90)  return { label:'60+ late' + nsfTag, cls:'bad', rank:3 + dl/1000, title:dl + ' days late' + asOf, d:d };

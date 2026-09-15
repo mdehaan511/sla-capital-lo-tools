@@ -513,7 +513,7 @@ function _attachToSlug({ review, slug, bytes, filename, mimeType, sourceNote, ac
   // Approve (or run AI review).
   docState.verdict            = 'pending';
   docState.processorNotes     = sourceNote || '';
-  // Deploy 237.063 (Mike) — processor notes are a per-document NOTE LOG in
+  // Deploy 237.066 (Mike) — processor notes are a per-document NOTE LOG in
   // the Documents tab now (docState.noteLog). The source note ("Filed from
   // Mail Room", "E-Sign", the borrower-form note…) is appended there as a
   // system entry so it shows in the log instead of vanishing behind it; the

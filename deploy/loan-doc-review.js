@@ -338,7 +338,7 @@
       '.dr-root .dr-notes-status.saving { color:var(--muted); }',
       '.dr-root .dr-notes-status.saved  { color:var(--dr-green); }',
       '.dr-root .dr-notes-status.failed { color:var(--dr-red); }',
-      /* Deploy 237.063 — per-document note log */
+      /* Deploy 237.066 — per-document note log */
       '.dr-root .dr-note-list { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }',
       '.dr-root .dr-note { border:1px solid var(--border,#ddd8d0); border-left:3px solid var(--gold,#C8813A); border-radius:6px; background:#fff; padding:7px 10px; }',
       '.dr-root .dr-note.editing { border-left-color:#261a36; }',
@@ -1365,7 +1365,7 @@
         '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
       '</label>';
 
-    // Deploy 237.063 (Mike) — processor notes are a per-document NOTE LOG now
+    // Deploy 237.066 (Mike) — processor notes are a per-document NOTE LOG now
     // (a mini version of the loan's Notes & Activity): each save is its own
     // dated, authored entry; entries can be edited or deleted; the legacy
     // single processorNotes string shows as the first entry and is kept in
@@ -3146,7 +3146,7 @@
     _dr_patchConds(slug, conds);
   };
 
-  // Deploy 237.063 — per-document note log actions.
+  // Deploy 237.066 — per-document note log actions.
   function _noteAuthor() {
     var meta = (_user && _user.user_metadata) || {};
     return { author: String(meta.full_name || meta.fullName || meta.name || (_user && _user.email) || '').trim(), authorEmail: String((_user && _user.email) || '').toLowerCase() };
