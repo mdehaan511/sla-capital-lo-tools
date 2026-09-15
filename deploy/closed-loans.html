@@ -853,8 +853,8 @@ function _dispBody(group, disp, includeDisp){
       // Deploy 237.053 (Mike) — a servicing row expands to the borrower's payment
       // history; the ADDRESS is the link to the loan (see _cName's svcLink).
       var key = loanKey(it), open = !!_openPmt[key];
-      return '<tr class="lrow'+mc+(open?' pmt-open':'')+'" onclick="togglePmt(\''+escAttr(key)+'\')">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>' +
-        (open ? '<tr class="pmt-sub"><td colspan="'+nCols+'">'+_pmtHistoryHtml(it)+'</td></tr>' : '');
+      return '<tr class="lrow'+mc+(open?' pmt-open':'')+'" data-pk="'+escAttr(key)+'" data-cols="'+nCols+'" onclick="togglePmt(\''+escAttr(key)+'\')">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>' +
+        (open ? '<tr class="pmt-sub" data-pk="'+escAttr(key)+'"><td colspan="'+nCols+'">'+_pmtHistoryHtml(it)+'</td></tr>' : '');
     }
     return '<tr class="lrow'+mc+'" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>';
   }).join('');
@@ -2154,7 +2154,28 @@ function toggleDraws(key){ _openDraws[key] = !_openDraws[key]; render(); }
 function togglePmt(key){
   _openPmt[key] = !_openPmt[key];
   if (_openPmt[key] && !_pmtHist[key]) _pmtLoad(key);
-  render();
+  if (!_pmtPaint(key)) render();
+}
+// Deploy 237.055 — paint the expansion in place (a full render() of the page
+// took ~1s per click); returns false when the row isn't in the DOM.
+function _pmtPaint(key){
+  var rows = Array.prototype.filter.call(document.querySelectorAll('tr.lrow[data-pk]'), function(tr){ return tr.getAttribute('data-pk') === key; });
+  if (!rows.length) return false;
+  var it = _findByKey(key);
+  rows.forEach(function(tr){
+    var next = tr.nextElementSibling;
+    var sub = (next && next.classList.contains('pmt-sub') && next.getAttribute('data-pk') === key) ? next : null;
+    if (_openPmt[key]) {
+      tr.classList.add('pmt-open');
+      var html = it ? _pmtHistoryHtml(it) : '';
+      if (sub) { sub.firstElementChild.innerHTML = html; }
+      else { sub = document.createElement('tr'); sub.className = 'pmt-sub'; sub.setAttribute('data-pk', key); sub.innerHTML = '<td colspan="'+(tr.getAttribute('data-cols')||'15')+'">'+html+'</td>'; tr.parentNode.insertBefore(sub, tr.nextSibling); }
+    } else {
+      tr.classList.remove('pmt-open');
+      if (sub) sub.parentNode.removeChild(sub);
+    }
+  });
+  return true;
 }
 // Deploy 237.054 — warm the page-side cache for every serviced loan shown, 4 at a
 // time, without re-rendering (only an already-open row re-renders on arrival).
@@ -2175,7 +2196,7 @@ function _pmtPrefetchNext(){
       SLA.api('GET', '/api/loan-payment-history?servicer=' + encodeURIComponent(l.servicerName||'') + '&account=' + encodeURIComponent(l.servicerLoanNumber))
         .then(function(r){ _pmtHist[key] = { data: r }; })
         .catch(function(e){ _pmtHist[key] = { error: (e && e.message) || 'Could not load payment history' }; })
-        .then(function(){ _pmtPrefetchBusy--; if (_openPmt[key]) render(); _pmtPrefetchNext(); });
+        .then(function(){ _pmtPrefetchBusy--; if (_openPmt[key] && !_pmtPaint(key)) render(); _pmtPrefetchNext(); });
     })(_pmtPrefetchQueue.shift());
   }
 }
@@ -2183,12 +2204,12 @@ function _pmtLoad(key, force){
   var it = _findByKey(key); if (!it) return;
   var l = it.loan;
   _pmtHist[key] = { loading: true };
-  if (!l.servicerLoanNumber) { _pmtHist[key] = { error: 'No servicer loan number on this loan yet — add it on the loan\'s Servicing tab so the servicer sync (and this history) can find it.' }; render(); return; }
+  if (!l.servicerLoanNumber) { _pmtHist[key] = { error: 'No servicer loan number on this loan yet — add it on the loan\'s Servicing tab so the servicer sync (and this history) can find it.' }; if (!_pmtPaint(key)) render(); return; }
   SLA.api('GET', '/api/loan-payment-history?servicer=' + encodeURIComponent(l.servicerName||'') + '&account=' + encodeURIComponent(l.servicerLoanNumber) + (force ? '&force=1' : ''))
-    .then(function(r){ _pmtHist[key] = { data: r }; render(); })
-    .catch(function(e){ _pmtHist[key] = { error: (e && e.message) || 'Could not load payment history' }; render(); });
+    .then(function(r){ _pmtHist[key] = { data: r }; if (_openPmt[key] && !_pmtPaint(key)) render(); })
+    .catch(function(e){ _pmtHist[key] = { error: (e && e.message) || 'Could not load payment history' }; if (_openPmt[key] && !_pmtPaint(key)) render(); });
 }
-function _pmtRefresh(key){ _pmtLoad(key, true); render(); }
+function _pmtRefresh(key){ _pmtLoad(key, true); if (!_pmtPaint(key)) render(); }
 function _pmtHistoryHtml(it){
   var key = loanKey(it), st = _pmtHist[key] || {}, l = it.loan;
   var head = '<div style="display:flex;align-items:center;gap:10px;margin:2px 0 8px;font-size:12px;color:var(--muted)">' +
