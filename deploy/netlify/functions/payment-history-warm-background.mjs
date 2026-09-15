@@ -18,7 +18,7 @@ import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { pgGet } from './_shared/mail-match.mjs';
 import { servicerKind, fetchAndCache, spLoadFeeds, cacheStore, readCached } from './_shared/payment-history.mjs';
 import { db } from './_shared/supabase-db.mjs';
-import { pushUserNotification } from './_shared/user-notifications.mjs';
+import { pushUserNotification, listUserNotifications, dismissUserNotifications } from './_shared/user-notifications.mjs';
 import { keySafe, normalizeEmail } from './_shared/auth.mjs';
 import { runSync as runFciSync } from './fci-portfolio-sync.mjs';
 
@@ -126,6 +126,9 @@ const GRACE_DAYS = 5;
 const isGood = (p) => !!(p && p.dateReceived && !/nsf|revers|return|reject/i.test(String(p.type || '')) && (p.amount == null || Number(p.amount) > 0));
 const addMonths = (y, n) => { const m = String(y || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return ''; return new Date(Date.UTC(+m[1], +m[2] - 1 + n, +m[3])).toISOString().slice(0, 10); };
 const daysBetween = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400000);
+// Deploy 237.058 (Mike) — an NSF is only OPEN until a good payment for that due date
+// (or a later one) is received after it. Cured NSFs must not alert.
+const isOpenNsf = (nsf, rows) => !rows.some((p) => isGood(p) && String(p.dateReceived) > String(nsf.dateReceived) && String(p.dateDue || '') >= String(nsf.dateDue || ''));
 
 async function evaluateAlerts(targets) {
   const out = { checked: 0, late: 0, nsf: 0, notified: 0, emailed: 0, skippedAlreadySent: 0, errors: [] };
@@ -138,6 +141,7 @@ async function evaluateAlerts(targets) {
   const staff = new Set((roleRows || []).filter((r) => Array.isArray(r.roles) && r.roles.some((x) => ['super_admin', 'admin', 'processor'].indexOf(x) >= 0)).map((r) => normalizeEmail(r.email)));
 
   const alerts = []; // { kind, loan, title, text, key }
+  const openKeys = new Set();   // Deploy 237.058 — every alert that is still live today
   for (const r of targets) {
     const kind = servicerKind(r.servicer_name, r.servicer_no);
     const hit = await readCached(kind, String(r.servicer_no).trim());
@@ -156,6 +160,7 @@ async function evaluateAlerts(targets) {
       if (dl > GRACE_DAYS) {
         out.late++;
         const key = r.id + '|' + nextDue;
+        openKeys.add(key);
         if (state.late[key]) out.skippedAlreadySent++;
         else alerts.push({ kind: 'late', loan: r, key, stateMap: state.late,
           title: dl + ' days late: ' + label,
@@ -164,8 +169,10 @@ async function evaluateAlerts(targets) {
     }
     hit.rows.forEach((p) => {
       if (!/nsf/i.test(String(p.type || '')) || !p.dateReceived) return;
-      if (daysBetween(p.dateReceived, today) > 14) return;
+      if (daysBetween(p.dateReceived, today) > 30) return;
+      if (!isOpenNsf(p, hit.rows)) return;                       // Deploy 237.058 — cured
       const key = r.id + '|nsf|' + (p.reference || p.dateReceived);
+      openKeys.add(key);
       if (state.nsf[key]) { out.skippedAlreadySent++; return; }
       out.nsf++;
       alerts.push({ kind: 'nsf', loan: r, key, stateMap: state.nsf,
@@ -173,6 +180,21 @@ async function evaluateAlerts(targets) {
         text: 'A payment of $' + Math.abs(Number(p.amount) || 0).toLocaleString('en-US') + ' due ' + (p.dateDue || '—') + ' was returned NSF on ' + p.dateReceived + '. Servicer ' + kind + ' #' + r.servicer_no + '.' });
     });
   }
+  // Deploy 237.058 — clear resolved alerts out of every recipient's bell: any servicing
+  // item whose key is no longer open (cured NSF, payment made). The first run
+  // after this deploy also purges the NSF items sent before the cured-check
+  // existed (they carry no key).
+  const everyone = new Set(Array.from(staff).concat(targets.map((r) => normalizeEmail(r.owner_email || '')).filter(Boolean)));
+  out.cleared = 0;
+  for (const email of everyone) {
+    try {
+      const items = await listUserNotifications(email);
+      const stale = items.filter((it) => it && it.kind === 'servicing' && (!it.alertKey || !openKeys.has(it.alertKey))).map((it) => it.id);
+      if (stale.length) { await dismissUserNotifications(email, stale, false); out.cleared += stale.length; }
+    } catch (e) { out.errors.push('clear ' + email + ': ' + ((e && e.message) || 'error')); }
+  }
+  Object.keys(state.nsf).forEach((k) => { if (!openKeys.has(k)) delete state.nsf[k]; });
+  Object.keys(state.late).forEach((k) => { if (!openKeys.has(k)) delete state.late[k]; });
   if (!alerts.length) { await store.setJSON('meta/alerts-state', state).catch(() => {}); return out; }
 
   for (const a of alerts) {
@@ -181,7 +203,7 @@ async function evaluateAlerts(targets) {
     const href = '/loan-details/' + encodeURIComponent(a.loan.id) + (owner ? '?owner=' + encodeURIComponent(owner) : '') + '#servicing';
     for (const email of to) {
       try {
-        await pushUserNotification(email, { kind: 'servicing', alertType: a.kind, loanId: a.loan.id, clientId: a.loan.client_id, owner, address: a.loan.address || '', title: a.title, text: a.text, href });
+        await pushUserNotification(email, { kind: 'servicing', alertType: a.kind, alertKey: a.key, loanId: a.loan.id, clientId: a.loan.client_id, owner, address: a.loan.address || '', title: a.title, text: a.text, href });
         out.notified++;
       } catch (e) { out.errors.push('bell ' + email + ': ' + ((e && e.message) || 'error')); }
     }

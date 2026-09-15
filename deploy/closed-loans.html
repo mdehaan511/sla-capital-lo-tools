@@ -674,6 +674,9 @@ function _pmtDerive(l, it){
       if (_isGoodPayment(p)) { if (String(p.dateDue||'') > paidTo) paidTo = String(p.dateDue||''); if (String(p.dateReceived||'') > last) last = String(p.dateReceived||''); }
       else if (/nsf/i.test(String(p.type||'')) && p.dateReceived && parseLocalDate(p.dateReceived) >= cutoff) { if (!nsf || p.dateReceived > nsf.dateReceived) nsf = p; }
     });
+    // Deploy 237.058 (Mike) — an NSF is only flagged while OPEN: a good payment for that
+    // due date (or a later one) received after it clears the flag.
+    if (nsf && rows.some(function(p){ return _isGoodPayment(p) && String(p.dateReceived) > String(nsf.dateReceived) && String(p.dateDue||'') >= String(nsf.dateDue||''); })) nsf = null;
     if (paidTo) { out.paidTo = paidTo; out.nextDue = _addMonthsYmd(paidTo, 1); out.source = 'history'; }
     out.lastPaid = last; out.nsf = nsf;
   }
