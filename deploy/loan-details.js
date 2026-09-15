@@ -51,6 +51,14 @@ function fmtM(n) {
 }
 // Deploy 199: small helper for the Baseline panel + future status
 // timestamps. Returns "2026-05-23 14:32 PM" style — locale, short.
+// Deploy 237.069 -- HOTFIX: fmtDate did not exist in this file; 237.068's FCI Servicer
+// Activity box referenced it and render() threw on every FCI-serviced loan.
+function fmtDate(iso) {
+  var str = String(iso || ''); if (!str) return '';
+  var m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return parseInt(m[2], 10) + '/' + parseInt(m[3], 10) + '/' + m[1].slice(2);
+  var d = new Date(str); return isNaN(d.getTime()) ? str : ((d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(2));
+}
 function fmtDateTime(iso) {
   if (!iso) return '—';
   var d = new Date(iso);
