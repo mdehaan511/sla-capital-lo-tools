@@ -185,7 +185,7 @@ export async function listAllMonths() {
 }
 
 /**
- * Deploy 237.063 (Mike) — Legends of the Realm: the top N scores EVER,
+ * Deploy 237.077 (Mike) — Legends of the Realm: the top N scores EVER,
  * across every month. Never reset. A player can hold more than one seat
  * (their best from different months) — it is literally the top scores.
  * Rows carry monthLabel so the page can say when the ride happened.

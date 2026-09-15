@@ -39,7 +39,7 @@ export default async (req, context) => {
     }));
     const allTime = Object.keys(bestByPlayer).map((k) => bestByPlayer[k]).sort((a, b) => b.best - a.best).slice(0, 10);
 
-    // Deploy 237.063 — the three best scores ever, permanent (the monthly
+    // Deploy 237.077 — the three best scores ever, permanent (the monthly
     // board resets; this never does).
     const legends = legendsFrom(byMonth, 3);
 

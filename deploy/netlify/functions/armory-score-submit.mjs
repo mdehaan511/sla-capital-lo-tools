@@ -37,7 +37,7 @@ export default async (req, context) => {
     const board = await listMonth(month);
     const email = normalizeEmail(user.email);
     const rankIdx = board.findIndex((r) => r.email === email);
-    // Deploy 237.063 — did this ride enter the permanent all-time top 3?
+    // Deploy 237.077 — did this ride enter the permanent all-time top 3?
     // Only worth the extra prefix read when the run set a new personal best.
     let legendRank = null;
     if (result.accepted && result.isNewBest) {
