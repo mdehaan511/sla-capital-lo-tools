@@ -27,6 +27,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, keySafe, normalizeEmail, isAdmin,
 } from './_shared/auth.mjs';
+import { normalizeBirthday, normalizeDate } from './_shared/team-events.mjs'; // Deploy 237.082
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -43,7 +44,25 @@ export default async (req, context) => {
   if (typeof body.fullName === 'string') updates.full_name = body.fullName.trim().slice(0, 120);
   if (typeof body.phone    === 'string') updates.phone     = body.phone.trim().slice(0, 40);
 
-  if (!Object.keys(updates).length) {
+  // Deploy 237.082 (Mike) — team calendar fields, stored on the PROFILE BLOB
+  // only (not user_metadata): birthday 'MM-DD' + optional year (the LO enters
+  // these), startDate 'YYYY-MM-DD' (admin only — Mike enters the real dates
+  // from Dan on Users Admin). '' clears. See _shared/team-events.mjs.
+  const calendar = {};
+  if (typeof body.birthday === 'string') {
+    const bd = normalizeBirthday(body.birthday);
+    if (body.birthday.trim() && !bd.md) return json(400, { error: 'Birthday should be a month and day, like 3/14' });
+    calendar.birthday = bd.md;
+    calendar.birthYear = bd.year || (typeof body.birthYear === 'string' && /^\d{4}$/.test(body.birthYear.trim()) ? body.birthYear.trim() : '');
+  }
+  if (typeof body.startDate === 'string') {
+    if (!isAdmin(user)) return json(403, { error: 'Start dates are set by an admin' });
+    const sd = normalizeDate(body.startDate);
+    if (body.startDate.trim() && !sd) return json(400, { error: 'Start date should look like 2021-09-15' });
+    calendar.startDate = sd;
+  }
+
+  if (!Object.keys(updates).length && !Object.keys(calendar).length) {
     return json(400, { error: 'Nothing to update' });
   }
 
@@ -78,6 +97,8 @@ export default async (req, context) => {
     // Promote phone to a top-level field too (users-directory + POF read it
     // there first), alongside the user_metadata mirror.
     if (updates.phone != null) profile.phone = updates.phone;
+    if (calendar.birthday != null) { profile.birthday = calendar.birthday; profile.birthYear = calendar.birthYear; }
+    if (calendar.startDate != null) profile.startDate = calendar.startDate;
     profile.user_metadata = Object.assign({}, profile.user_metadata || {}, updates);
     profile.last_seen_at = new Date().toISOString();
     await store.setJSON(profileKey, profile);

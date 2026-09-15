@@ -11,7 +11,10 @@
  */
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { normalizeEmail } from './_shared/auth.mjs';
-import { isTeamMember, monthKey, monthLabel, daysLeftInMonth, listAllMonths, getEvents, legendsFrom, GAME_ID } from './_shared/armory.mjs';
+import { isTeamMember, monthKey, monthLabel, daysLeftInMonth, listAllMonths, getEvents, legendsFrom, questForMonth, GAMES, ROTATION, ROTATION_START, GAME_ID } from './_shared/armory.mjs';
+import { listBells } from './_shared/closing-bell.mjs';                                   // Deploy 237.082
+import { loadTeamProfiles, celebrationsOn, upcomingCelebrations, todayPacific } from './_shared/team-events.mjs';
+import { latestTownCrier } from './_shared/town-crier.mjs';
 
 export default async (req, context) => {
   try {
@@ -23,7 +26,18 @@ export default async (req, context) => {
 
     const now = new Date();
     const month = monthKey(now);
-    const [byMonth, events] = await Promise.all([listAllMonths(), getEvents()]);
+    // Deploy 237.082 — Closing Bell, celebrations, quest rotation and the
+    // latest Town Crier ride along in the same call.
+    const [byMonth, events, bells, profiles, crier] = await Promise.all([
+      listAllMonths(), getEvents(), listBells(12).catch(() => []), loadTeamProfiles().catch(() => []), latestTownCrier().catch(() => null),
+    ]);
+    const ymd = todayPacific(now);
+    const celebrations = { today: celebrationsOn(profiles, ymd), upcoming: upcomingCelebrations(profiles, ymd, 30).filter((c) => c.daysAway > 0) };
+    const quest = questForMonth(month);
+    const nextMonth = (() => { const y = +month.slice(0, 4), m = +month.slice(5); return (m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0')); })();
+    const rotation = { start: ROTATION_START, order: ROTATION.map((id) => GAMES[id]), next: questForMonth(nextMonth), nextMonthLabel: monthLabel(nextMonth) };
+    const me0 = normalizeEmail(user.email);
+    const myProfile = profiles.find((p) => p.email === me0) || null;
     const board = byMonth[month] || [];
     const email = normalizeEmail(user.email);
     const meIdx = board.findIndex((r) => r.email === email);
@@ -46,6 +60,9 @@ export default async (req, context) => {
     return json(200, {
       ok: true, gameId: GAME_ID, month, monthLabel: monthLabel(month), daysLeft: daysLeftInMonth(now),
       board, me, champions, allTime, legends, events, isAdmin: isAdmin(user),
+      quest, rotation, bells, celebrations,
+      crier: crier ? { ymd: crier.ymd, subject: crier.subject, at: crier.at } : null,
+      myCalendar: myProfile ? { birthday: myProfile.birthday, startDate: myProfile.startDate } : null,
     });
   } catch (e) {
     console.error('armory-state error:', e);

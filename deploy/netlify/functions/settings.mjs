@@ -40,6 +40,10 @@ import {
 const ALLOWED_KEYS = new Set([
   'banner', 'submit_email', 'processing_substatuses', 'task_templates',
   'slack_webhook', 'slack_webhook_errors', 'slack_webhook_apply', 'slack_webhook_submitted',
+  // Deploy 237.082 — Armory: 'armory' = company fun channel (Closing Bell, Town
+  // Crier, monthly champion); 'leadership' = PRIVATE Mike/Dan/Chance channel
+  // (birthdays, anniversaries, game milestones). Both fall back to slack_webhook.
+  'slack_webhook_armory', 'slack_webhook_leadership',
   'lo_comp_plans',
 ]);
 

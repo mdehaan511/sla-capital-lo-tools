@@ -3086,7 +3086,12 @@
   function onUserReady() {
     maybeInitQuoteStore();
     // Best-effort: refresh user's profile in backend so admin views see names
-    Profile.ping();
+    // Deploy 237.082 — the ping now returns the profile's calendar fields;
+    // no birthday on file → ask (team members only, snoozable).
+    var pingP = Profile.ping();
+    if (pingP && typeof pingP.then === 'function') {
+      pingP.then(function (r) { maybeShowBirthdayPrompt(r && r.profile); }).catch(function () {});
+    }
     // First-time setup: prompt for name+phone if not set
     maybeShowProfileSetup();
   }
@@ -3099,6 +3104,81 @@
   // Triggered automatically when a logged-in user has no full_name.
   // Once they save it, we don't show again (full_name will be set).
   // The modal also collects phone number, but only name is required.
+  // ── Deploy 237.082 (Mike) — birthday prompt ──────────────────────
+  // Team calendar: birthdays post to the leadership Slack channel and the
+  // Armory's Celebrations card. Asked once per sign-in until it is on file;
+  // "Remind me later" snoozes 7 days (localStorage). Team members only —
+  // borrowers and brokers load this file too and must never see it.
+  var BDAY_SNOOZE_KEY = 'sla_bday_snooze_until';
+  function _isTeamMemberUser(u) {
+    if (!u) return false;
+    var em = String(u.email || '').toLowerCase();
+    var staffRoles = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant', 'user'];
+    return getRoles(u).some(function (r) { return staffRoles.indexOf(String(r).toLowerCase()) >= 0; }) || /@slacapital\.com$/.test(em);
+  }
+  function maybeShowBirthdayPrompt(profile) {
+    try {
+      if (!profile || profile.birthday) return;
+      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+      if (!_isTeamMemberUser(u)) return;
+      if (document.getElementById('slaProfileSetupModal') || document.getElementById('slaBdayModal')) return;
+      var until = 0;
+      try { until = Number(localStorage.getItem(BDAY_SNOOZE_KEY) || 0); } catch (_) {}
+      if (until && Date.now() < until) return;
+      showBirthdayModal();
+    } catch (_) { /* never break a page over a prompt */ }
+  }
+  function showBirthdayModal() {
+    injectSetupStyles();
+    var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var mOpts = '<option value="">Month</option>';
+    for (var i = 0; i < 12; i++) mOpts += '<option value="' + (i + 1) + '">' + months[i] + '</option>';
+    var dOpts = '<option value="">Day</option>';
+    for (var d = 1; d <= 31; d++) dOpts += '<option value="' + d + '">' + d + '</option>';
+    var modal = document.createElement('div');
+    modal.id = 'slaBdayModal';
+    modal.className = 'sla-setup-bg';
+    modal.innerHTML =
+      '<div class="sla-setup-card">' +
+        '<h2>🎂 When is your birthday?</h2>' +
+        '<p>The team likes to celebrate. Add your birthday so it shows up in the Armory and the Monday Town Crier. Year is optional and never shown.</p>' +
+        '<div class="sla-setup-field"><label>Birthday</label>' +
+          '<div style="display:flex;gap:8px">' +
+            '<select id="slaBdayMonth" style="flex:2;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:14px;background:#fff">' + mOpts + '</select>' +
+            '<select id="slaBdayDay" style="flex:1;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:14px;background:#fff">' + dOpts + '</select>' +
+            '<input type="text" id="slaBdayYear" placeholder="Year (opt.)" inputmode="numeric" maxlength="4" style="flex:1;min-width:0" />' +
+          '</div>' +
+        '</div>' +
+        '<div class="sla-setup-status" id="slaBdayStatus"></div>' +
+        '<div class="sla-setup-actions" style="display:flex;gap:10px;justify-content:flex-end">' +
+          '<button class="sla-setup-btn" id="slaBdayLater" style="background:transparent;border:1px solid #e6e1d8;color:#7a7488">Remind me later</button>' +
+          '<button class="sla-setup-btn primary" id="slaBdaySave">Save</button>' +
+        '</div>' +
+        '<p class="sla-setup-foot">You can change it any time on the Profile page.</p>' +
+      '</div>';
+    document.body.appendChild(modal);
+    var status = document.getElementById('slaBdayStatus');
+    document.getElementById('slaBdayLater').addEventListener('click', function () {
+      try { localStorage.setItem(BDAY_SNOOZE_KEY, String(Date.now() + 7 * 86400000)); } catch (_) {}
+      modal.remove();
+    });
+    document.getElementById('slaBdaySave').addEventListener('click', function () {
+      var m = document.getElementById('slaBdayMonth').value, dd = document.getElementById('slaBdayDay').value;
+      var y = String(document.getElementById('slaBdayYear').value || '').trim();
+      if (!m || !dd) { status.textContent = 'Pick a month and a day.'; status.className = 'sla-setup-status err'; return; }
+      if (y && !/^\d{4}$/.test(y)) { status.textContent = 'Year should be 4 digits (or blank).'; status.className = 'sla-setup-status err'; return; }
+      var btn = document.getElementById('slaBdaySave');
+      btn.disabled = true; btn.textContent = 'Saving…'; status.textContent = ''; status.className = 'sla-setup-status';
+      api('POST', '/api/profile-update', { birthday: m + '/' + dd, birthYear: y }).then(function () {
+        modal.remove();
+      }).catch(function (err) {
+        btn.disabled = false; btn.textContent = 'Save';
+        status.className = 'sla-setup-status err';
+        status.textContent = 'Failed: ' + ((err && err.message) || 'unknown error');
+      });
+    });
+  }
+
   function maybeShowProfileSetup() {
     var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
     if (!u) return;

@@ -48,7 +48,9 @@ export default async (req, context) => {
     const merged = Object.assign({}, existing || {}, profile);
     if (existing && existing.created_at) merged.created_at = existing.created_at;
     await store.setJSON(keySafe(profile.email), merged);
-    return json(200, { ok: true });
+    // Deploy 237.082 — hand back the calendar fields so the client can decide
+    // whether to prompt for a birthday (they live on the blob, not the token).
+    return json(200, { ok: true, profile: { fullName: merged.fullName || '', birthday: merged.birthday || '', birthYear: merged.birthYear || '', startDate: merged.startDate || '' } });
   } catch (e) {
     console.error('profile-ping error:', e);
     return json(500, { error: 'Failed to save profile' });

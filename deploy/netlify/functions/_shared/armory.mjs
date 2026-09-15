@@ -45,6 +45,25 @@ const STORE = 'armory';
 const TZ = 'America/Los_Angeles';
 
 export const GAME_ID = 'gallop';
+
+/**
+ * Deploy 237.082 (Mike) — quest rotation. One game is THE contest each
+ * month, and the set repeats every quarter (month 1 / 2 / 3 of each
+ * quarter). Before ROTATION_START only the Gallop exists, so it is the
+ * quest every month until then.
+ */
+export const GAMES = {
+  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors and one very hungry dragon.', icon: '🏇' },
+  'coin-catch': { id: 'coin-catch', name: 'Coin Catch', href: '/coin-catch.html', blurb: 'Catch the falling gold, dodge the falling DENIED stamps. Two arrows, no mercy.', icon: '💰' },
+  'fund-the-house': { id: 'fund-the-house', name: 'Fund the House', href: '/fund-the-house.html', blurb: 'Houses pop up for a heartbeat. Fund them before a competitor does — but never the one with the dragon in the window.', icon: '🏠' },
+};
+export const ROTATION = ['gallop', 'coin-catch', 'fund-the-house'];
+export const ROTATION_START = '2026-10';
+export function questForMonth(month) {
+  if (!isMonthKey(month) || month < ROTATION_START) return GAMES.gallop;
+  const m = Number(month.slice(5));
+  return GAMES[ROTATION[(m - 1) % 3]];
+}
 export const MAX_POINTS_PER_SEC = 90;
 export const SCORE_SLACK = 300;
 export const RUN_TOKEN_TTL_MS = 30 * 60000;

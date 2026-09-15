@@ -14,6 +14,7 @@
  */
 import { handleOptions, json, requireAuth, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
 import { isTeamMember, verifyRunToken, recordRun, listMonth, listAllMonths, legendsFrom, monthKey, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
+import { postSlack } from './_shared/slack.mjs'; // Deploy 237.082
 
 export default async (req, context) => {
   try {
@@ -44,6 +45,11 @@ export default async (req, context) => {
       const legends = legendsFrom(await listAllMonths(), 3);
       const li = legends.findIndex((r) => r.email === email && r.month === month && r.best === result.best);
       if (li >= 0) legendRank = li + 1;
+      // Deploy 237.082 — a new Legend seat is a milestone: tell leadership.
+      if (legendRank) {
+        const who = legends[li].name || email;
+        await postSlack({ text: '⚜ *Legend of the Realm!* ' + who + ' just took the #' + legendRank + ' all-time seat with *' + String(result.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🏆\n<https://portal.slacapital.ai/armory.html|The Armory>' }, { channel: 'leadership' });
+      }
     }
     return json(200, {
       ok: true, accepted: result.accepted, reason: result.reason || '', best: result.best, isNewBest: result.isNewBest,

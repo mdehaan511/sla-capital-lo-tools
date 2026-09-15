@@ -324,12 +324,19 @@ async function loadUsers() {
         ' data-email="' + escAttr(u.email) + '"' +
         ' data-name="' + escAttr(u.fullName || '') + '"' +
         ' data-phone="' + escAttr(u.phone || '') + '"' +
-        ' title="Edit name / phone">Edit</button>';
+        ' data-start="' + escAttr(u.startDate || '') + '"' +       // Deploy 237.082 — team calendar
+        ' data-bday="' + escAttr(u.birthday || '') + '"' +
+        ' title="Edit name / phone / start date / birthday">Edit</button>';
 
       return '<tr data-user-id="' + escAttr(u.id) + '">' +
         '<td>' + escH(u.email) +
           (u.fullName ? '<div class="mono">' + escH(u.fullName) + '</div>' : '') +
           (u.phone ? '<div class="mono">' + escH(u.phone) + '</div>' : '') +
+          // Deploy 237.082 — team calendar at a glance (anniversary + birthday feed the Armory / Slack).
+          '<div class="mono" style="color:#7a7488;font-size:11px">' +
+            (u.startDate ? '🏅 since ' + escH(u.startDate) : '<span style="color:#b3261e">🏅 no start date</span>') + ' · ' +
+            (u.birthday ? '🎂 ' + escH(u.birthday.replace(/^(\d\d)-(\d\d)$/, function (_, mm, dd) { return (+mm) + '/' + (+dd); })) : '<span style="color:#b3261e">🎂 no birthday</span>') +
+          '</div>' +
           '<div class="row-msg" id="rowmsg_' + escAttr(u.id) + '"></div>' +
         '</td>' +
         '<td>' + roleControl + '</td>' +
@@ -382,6 +389,8 @@ function editUser(btn) {
   var email  = btn.getAttribute('data-email') || '';
   var name   = btn.getAttribute('data-name')  || '';
   var phone  = btn.getAttribute('data-phone') || '';
+  var start  = btn.getAttribute('data-start') || '';   // Deploy 237.082
+  var bday   = btn.getAttribute('data-bday')  || '';
   var old = document.getElementById('editUserModal'); if (old) old.remove();
   var wrap = document.createElement('div');
   wrap.id = 'editUserModal';
@@ -396,7 +405,16 @@ function editUser(btn) {
         '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#261A36">Full Name</label>' +
         '<input type="text" id="eu-name" value="' + escAttr(name) + '" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:12px" />' +
         '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#261A36">Phone Number</label>' +
-        '<input type="text" id="eu-phone" value="' + escAttr(phone) + '" placeholder="(555) 123-4567" inputmode="tel" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box" />' +
+        '<input type="text" id="eu-phone" value="' + escAttr(phone) + '" placeholder="(555) 123-4567" inputmode="tel" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:12px" />' +
+        // Deploy 237.082 — team calendar. Start date drives the work-anniversary
+        // posts (leadership Slack + Town Crier); birthday is normally self-entered
+        // at login but an admin can fix it here.
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+          '<div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#261A36">Start date (work anniversary)</label>' +
+          '<input type="date" id="eu-start" value="' + escAttr(start) + '" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box" /></div>' +
+          '<div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#261A36">Birthday (M/D)</label>' +
+          '<input type="text" id="eu-bday" value="' + escAttr(bday.replace(/^(\d\d)-(\d\d)$/, function (_, mm, dd) { return (+mm) + '/' + (+dd); })) + '" placeholder="3/14" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box" /></div>' +
+        '</div>' +
         '<div style="font-size:11px;color:#7a7488;margin-top:8px">Email can’t be changed here — it’s the account key that owns this user’s loans, so changing it needs a separate re-owning migration.</div>' +
         '<div id="eu-err" style="font-size:12px;color:#7c1f1f;min-height:14px;margin-top:6px"></div>' +
       '</div>' +
@@ -421,7 +439,9 @@ async function _saveUserProfile(userId) {
   if (d.length === 10) phone = '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
   var btn = document.getElementById('eu-save'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
-    var r = await SLA.api('POST', '/api/users-update-profile-supabase', { userId: userId, fullName: name, phone: phone });
+    var start = (document.getElementById('eu-start') && document.getElementById('eu-start').value || '').trim(); // Deploy 237.082
+    var bday  = (document.getElementById('eu-bday')  && document.getElementById('eu-bday').value  || '').trim();
+    var r = await SLA.api('POST', '/api/users-update-profile-supabase', { userId: userId, fullName: name, phone: phone, startDate: start, birthday: bday });
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
     var m = document.getElementById('editUserModal'); if (m) m.remove();
     loadUsers();

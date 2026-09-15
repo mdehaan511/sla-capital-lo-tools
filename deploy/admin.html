@@ -258,6 +258,24 @@
         </div>
         <div class="status-msg" id="slackSubmittedStatus"></div>
 
+        <!-- Deploy 237.082 — Armory channels -->
+        <div class="invite-row" style="max-width:620px;margin-top:14px">
+          <div class="field">
+            <label for="slackArmoryInput">Armory &mdash; Closing Bell, Town Crier, monthly champion (company fun channel)</label>
+            <input type="url" id="slackArmoryInput" placeholder="Blank = use Default webhook" style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackArmoryBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackArmoryStatus"></div>
+        <div class="invite-row" style="max-width:620px;margin-top:14px">
+          <div class="field">
+            <label for="slackLeadershipInput">Leadership (PRIVATE: Mike, Dan, Chance) &mdash; birthdays, anniversaries, game milestones</label>
+            <input type="url" id="slackLeadershipInput" placeholder="Webhook for a private channel — blank falls back to Default (not private)" style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackLeadershipBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackLeadershipStatus"></div>
+
         <p style="font-size:12px;color:var(--muted);margin-top:10px">
           To create a webhook: In Slack, go to <strong>Apps &rarr; Incoming WebHooks &rarr; Add to Slack</strong>, choose a channel, and copy the Webhook URL here. Repeat per channel (e.g. a #platform-errors channel for Platform Errors).
         </p>
@@ -699,6 +717,8 @@ netlifyIdentity.on('init', function(user) {
       document.getElementById('slackErrorsInput').value    = (s.slack_webhook_errors    && s.slack_webhook_errors.value)    || '';
       document.getElementById('slackApplyInput').value     = (s.slack_webhook_apply     && s.slack_webhook_apply.value)     || '';
       document.getElementById('slackSubmittedInput').value = (s.slack_webhook_submitted && s.slack_webhook_submitted.value) || '';
+      document.getElementById('slackArmoryInput').value     = (s.slack_webhook_armory     && s.slack_webhook_armory.value)     || ''; // Deploy 237.082
+      document.getElementById('slackLeadershipInput').value = (s.slack_webhook_leadership && s.slack_webhook_leadership.value) || '';
       // Submit email
       var emailVal = (s.submit_email && s.submit_email.value) || '';
       document.getElementById('submitEmailInput').value = emailVal;
@@ -741,6 +761,8 @@ netlifyIdentity.on('init', function(user) {
     wireSlackSave('slackErrorsInput',    'slackErrorsStatus',    'saveSlackErrorsBtn',    'slack_webhook_errors',    'Cleared — error alerts use the Default webhook.');
     wireSlackSave('slackApplyInput',     'slackApplyStatus',     'saveSlackApplyBtn',     'slack_webhook_apply',     'Cleared — application alerts use the Default webhook.');
     wireSlackSave('slackSubmittedInput', 'slackSubmittedStatus', 'saveSlackSubmittedBtn', 'slack_webhook_submitted', 'Cleared — submission alerts use the Default webhook.');
+    wireSlackSave('slackArmoryInput',     'slackArmoryStatus',     'saveSlackArmoryBtn',     'slack_webhook_armory',     'Cleared — Armory posts use the Default webhook.');          // Deploy 237.082
+    wireSlackSave('slackLeadershipInput', 'slackLeadershipStatus', 'saveSlackLeadershipBtn', 'slack_webhook_leadership', 'Cleared — leadership posts fall back to the Default webhook (not private).');
 
     // Submit email save
     document.getElementById('saveSubmitEmailBtn').addEventListener('click', function() {

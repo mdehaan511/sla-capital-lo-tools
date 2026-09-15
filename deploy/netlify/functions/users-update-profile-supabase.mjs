@@ -21,6 +21,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs';
+import { normalizeDate, normalizeBirthday } from './_shared/team-events.mjs'; // Deploy 237.082
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -37,9 +38,22 @@ export default async (req, context) => {
 
   const hasName  = typeof body.fullName === 'string';
   const hasPhone = typeof body.phone === 'string';
-  if (!hasName && !hasPhone) return json(400, { error: 'Provide fullName and/or phone' });
+  // Deploy 237.082 — team calendar: startDate (work anniversary) + birthday,
+  // profile-blob only (see _shared/team-events.mjs). '' clears.
+  const hasStart = typeof body.startDate === 'string';
+  const hasBday  = typeof body.birthday === 'string';
+  if (!hasName && !hasPhone && !hasStart && !hasBday) return json(400, { error: 'Provide fullName and/or phone' });
   const fullName = hasName  ? body.fullName.trim().slice(0, 120) : undefined;
   const phone    = hasPhone ? body.phone.trim().slice(0, 40)     : undefined;
+  let startDate, birthday;
+  if (hasStart) {
+    startDate = normalizeDate(body.startDate);
+    if (body.startDate.trim() && !startDate) return json(400, { error: 'Start date should look like 2021-09-15' });
+  }
+  if (hasBday) {
+    birthday = normalizeBirthday(body.birthday);
+    if (body.birthday.trim() && !birthday.md) return json(400, { error: 'Birthday should be a month and day, like 3/14' });
+  }
 
   const SUPABASE_URL = supabaseBaseUrl();
   const SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -85,6 +99,8 @@ export default async (req, context) => {
         }
         if (fullName !== undefined) profile.fullName = fullName;
         if (phone    !== undefined) profile.phone = phone;
+        if (startDate !== undefined) profile.startDate = startDate;
+        if (birthday  !== undefined) { profile.birthday = birthday.md; profile.birthYear = birthday.year || ''; }
         profile.user_metadata = Object.assign({}, profile.user_metadata || {}, mergedUm);
         profile.last_seen_at = new Date().toISOString();
         await store.setJSON(profileKey, profile);

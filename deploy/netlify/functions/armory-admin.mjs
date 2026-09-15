@@ -11,6 +11,7 @@
  */
 import { handleOptions, json, requireAuth, isAdmin, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
 import { saveEvents, voidScore, isMonthKey } from './_shared/armory.mjs';
+import { sendTownCrier, latestTownCrier } from './_shared/town-crier.mjs'; // Deploy 237.082
 
 export default async (req, context) => {
   try {
@@ -33,6 +34,18 @@ export default async (req, context) => {
       const removed = await voidScore(month, email);
       console.log('[armory] score voided', { month, email, by: normalizeEmail(user.email) });
       return json(200, { ok: true, removed });
+    }
+    // Deploy 237.082 — Town Crier controls. 'crier-send-test' emails the
+    // built issue to the CALLER only (no Slack, no archive) so Mike can see
+    // Monday's digest before Monday. 'crier-latest' returns the archived HTML
+    // for the "read the latest Town Crier" modal.
+    if (action === 'crier-send-test') {
+      const r = await sendTownCrier({ onlyTo: normalizeEmail(user.email) });
+      return json(200, { ok: !!r.ok, sentTo: r.sentTo, stats: r.stats });
+    }
+    if (action === 'crier-latest') {
+      const c = await latestTownCrier();
+      return json(200, { ok: true, crier: c ? { ymd: c.ymd, subject: c.subject, html: c.html, at: c.at } : null });
     }
     return json(400, { error: 'Unknown action' });
   } catch (e) {

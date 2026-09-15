@@ -144,6 +144,22 @@
     @media (max-width: 640px) { .split { grid-template-columns: 1fr; } }
     .split h3 { font-family: 'Cinzel', serif; font-size: 13px; color: var(--wood); margin-bottom: 6px; letter-spacing: 0.04em; }
 
+    /* ── Closing Bell + Celebrations (Deploy 237.082) ── */
+    .bell { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed rgba(90,58,30,0.2); }
+    .bell:last-child { border-bottom: 0; }
+    .bell .ic { font-size: 24px; line-height: 1; }
+    .bell .who { font-weight: 700; }
+    .bell .what { font-size: 13px; color: #5a4a36; }
+    .bell .when { font-family: 'DM Mono', monospace; font-size: 11px; color: #8a7350; margin-left: auto; white-space: nowrap; }
+    .bell .amt { font-family: 'DM Mono', monospace; font-weight: 500; color: var(--success); }
+    .cele { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed rgba(90,58,30,0.2); font-size: 13px; }
+    .cele:last-child { border-bottom: 0; }
+    .cele .when { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 11px; color: #8a7350; white-space: nowrap; }
+    .cele.today { background: rgba(201,161,74,0.16); border-radius: 8px; padding: 8px 10px; font-weight: 700; border-bottom: 0; margin-bottom: 4px; }
+    .crier-modal { position: fixed; inset: 0; background: rgba(42,29,18,0.7); z-index: 9000; display: none; align-items: center; justify-content: center; padding: 16px; }
+    .crier-modal.open { display: flex; }
+    .crier-modal iframe { width: 100%; max-width: 680px; height: 90vh; background: #fff; border: 3px solid var(--royal); border-radius: var(--r); }
+
     /* ── Game card ── */
     .quest { display: flex; gap: 14px; align-items: center; }
     .quest .icon { font-size: 44px; line-height: 1; filter: drop-shadow(0 3px 0 rgba(0,0,0,0.15)); }
@@ -212,6 +228,12 @@
             <div id="standing"></div>
           </div>
 
+          <!-- Deploy 237.082 — the Closing Bell: every closed loan rings here + in Slack. -->
+          <div class="card">
+            <h2>🔔 The Closing Bell <span class="sub">every loan that crosses the finish line</span></h2>
+            <div id="bellList"><div class="empty">Listening for the bell…</div></div>
+          </div>
+
           <div class="card">
             <h2>Hall of Champions <span class="sub">every month's winner, forever</span></h2>
             <div class="split">
@@ -224,17 +246,33 @@
         <div>
           <div class="card">
             <h2>Quests</h2>
+            <!-- Deploy 237.082 — quest of the month rotates (same three every quarter); ids filled by renderQuest(). -->
             <div class="quest">
-              <div class="icon">🏇</div>
-              <div><h3>Sir Lends-A-Lot's Gallop</h3><p>An endless ride past houses, DENIED stamps, tax collectors and one very hungry dragon.</p></div>
+              <div class="icon" id="questIcon">🏇</div>
+              <div><h3 id="questName">Sir Lends-A-Lot's Gallop</h3><p id="questBlurb">An endless ride past houses, DENIED stamps, tax collectors and one very hungry dragon.</p></div>
             </div>
             <ul class="rules">
-              <li>One button: <b>Space</b>, <b>↑</b> or tap. Jump everything red, scaly or wearing a top hat.</li>
-              <li>Distance scores. Gold coins are +25, money bags +100.</li>
-              <li>Runs count the moment you crash. Your best of the month is what's on the table.</li>
+              <li>The quest changes on the 1st and the same three come around every quarter. Only this month's quest scores on the Round Table.</li>
+              <li>Runs count the moment you finish. Your best of the month is what's on the table.</li>
             </ul>
-            <a class="btn big" href="/sir-lends-a-lot.html">⚔ Ride into battle</a>
+            <a class="btn big" href="/sir-lends-a-lot.html" id="questBtn">⚔ Ride into battle</a>
             <div class="prize" id="prizeNote">🏆 Prize for the month's champion: swag or a bonus — announced by the herald below.</div>
+            <div class="lede" style="margin:10px 0 0;font-size:12px" id="questNext"></div>
+          </div>
+
+          <!-- Deploy 237.082 — birthdays + work anniversaries (profiles: birthday / startDate). -->
+          <div class="card">
+            <h2>🎂 Celebrations <span class="sub">birthdays &amp; work anniversaries</span></h2>
+            <div id="celeList"><div class="empty">Consulting the calendar…</div></div>
+            <div class="lede" style="margin:10px 0 0;font-size:12px" id="celeMine"></div>
+          </div>
+
+          <!-- Deploy 237.082 — the Monday digest. -->
+          <div class="card">
+            <h2>📯 The Town Crier <span class="sub">every Monday, 8am Pacific</span></h2>
+            <div class="lede">The week's closings, the Round Table, celebrations and the Herald's Board — emailed to the whole team and posted to Slack.</div>
+            <div id="crierBox" class="empty">No issue has gone out yet. The first one cries on Monday.</div>
+            <div id="crierAdmin" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap"></div>
           </div>
 
           <div class="card">
@@ -276,6 +314,7 @@
     </div>
   </div>
   <div class="toast" id="toast"></div>
+  <div class="crier-modal" id="crierModal" onclick="if(event.target===this)Armory.closeCrier()"><iframe id="crierFrame" title="The Town Crier"></iframe></div>
 
 <script>
 (function () {
@@ -352,6 +391,7 @@
       _state = st || {};
       _events = Array.isArray(_state.events) ? _state.events : [];
       renderLegends(); renderRoundTable(); renderChampions(); renderEvents();
+      renderQuest(); renderBell(); renderCelebrations(); renderCrier();   // Deploy 237.082
       document.getElementById('evAdmin').style.display = _state.isAdmin ? 'block' : 'none';
     }).catch(function (err) {
       document.getElementById('rtTable').innerHTML = '<div class="empty">The scroll could not be read: ' + escH(err && err.message || 'unknown') + '</div>';
@@ -400,6 +440,84 @@
     } else {
       s.innerHTML = '<div class="standing">🛡 You have not ridden this month. <a href="/sir-lends-a-lot.html" style="color:var(--crimson);font-weight:700">Saddle up →</a></div>';
     }
+  }
+
+  // ── Deploy 237.082 — quest rotation, Closing Bell, Celebrations, Town Crier ──
+  function renderQuest() {
+    var q = (_state && _state.quest) || null;
+    if (!q) return;
+    document.getElementById('questIcon').textContent = q.icon || '🏇';
+    document.getElementById('questName').textContent = q.name || '';
+    document.getElementById('questBlurb').textContent = q.blurb || '';
+    var btn = document.getElementById('questBtn');
+    btn.href = q.href || '/sir-lends-a-lot.html';
+    btn.textContent = '⚔ Play ' + (q.name || 'the quest');
+    var rot = _state.rotation || {};
+    var nx = rot.next;
+    document.getElementById('questNext').innerHTML = nx
+      ? 'Next up in <b>' + escH(rot.nextMonthLabel || 'next month') + '</b>: ' + escH(nx.icon || '') + ' ' + escH(nx.name) +
+        (rot.order ? ' · rotation: ' + rot.order.map(function (g) { return escH(g.name); }).join(' → ') : '')
+      : '';
+  }
+  function fmtMoney(n) { var v = Math.round(Number(n) || 0); return v ? '$' + String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''; }
+  function renderBell() {
+    var bells = (_state && _state.bells) || [];
+    var box = document.getElementById('bellList');
+    if (!bells.length) { box.innerHTML = '<div class="empty">The bell has not rung yet. The next closed loan rings it — here and in Slack.</div>'; return; }
+    box.innerHTML = bells.map(function (b) {
+      return '<div class="bell"><div class="ic">🔔</div><div>' +
+        '<div class="who">' + escH(b.loName || b.loEmail) + ' <span style="font-weight:500;color:#5a4a36">closed</span> <span class="amt">' + escH(fmtMoney(b.amount) || 'a') + '</span> ' + escH(b.program || 'loan') + '</div>' +
+        '<div class="what">' + escH(b.place || b.address || '') + (b.borrower ? ' · ' + escH(b.borrower) : '') + '</div>' +
+      '</div><div class="when" title="' + escAttr(b.closedAt) + '">' + escH(ago(b.closedAt)) + '</div></div>';
+    }).join('');
+  }
+  function renderCelebrations() {
+    var c = (_state && _state.celebrations) || { today: { birthdays: [], anniversaries: [] }, upcoming: [] };
+    var out = '';
+    (c.today.birthdays || []).forEach(function (b) { out += '<div class="cele today">🎂 <span>Happy birthday, ' + escH(b.name) + '!</span><span class="when">today</span></div>'; });
+    (c.today.anniversaries || []).forEach(function (a) { out += '<div class="cele today">🏅 <span>' + escH(a.name) + ' — ' + ordinal(a.years) + ' work anniversary</span><span class="when">today</span></div>'; });
+    (c.upcoming || []).forEach(function (u) {
+      out += '<div class="cele">' + (u.type === 'birthday' ? '🎂' : '🏅') + ' <span>' + escH(u.name) + (u.type === 'anniversary' ? ' — ' + ordinal(u.years) + ' anniversary' : "'s birthday") + '</span>' +
+        '<span class="when">' + escH(fmtDay(u.date)) + ' · in ' + u.daysAway + 'd</span></div>';
+    });
+    document.getElementById('celeList').innerHTML = out || '<div class="empty">Nothing in the next 30 days. Add your birthday on the Profile page so yours shows up.</div>';
+    var mine = (_state && _state.myCalendar) || null;
+    var el = document.getElementById('celeMine');
+    if (mine && !mine.birthday) el.innerHTML = '🎂 Your birthday is not on file — <a href="/profile.html" style="color:var(--crimson);font-weight:700">add it on your Profile</a>.';
+    else if (mine && !mine.startDate) el.innerHTML = 'Your start date has not been entered yet (an admin sets it).';
+    else el.innerHTML = '';
+  }
+  function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+  function renderCrier() {
+    var c = (_state && _state.crier) || null;
+    var box = document.getElementById('crierBox');
+    if (c) {
+      box.className = '';
+      box.innerHTML = '<div style="font-size:13px">Latest issue: <b>' + escH(c.subject || c.ymd) + '</b> <span style="color:#8a7350">(' + escH(c.ymd) + ')</span></div>' +
+        '<button type="button" class="btn sm" style="margin-top:8px" onclick="Armory.readCrier()">📜 Read the latest Town Crier</button>';
+    }
+    var adm = document.getElementById('crierAdmin');
+    if (_state && _state.isAdmin) {
+      adm.style.display = 'flex';
+      adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.crierTest(this)">✉ Email me a test issue now</button>' +
+        '<span style="font-size:11px;color:#8a7350;align-self:center">Builds this week\'s issue from live data and sends it only to you.</span>';
+    }
+  }
+  function readCrier() {
+    SLA.api('POST', '/api/armory-admin', { action: 'crier-latest' }).then(function (r) {
+      if (!r || !r.crier) { showToast('No issue archived yet.'); return; }
+      var f = document.getElementById('crierFrame');
+      f.srcdoc = r.crier.html;
+      document.getElementById('crierModal').className = 'crier-modal open';
+    }).catch(function (err) { showToast('⚠ ' + (err && err.message || 'unknown')); });
+  }
+  function closeCrier() { document.getElementById('crierModal').className = 'crier-modal'; }
+  function crierTest(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+    SLA.api('POST', '/api/armory-admin', { action: 'crier-send-test' }).then(function (r) {
+      showToast(r && r.ok ? 'Test issue sent to your inbox.' : 'Could not send (check RESEND_API_KEY).');
+    }).catch(function (err) { showToast('⚠ ' + (err && err.message || 'unknown')); })
+      .then(function () { if (btn) { btn.disabled = false; btn.textContent = '✉ Email me a test issue now'; } });
   }
 
   // Deploy 237.077 — permanent all-time top 3 (server: legendsFrom).
@@ -549,7 +667,8 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
   document.getElementById('evModal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 
-  window.Armory = { editEvent: editEvent, closeModal: closeModal, saveEvent: saveEvent, deleteEvent: deleteEvent, voidScore: voidScore };
+  window.Armory = { editEvent: editEvent, closeModal: closeModal, saveEvent: saveEvent, deleteEvent: deleteEvent, voidScore: voidScore,
+    readCrier: readCrier, closeCrier: closeCrier, crierTest: crierTest };
 })();
 </script>
 </body>

@@ -160,6 +160,10 @@
       <div class="profile-grid">
         <div class="field"><label>Full Name</label><input type="text" id="fldName" /></div>
         <div class="field"><label>Phone</label><input type="tel" id="fldPhone" placeholder="(555) 123-4567" /></div>
+        <!-- Deploy 237.082 — team calendar: birthday is yours to set (M/D, year optional);
+             the start date is entered by an admin on Users Admin (work anniversaries). -->
+        <div class="field"><label>Birthday (M/D — year optional, never shown)</label><input type="text" id="fldBirthday" placeholder="3/14" /></div>
+        <div class="field"><label>With SLA since (set by admin)</label><input type="text" id="fldStartDate" disabled placeholder="—" /></div>
         <div class="field"><label>Email (read-only)</label><input type="email" id="fldEmail" disabled /></div>
         <div class="field"><label>Role</label><input type="text" id="fldRole" disabled /></div>
       </div>
@@ -310,6 +314,26 @@
           <button class="small-btn primary" onclick="saveSlackChannel('submitted')">Save</button>
         </div>
         <div class="save-status" id="slackSubmittedStatus"></div>
+      </div>
+
+      <!-- Deploy 237.082 — Armory channels -->
+      <div class="setting-row">
+        <label>Slack webhook — Armory (company fun channel)</label>
+        <div class="hint">Closing Bell, the Monday Town Crier, and the monthly Round Table champion. Blank = use Default.</div>
+        <div class="input-row">
+          <input type="text" id="slackArmoryInput" placeholder="Blank = use Default webhook" />
+          <button class="small-btn primary" onclick="saveSlackChannel('armory')">Save</button>
+        </div>
+        <div class="save-status" id="slackArmoryStatus"></div>
+      </div>
+      <div class="setting-row">
+        <label>Slack webhook — Leadership (private)</label>
+        <div class="hint">Birthdays, work anniversaries (daily 8am PT, plus a 3-day heads-up) and game milestones. Point this at a PRIVATE channel with just Mike, Dan and Chance: create the channel in Slack, add an Incoming Webhook to it, paste the URL here. Blank = falls back to Default (which is NOT private).</div>
+        <div class="input-row">
+          <input type="text" id="slackLeadershipInput" placeholder="https://hooks.slack.com/services/…" />
+          <button class="small-btn primary" onclick="saveSlackChannel('leadership')">Save</button>
+        </div>
+        <div class="save-status" id="slackLeadershipStatus"></div>
       </div>
 
       <div class="setting-row">
@@ -466,6 +490,16 @@ function initProfile() {
   document.getElementById('fldName').value  = meta.full_name || '';
   document.getElementById('fldPhone').value = meta.phone || '';
   document.getElementById('fldEmail').value = _user.email || '';
+  // Deploy 237.082 — calendar fields live on the profile blob, not the token.
+  try {
+    var pp = SLA.Profile.ping();
+    if (pp && pp.then) pp.then(function (r) {
+      var p = (r && r.profile) || {};
+      var bd = String(p.birthday || '');
+      document.getElementById('fldBirthday').value = bd ? bd.replace(/^(\d\d)-(\d\d)$/, function (_, mm, dd) { return (+mm) + '/' + (+dd); }) + (p.birthYear ? '/' + p.birthYear : '') : '';
+      document.getElementById('fldStartDate').value = p.startDate || '';
+    }).catch(function () {});
+  } catch (_) {}
   var roles = SLA.getRoles(_user);
   var role = (roles[0] || 'user');
   document.getElementById('fldRole').value =
@@ -487,7 +521,8 @@ function saveProfile() {
   status.textContent = ''; status.className = 'save-status';
   btn.disabled = true; btn.textContent = 'Saving…';
 
-  SLA.Profile.update({ fullName: name, phone: phone }).then(function() {
+  var birthday = (document.getElementById('fldBirthday').value || '').trim(); // Deploy 237.082
+  SLA.Profile.update({ fullName: name, phone: phone, birthday: birthday }).then(function() {
     btn.disabled = false; btn.textContent = 'Save changes';
     status.className = 'save-status ok';
     status.textContent = '✓ Saved. Changes will appear in admin views the next time the page reloads.';
@@ -930,6 +965,9 @@ function loadSettings() {
     document.getElementById('slackErrorsInput').value    = (s.slack_webhook_errors    && s.slack_webhook_errors.value)    || '';
     document.getElementById('slackApplyInput').value     = (s.slack_webhook_apply     && s.slack_webhook_apply.value)     || '';
     document.getElementById('slackSubmittedInput').value = (s.slack_webhook_submitted && s.slack_webhook_submitted.value) || '';
+    // Deploy 237.082 — Armory channels
+    document.getElementById('slackArmoryInput').value     = (s.slack_webhook_armory     && s.slack_webhook_armory.value)     || '';
+    document.getElementById('slackLeadershipInput').value = (s.slack_webhook_leadership && s.slack_webhook_leadership.value) || '';
 
     var b = s.banner;
     if (b && b.text) {

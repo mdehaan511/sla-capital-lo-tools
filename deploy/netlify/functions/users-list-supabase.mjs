@@ -40,6 +40,7 @@
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { classifyAccount, rolesFromMeta, mergedRoles, laterOf, normEmail } from './_shared/team-roster-rules.mjs';
 import { loadRoleTable, lastSeenFor, adminListAllUsers } from './_shared/team-roster.mjs';
+import { profileCalendarFor } from './_shared/team-events.mjs'; // Deploy 237.082
 import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
 
 export default async (req, context) => {
@@ -71,6 +72,7 @@ export default async (req, context) => {
 
     const staff = classified.filter((c) => c.kind === 'staff');
     const seen = await lastSeenFor(staff.map((c) => c.email));
+    const cal = await profileCalendarFor(staff.map((c) => c.email)); // Deploy 237.082
 
     const users = staff.map(({ u, email, appRoles, tableRoles }) => {
       const am = (u && u.app_metadata) || {};
@@ -93,6 +95,8 @@ export default async (req, context) => {
         lastSeenAt:           lastSeen,
         fullName:             um.full_name || um.name || '',
         phone:                um.phone || '', // Deploy 236.579 — for the admin profile editor
+        startDate:            (cal.get(email) || {}).startDate || '', // Deploy 237.082 — team calendar
+        birthday:             (cal.get(email) || {}).birthday || '',
         provider:             am.provider || (Array.isArray(am.providers) ? am.providers.join(',') : ''),
         appMetadata:          am,
         userMetadata:         um,

@@ -31,6 +31,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
+import { ringClosingBell } from './_shared/closing-bell.mjs'; // Deploy 237.082
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
@@ -248,6 +249,8 @@ async function handle(req, context) {
   if (freshlyClosed) {
     try { await notifyLoLoanClosed({ ownerKey, loan }); }
     catch (e) { console.warn('loan-processing-stage: closed-congrats email failed:', e && e.message); }
+    // Deploy 237.082 — ring the Closing Bell (Armory card + team Slack). Never throws.
+    await ringClosingBell({ ownerKey, loan, client });
   }
 
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from

@@ -34,6 +34,7 @@ import { writeClient } from './_shared/client-write.mjs';
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
+import { ringClosingBell } from './_shared/closing-bell.mjs'; // Deploy 237.082
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
 // advances a loan to approved (the safety-valve path for when the
 // borrower-info auto-advance silently bailed). Same helper as
@@ -195,6 +196,8 @@ async function handle(req, context) {
     } catch (e) {
       console.warn('loan-advance-status: closed-congrats email failed:', e && e.message);
     }
+    // Deploy 237.082 — ring the Closing Bell (Armory card + team Slack). Never throws.
+    await ringClosingBell({ ownerKey, loan: targetLoan, client });
   }
 
   // Deploy 236.311 — fire a Slack notification when a loan enters the
