@@ -326,7 +326,7 @@ async function handle(req, context) {
           row._logged = true;
           report.loansWritten++;
           const changes = Object.keys(row.gaps).map((k) => ({ field: k, label: k, from: '', to: String(row.gaps[k]).slice(0, 120) }));
-          if (row.vestingLLC) changes.push({ field: 'vestingLLCs', label: 'Vesting LLC', from: '', to: row.vestingLLC });
+          if (row.vestingLLC) changes.push({ field: 'vestingLLCs', label: 'Vesting Entity', from: '', to: row.vestingLLC });
           if (changes.length) {
             await recordLoanChanges({ ownerKey: entry.ownerKey, clientId: client.id, loanId: row.loanId, actor, actorName: actor, source: 'Baseline raw audit', changes }).catch(() => {});
           }

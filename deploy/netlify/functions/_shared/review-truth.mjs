@@ -77,11 +77,11 @@ export const TRUTH_MATERIAL_FIELDS = [
   'loanAmt', 'purchasePrice', 'rehabBudget', 'arv', 'arvBpo', 'aivBpo', 'propValue', 'currentLoanAmt',
   'rate', 'points', 'loanTerm', 'loanType', 'isIO', 'downPayment', 'initialAdvance', 'holdback',
   'loanPurpose', 'purpose', 'transactionType', 'address', 'entityName', 'llcName', 'rent', 'monthlyRent',
-  'toolType', 'fundingDate', 'expectedCloseDate', 'closeDate',
+  'toolType', 'fundingDate', 'expectedCloseDate', 'closeDate', 'vestingLLCs', // Deploy 237.080
 ];
 export function truthMaterialChanges(before, after) {
   const b = before || {}, a = after || {};
-  const norm = (v) => (v == null ? '' : String(v)).trim();
+  const norm = (v) => (v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v))).trim(); // Deploy 237.080
   return TRUTH_MATERIAL_FIELDS.filter((k) => norm(b[k]) !== norm(a[k]));
 }
 export async function queueTruthRefreshIfMaterial(opts) {

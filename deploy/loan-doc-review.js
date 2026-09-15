@@ -938,7 +938,7 @@
     var docs = review.docs || {};
     var client = review.sourceClientSnapshot || {};
     var FIELDS = [
-      { key: 'llcName',         label: 'Entity / LLC Name', norm: _ccNormName, loanRef: client.entityName },
+      { key: 'llcName',         label: 'Entity / LLC Name', norm: _ccNormName, loanRef: client.entityName || _vestingName(review.sourceLoanSnapshot || review.snapshotLoan) }, // Deploy 237.080
       { key: 'borrowerName',    label: 'Borrower Name',     norm: _ccNormName, loanRef: review.borrowerName },
       { key: 'propertyAddress', label: 'Property Address',  norm: _ccNormAddr, loanRef: review.address },
       { key: 'loanAmount',      label: 'Loan Amount',       norm: _ccNormMoney, money: true, loanRef: review.loanAmount },
@@ -1145,7 +1145,7 @@
         { k: 'Borrower',  v: client ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '—' },
         { k: 'Email',     v: client ? txt(client.email) : '—' },
         { k: 'Phone',     v: client ? txt(client.phone) : '—' },
-        { k: 'Entity',    v: client ? txt(client.entityName) : '—' },
+        { k: 'Vesting Entity', v: txt((client && client.entityName) || _vestingName(loan)) }, // Deploy 237.080
       ];
 
       var hasBroker = loan && (loan.brokerId || loan.brokerName || loan.brokerEmail || (parseFloat(loan.brokerFee || 0) > 0));
@@ -1349,7 +1349,7 @@
   var _TRUTH_FIELDS = ['loanAmt', 'purchasePrice', 'rehabBudget', 'arv', 'arvBpo', 'aivBpo', 'propValue', 'currentLoanAmt',
     'rate', 'points', 'loanTerm', 'loanType', 'isIO', 'downPayment', 'initialAdvance', 'holdback',
     'loanPurpose', 'purpose', 'transactionType', 'address', 'entityName', 'llcName', 'rent', 'monthlyRent',
-    'toolType', 'fundingDate', 'expectedCloseDate', 'closeDate'];
+    'toolType', 'fundingDate', 'expectedCloseDate', 'closeDate', 'vestingLLCs'];
   function _liveFor(review) {
     var src = (review && review.source) || {};
     return (_liveLoan && _liveLoan.id && src.loanId && _liveLoan.id === src.loanId) ? _liveLoan : null;
@@ -1357,7 +1357,7 @@
   function _termsDrift(review) {
     var live = _liveFor(review); if (!live) return [];
     var snap = review.sourceLoanSnapshot || review.snapshotLoan || {};
-    function norm(v) { return v == null ? '' : String(v).trim(); }
+    function norm(v) { return v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v)).trim(); }
     return _TRUTH_FIELDS.filter(function(k) { return norm(snap[k]) !== norm(live[k]); });
   }
   function _autoSyncIfStale() {
@@ -1388,7 +1388,7 @@
   // (plus the entity where the entity is an acceptable party), so a multi-guarantor
   // file reads top-to-bottom instead of a slash-joined blob.
   function _partyRows(out, what, f, withEntity) {
-    if (withEntity && f.entity) out.push([what + ' — Entity', f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : ' (per loan record)')]);
+    if (withEntity && f.entity) out.push([what + ' — Vesting Entity', f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : ' (per loan record)')]); // Deploy 237.080
     f.guarantors.forEach(function(g, i) { out.push([what + ' — Guarantor ' + (i + 1), g]); });
     if (!f.guarantors.length && !(withEntity && f.entity)) out.push([what, '—']);
   }
@@ -1397,6 +1397,14 @@
     var hit = idNames.filter(function(n) { var l = n.toLowerCase(); return last && l.indexOf(last) >= 0 && (!first || l.indexOf(first) >= 0 || l.charAt(0) === first.charAt(0)); });
     if (hit.length) return hit[0];
     return (guarantorCount === 1 && idNames.length === 1) ? idNames[0] : '';
+  }
+  // Deploy 237.080 (Mike) -- the ENTITY on a loan is the Vesting Entity (loan.vestingLLCs[0], the
+  // 'Vesting Entity Info' section on Loan Details), not client.entityName -- which is blank
+  // on most files, so entity docs showed no entity to verify against until the Articles
+  // were reviewed. Entries are strings or {name}.
+  function _vestingName(L) {
+    var v = (L && Array.isArray(L.vestingLLCs)) ? L.vestingLLCs[0] : null;
+    return typeof v === 'string' ? v.trim() : ((v && v.name) ? String(v.name).trim() : '');
   }
   // Deploy 237.075 (Mike) -- legal names per the ID tray, expected mortgagee (mirrors
   // _shared/loan-review-checklists.mjs expectedMortgagee), per-guarantor coverage,
@@ -1468,7 +1476,7 @@
     var art = (_review.docs || {}).articles_of_organization || {};
     var ee = art.aiExtractedEntities || {};
     var entityOfRecord = (art.aiReviewedAt && typeof ee.llcName === 'string' && ee.llcName.trim()) ? ee.llcName.trim() : '';
-    var entity = entityOfRecord || C.entityName || L.entityName || L.llcName || '';
+    var entity = entityOfRecord || _vestingName(L) || C.entityName || L.entityName || L.llcName || ''; // Deploy 237.080 -- Vesting Entity first
     var borrower = _review.borrowerName || ((C.firstName || '') + ' ' + (C.lastName || '')).trim();
     var gs = (Array.isArray(L.guarantors) ? L.guarantors : []).map(function(g) {
       return g ? (((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '') : '';
@@ -1557,7 +1565,7 @@
     var staleDays = { bank_stmt_current: 60, bank_stmt_previous: 60, certificate_of_good_standing: 90, entity_background_check: 90, guarantor_background_check: 90, ofac_entity: 90, ofac_personal: 90, credit_report: 120, appraisal: 120, appraisal_receipt: 120 };
     keys.forEach(function(k) {
       switch (k) {
-        case 'entity':   if (f.entity) out.push(['Entity name' + (f.entityOfRecord ? ' (per recorded Articles)' : ' (per loan record)'), f.entity]); break;
+        case 'entity':   out.push([f.entityOfRecord ? 'Entity name (per recorded Articles)' : 'Vesting Entity (per loan record — the Articles govern once reviewed)', f.entity || 'no Vesting Entity on the loan — set it in Vesting Entity Info on Loan Details']); break; // Deploy 237.080
         case 'borrower': if (f.borrower) out.push(['Borrower', f.borrower]); break;
         case 'guarantors': if (f.guarantors.length) out.push(['Guarantor' + (f.guarantors.length > 1 ? 's' : ''), f.guarantors.join(', ')]); break;
         // Deploy 237.074 (Mike) -- every acceptable holder listed; 100% owned by those parties.

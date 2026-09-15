@@ -1404,7 +1404,7 @@ function renderGuarantor(idx, label) {
   // with a % appended. We don\u2019t validate that G1 + G2 sum to 100
   // because LLCs often have additional non-guarantor members.
   if (d.hasLLC === 'yes') {
-    html += field(prefix + 'ownership', 'Percent ownership of the vesting LLC', 'number', {
+    html += field(prefix + 'ownership', 'Percent ownership of the vesting entity', 'number', {
       required: true,
       placeholder: 'e.g. 50',
       hint: 'Enter a number 0-100. All members with more than 20% ownership must be a guarantor.',
@@ -2560,7 +2560,7 @@ function _openOwnershipDecisionModal(info, resumeFn) {
     '<p style="font-size:13px;color:#1a1520;line-height:1.55;margin:0 0 10px">' +
       'Recorded total is <strong>' + info.total.toFixed(2) + '%</strong> across <strong>' + info.count +
       ' guarantor' + (info.count === 1 ? '' : 's') + '</strong>. ' +
-      'Diya requires guarantors to combined own at least <strong>51%</strong> of the vesting LLC.' +
+      'Diya requires guarantors to combined own at least <strong>51%</strong> of the vesting entity.' +
     '</p>' +
     '<p style="font-size:13px;color:#1a1520;line-height:1.55;margin:0 0 18px">' +
       'You can add the additional guarantors now, or submit this application now and have your loan officer add them before close.' +

@@ -17,7 +17,7 @@
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
-  <script src="/loan-doc-review.js?v=237079"></script>
+  <script src="/loan-doc-review.js?v=237080"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
   <script src="/sla-nav.js" defer></script>
 <script src="/sla-search.js" defer></script>
@@ -844,7 +844,7 @@
               <li>Long-form borrower application (any in-progress or submitted long-app data)</li>
               <li>Signed loan application PDF (if one exists)</li>
               <li>Co-guarantors linked to this loan + their ownership percentages</li>
-              <li>Vesting LLC info (the old borrower's entities)</li>
+              <li>Vesting Entity info (the old borrower's entities)</li>
               <li>Prequal / long-app email send timestamps (so the LO can re-send fresh)</li>
             </ul>
             The property, pricing, notes, and eSign envelope history are kept.
@@ -1360,6 +1360,6 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=237078"></script>
+<script src="/loan-details.js?v=237080"></script>
 </body>
 </html>

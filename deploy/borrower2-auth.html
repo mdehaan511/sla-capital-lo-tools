@@ -159,7 +159,7 @@ function buildInfoForm(){
     '</div>';
   if (lt === 'fix_flip' || lt === 'construction') h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_flips', '# of flips completed in last 36 months', 'number') + '</div>';
   if (lt === 'dscr' || lt === 'dscr_2nd')          h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_rentals', '# of rental properties currently owned', 'number') + '</div>';
-  if (INFO && INFO.hasLLC === 'yes')               h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_ownership', 'Percent ownership of the vesting LLC', 'number', { ph: 'e.g. 50', hint: 'Enter 0–100.' }) + '</div>';
+  if (INFO && INFO.hasLLC === 'yes')               h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_ownership', 'Percent ownership of the vesting entity', 'number', { ph: 'e.g. 50', hint: 'Enter 0–100.' }) + '</div>';
   h += '<h2 style="margin-top:22px;font-size:15px">Declarations</h2>' +
     '<div class="sub">Answer truthfully — these statements form part of your loan application.</div>';
   var decls = [

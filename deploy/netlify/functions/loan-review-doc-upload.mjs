@@ -626,7 +626,7 @@ function buildLoanContext(review) {
     address:       pick('address') || review.address || '',
     borrowerName:  borrowerName,
     borrowerEmail: client.email || '',
-    entityName:    client.entityName || '',
+    entityName:    client.entityName || (function () { var v = Array.isArray(loan.vestingLLCs) ? loan.vestingLLCs[0] : null; return typeof v === 'string' ? v.trim() : ((v && v.name) ? String(v.name).trim() : ''); })(), // Deploy 237.080 -- Vesting Entity
     articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
     guarantorNames: (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
     idNames: guarantorIdNames(review), // Deploy 237.075 -- legal names per the IDs on file

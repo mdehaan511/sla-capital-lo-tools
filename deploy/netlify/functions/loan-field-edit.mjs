@@ -53,7 +53,7 @@ const FIELD_LABELS = {
   //                        + each linked guarantor's % stake in the
   //                        vesting LLC. Total < 51% triggers a
   //                        "Check Guarantor Ownership %" banner.
-  vestingLLCs:        { label: 'Vesting LLCs',        type: 'array' },
+  vestingLLCs:        { label: 'Vesting Entity',      type: 'array' }, // Deploy 237.080
   guarantorOwnership: { label: 'Guarantor Ownership', type: 'object' },
 };
 

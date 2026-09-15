@@ -347,7 +347,7 @@ function buildPrompt(opts) {
   const ctxLines = [];
   if (ctx.loanAmount)    ctxLines.push('- Loan amount: $' + Number(ctx.loanAmount).toLocaleString());
   if (ctx.borrowerName)  ctxLines.push('- Borrower name: ' + ctx.borrowerName);
-  if (ctx.entityName)    ctxLines.push('- Borrowing entity / LLC per the loan record (reference only — the recorded Articles govern the name): ' + ctx.entityName);
+  if (ctx.entityName)    ctxLines.push('- Vesting Entity per the loan record (reference only — the recorded Articles govern the name): ' + ctx.entityName);
   if (ctx.address)       ctxLines.push('- Property address: ' + ctx.address);
   const hasLoanApp = !!(opts.loanAppBytes && opts.loanAppBytes.length);
   // Deploy 237.041 (Dan, via Mike) -- the recorded Articles of Organization are the

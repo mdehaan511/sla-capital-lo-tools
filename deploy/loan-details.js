@@ -2268,17 +2268,17 @@ function render() {
   var _vestingLLCsInitial = _initialVestingLLCs();
   html +=
     '<div class="section" id="vestingLLCSection">' +
-      '<div class="section-head"><h2>Vesting LLC Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-head"><h2>Vesting Entity Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
-        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">The LLC(s) on title for this loan. Auto-filled from the primary guarantor\'s entity. Edit or add additional LLCs if title is held by multiple entities (sub-entity / pass-through structures).</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">The vesting entity(ies) on title for this loan. Auto-filled from the primary guarantor\'s entity. Edit or add additional entities if title is held by multiple entities (sub-entity / pass-through structures).</div>' +
         '<div id="vestingLLCList">' +
           _vestingLLCsInitial.map(function(v, i) {
             return _renderVestingLLCRow(v, i, _vestingLLCsInitial.length);
           }).join('') +
         '</div>' +
-        '<button type="button" class="vesting-llc-add" onclick="addVestingLLCRow()">+ Add Another LLC</button>' +
+        '<button type="button" class="vesting-llc-add" onclick="addVestingLLCRow()">+ Add Another Entity</button>' +
         '<div class="vesting-llc-save-row">' +
-          '<button type="button" class="vesting-llc-save-btn" id="vestingLLCSaveBtn" onclick="saveVestingLLCs()">Save Vesting LLCs</button>' +
+          '<button type="button" class="vesting-llc-save-btn" id="vestingLLCSaveBtn" onclick="saveVestingLLCs()">Save Vesting Entity</button>' +
           '<span class="vesting-llc-status" id="vestingLLCStatus"></span>' +
         '</div>' +
       '</div>' +
@@ -3271,7 +3271,7 @@ function _renderVestingLLCRow(entry, idx, total) {
     ? '<button type="button" class="vesting-llc-remove" onclick="removeVestingLLCRow(' + idx + ')">Remove</button>'
     : '<span></span>';
   return '<div class="vesting-llc-row" data-llc-idx="' + idx + '">' +
-    '<input type="text" class="vesting-llc-name" value="' + escAttr(name) + '" placeholder="LLC name on title (e.g. 1234 Main St LLC)" />' +
+    '<input type="text" class="vesting-llc-name" value="' + escAttr(name) + '" placeholder="Entity name on title (e.g. 1234 Main St LLC)" />' +
     removeBtn +
   '</div>';
 }
@@ -3317,7 +3317,7 @@ function saveVestingLLCs() {
   var payload = { clientId: _clientId, loanId: _loanId, fields: { vestingLLCs: llcs } };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   SLA.api('POST', '/api/loan-field-edit', payload).then(function(r) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting LLCs'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting Entity'; }
     if (status) { status.className = 'vesting-llc-status ok'; status.textContent = 'Saved ✓'; }
     if (r && r.loan) {
       _loan = r.loan;
@@ -3326,7 +3326,7 @@ function saveVestingLLCs() {
     }
     setTimeout(function() { if (status) { status.textContent = ''; status.className = 'vesting-llc-status'; } }, 2500);
   }).catch(function(err) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting LLCs'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting Entity'; }
     if (status) { status.className = 'vesting-llc-status err'; status.textContent = 'Save failed: ' + (err && err.message || 'unknown'); }
   });
 }
@@ -3447,7 +3447,7 @@ function clearPrimaryGuarantor() {
     'This will:\n' +
     '  1. Move the loan off ' + currentName + ' onto a new "Broker Deal — ' + street + '" placeholder client\n' +
     '  2. Delete the loan application (long-app + signed PDF)\n' +
-    '  3. Unlink co-guarantors and clear vesting LLC info\n' +
+    '  3. Unlink co-guarantors and clear vesting entity info\n' +
     '  4. Flip the loan into broker mode\n\n' +
     currentName + '\'s own client record is kept — this only affects THIS loan.\n\n' +
     'Continue?';
@@ -3649,7 +3649,7 @@ function downloadGuarantorApplication(btn, guarantorClientId) {
 
 function _renderOwnershipField(clientId, pctValue, paneIdx) {
   return '<div class="bw-ownership-field">' +
-    '<label for="bw-' + paneIdx + '-ownership">% Ownership of LLC</label>' +
+    '<label for="bw-' + paneIdx + '-ownership">% Ownership of Entity</label>' +
     '<input type="number" id="bw-' + paneIdx + '-ownership" min="0" max="100" step="0.01" value="' + escAttr(pctValue) + '" placeholder="e.g. 50" ' +
       'data-client-id="' + escAttr(clientId) + '" onchange="saveGuarantorOwnership(this)" />' +
     '<span class="ow-suffix">%</span>' +
@@ -4065,7 +4065,7 @@ function openAddGuarantorModal(ctx) {
       '<div class="ag-row">' +
         '<div class="ag-field"><label>Phone</label>' +
           '<input type="tel" id="agPhone" placeholder="(555) 123-4567" /></div>' +
-        '<div class="ag-field"><label>% Ownership of LLC</label>' +
+        '<div class="ag-field"><label>% Ownership of Entity</label>' +
           '<input type="number" id="agOwnership" min="0" max="100" step="0.01" placeholder="e.g. 25" /></div>' +
       '</div>' +
       '<div class="ag-err" id="agErr"></div>' +
@@ -10222,7 +10222,7 @@ function _brokerCaptureRowHtml(n) {
       '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Email *</label><input type="email" data-cap="email" data-row="' + n + '" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
       '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Phone</label><input type="tel" data-cap="phone" data-row="' + n + '" placeholder="(555) 555-5555" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
       '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">DOB</label><input type="date" data-cap="dob" data-row="' + n + '" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
-      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">% Ownership of LLC</label><input type="number" data-cap="ownershipPct" data-row="' + n + '" min="0" max="100" step="0.01" placeholder="e.g. 50" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">% Ownership of Entity</label><input type="number" data-cap="ownershipPct" data-row="' + n + '" min="0" max="100" step="0.01" placeholder="e.g. 50" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
       '<div style="grid-column:span 2"><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">SSN (optional here — captured on the long-app if you skip)</label><input type="text" data-cap="ssn" data-row="' + n + '" placeholder="XXX-XX-XXXX" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
     '</div>' +
   '</div>';
@@ -11170,7 +11170,7 @@ function confirmReassignLoan() {
     var confirmMsg = 'This will:\n\n' +
       '  1. Move the loan from ' + current + ' to ' + picked + '\n' +
       '  2. DELETE the existing loan application (long-app + signed PDF)\n' +
-      '  3. Unlink co-guarantors and clear vesting LLC info\n\n' +
+      '  3. Unlink co-guarantors and clear vesting entity info\n\n' +
       'The new borrower will need to fill out the application from scratch.\n\n' +
       'Continue?';
     if (!confirm(confirmMsg)) return;
