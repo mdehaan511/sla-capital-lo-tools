@@ -614,7 +614,43 @@
   }
 
   // ── Render ───────────────────────────────────────────────────────
+  // Deploy 237.046 (Dan, via Mike) -- render() replaces the root's innerHTML. On the
+  // Pending tab an approved tray leaves the list, everything below it shifts up
+  // and the browser keeps the old scrollY, so the processor landed "in a random
+  // spot partway down the doc list". Anchor on the first tray visible before the
+  // re-render and restore its viewport offset afterwards; if that tray is gone
+  // (approved / N/A -> moved to the Reviewed tab) the next surviving tray in the
+  // old order takes its place on screen, so the next document to review appears
+  // exactly where the approved one was. No visible trays (scrolled below the
+  // list) => leave the browser alone.
+  function _captureScrollAnchor() {
+    if (!_root) return null;
+    var trays = _root.querySelectorAll('.tray[id^="dr-tray_"]');
+    if (!trays.length) return null;
+    var slugs = [], top = null;
+    for (var i = 0; i < trays.length; i++) {
+      var r = trays[i].getBoundingClientRect();
+      if (top === null) {
+        if (r.bottom <= 0) continue;   // already scrolled past this tray
+        top = r.top;
+      }
+      slugs.push(trays[i].id.slice('dr-tray_'.length));
+    }
+    return top === null ? null : { slugs: slugs, top: top };
+  }
+  function _restoreScrollAnchor(a) {
+    if (!a || !_root) return;
+    for (var i = 0; i < a.slugs.length; i++) {
+      var el = document.getElementById('dr-tray_' + a.slugs[i]);
+      if (!el) continue;
+      var delta = el.getBoundingClientRect().top - a.top;
+      if (Math.abs(delta) > 1) window.scrollTo(window.pageXOffset || 0, (window.pageYOffset || 0) + delta);
+      return;
+    }
+  }
+
   function render() {
+    var _anchor = _captureScrollAnchor(); // Deploy 237.046 -- keep the viewport steady across the re-render
     var docs = _review.docs || {};
     var allSlugs = Object.keys(docs);
     // Deploy 236.778 (Mike) — publish felony findings so Loan Details can raise
@@ -726,6 +762,7 @@
     // backend path.
 
     _root.innerHTML = summary + sourcePanel + tabs + toolbar + traysHtml + bottom;
+    _restoreScrollAnchor(_anchor); // Deploy 237.046
 
     // Deploy 236.533 — fill the borrower/broker invite status line async.
     try { dr_loadInviteStatus(); } catch (_) {}
