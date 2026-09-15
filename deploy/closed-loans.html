@@ -353,7 +353,7 @@ function _pbBody(group){
       '<td>'+escH(l.investorName||'—')+'</td>' +
       '<td>'+escH(l.servicerName||'—')+'</td>' +
       '<td>'+escH(age)+'</td>' +
-      '<td>'+boardingChip(l)+'</td>' +
+      '<td>'+boardingChip(l)+(l.fciBoardingDate ? ' <span class="cl-ph" title="Boarding date reported by FCI">FCI '+escH(fmtDate(l.fciBoardingDate))+'</span>' : '')+'</td>' +
       '<td onclick="event.stopPropagation()">' +
         (String(l.boardingStatus||'')!=='sent'
           ? '<button type="button" class="cl-act" onclick="markBoarding(\''+escAttr(it.client.id)+'\',\''+escAttr(l.id)+'\',\''+escAttr(it.ownerKey)+'\',\'sent\')">Mark Sent</button> '
@@ -2255,32 +2255,102 @@ function _pmtLoad(key, force){
     .catch(function(e){ _pmtHist[key] = { error: (e && e.message) || 'Could not load payment history' }; if (_openPmt[key] && !_pmtPaint(key)) render(); });
 }
 function _pmtRefresh(key){ _pmtLoad(key, true); if (!_pmtPaint(key)) render(); }
+var _pmtTab = {};   // loanKey -> 'pay' | 'ledger' | 'notes' | 'charges' | 'add'
+function _pmtSetTab(key, tab){ _pmtTab[key] = tab; if (!_pmtPaint(key)) render(); }
+function _pmtMoney(v){ return v == null || v === '' ? '<span class="cl-ph">—</span>' : escH(money(v)); }
+function _pmtDateTd(v){ return '<td class="cl-num">' + (v ? escH(fmtDate(v)) : '<span class="cl-ph">—</span>') + '</td>'; }
+// Deploy 237.068 (Mike) — the FCI servicing desk in the row: payments, the full
+// ledger (with funds-release dates), FCI's own notes (boarding confirmations
+// live here), charges on the loan, and an "Add charge" form that posts to FCI.
 function _pmtHistoryHtml(it){
-  var key = loanKey(it), st = _pmtHist[key] || {}, l = it.loan;
-  var head = '<div style="display:flex;align-items:center;gap:10px;margin:2px 0 8px;font-size:12px;color:var(--muted)">' +
-    '<strong style="color:var(--text)">Borrower payment history</strong>' +
+  var key = loanKey(it), st = _pmtHist[key] || {}, l = it.loan, data = st.data || {};
+  var isFci = /fci/i.test(String(l.servicerName||''));
+  var tab = _pmtTab[key] || 'pay';
+  var notes = Array.isArray(data.notes) ? data.notes : [];
+  var latest = notes[0];
+  var head = '<div style="display:flex;align-items:center;gap:10px;margin:2px 0 8px;font-size:12px;color:var(--muted);flex-wrap:wrap">' +
+    '<strong style="color:var(--text)">Servicer</strong>' +
     (l.servicerName ? ' · ' + escH(l.servicerName) + (l.servicerLoanNumber ? ' #' + escH(l.servicerLoanNumber) : '') : '') +
-    (st.data && st.data.asOf ? ' · as of ' + escH(fmtDate(String(st.data.asOf).slice(0,10))) + (st.data.cached ? ' (cached)' : '') : '') +
+    (l.fciBoardingDate ? ' · <span title="Boarding date reported by FCI">boarded at FCI ' + escH(fmtDate(l.fciBoardingDate)) + '</span>' : (l.boardedDate ? ' · boarded ' + escH(fmtDate(l.boardedDate)) : '')) +
+    (data.asOf ? ' · as of ' + escH(fmtDate(String(data.asOf).slice(0,10))) + (data.cached ? ' (cached)' : '') : '') +
     '<span style="flex:1"></span>' +
-    '<button type="button" class="cl-act" onclick="event.stopPropagation();_pmtRefresh(\''+escAttr(key)+'\')">↻ Refresh</button></div>';
-  if (st.loading) return head + '<div class="cl-empty">Loading payment history…</div>';
-  if (st.error) return head + '<div class="cl-empty" style="color:var(--danger)">'+escH(st.error)+'</div>';
-  var rows = (st.data && st.data.rows) || [];
-  if (!rows.length) return head + '<div class="cl-empty">No payments on record at the servicer yet.</div>';
-  var body = rows.map(function(p){
-    var dl = (p.daysLate == null) ? null : Number(p.daysLate);
-    var dlCell = dl == null ? '<span class="cl-ph">—</span>' : (dl > 0 ? '<span style="color:var(--danger);font-weight:600">'+dl+'</span>' : '0');
-    return '<tr><td class="cl-num">'+(p.dateDue?escH(fmtDate(p.dateDue)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(p.dateReceived?escH(fmtDate(p.dateReceived)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+dlCell+'</td>' +
-      '<td class="cl-num">'+(p.amount!=null?escH(money(p.amount)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(p.toInterest!=null?escH(money(p.toInterest)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(p.toPrincipal!=null?escH(money(p.toPrincipal)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(p.lateCharges?escH(money(p.lateCharges)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(p.balance!=null?escH(money(p.balance)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td>'+escH(p.type||'')+(p.reference?' <span class="cl-ph">'+escH(p.reference)+'</span>':'')+'</td></tr>';
-  }).join('');
-  return head + '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Due</th><th>Received</th><th>Days Late</th><th>Amount</th><th>Interest</th><th>Principal</th><th>Late Charges</th><th>Balance After</th><th>Type</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+    '<button type="button" class="cl-act" onclick="event.stopPropagation();_pmtRefresh(\'' + escAttr(key) + '\')">↻ Refresh</button></div>';
+  if (st.loading) return head + '<div class="cl-empty">Loading servicer data…</div>';
+  if (st.error) return head + '<div class="cl-empty" style="color:var(--danger)">' + escH(st.error) + '</div>';
+  if (latest && latest.text) head += '<div style="font-size:12px;margin:-2px 0 8px;padding:6px 10px;border-left:3px solid var(--gold);background:#fff"><strong>Latest FCI note</strong> ' + escH(fmtDate(latest.date)) + (latest.subject ? ' · ' + escH(latest.subject) : '') + ': ' + escH(String(latest.text).slice(0,220)) + (latest.text.length > 220 ? '…' : '') + '</div>';
+  var tabs = [['pay', 'Payments'], ['ledger', 'Ledger']].concat(isFci ? [['notes', 'FCI Notes' + (notes.length ? ' (' + notes.length + ')' : '')], ['charges', 'Charges' + (Array.isArray(data.charges) && data.charges.length ? ' (' + data.charges.length + ')' : '')]].concat(_isStaff ? [['add', '+ Add charge']] : []) : []);
+  var bar = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' + tabs.map(function(t){
+    return '<button type="button" class="ctab' + (tab === t[0] ? ' active' : '') + '" onclick="event.stopPropagation();_pmtSetTab(\'' + escAttr(key) + '\',\'' + t[0] + '\')">' + escH(t[1]) + '</button>';
+  }).join('') + '</div>';
+  var body = '';
+  if (tab === 'pay') {
+    var rows = data.rows || [];
+    body = !rows.length ? '<div class="cl-empty">No payments on record at the servicer yet.</div>' :
+      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Due</th><th>Received</th><th>Days Late</th><th>Amount</th><th>Interest</th><th>Principal</th><th>Late Charges</th><th>Balance After</th><th>Type</th></tr></thead><tbody>' +
+      rows.map(function(p){
+        var dl = (p.daysLate == null) ? null : Number(p.daysLate);
+        return '<tr>' + _pmtDateTd(p.dateDue) + _pmtDateTd(p.dateReceived) +
+          '<td class="cl-num">' + (dl == null ? '<span class="cl-ph">—</span>' : (dl > 0 ? '<span style="color:var(--danger);font-weight:600">' + dl + '</span>' : '0')) + '</td>' +
+          '<td class="cl-num">' + _pmtMoney(p.amount) + '</td><td class="cl-num">' + _pmtMoney(p.toInterest) + '</td><td class="cl-num">' + _pmtMoney(p.toPrincipal) + '</td>' +
+          '<td class="cl-num">' + (p.lateCharges ? escH(money(p.lateCharges)) : '<span class="cl-ph">—</span>') + '</td><td class="cl-num">' + _pmtMoney(p.balance) + '</td>' +
+          '<td>' + escH(p.type||'') + (p.reference ? ' <span class="cl-ph">' + escH(p.reference) + '</span>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  } else if (tab === 'ledger') {
+    var led = Array.isArray(data.ledger) ? data.ledger : null;
+    body = !led ? '<div class="cl-empty">' + (data.ledger && data.ledger.error ? 'Ledger unavailable: ' + escH(data.ledger.error) : 'Ledger not pulled yet — click Refresh.') + '</div>' :
+      !led.length ? '<div class="cl-empty">No ledger activity at FCI yet.</div>' :
+      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Received</th><th>Due</th><th>Cleared</th><th>Released to us</th><th>Description</th><th>Interest</th><th>Principal</th><th>Late Chg</th><th>Reserve/Impound</th><th>Fees</th><th>Balance</th></tr></thead><tbody>' +
+      led.map(function(a){
+        return '<tr>' + _pmtDateTd(a.dateReceived) + _pmtDateTd(a.dateDue) + _pmtDateTd(a.clearingDate) + _pmtDateTd(a.releaseDate) +
+          '<td>' + escH(a.description||'') + (a.notes ? ' <span class="cl-ph">' + escH(a.notes) + '</span>' : '') + '</td>' +
+          '<td class="cl-num">' + _pmtMoney(a.toInterest) + '</td><td class="cl-num">' + _pmtMoney(a.toPrincipal) + '</td><td class="cl-num">' + _pmtMoney(a.toLateCharge) + '</td>' +
+          '<td class="cl-num">' + _pmtMoney((a.toReserve||0) + (a.toImpound||0) || null) + '</td><td class="cl-num">' + _pmtMoney((a.toLenderFee||0) + (a.toBrokerFee||0) + (a.toCharges||0) || null) + '</td>' +
+          '<td class="cl-num">' + _pmtMoney(a.balance) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  } else if (tab === 'notes') {
+    body = (data.notes && data.notes.error) ? '<div class="cl-empty">Notes unavailable: ' + escH(data.notes.error) + '</div>' :
+      !notes.length ? '<div class="cl-empty">No notes from FCI on this loan.</div>' :
+      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Date</th><th>FCI Rep</th><th>Type</th><th>Subject</th><th>Note</th></tr></thead><tbody>' +
+      notes.map(function(n){
+        return '<tr>' + _pmtDateTd(n.date) + '<td>' + escH(n.rep||'') + '</td><td>' + escH(n.type||'') + '</td><td>' + escH(n.subject||'') + '</td><td style="white-space:pre-wrap;max-width:560px">' + escH(n.text||'') + (n.contact ? '<div class="cl-ph">Contact: ' + escH(n.contact) + '</div>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  } else if (tab === 'charges') {
+    var ch = Array.isArray(data.charges) ? data.charges : null;
+    body = !ch ? '<div class="cl-empty">' + (data.charges && data.charges.error ? 'Charges unavailable: ' + escH(data.charges.error) : 'Charges not pulled yet — click Refresh.') + '</div>' :
+      !ch.length ? '<div class="cl-empty">No charges on this loan at FCI.</div>' :
+      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Original</th><th>Unpaid</th><th>Accrued Int.</th><th>Total Due</th><th>Paid</th></tr></thead><tbody>' +
+      ch.map(function(c){
+        var paid = (c.paid||[]).map(function(x){ return escH(fmtDate(x.date)) + ' ' + escH(money(x.amount)) + (x.payer ? ' (' + escH(x.payer) + ')' : ''); }).join('<br>');
+        return '<tr>' + _pmtDateTd(c.date) + '<td>' + escH(c.type||'') + '</td><td>' + escH(c.description||'') + (c.reference ? ' <span class="cl-ph">' + escH(c.reference) + '</span>' : '') + (c.deferred ? ' <span class="chip warn">deferred</span>' : '') + '</td>' +
+          '<td class="cl-num">' + _pmtMoney(c.original) + '</td><td class="cl-num">' + _pmtMoney(c.unpaid) + '</td><td class="cl-num">' + _pmtMoney(c.accrued) + '</td><td class="cl-num"><strong>' + _pmtMoney(c.totalDue) + '</strong></td><td style="font-size:12px">' + (paid || '<span class="cl-ph">—</span>') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  } else if (tab === 'add') {
+    var today = new Date().toISOString().slice(0,10);
+    body = '<div class="cl-note" style="margin:0 0 8px">Posts a charge to the loan at FCI (the borrower sees it on their next statement). Use FCI\'s charge code exactly as it appears in their portal (e.g. LATE, NSF, INSP, LEGAL). This is logged on the loan\'s Notes &amp; Activity.</div>' +
+      '<div class="row3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;max-width:760px">' +
+        '<div class="field"><label>Charge code</label><input type="text" id="fc_code_' + escAttr(key) + '" placeholder="e.g. LATE" style="width:100%"></div>' +
+        '<div class="field"><label>Amount ($)</label><input type="text" id="fc_amt_' + escAttr(key) + '" inputmode="decimal" placeholder="e.g. 150.00" style="width:100%"></div>' +
+        '<div class="field"><label>Charge date</label><input type="date" id="fc_date_' + escAttr(key) + '" value="' + today + '" style="width:100%"></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Comments (optional)</label><input type="text" id="fc_note_' + escAttr(key) + '" placeholder="Why this charge" style="width:100%"></div>' +
+        '<div class="field"><label>Paid by</label><select id="fc_paidby_' + escAttr(key) + '" style="width:100%"><option value="Borrower">Borrower</option><option value="Lender">Lender</option></select></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:10px"><button type="button" class="cl-act primary" onclick="event.stopPropagation();_fciAddCharge(\'' + escAttr(key) + '\')">Post charge to FCI</button><span id="fc_status_' + escAttr(key) + '" style="font-size:12px;color:var(--muted)"></span></div>';
+  }
+  return head + bar + '<div onclick="event.stopPropagation()">' + body + '</div>';
+}
+function _fciAddCharge(key){
+  var it = _findByKey(key); if (!it) return;
+  var g = function(id){ var el = document.getElementById(id + '_' + key); return el ? el.value : ''; };
+  var st = document.getElementById('fc_status_' + key);
+  var body = { loanId: it.loan.id, clientId: it.client.id, owner: it.ownerKey, chargeCode: g('fc_code').trim(), amount: g('fc_amt'), date: g('fc_date'), comments: g('fc_note').trim(), paidBy: g('fc_paidby') };
+  if (!body.chargeCode || !body.amount) { if (st) { st.style.color = 'var(--danger)'; st.textContent = 'Charge code and amount are required.'; } return; }
+  if (!confirm('Post a ' + body.chargeCode + ' charge of $' + body.amount + ' dated ' + body.date + ' to FCI for ' + (it.loan.address || 'this loan') + '?')) return;
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Posting to FCI…'; }
+  SLA.api('POST', '/api/fci-loan-charge', body).then(function(r){
+    if (r && r.cached) _pmtHist[key] = { data: Object.assign({ cached: false }, r.cached) };
+    _pmtTab[key] = 'charges';
+    if (!_pmtPaint(key)) render();
+  }).catch(function(e){ if (st) { st.style.color = 'var(--danger)'; st.textContent = (e && e.message) || 'FCI rejected the charge'; } });
 }
 
 // TABS: Sold – RTL / Sold – DSCR are rendered via renderBucketTab (see above);

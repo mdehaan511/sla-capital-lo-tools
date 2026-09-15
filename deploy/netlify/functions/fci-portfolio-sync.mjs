@@ -321,6 +321,10 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       // investorName/investorId — see the header.
       fciLenderName: String(row.lenderName || '').trim(),
       fciLoanStatus: String(row.loanStatus || '').trim(),
+      // Deploy 237.068 — FCI's own boarding date (the confirmation Mike asked for) and the
+      // lender account the charge mutation needs.
+      fciBoardingDate: fciDate(row.boardingDate),
+      fciLenderAccount: String(row.lenderAccount || '').trim(),
       achStatus: String(row.achStatus || '').trim(), // Deploy 237.056 — Servicing tab ACH column
       // Deploy 236.808 — servicer-side borrower contact. Kept in fci* fields
       // rather than written onto client.email, because this is FCI's copy and
@@ -411,7 +415,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
           // Boarding accordion on Closed Loans drops the loan automatically.
           if (String(loan.boardingStatus || '') !== 'boarded') {
             loan.boardingStatus = 'boarded';
-            if (!loan.boardedDate) loan.boardedDate = now.slice(0, 10);
+            if (!loan.boardedDate) loan.boardedDate = (r.fields && r.fields.fciBoardingDate) || now.slice(0, 10); // Deploy 237.068 — FCI's date when it has one
             changed = true;
           }
           if (changed) {

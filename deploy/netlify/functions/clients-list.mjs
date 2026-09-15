@@ -250,7 +250,7 @@ const LOAN_SUMMARY_FIELDS = [
   // reached the Closed Loans list (its UPB column falls back to
   // currentBalance, which was not projected). Keep in sync.
   'currentBalance', 'nextDueDate', 'paidToDate', 'daysLate', 'fciSyncedAt',
-  'fciLoanStatus', 'achStatus', // Deploy 237.056 — Servicing tab paid-off detection + ACH column
+  'fciLoanStatus', 'achStatus', 'fciBoardingDate', 'fciLenderAccount', 'nextDebitDate', // Deploy 237.056 — Servicing tab paid-off detection + ACH column
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

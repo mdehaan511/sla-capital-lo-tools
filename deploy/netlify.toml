@@ -1154,6 +1154,12 @@
   to = "/.netlify/functions/servicingpros-probe"
   status = 200
   force = true
+# Deploy 237.068 -- add a charge to a loan at FCI from the Servicing row.
+[[redirects]]
+  from = "/api/fci-loan-charge"
+  to = "/.netlify/functions/fci-loan-charge"
+  status = 200
+  force = true
 # Deploy 236.806 — read-only preview of who the maturity cron would email next
 # run, and the exact copy. Sends nothing; the cron itself is scheduled via its
 # own config export (16:20 UTC).

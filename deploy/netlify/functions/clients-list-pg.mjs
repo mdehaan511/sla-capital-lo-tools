@@ -144,7 +144,7 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'guarantors',        // Deploy 236.974 — see clients-list.mjs (rides extra)
   'spAccount', 'spSyncedAt', 'spLastPaymentDate', // Deploy 236.983 — see clients-list.mjs
   'currentBalance', 'nextDueDate', 'paidToDate', 'daysLate', 'fciSyncedAt',
-  'fciLoanStatus', 'achStatus', // Deploy 237.056 — Servicing tab paid-off detection + ACH column // Deploy 236.987 — see clients-list.mjs
+  'fciLoanStatus', 'achStatus', 'fciBoardingDate', 'fciLenderAccount', 'nextDebitDate', // Deploy 237.056 — Servicing tab paid-off detection + ACH column // Deploy 236.987 — see clients-list.mjs
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

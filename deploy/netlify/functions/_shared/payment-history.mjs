@@ -33,8 +33,8 @@ export async function readCached(kind, account) {
   if (hit && hit.asOf && Date.now() - Date.parse(hit.asOf) < CACHE_TTL_MS) return hit;
   return null;
 }
-export async function writeCached(kind, account, rows) {
-  const out = { servicer: kind, account, asOf: new Date().toISOString(), rows };
+export async function writeCached(kind, account, rows, extra) {
+  const out = Object.assign({ servicer: kind, account, asOf: new Date().toISOString(), rows }, extra || {});
   await cacheStore().setJSON(cacheKey(kind, account), out).catch(() => {});
   return out;
 }
@@ -94,17 +94,87 @@ export function spHistoryFrom(feeds, account) {
   })));
 }
 
-/** Live pull for one account (no cache read); writes the cache. */
-export async function fetchAndCache(kind, account, spFeeds) {
-  let rows;
+// ── Deploy 237.068 (Mike) — the rest of the FCI servicing picture, cached with the payments:
+//   notes   getNotes (FCI rep notes: boarding confirmations, borrower contact …)
+//   ledger  getLoanActivities (every receipt with clearing + funds-release dates)
+//   charges getLoanCharges (fees on the loan, with what has been paid)
+// Nightly the warm job pulls each ONCE for the whole book (fciLoadBulk) and
+// slices per account; an on-demand refresh uses the per-account variants.
+const NOTE_FIELDS = 'account noteDate fciRep contactNumber subject noteType contactPerson note borrowerFullName';
+const LEDGER_FIELDS = 'loanAccount dateDue dateReceived dateDeposited clearingDate releaseDate balance description reference notes toInterest toPrincipal toLateCharge toReserve toImpound toLenderFee toBrokerFee toOtherPayments toChargesPrincipal toChargesInterest toPrepay lateCharge interestPaidTo';
+const CHARGE_FIELDS = 'loanAccount date reference description type interestRate deferred origianlBalance unpaidBalance accruedInterest totalDue details{ date payerName reference amount }';
+
+function normNote(n) {
+  return { date: fciDate(n.noteDate) || String(n.noteDate || '').slice(0, 10), rep: String(n.fciRep || ''), subject: String(n.subject || ''), type: String(n.noteType || ''),
+    contact: String(n.contactPerson || ''), text: String(n.note || '').slice(0, 2000) };
+}
+function normLedger(a) {
+  return { dateDue: fciDate(a.dateDue), dateReceived: fciDate(a.dateReceived), dateDeposited: fciDate(a.dateDeposited), clearingDate: fciDate(a.clearingDate), releaseDate: fciDate(a.releaseDate),
+    balance: fciNum(a.balance), description: String(a.description || ''), reference: String(a.reference || ''), notes: String(a.notes || '').slice(0, 300),
+    toInterest: fciNum(a.toInterest), toPrincipal: fciNum(a.toPrincipal), toLateCharge: fciNum(a.toLateCharge), toReserve: fciNum(a.toReserve), toImpound: fciNum(a.toImpound),
+    toLenderFee: fciNum(a.toLenderFee), toBrokerFee: fciNum(a.toBrokerFee), toOther: fciNum(a.toOtherPayments), toCharges: (fciNum(a.toChargesPrincipal) || 0) + (fciNum(a.toChargesInterest) || 0),
+    lateCharge: fciNum(a.lateCharge), interestPaidTo: fciDate(a.interestPaidTo) };
+}
+function normCharge(c) {
+  return { date: fciDate(c.date), reference: String(c.reference || ''), description: String(c.description || ''), type: String(c.type || ''),
+    original: fciNum(c.origianlBalance), unpaid: fciNum(c.unpaidBalance), accrued: fciNum(c.accruedInterest), totalDue: fciNum(c.totalDue), deferred: !!c.deferred,
+    paid: Array.isArray(c.details) ? c.details.map((d) => ({ date: fciDate(d.date), payer: String(d.payerName || ''), amount: fciNum(d.amount) })) : [] };
+}
+const byDateDesc = (k) => (a, b) => String(b[k] || '').localeCompare(String(a[k] || ''));
+
+export async function fciNotes(account) {
+  const d = await fciQuery('{ getNotes(account:"' + fciAccount(account) + '"){ ' + NOTE_FIELDS + ' } }', { timeoutMs: 30000 });
+  return (Array.isArray(d.getNotes) ? d.getNotes : []).map(normNote).sort(byDateDesc('date'));
+}
+export async function fciLedger(account) {
+  const d = await fciQuery('{ getLoanActivities(loanaccount:"' + fciAccount(account) + '"){ ' + LEDGER_FIELDS + ' } }', { timeoutMs: 30000 });
+  return (Array.isArray(d.getLoanActivities) ? d.getLoanActivities : []).map(normLedger).sort(byDateDesc('dateReceived'));
+}
+export async function fciCharges(account) {
+  const d = await fciQuery('{ getLoanCharges(account:"' + fciAccount(account) + '"){ ' + CHARGE_FIELDS + ' } }', { timeoutMs: 30000 });
+  return (Array.isArray(d.getLoanCharges) ? d.getLoanCharges : []).map(normCharge).sort(byDateDesc('date'));
+}
+/** Whole-book pulls (3 calls) for the nightly warm; each degrades to null on error. */
+export async function fciLoadBulk() {
+  const out = { notes: null, ledger: null, charges: null, errors: [] };
+  const norm = (v) => fciAccount(v);
+  try {
+    const d = await fciQuery('{ getNotes(investor:"all"){ ' + NOTE_FIELDS + ' } }', { timeoutMs: 60000 });
+    out.notes = new Map();
+    (Array.isArray(d.getNotes) ? d.getNotes : []).forEach((n) => { const k = norm(n.account); if (!k) return; (out.notes.get(k) || out.notes.set(k, []).get(k)).push(normNote(n)); });
+  } catch (e) { out.errors.push('notes: ' + ((e && e.message) || 'error')); }
+  try {
+    const d = await fciQuery('{ getLoanActivities{ ' + LEDGER_FIELDS + ' } }', { timeoutMs: 60000 });
+    out.ledger = new Map();
+    (Array.isArray(d.getLoanActivities) ? d.getLoanActivities : []).forEach((a) => { const k = norm(a.loanAccount); if (!k) return; (out.ledger.get(k) || out.ledger.set(k, []).get(k)).push(normLedger(a)); });
+  } catch (e) { out.errors.push('ledger: ' + ((e && e.message) || 'error')); }
+  try {
+    const d = await fciQuery('{ getLoanCharges{ ' + CHARGE_FIELDS + ' } }', { timeoutMs: 60000 });
+    out.charges = new Map();
+    (Array.isArray(d.getLoanCharges) ? d.getLoanCharges : []).forEach((c) => { const k = norm(c.loanAccount); if (!k) return; (out.charges.get(k) || out.charges.set(k, []).get(k)).push(normCharge(c)); });
+  } catch (e) { out.errors.push('charges: ' + ((e && e.message) || 'error')); }
+  return out;
+}
+
+/** Live pull for one account (no cache read); writes the cache. fciBulk = fciLoadBulk() result (nightly) or null (per-account calls). */
+export async function fetchAndCache(kind, account, spFeeds, fciBulk) {
+  let rows, extra = {};
   if (kind === 'FCI') {
     if (!fciConfigured()) throw new Error('FCI_API_TOKEN is not set');
     rows = await fciHistory(account);
+    const k = fciAccount(account);
+    const pick = async (mapName, fn) => {
+      if (fciBulk && fciBulk[mapName]) return (fciBulk[mapName].get(k) || []).slice().sort(byDateDesc(mapName === 'ledger' ? 'dateReceived' : 'date'));
+      try { return await fn(account); } catch (e) { return { error: (e && e.message) || 'error' }; }
+    };
+    extra.notes = await pick('notes', fciNotes);
+    extra.ledger = await pick('ledger', fciLedger);
+    extra.charges = await pick('charges', fciCharges);
   } else if (kind === 'Servicing Pros') {
     if (!spConfiguredAccounts(process.env).length) throw new Error('Servicing Pros API keys are not set');
     rows = spHistoryFrom(spFeeds || await spLoadFeeds(), account);
   } else {
     throw new Error('No payment-history integration for this servicer');
   }
-  return writeCached(kind, account, rows);
+  return writeCached(kind, account, rows, extra);
 }

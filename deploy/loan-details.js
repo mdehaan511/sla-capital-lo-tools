@@ -2576,7 +2576,22 @@ function render() {
     // read and no account to order against. Contents load lazily — the payoff
     // figure is two live FCI calls and shouldn't sit in the page's critical path.
     if (String(l.servicerName || '').toUpperCase() === 'FCI' && String(l.servicerLoanNumber || '').trim()) {
+      // Deploy 237.068 (Mike) — FCI servicer activity: their notes (boarding confirmation
+      // lives here), boarding date, ACH, and the latest payments. Cached nightly
+      // by payment-history-warm; the same data the Closed Loans row expansion shows.
       html +=
+        '<div class="section" id="fciActivitySection">' +
+          '<div class="section-head"><h2>FCI Servicer Activity</h2><span class="section-tag">Nightly</span></div>' +
+          '<div class="section-body">' +
+            '<div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">' +
+              (l.fciBoardingDate ? 'Boarded at FCI <strong>' + escH(fmtDate(l.fciBoardingDate)) + '</strong>' : (l.boardedDate ? 'Boarded <strong>' + escH(fmtDate(l.boardedDate)) + '</strong>' : 'Not yet confirmed on FCI\'s book')) +
+              (l.fciLoanStatus ? ' · FCI status <strong>' + escH(l.fciLoanStatus) + '</strong>' : '') +
+              (l.achStatus ? ' · ACH <strong>' + escH(l.achStatus) + '</strong>' : '') +
+            '</div>' +
+            '<div id="fciActivityBody" style="font-size:13px;color:var(--muted)">Loading FCI notes…</div>' +
+            '<div style="margin-top:10px"><a href="/closed-loans.html" style="font-size:12px;color:var(--gold-mid)">Full ledger, charges and payment history on Closed Loans → Servicing ↗</a></div>' +
+          '</div>' +
+        '</div>' +
         '<div class="section" id="fciPayoffSection">' +
           '<div class="section-head"><h2>Payoff — FCI</h2><span class="section-tag">Live</span></div>' +
           '<div class="section-body">' +
@@ -2981,6 +2996,8 @@ function render() {
     // Deploy 236.803 — the FCI payoff box rides along into the Servicing tab,
     // and only then do we fetch (two live FCI calls; don't pay for them unless
     // the box actually mounted).
+    var actSect = document.getElementById('fciActivitySection'); // Deploy 237.068
+    if (actSect && paneServicing) { paneServicing.appendChild(actSect); setTimeout(function () { loadFciActivity(); }, 200); }
     var payoffSect = document.getElementById('fciPayoffSection');
     if (payoffSect && paneServicing) {
       paneServicing.appendChild(payoffSect);
@@ -3780,6 +3797,29 @@ function _fciDay(v) {
   return s;
 }
 
+// Deploy 237.068 — FCI notes + latest payments from the nightly cache (loan-payment-history).
+function loadFciActivity() {
+  var box = document.getElementById('fciActivityBody');
+  if (!box || !_loan) return;
+  SLA.api('GET', '/api/loan-payment-history?servicer=FCI&account=' + encodeURIComponent(_loan.servicerLoanNumber || '')).then(function (r) {
+    var notes = Array.isArray(r.notes) ? r.notes : [];
+    var pays = Array.isArray(r.rows) ? r.rows.slice(0, 6) : [];
+    var fmt = function (d) { return d ? fmtDate(d) : '—'; };
+    var html = '';
+    html += '<div style="font-weight:600;color:var(--text);margin-bottom:4px">FCI notes' + (notes.length ? ' (' + notes.length + ')' : '') + '</div>';
+    if (!notes.length) html += '<div>No notes from FCI on this loan' + (r.notes && r.notes.error ? ' (' + escH(r.notes.error) + ')' : '') + '.</div>';
+    else html += notes.slice(0, 8).map(function (n) {
+      return '<div style="padding:6px 0;border-bottom:1px solid var(--border,#eee)"><span style="color:var(--text)">' + escH(fmt(n.date)) + '</span>' + (n.subject ? ' · <strong>' + escH(n.subject) + '</strong>' : '') + (n.rep ? ' · ' + escH(n.rep) : '') +
+        '<div style="white-space:pre-wrap;color:var(--text)">' + escH(n.text || '') + '</div></div>';
+    }).join('') + (notes.length > 8 ? '<div style="margin-top:4px">+ ' + (notes.length - 8) + ' older on Closed Loans → Servicing</div>' : '');
+    html += '<div style="font-weight:600;color:var(--text);margin:12px 0 4px">Latest payments</div>';
+    html += !pays.length ? '<div>No payments on record at FCI.</div>' :
+      '<table style="border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase"><th style="text-align:left;padding:3px 10px 3px 0">Due</th><th style="text-align:left;padding:3px 10px 3px 0">Received</th><th style="text-align:right;padding:3px 10px 3px 0">Amount</th><th style="text-align:left">Type</th></tr></thead><tbody>' +
+      pays.map(function (p) { return '<tr><td style="padding:3px 10px 3px 0">' + escH(fmt(p.dateDue)) + '</td><td style="padding:3px 10px 3px 0">' + escH(fmt(p.dateReceived)) + '</td><td style="text-align:right;padding:3px 10px 3px 0">' + escH(_fmtMoney0(p.amount)) + '</td><td>' + escH(p.type || '') + '</td></tr>'; }).join('') + '</tbody></table>';
+    html += '<div style="margin-top:6px;font-size:11px">As of ' + escH(fmt(String(r.asOf || '').slice(0, 10))) + '</div>';
+    box.innerHTML = html;
+  }).catch(function (e) { box.innerHTML = '<span style="color:var(--muted)">' + escH((e && e.message) || 'Could not load FCI activity.') + '</span>'; });
+}
 function loadFciPayoff(force) {
   var box = document.getElementById('fciPayoffBody');
   if (!box) return;

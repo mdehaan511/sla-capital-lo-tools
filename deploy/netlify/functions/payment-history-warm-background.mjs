@@ -16,7 +16,7 @@
 import crypto from 'node:crypto';
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { pgGet } from './_shared/mail-match.mjs';
-import { servicerKind, fetchAndCache, spLoadFeeds, cacheStore, readCached } from './_shared/payment-history.mjs';
+import { servicerKind, fetchAndCache, spLoadFeeds, cacheStore, readCached, fciLoadBulk } from './_shared/payment-history.mjs';
 import { db } from './_shared/supabase-db.mjs';
 import { pushUserNotification, listUserNotifications, dismissUserNotifications } from './_shared/user-notifications.mjs';
 import { keySafe, normalizeEmail } from './_shared/auth.mjs';
@@ -95,12 +95,19 @@ async function warm() {
       catch (e) { report.errors++; if (report.sample.length < 10) report.sample.push([r.address, (e && e.message) || 'error']); }
     }
   }
+  // Deploy 237.068 — notes / ledger / charges for the whole FCI book in 3 calls, sliced per loan.
+  let fciBulk = null;
+  if (fciList.length) {
+    fciBulk = await fciLoadBulk();
+    report.fciBulk = { notes: fciBulk.notes ? fciBulk.notes.size : null, ledger: fciBulk.ledger ? fciBulk.ledger.size : null, charges: fciBulk.charges ? fciBulk.charges.size : null, errors: fciBulk.errors };
+    await save();
+  }
   let i = 0;
   await Promise.all(new Array(3).fill(0).map(async () => {
     while (i < fciList.length) {
       const r = fciList[i++];
       if (Date.now() - started > BUDGET_MS) { report.skipped++; continue; }
-      try { await fetchAndCache('FCI', String(r.servicer_no).trim()); report.warmed++; }
+      try { await fetchAndCache('FCI', String(r.servicer_no).trim(), null, fciBulk); report.warmed++; }
       catch (e) { report.errors++; if (report.sample.length < 10) report.sample.push([r.address, (e && e.message) || 'error']); }
     }
   }));

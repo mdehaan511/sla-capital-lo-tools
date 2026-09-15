@@ -242,6 +242,35 @@ export async function fciPayoffDemandStatus({ wasPaid = false, dateFrom } = {}) 
 }
 
 // reason codes, per FCI's "Payoff Fields" doc
+// Deploy 237.068 (Mike) — add a charge to a loan (Update Charges in the FCI collection).
+// Same string discipline as fciInsertPayoff: every text field goes through gqlStr.
+export async function fciInsertCharge({
+  loanNumber, investorAccountNumber, chargeCode, chargeDate, chargeAmount,
+  interestRate = 0, paidBy = 'Borrower', invoiceNumber = '', comments = '', isBorrowerRecoverable = true,
+}) {
+  const acct = fciAccount(loanNumber);
+  if (!acct) throw new Error('loanNumber required');
+  const cd = usDate(chargeDate, '/');
+  if (!cd) throw new Error('chargeDate must be YYYY-MM-DD');
+  const amt = Number(chargeAmount);
+  if (!(amt > 0)) throw new Error('chargeAmount must be positive');
+  const ir = Number(interestRate);
+  const args = [
+    `loanNumber:"${acct}"`,
+    `investorAccountNumber:${gqlStr(investorAccountNumber, 40)}`,
+    `chargeCode:${gqlStr(chargeCode, 40)}`,
+    `isBorrowerRecoverable:${isBorrowerRecoverable ? 'true' : 'false'}`,
+    `chargeDate:"${cd}"`,
+    `chargeAmount:${amt.toFixed(2)}`,
+    `interestRate:${isFinite(ir) ? ir : 0}`,
+    `paidBy:${gqlStr(paidBy, 40)}`,
+    `invoiceNumber:${gqlStr(invoiceNumber, 60)}`,
+    `comments:${gqlStr(comments, 500)}`,
+  ].join(', ');
+  const d = await fciQuery(`mutation { insertLoanCharge(charges:[{ ${args} }]) }`, { timeoutMs: 30000 });
+  return d.insertLoanCharge;
+}
+
 export const PAYOFF_REASONS = { payoff: 0, litigation: 1, inquiry: 2, other: 3 };
 
 /**
