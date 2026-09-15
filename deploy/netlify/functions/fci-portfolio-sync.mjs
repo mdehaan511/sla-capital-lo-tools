@@ -316,6 +316,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       // investorName/investorId — see the header.
       fciLenderName: String(row.lenderName || '').trim(),
       fciLoanStatus: String(row.loanStatus || '').trim(),
+      achStatus: String(row.achStatus || '').trim(), // Deploy 237.056 — Servicing tab ACH column
       // Deploy 236.808 — servicer-side borrower contact. Kept in fci* fields
       // rather than written onto client.email, because this is FCI's copy and
       // the client record is ours; a sync should not quietly rewrite a borrower's

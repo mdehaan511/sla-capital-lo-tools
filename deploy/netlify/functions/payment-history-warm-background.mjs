@@ -16,7 +16,10 @@
 import crypto from 'node:crypto';
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { pgGet } from './_shared/mail-match.mjs';
-import { servicerKind, fetchAndCache, spLoadFeeds, cacheStore } from './_shared/payment-history.mjs';
+import { servicerKind, fetchAndCache, spLoadFeeds, cacheStore, readCached } from './_shared/payment-history.mjs';
+import { db } from './_shared/supabase-db.mjs';
+import { pushUserNotification } from './_shared/user-notifications.mjs';
+import { keySafe, normalizeEmail } from './_shared/auth.mjs';
 
 const BUDGET_MS = 13.5 * 60 * 1000;
 export function jobSignature() {
@@ -55,7 +58,7 @@ async function warm() {
   // servicerLoanNumber on the record; paid-off loans stop changing).
   const rows = [];
   for (let offset = 0; ; offset += 1000) {
-    const page = await pgGet('loans', 'select=id,address,servicer_name:extra->>servicerName,servicer_no:extra->>servicerLoanNumber,disposition:extra->>disposition,status' +
+    const page = await pgGet('loans', 'select=id,client_id,owner_email,address,servicer_name:extra->>servicerName,servicer_no:extra->>servicerLoanNumber,disposition:extra->>disposition,status,fci_status:extra->>fciLoanStatus,payoff_date:extra->>payoffDate,current_balance:extra->>currentBalance,clients!client_id(first_name,last_name,entity_name)' +
       '&extra->>servicerLoanNumber=not.is.null&order=id.asc&limit=1000&offset=' + offset);
     page.forEach((r) => rows.push(r));
     if (page.length < 1000) break;
@@ -65,6 +68,7 @@ async function warm() {
     if (!acct) return false;
     const d = String(r.disposition || '').toLowerCase().replace(/[_\s]+/g, ' ');
     if (d === 'paid off' || String(r.status || '').toLowerCase() === 'liquidated') return false;
+    if (/PAID ?OFF/i.test(String(r.fci_status || ''))) return false;
     return !!servicerKind(r.servicer_name, acct);
   });
   report.loans = targets.length;
@@ -90,9 +94,109 @@ async function warm() {
     }
   }));
 
+  // ── Deploy 237.056 (Mike) — servicing alerts from the freshly cached history ──
+  try { report.alerts = await evaluateAlerts(targets); }
+  catch (e) { report.alerts = { error: (e && e.message) || 'alert pass failed' }; }
+
   report.status = 'done';
   report.finishedAt = new Date().toISOString();
   report.tookSeconds = Math.round((Date.now() - started) / 1000);
   await save();
   return json(200, { ok: true, report });
+}
+
+// ── Deploy 237.056 — NSF + >5-days-late alerts (in-app bell + email) ─────────
+// From the cached payment history: paid-to = latest due date with a good
+// payment; next due = +1 month; days late = today − next due. An NSF row
+// (paymentType "NSF") within the last 14 days alerts once per row; a payment
+// more than 5 days late alerts once per due date. Recipients: super admins,
+// admins and processors (sla_user_roles) plus the loan's LO.
+const GRACE_DAYS = 5;
+const isGood = (p) => !!(p && p.dateReceived && !/nsf|revers|return|reject/i.test(String(p.type || '')) && (p.amount == null || Number(p.amount) > 0));
+const addMonths = (y, n) => { const m = String(y || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return ''; return new Date(Date.UTC(+m[1], +m[2] - 1 + n, +m[3])).toISOString().slice(0, 10); };
+const daysBetween = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400000);
+
+async function evaluateAlerts(targets) {
+  const out = { checked: 0, late: 0, nsf: 0, notified: 0, emailed: 0, skippedAlreadySent: 0, errors: [] };
+  const store = cacheStore();
+  const state = (await store.get('meta/alerts-state', { type: 'json' }).catch(() => null)) || { late: {}, nsf: {} };
+  state.late = state.late || {}; state.nsf = state.nsf || {};
+  const today = new Date().toISOString().slice(0, 10);
+
+  const roleRows = await db.select('sla_user_roles', { select: 'email,roles' }).catch(() => []);
+  const staff = new Set((roleRows || []).filter((r) => Array.isArray(r.roles) && r.roles.some((x) => ['super_admin', 'admin', 'processor'].indexOf(x) >= 0)).map((r) => normalizeEmail(r.email)));
+
+  const alerts = []; // { kind, loan, title, text, key }
+  for (const r of targets) {
+    const kind = servicerKind(r.servicer_name, r.servicer_no);
+    const hit = await readCached(kind, String(r.servicer_no).trim());
+    if (!hit || !Array.isArray(hit.rows)) continue;
+    out.checked++;
+    let paidTo = '';
+    hit.rows.forEach((p) => { if (isGood(p) && String(p.dateDue || '') > paidTo) paidTo = String(p.dateDue || ''); });
+    const nextDue = paidTo ? addMonths(paidTo, 1) : '';
+    const c = r.clients || {};
+    const borrower = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || c.entity_name || '';
+    const label = (r.address || r.id) + (borrower ? ' — ' + borrower : '');
+    if (nextDue) {
+      const dl = daysBetween(nextDue, today);
+      if (dl > GRACE_DAYS) {
+        out.late++;
+        const key = r.id + '|' + nextDue;
+        if (state.late[key]) out.skippedAlreadySent++;
+        else alerts.push({ kind: 'late', loan: r, key, stateMap: state.late,
+          title: dl + ' days late: ' + label,
+          text: 'The ' + nextDue + ' payment has not been received (' + dl + ' days past due). Servicer ' + kind + ' #' + r.servicer_no + '.' });
+      }
+    }
+    hit.rows.forEach((p) => {
+      if (!/nsf/i.test(String(p.type || '')) || !p.dateReceived) return;
+      if (daysBetween(p.dateReceived, today) > 14) return;
+      const key = r.id + '|nsf|' + (p.reference || p.dateReceived);
+      if (state.nsf[key]) { out.skippedAlreadySent++; return; }
+      out.nsf++;
+      alerts.push({ kind: 'nsf', loan: r, key, stateMap: state.nsf,
+        title: 'NSF payment: ' + label,
+        text: 'A payment of $' + Math.abs(Number(p.amount) || 0).toLocaleString('en-US') + ' due ' + (p.dateDue || '—') + ' was returned NSF on ' + p.dateReceived + '. Servicer ' + kind + ' #' + r.servicer_no + '.' });
+    });
+  }
+  if (!alerts.length) { await store.setJSON('meta/alerts-state', state).catch(() => {}); return out; }
+
+  for (const a of alerts) {
+    const owner = normalizeEmail(a.loan.owner_email || '');
+    const to = Array.from(new Set(Array.from(staff).concat(owner ? [owner] : [])));
+    const href = '/loan-details/' + encodeURIComponent(a.loan.id) + (owner ? '?owner=' + encodeURIComponent(owner) : '') + '#servicing';
+    for (const email of to) {
+      try {
+        await pushUserNotification(email, { kind: 'servicing', alertType: a.kind, loanId: a.loan.id, clientId: a.loan.client_id, owner, address: a.loan.address || '', title: a.title, text: a.text, href });
+        out.notified++;
+      } catch (e) { out.errors.push('bell ' + email + ': ' + ((e && e.message) || 'error')); }
+    }
+    a.stateMap[a.key] = new Date().toISOString();
+  }
+  await store.setJSON('meta/alerts-state', state).catch(() => {});
+
+  // One email per recipient listing every new alert.
+  const byEmail = new Map();
+  alerts.forEach((a) => {
+    const owner = normalizeEmail(a.loan.owner_email || '');
+    Array.from(new Set(Array.from(staff).concat(owner ? [owner] : []))).forEach((e) => { (byEmail.get(e) || byEmail.set(e, []).get(e)).push(a); });
+  });
+  const apiKey = process.env.RESEND_API_KEY;
+  const base = process.env.URL || 'https://portal.slacapital.ai';
+  if (apiKey) {
+    for (const [email, list] of byEmail) {
+      const rows = list.map((a) => '<tr><td style="padding:6px 10px;border-bottom:1px solid #eee"><strong>' + (a.kind === 'nsf' ? 'NSF' : 'Late') + '</strong></td><td style="padding:6px 10px;border-bottom:1px solid #eee"><a href="' + base + '/loan-details/' + encodeURIComponent(a.loan.id) + (a.loan.owner_email ? '?owner=' + encodeURIComponent(normalizeEmail(a.loan.owner_email)) : '') + '">' + String(a.loan.address || a.loan.id).replace(/</g, '&lt;') + '</a><br><span style="color:#666;font-size:12px">' + a.text.replace(/</g, '&lt;') + '</span></td></tr>').join('');
+      const html = '<div style="font-family:system-ui,sans-serif;font-size:14px;color:#1a1520"><p>' + list.length + ' servicing alert' + (list.length === 1 ? '' : 's') + ' from last night\'s payment-history check:</p><table style="border-collapse:collapse">' + rows + '</table><p style="color:#666;font-size:12px">Payment status and history are on <a href="' + base + '/closed-loans.html">Closed Loans → Servicing</a>.</p></div>';
+      try {
+        const resp = await fetch('https://api.resend.com/emails', {
+          signal: AbortSignal.timeout(15000), method: 'POST',
+          headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json', 'Idempotency-Key': ('svc-alert/' + email + '/' + today).slice(0, 250) },
+          body: JSON.stringify({ from: 'SLA Capital <noreply@leads.slacapital.com>', to: [email], subject: 'Servicing alert' + (list.length === 1 ? '' : 's') + ': ' + list.map((a) => (a.kind === 'nsf' ? 'NSF' : 'late') + ' — ' + String(a.loan.address || '').split(',')[0]).slice(0, 3).join('; ') + (list.length > 3 ? ' +' + (list.length - 3) + ' more' : ''), html }),
+        });
+        if (resp.ok) out.emailed++; else out.errors.push('email ' + email + ': HTTP ' + resp.status);
+      } catch (e) { out.errors.push('email ' + email + ': ' + ((e && e.message) || 'error')); }
+    }
+  } else out.errors.push('RESEND_API_KEY not set — no alert emails');
+  return out;
 }

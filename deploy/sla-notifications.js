@@ -397,7 +397,8 @@
     // once anything has waited past the 24h escalation line.
     // Deploy 237.050 -- @-mentions first: someone is waiting on you by name.
     if (mentions.length) {
-      html += '<div class="sla-notif-hdr"><span>Mentions</span><span class="count">' + mentions.length + '</span></div>';
+      var _hasSvc = mentions.some(function(m){ return m.kind === 'servicing'; });
+      html += '<div class="sla-notif-hdr"><span>' + (_hasSvc ? 'Mentions & servicing alerts' : 'Mentions') + '</span><span class="count">' + mentions.length + '</span></div>';
       mentions.forEach(function(m){ html += renderMentionItem(m); });
     }
     if (mailN) {
@@ -449,6 +450,20 @@
     var href = (window.SLA && SLA.urls && SLA.urls.loanDetails)
       ? SLA.urls.loanDetails(m.loanId, { owner: m.owner })
       : ('loan-details.html?loanId=' + encodeURIComponent(m.loanId || ''));
+    // Deploy 237.056 (Mike) -- servicing alerts (NSF / >5 days late) ride the same
+    // per-user notification doc; link to the Closed Loans Servicing tab.
+    if (m.kind === 'servicing') {
+      return '<div class="sla-notif-item due">' +
+        '<a href="' + esc(m.href || '/closed-loans.html') + '" class="sla-notif-link">' +
+          '<div class="pin"></div>' +
+          '<div class="body">' +
+            '<div class="title">\u26A0\uFE0F ' + esc(m.title || 'Servicing alert') + '</div>' +
+            '<div class="meta">' + esc(m.text || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+          '</div>' +
+        '</a>' +
+        '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+      '</div>';
+    }
     var who = m.fromName || m.fromEmail || 'Someone';
     var where = m.address || m.borrower || 'a loan';
     return '<div class="sla-notif-item due">' +
