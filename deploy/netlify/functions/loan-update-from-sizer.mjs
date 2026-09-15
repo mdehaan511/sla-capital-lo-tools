@@ -46,6 +46,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs'; // Deploy 237.074
+import { applyDscrDefaults } from './_shared/dscr-defaults.mjs'; // Deploy 237.084
 
 export default async (req, context) => {
   try {
@@ -369,6 +370,7 @@ async function handle(req, context) {
   // record so it doesn't bloat every load (the sizer only cares
   // about the snapshot copies inside sizerHistory).
   if (merged._sizerFormData) delete merged._sizerFormData;
+  try { await applyDscrDefaults(merged); } catch (e) { console.warn('loan-update-from-sizer: DSCR defaults failed (non-fatal):', e && e.message); } // Deploy 237.084
 
   client.loans[idx] = merged;
   client.updatedAt = now;
