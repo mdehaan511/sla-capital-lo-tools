@@ -20,6 +20,7 @@ import { servicerKind, fetchAndCache, spLoadFeeds, cacheStore, readCached } from
 import { db } from './_shared/supabase-db.mjs';
 import { pushUserNotification } from './_shared/user-notifications.mjs';
 import { keySafe, normalizeEmail } from './_shared/auth.mjs';
+import { runSync as runFciSync } from './fci-portfolio-sync.mjs';
 
 const BUDGET_MS = 13.5 * 60 * 1000;
 export function jobSignature() {
@@ -54,11 +55,21 @@ async function warm() {
   const save = () => cacheStore().setJSON('meta/warm', report).catch(() => {});
   await save();
 
+  // Deploy 237.057 (Mike) — FULL-book FCI refresh first. The 09:40 cron syncs only
+  // the accounts FCI's getUpdatedLoanList flags, and a posted payment does NOT
+  // flag the loan (6401 S Pine paid 9/2, its next-due stayed 9/1 for two weeks).
+  // One getLoanPortfolio call; this background function has the time for it.
+  try {
+    const r = await runFciSync({ dryRun: false, overwriteManual: false, limit: 500, offset: 0, actor: 'payment-history-warm' });
+    report.fciFullSync = { written: r && r.write ? r.write : null, errors: r && r.errors ? r.errors.length : 0 };
+  } catch (e) { report.fciFullSync = { error: (e && e.message) || 'failed' }; }
+  await save();
+
   // Every loan with a servicer number that is not paid off (the sync stamps
   // servicerLoanNumber on the record; paid-off loans stop changing).
   const rows = [];
   for (let offset = 0; ; offset += 1000) {
-    const page = await pgGet('loans', 'select=id,client_id,owner_email,address,servicer_name:extra->>servicerName,servicer_no:extra->>servicerLoanNumber,disposition:extra->>disposition,status,fci_status:extra->>fciLoanStatus,payoff_date:extra->>payoffDate,current_balance:extra->>currentBalance,clients!client_id(first_name,last_name,entity_name)' +
+    const page = await pgGet('loans', 'select=id,client_id,owner_email,address,servicer_name:extra->>servicerName,servicer_no:extra->>servicerLoanNumber,disposition:extra->>disposition,status,fci_status:extra->>fciLoanStatus,payoff_date:extra->>payoffDate,current_balance:extra->>currentBalance,next_due:extra->>nextDueDate,clients!client_id(first_name,last_name,entity_name)' +
       '&extra->>servicerLoanNumber=not.is.null&order=id.asc&limit=1000&offset=' + offset);
     page.forEach((r) => rows.push(r));
     if (page.length < 1000) break;
@@ -134,7 +145,9 @@ async function evaluateAlerts(targets) {
     out.checked++;
     let paidTo = '';
     hit.rows.forEach((p) => { if (isGood(p) && String(p.dateDue || '') > paidTo) paidTo = String(p.dateDue || ''); });
-    const nextDue = paidTo ? addMonths(paidTo, 1) : '';
+    // No good payment on record at the servicer → fall back to the synced next
+    // due date (fresh daily now that the full-book refresh runs first).
+    const nextDue = paidTo ? addMonths(paidTo, 1) : String(r.next_due || '').slice(0, 10);
     const c = r.clients || {};
     const borrower = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || c.entity_name || '';
     const label = (r.address || r.id) + (borrower ? ' — ' + borrower : '');
