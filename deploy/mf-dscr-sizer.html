@@ -561,6 +561,23 @@ var getFICOMin = SLA_DSCR.getFICOMin;
               <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 1.000" oninput="onAdminManualInput()" />
             </div>
           </div>
+          <!-- Deploy 237.062 (Mike) -- TPO premium the investor pays SLA. Seeded from the
+               saved loan's TPO (Closing tab) or the DIYA default (1.00); LO comp = origination
+               points + this TPO. Change it and you must say which investor you're pricing
+               off of -- both are written to the Closing tab's Funding Plan on save. -->
+          <div class="field">
+            <div class="wrap" id="adminTpoWrap">
+              <label>TPO Premium (points)</label>
+              <input type="number" step="0.01" min="0" id="adminTpoInput" placeholder="e.g. 1.00" oninput="onAdminTpoInput()" />
+            </div>
+          </div>
+          <div class="field" id="adminInvestorField" style="display:none">
+            <div class="wrap" id="adminInvestorWrap">
+              <label>Pricing off investor <span class="req">*</span></label>
+              <select id="adminInvestorSelect" onchange="onAdminInvestorChange()"><option value="">— Select investor —</option></select>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Required when the TPO changes. Fills Investor + TPO on the Closing tab.</div>
+            </div>
+          </div>
           <!-- Deploy 236.526 — custom fee editor. Add / rename / remove any
                closing-cost line. Origination stays points-driven (above). -->
           <div class="field span2" id="adminFeeEditorWrap" style="grid-column:1/-1">
@@ -1581,11 +1598,13 @@ function onAdminModeToggle() {
     window._dscrOverrides.warningAcknowledged = true;
     _dscrEnsureFeesSeeded();
     renderAdminFeeList();
+    _dscrAdminTpoInit(null); // Deploy 237.062 -- seed from the saved / current TPO
     onAdminManualInput();
   } else {
     // Turning off — clear the manual overrides so DIYA takes over again.
     window._dscrOverrides.rate   = null;
     window._dscrOverrides.points = null;
+    window._dscrAdminTpo = null; // Deploy 237.062 -- comp preview falls back to the engine's TPO
     if (typeof lockLoanFinancialFields === 'function') lockLoanFinancialFields(false);
   }
   try { run(); } catch (_) {}
@@ -1716,7 +1735,108 @@ function autoEnableAdminModeFrom(source) {
     });
     renderAdminFeeList();
   }
+  _dscrAdminTpoInit(source); // Deploy 237.062 -- saved TPO + investor
   onAdminManualInput();
+}
+
+// ── Deploy 237.062 (Mike) — Admin Mode TPO premium + investor ─────────────
+// The DIYA engine bakes a hidden 1.00 TPO into the rate; other investors pay a
+// different premium. In Admin Mode the admin can state the premium (0 allowed):
+// the comp preview (lo-comp-sizer.js) reads window._dscrAdminTpo, and the save
+// writes tpo / investorId / investorName -- the Closing tab's own Funding Plan
+// fields -- so the Closing tab fills itself. A changed TPO requires picking the
+// investor it's priced off of. _dscrAdminTpoSeed = "the current or saved TPO"
+// (from the loaded loan, else 1.00) = the reference for "modified".
+var _dscrInvestorBook = null;
+function _dscrEscAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _dscrTpoFrom(src) {
+  if (!src) return null;
+  var cands = [src._adminTpo, src.tpo, src.tpoPremium];
+  for (var i = 0; i < cands.length; i++) {
+    if (cands[i] == null || String(cands[i]).trim() === '') continue;
+    var n = parseFloat(String(cands[i]).replace(/[^0-9.\-]/g, ''));
+    if (isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+function _dscrRememberLoadedTpo(fd) {
+  // Called for EVERY loaded loan (admin mode or not) so toggling Admin Mode on
+  // later still seeds from what the Closing tab holds.
+  var t = _dscrTpoFrom(fd);
+  if (t != null) window._dscrAdminTpoSeed = t;
+  var id = fd && (fd._adminInvestorId || fd.investorId) || '';
+  var nm = fd && (fd._adminInvestorName || fd.investorName) || '';
+  if (id) window._dscrAdminInvestor = { id: String(id), name: String(nm || '') };
+}
+function _dscrAdminTpoInit(source) {
+  var el = document.getElementById('adminTpoInput');
+  if (!el) return;
+  var v = _dscrTpoFrom(source);
+  if (v == null && window._dscrAdminTpoSeed != null) v = window._dscrAdminTpoSeed;
+  if (v == null) v = 1.00; // DIYA
+  window._dscrAdminTpoSeed = v;
+  window._dscrAdminTpo = v;
+  el.value = (Math.round(v * 100) / 100).toFixed(2);
+  if (source) {
+    var id = source._adminInvestorId || source.investorId || '';
+    var nm = source._adminInvestorName || source.investorName || '';
+    if (id) window._dscrAdminInvestor = { id: String(id), name: String(nm || '') };
+  }
+  _dscrAdminInvestorPopulate();
+  _dscrAdminInvestorVisibility();
+}
+function onAdminTpoInput() {
+  var el = document.getElementById('adminTpoInput');
+  var v = (el && el.value !== '') ? parseFloat(el.value) : null;
+  window._dscrAdminTpo = (v != null && isFinite(v) && v >= 0) ? v : null;
+  _dscrAdminInvestorVisibility();
+  try { run(); } catch (_) {}
+}
+function _dscrAdminTpoModified() {
+  if (!window._dscrAdminMode || window._dscrAdminTpo == null) return false;
+  var seed = (window._dscrAdminTpoSeed != null) ? window._dscrAdminTpoSeed : 1;
+  return Math.abs(Number(window._dscrAdminTpo) - Number(seed)) > 0.0001;
+}
+function _dscrAdminInvestorVisibility() {
+  var f = document.getElementById('adminInvestorField');
+  if (!f) return;
+  var show = !!window._dscrAdminMode && (_dscrAdminTpoModified() || !!(window._dscrAdminInvestor && window._dscrAdminInvestor.id));
+  f.style.display = show ? '' : 'none';
+}
+function _dscrAdminInvestorPopulate() {
+  var sel = document.getElementById('adminInvestorSelect');
+  if (!sel) return;
+  function paint(list) {
+    var cur = (window._dscrAdminInvestor && window._dscrAdminInvestor.id) || '';
+    var html = '<option value="">\u2014 Select investor \u2014</option>';
+    var found = false;
+    (list || []).forEach(function (inv) {
+      if (!inv || !inv.id) return;
+      var lt = Array.isArray(inv.loanTypes) ? inv.loanTypes.map(function (t) { return String(t).toLowerCase(); }) : [];
+      if (lt.length && lt.indexOf('dscr') < 0) return; // DSCR buyers only
+      var id = String(inv.id);
+      if (id === cur) found = true;
+      html += '<option value="' + _dscrEscAttr(id) + '" data-name="' + _dscrEscAttr(inv.name || '') + '"' + (id === cur ? ' selected' : '') + '>' + escHtml(inv.name || 'Investor') + '</option>';
+    });
+    if (cur && !found) {
+      var nm = (window._dscrAdminInvestor && window._dscrAdminInvestor.name) || 'Selected investor';
+      html += '<option value="' + _dscrEscAttr(cur) + '" data-name="' + _dscrEscAttr(nm) + '" selected>' + escHtml(nm + ' (not in book)') + '</option>';
+    }
+    sel.innerHTML = html;
+  }
+  if (_dscrInvestorBook) { paint(_dscrInvestorBook); return; }
+  if (!(window.SLA && SLA.Investors && typeof SLA.Investors.list === 'function')) { paint([]); return; }
+  SLA.Investors.list().then(function (r) {
+    _dscrInvestorBook = ((r && r.investors) || []).slice().sort(function (a, b) { return String(a.name || '').localeCompare(String(b.name || '')); });
+    paint(_dscrInvestorBook);
+  }).catch(function () { paint([]); });
+}
+function onAdminInvestorChange() {
+  var sel = document.getElementById('adminInvestorSelect');
+  if (!sel) return;
+  var opt = sel.options[sel.selectedIndex];
+  window._dscrAdminInvestor = (sel.value && opt) ? { id: sel.value, name: opt.getAttribute('data-name') || opt.text || '' } : null;
+  _dscrAdminInvestorVisibility();
 }
 
 // Deploy 236.376 — label for the flat broker processing fee. Uses
@@ -3460,6 +3580,13 @@ function applyPhoneMask(el) {
 function saveCurrentQuote() {
   var r = calculate();
   if (r.error) { showToast('Fix errors before saving'); return; }
+  // Deploy 237.062 -- a changed TPO premium must say which investor it's priced off of.
+  if (window._dscrAdminMode && typeof _dscrAdminTpoModified === 'function' && _dscrAdminTpoModified() && !(window._dscrAdminInvestor && window._dscrAdminInvestor.id)) {
+    showToast('Admin Mode: select the investor this TPO premium is priced off of');
+    _dscrAdminInvestorVisibility();
+    var _invSel = document.getElementById('adminInvestorSelect'); if (_invSel) { try { _invSel.focus(); } catch (_) {} }
+    return;
+  }
   if (!r.address && !r.borrower) { showToast('Add an address or borrower name first'); return; }
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
 
@@ -3829,6 +3956,25 @@ function saveCurrentQuote() {
       if (loanRecord._sizerFormData) {
         loanRecord._sizerFormData._adminMode = !!window._dscrAdminMode;
         loanRecord._sizerFormData._adminFees = loanRecord._adminFees;
+      }
+    }
+    // Deploy 237.062 (Mike) -- Admin Mode TPO premium + the investor it's priced off
+    // of. tpo / investorId / investorName ARE the Closing tab's Funding Plan fields,
+    // so the Closing tab fills itself; the _admin* twins round-trip the sizer.
+    // Written only while Admin Mode is on with a TPO entered -- a plain re-save
+    // must never touch what the processor set at closing.
+    if (window._userIsAdmin && window._dscrAdminMode && window._dscrAdminTpo != null) {
+      var _tpo = Math.round(Number(window._dscrAdminTpo) * 100) / 100;
+      var _inv = (window._dscrAdminInvestor && window._dscrAdminInvestor.id) ? window._dscrAdminInvestor : null;
+      loanRecord.tpo = _tpo;
+      loanRecord._adminTpo = _tpo;
+      loanRecord._adminInvestorId = _inv ? _inv.id : '';
+      loanRecord._adminInvestorName = _inv ? (_inv.name || '') : '';
+      if (_inv) { loanRecord.investorId = _inv.id; loanRecord.investorName = _inv.name || ''; }
+      if (loanRecord._sizerFormData) {
+        loanRecord._sizerFormData._adminTpo = _tpo;
+        loanRecord._sizerFormData._adminInvestorId = loanRecord._adminInvestorId;
+        loanRecord._sizerFormData._adminInvestorName = loanRecord._adminInvestorName;
       }
     }
     var nameParts = (formData.borrower || '').trim().split(' ');
@@ -4216,6 +4362,9 @@ function loadQuoteIntoForm(formData) {
   // Deploy 236.299 — flip Admin Mode ON when the loaded loan carries
   // _adminMode: true. Guarded on the user being an admin (the toggle
   // is hidden otherwise, so this would be a no-op anyway).
+  // Deploy 237.062 -- remember the loaded loan's TPO / investor so Admin Mode seeds
+  // from the Closing tab even when the loan wasn't saved in Admin Mode.
+  if (typeof _dscrRememberLoadedTpo === 'function') { try { _dscrRememberLoadedTpo(formData); } catch (_) {} }
   if (typeof autoEnableAdminModeFrom === 'function') {
     autoEnableAdminModeFrom({
       _adminMode: formData._adminMode === true,
@@ -4227,6 +4376,10 @@ function loadQuoteIntoForm(formData) {
       // Deploy 236.526 — restore the custom fee schedule (sibling of
       // _adminMode on the saved record; round-trips the same way).
       _adminFees: formData._adminFees || null,
+      // Deploy 237.062 -- Admin Mode TPO premium + investor round-trip.
+      _adminTpo: formData._adminTpo, tpo: formData.tpo, tpoPremium: formData.tpoPremium,
+      _adminInvestorId: formData._adminInvestorId, investorId: formData.investorId,
+      _adminInvestorName: formData._adminInvestorName, investorName: formData.investorName,
     });
   }
   // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
