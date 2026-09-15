@@ -672,7 +672,7 @@ function _pmtStatusCells(l){
             : 'background:rgba(122,116,136,.10);color:var(--muted)';
   var dl = (l.daysLate === '' || l.daysLate == null) ? null : num(l.daysLate);
   return '<td><span class="stpill" style="'+style+'" title="'+escAttr(ps.title)+'">'+escH(ps.label)+'</span></td>' +
-    '<td class="cl-num">'+(dl==null?'<span class="cl-ph">—</span>':escH(String(dl)))+'</td>' +
+    '<td class="cl-num">'+(dl==null?'<span class="cl-ph">—</span>':(dl<0?'<span title="Paid ahead by '+escAttr(String(-dl))+' days">0</span>':escH(String(dl))))+'</td>' +
     _tdDate(l.nextDueDate) + _tdDate(l.paidToDate);
 }
 
