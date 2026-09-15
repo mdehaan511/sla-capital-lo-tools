@@ -338,7 +338,7 @@
       '.dr-root .dr-notes-status.saving { color:var(--muted); }',
       '.dr-root .dr-notes-status.saved  { color:var(--dr-green); }',
       '.dr-root .dr-notes-status.failed { color:var(--dr-red); }',
-      /* Deploy 237.043 — per-document note log */
+      /* Deploy 237.063 — per-document note log */
       '.dr-root .dr-note-list { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }',
       '.dr-root .dr-note { border:1px solid var(--border,#ddd8d0); border-left:3px solid var(--gold,#C8813A); border-radius:6px; background:#fff; padding:7px 10px; }',
       '.dr-root .dr-note.editing { border-left-color:#261a36; }',
