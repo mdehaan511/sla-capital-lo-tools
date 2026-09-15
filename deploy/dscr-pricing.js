@@ -181,7 +181,8 @@ const FEES = {
   underwriting: 995,
   doc_prep: 700,
   legal_doc: 500,
-  desktop_analysis: 200,        // Deploy 237.016 (Mike): was 120
+  desktop_analysis: 200,        // Deploy 237.016 (Mike): was 120 — DIYA loans ONLY
+  desktop_analysis_other: 120,  // Deploy 237.065 (Mike): any investor other than DIYA
 };
 
 // ══════════════════════════════════════════════════════════════════

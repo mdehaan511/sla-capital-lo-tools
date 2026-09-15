@@ -236,9 +236,12 @@ async function generateRateSheetPDF({ snapshot, loan, client, loProfile, loanAmt
   // Recompute fees against the (possibly overridden) loanAmt
   const origPct = points / 100;
   const origFee = loanAmt * origPct;
+  const invName = String(loan.investorName || '').trim();
+  const deskFee = (!invName || /diya/i.test(invName)) ? 200 : 120;
   let flatFees = 0;
   if (snapshot.tool === 'dscr') {
-    flatFees = 995 + 700 + 500 + 200; // $2,395 (Deploy 237.016)
+    // Deploy 237.065 (Mike): Desktop Analysis $200 on DIYA loans only, $120 with any other investor.
+    flatFees = 995 + 700 + 500 + deskFee;
   } else {
     flatFees = 600 + 900 + 500 + 150; // $2,150
   }
@@ -252,7 +255,7 @@ async function generateRateSheetPDF({ snapshot, loan, client, loProfile, loanAmt
     drawAdjRow(page, M, y, W - 2*M, 'Underwriting Fee', fmtMoney(995), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
     drawAdjRow(page, M, y, W - 2*M, 'Doc Prep Fee',     fmtMoney(700), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
     drawAdjRow(page, M, y, W - 2*M, 'Legal Doc Fee',    fmtMoney(500), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
-    drawAdjRow(page, M, y, W - 2*M, 'Desktop Analysis', fmtMoney(200), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
+    drawAdjRow(page, M, y, W - 2*M, 'Desktop Analysis', fmtMoney(deskFee), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
   } else {
     drawAdjRow(page, M, y, W - 2*M, 'Underwriting Fee', fmtMoney(600), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;
     drawAdjRow(page, M, y, W - 2*M, 'Doc Prep Fee',     fmtMoney(900), helv, helvBold, TEXT, MUTED, BORDER, false); y -= 18;

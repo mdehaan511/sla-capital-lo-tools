@@ -2951,6 +2951,18 @@
     window.showToast = _slaToast;
   }
 
+  // Deploy 237.065 (Mike) — the DSCR Desktop Analysis fee is $200 on DIYA loans only
+  // (237.016 raised it from $120); a loan sold to ANY other investor stays at $120.
+  // "No investor yet" = DIYA, because the DSCR engine prices off DIYA by default.
+  // Every page that shows or totals the DSCR flat fees goes through these so the
+  // sizer, Loan Details, the Home revenue estimate and Close Out agree.
+  function isDiyaInvestor(name) {
+    var n = String(name == null ? '' : name).trim();
+    return !n || /diya/i.test(n);
+  }
+  function dscrDesktopAnalysisFee(investorName) { return isDiyaInvestor(investorName) ? 200 : 120; }
+  function dscrFlatFees(investorName) { return 995 + 700 + 500 + dscrDesktopAnalysisFee(investorName); }
+
   window.SLA = {
     api: api,
     // Deploy 236.474 — expose the auth-agnostic token getter (Supabase session
@@ -3034,6 +3046,9 @@
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
+    isDiyaInvestor: isDiyaInvestor,                 // Deploy 237.065
+    dscrDesktopAnalysisFee: dscrDesktopAnalysisFee, // Deploy 237.065
+    dscrFlatFees: dscrFlatFees,                     // Deploy 237.065
     isSeniorLo: isSeniorLo, // Deploy 236.831
     isProcessor: isProcessor,
     isStaff: isStaff, // Deploy 236.266 — alias of isProcessor for scope callsites

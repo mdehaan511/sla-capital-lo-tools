@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="sla-api.js?v=236906"></script>
+  <script src="sla-api.js?v=237065"></script>
   <script src="sla-nav.js"></script>
 <script src="/sla-search.js"></script>
   <script src="sla-sizer-assign-lo.js"></script>
@@ -471,7 +471,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="dscr-pricing.js?v=237047"></script>
+<script src="dscr-pricing.js?v=237065"></script>
 <!-- Deploy 236.960 -- "Your expected commission" box under the results (shared comp model + sizer adapter). -->
 <script src="lo-comp.js?v=237059"></script>
 <script src="lo-comp-sizer.js?v=237059"></script>
@@ -1207,7 +1207,7 @@ function renderCashToCloseCard(r, effLoan) {
   var ptsFee = effLoan * pts;
   // Deploy 236.526 — Admin Sandbox: flat fees come from the custom fee editor
   // when Admin Mode is on; otherwise the standard $2,395 DSCR schedule.
-  var flatFees = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 200);
+  var flatFees = window._dscrAdminMode ? _dscrFlatFeesTotal() : _dscrStdFlatFees(); // Deploy 237.065 — $200 DIYA / $120 other
   var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
   var brokerDol = effLoan * brokerPts / 100;
   // Deploy 236.376 — flat broker processing fee, labeled with the
@@ -1583,7 +1583,7 @@ function _dscrDefaultFees() {
     { label: 'Underwriting Fee',        amount: F.underwriting },
     { label: 'Doc Prep Fee',            amount: F.doc_prep },
     { label: 'Legal / Document Review', amount: F.legal_doc },
-    { label: 'Desktop Analysis',        amount: F.desktop_analysis },
+    { label: 'Desktop Analysis',        amount: _dscrDesktopFee() }, // Deploy 237.065 — $200 DIYA / $120 other
   ];
 }
 function _dscrEnsureFeesSeeded() {
@@ -1645,7 +1645,7 @@ function _renderSlaFeesCardRows() {
     { label: 'Underwriting Fee', amount: 995 },
     { label: 'Doc Prep Fee',     amount: 700 },
     { label: 'Legal Fee',        amount: 500 },
-    { label: 'Desktop Analysis', amount: 200 },
+    { label: 'Desktop Analysis', amount: _dscrDesktopFee() }, // Deploy 237.065
   ];
   var html = '';
   list.forEach(function (f) {
@@ -1690,6 +1690,38 @@ function autoEnableAdminModeFrom(source) {
 // investor it's priced off of. _dscrAdminTpoSeed = "the current or saved TPO"
 // (from the loaded loan, else 1.00) = the reference for "modified".
 var _dscrInvestorBook = null;
+// Deploy %s (Mike) — Desktop Analysis is $200 on DIYA loans only; any other
+// investor is $120. The investor comes from the loaded loan (Closing tab →
+// _dscrRememberLoadedTpo) or the Admin Mode "Pricing off investor" select. No
+// investor = DIYA (the engine's default). SLA.dscrDesktopAnalysisFee is the
+// shared rule; the inline fallback only matters if sla-api.js failed to load.
+function _dscrInvestorName() {
+  var inv = window._dscrAdminInvestor;
+  if (!inv || !inv.id) return '';
+  if (inv.name) return String(inv.name);
+  var book = _dscrInvestorBook || [];
+  for (var i = 0; i < book.length; i++) { if (String(book[i].id) === String(inv.id)) return String(book[i].name || ''); }
+  return '';
+}
+function _dscrDesktopFee() {
+  var nm = _dscrInvestorName();
+  if (window.SLA && typeof SLA.dscrDesktopAnalysisFee === 'function') return SLA.dscrDesktopAnalysisFee(nm);
+  return (!nm || /diya/i.test(nm)) ? 200 : 120;
+}
+function _dscrStdFlatFees() { return 995 + 700 + 500 + _dscrDesktopFee(); }
+// When the investor changes, an Admin Mode fee list that still carries a
+// DEFAULT Desktop Analysis amount ($200 / $120) follows the new investor; an
+// amount the admin typed by hand is left alone.
+function _dscrSyncDesktopFeeDefault() {
+  if (!Array.isArray(window._dscrAdminFees)) return;
+  var want = _dscrDesktopFee();
+  window._dscrAdminFees.forEach(function (f) {
+    if (!f || !/desktop\s*analysis/i.test(String(f.label || ''))) return;
+    var a = parseFloat(f.amount);
+    if (a === 200 || a === 120) f.amount = want;
+  });
+  if (typeof renderAdminFeeList === 'function') { try { renderAdminFeeList(); } catch (_) {} }
+}
 function _dscrEscAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _dscrTpoFrom(src) {
   if (!src) return null;
@@ -1708,7 +1740,10 @@ function _dscrRememberLoadedTpo(fd) {
   if (t != null) window._dscrAdminTpoSeed = t;
   var id = fd && (fd._adminInvestorId || fd.investorId) || '';
   var nm = fd && (fd._adminInvestorName || fd.investorName) || '';
-  if (id) window._dscrAdminInvestor = { id: String(id), name: String(nm || '') };
+  // Deploy 237.065 — the loaded loan is the source of truth: a loan with no
+  // investor clears one left over from a previous load (it drives the fee now).
+  window._dscrAdminInvestor = id ? { id: String(id), name: String(nm || '') } : null;
+  _dscrSyncDesktopFeeDefault(); // Deploy 237.065
 }
 function _dscrAdminTpoInit(source) {
   var el = document.getElementById('adminTpoInput');
@@ -1724,6 +1759,7 @@ function _dscrAdminTpoInit(source) {
     var nm = source._adminInvestorName || source.investorName || '';
     if (id) window._dscrAdminInvestor = { id: String(id), name: String(nm || '') };
   }
+  _dscrSyncDesktopFeeDefault(); // Deploy 237.065
   _dscrAdminInvestorPopulate();
   _dscrAdminInvestorVisibility();
 }
@@ -1779,6 +1815,8 @@ function onAdminInvestorChange() {
   var opt = sel.options[sel.selectedIndex];
   window._dscrAdminInvestor = (sel.value && opt) ? { id: sel.value, name: opt.getAttribute('data-name') || opt.text || '' } : null;
   _dscrAdminInvestorVisibility();
+  _dscrSyncDesktopFeeDefault(); // Deploy 237.065 — Desktop Analysis $200 DIYA / $120 other
+  try { run(); } catch (_) {}
 }
 
 // Deploy 236.376 — label for the flat broker processing fee. Uses
@@ -1808,7 +1846,7 @@ function renderBrokerFeesCardRows() {
   // editor when Admin Mode is on. Re-render the itemized rows to match, and
   // total from the same source.
   _renderSlaFeesCardRows();
-  var FLAT = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 200);
+  var FLAT = window._dscrAdminMode ? _dscrFlatFeesTotal() : _dscrStdFlatFees(); // Deploy 237.065
   if (pts <= 0 && proc <= 0) {
     rowsEl.innerHTML = '';
     totalEl.textContent = '$' + Math.round(FLAT).toLocaleString();
@@ -2517,7 +2555,7 @@ function _generateRateSheetPDF(opts) {
       r.origFee    = r.loan * (1 + bd) / 100;
       r.buydownFee = r.loan * bd / 100;
       r.totalFees  = r.origFee
-        + (FEES ? (FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis) : (995+700+500+120));
+        + (window._dscrAdminMode ? _dscrFlatFeesTotal() : _dscrStdFlatFees()) /* Deploy 237.065 — matches the on-screen fee card */;
       try {
         if (typeof calcPI === 'function') {
           r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
@@ -2970,7 +3008,7 @@ function _generateRateSheetPDF(opts) {
         ['Underwriting Fee',        995],
         ['Doc Prep Fee',            700],
         ['Legal / Document Review', 500],
-        ['Desktop Analysis',        200],
+        ['Desktop Analysis',        _dscrDesktopFee()], // Deploy 237.065
       ];
   var feeRows;
   if (typeof __ovPtsFee === 'number' && isFinite(__ovPtsFee)) {
@@ -3765,7 +3803,7 @@ function saveCurrentQuote() {
     // the math simple: total fees = origination (using effective pts)
     // + flat fees. The buy-down line is folded into the override.
     var totalFeesEff = origFeeEff
-      + (FEES ? (FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis) : (995+700+500+120));
+      + (window._dscrAdminMode ? _dscrFlatFeesTotal() : _dscrStdFlatFees()) /* Deploy 237.065 — matches the on-screen fee card */;
     // Surface human-readable totals (used by Pipeline cards + Loans page)
     formData._finalRate = effRateForSave.toFixed(3);
     formData._maxLoan   = String(effLoanForSave);

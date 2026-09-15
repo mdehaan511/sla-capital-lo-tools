@@ -153,11 +153,16 @@ function _feesReserveHtml(l, isDscr, p) {
   var flat;
   if (isDscr) {
     var F = (typeof SLA_DSCR !== 'undefined' && SLA_DSCR.FEES) || { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 200 };
+    // Deploy 237.065 (Mike) — Desktop Analysis is $200 on DIYA loans only; any
+    // other investor (Closing tab → l.investorName) is $120.
+    var _desk = (window.SLA && typeof SLA.dscrDesktopAnalysisFee === 'function')
+      ? SLA.dscrDesktopAnalysisFee(l && l.investorName)
+      : ((l && l.investorName && !/diya/i.test(l.investorName)) ? 120 : F.desktop_analysis);
     flat = [
       { label: 'Underwriting Fee',        amount: F.underwriting },
       { label: 'Doc Prep Fee',            amount: F.doc_prep },
       { label: 'Legal / Document Review', amount: F.legal_doc },
-      { label: 'Desktop Analysis',        amount: F.desktop_analysis },
+      { label: 'Desktop Analysis',        amount: _desk },
     ];
   } else {
     flat = (l._adminFees && Array.isArray(l._adminFees) && l._adminFees.length)

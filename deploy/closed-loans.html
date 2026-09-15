@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Closed Loans — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js"></script>
+  <script src="sla-api.js?v=237065"></script>
   <script src="sla-nav.js"></script>
   <script src="/sla-search.js"></script>
   <script src="sla-notifications.js?v=237056"></script>
@@ -399,11 +399,12 @@ function monthlyYieldSpread(l){
 // Rate-sheet closing fees (DSCR) — single source of truth is dscr-pricing.js FEES
 // (underwriting + doc_prep + legal_doc + desktop_analysis). Origination is counted
 // separately via the loan's Points, so it is NOT included here (no double count).
-function rateSheetClosingFees(){
-  try { var F = window.SLA_DSCR && SLA_DSCR.FEES;
-    if (F) return num(F.underwriting) + num(F.doc_prep) + num(F.legal_doc) + num(F.desktop_analysis);
-  } catch(e){}
-  return 2395; // fallback = 995 + 700 + 500 + 200 (Deploy 237.016: Desktop Analysis $200)
+// Deploy 237.065 (Mike) — Desktop Analysis is $200 on DIYA loans only; any other
+// investor is $120, so the schedule depends on WHICH investor bought the loan.
+function rateSheetClosingFees(investorName){
+  try { if (window.SLA && typeof SLA.dscrFlatFees === 'function') return SLA.dscrFlatFees(investorName); } catch(e){}
+  var diya = !String(investorName||'').trim() || /diya/i.test(String(investorName));
+  return 995 + 700 + 500 + (diya ? 200 : 120);
 }
 function _defaultTpo(){ try { return window.SLA_DSCR && SLA_DSCR.DIYA ? num(SLA_DSCR.DIYA.HIDDEN_TPO_PCT) : 1; } catch(e){ return 1; } }
 // Profitability (Sold-DSCR) = (TPO spread + origination points)% × loan + closing fees.
@@ -412,7 +413,7 @@ function dscrProfitability(l){
   var _t = _closingTabTpo({ tpoSpread: l.tpoSpread, tpo: l.tpo, tpoPremium: l.tpoPremium }); // 237.016 — snapshot, else Closing tab
   var tpo = (l.tpoSpread != null && l.tpoSpread !== '') ? num(l.tpoSpread) : (_t !== '' ? num(_t) : _defaultTpo());
   var pts = num(l.points);
-  var fees = (l.closingFees != null && l.closingFees !== '') ? num(l.closingFees) : rateSheetClosingFees();
+  var fees = (l.closingFees != null && l.closingFees !== '') ? num(l.closingFees) : rateSheetClosingFees(l.investorName);
   return (tpo + pts) / 100 * amt + fees;
 }
 function _find(clientId, loanId, ownerKey){
@@ -1648,14 +1649,14 @@ function _closeOutFeesDefault(l, investorName){
   if (l && l.closingFees!=null && String(l.closingFees).trim()!=='') return { amount: num(l.closingFees), hint: 'saved on loan', fromLoan: true };
   var b = _bookInvestorByName(investorName) || _bookInvestorFor(l);
   if (b && b.closingFees!=null && String(b.closingFees).trim()!=='') return { amount: num(b.closingFees), hint: (b.name||'investor') + ' default', fromLoan: false };
-  return { amount: rateSheetClosingFees(), hint: 'rate sheet', fromLoan: false };
+  return { amount: rateSheetClosingFees(investorName), hint: 'rate sheet', fromLoan: false };
 }
 function _coInvestorChanged(){
   _validateRequired();
   var fe = document.getElementById('co_closingFees'); if (!fe || fe.getAttribute('data-auto')!=='1' || !_svcTarget) return;
   var inv = (document.getElementById('co_investorName')||{}).value || '';
   var b = _bookInvestorByName(inv);
-  var f = (b && b.closingFees!=null && String(b.closingFees).trim()!=='') ? { amount: num(b.closingFees), hint: (b.name||'investor') + ' default' } : { amount: rateSheetClosingFees(), hint: 'rate sheet' };
+  var f = (b && b.closingFees!=null && String(b.closingFees).trim()!=='') ? { amount: num(b.closingFees), hint: (b.name||'investor') + ' default' } : { amount: rateSheetClosingFees(inv), hint: 'rate sheet' };
   fe.value = String(f.amount);
   var h = document.getElementById('co_feesHint'); if (h) h.textContent = f.hint + ' — editable';
 }
@@ -1692,7 +1693,7 @@ function confirmCloseOut(){
     // Entered here because the Closing tab was blank → write it back there too.
     if (fields.tpoSpread && (l.tpo==null || String(l.tpo).trim()==='')) fields.tpo = fields.tpoSpread;
     var _feeRaw = String((document.getElementById('co_closingFees')||{}).value || '').replace(/[$,\s]/g,'');
-    fields.closingFees = (_feeRaw!=='' && isFinite(Number(_feeRaw))) ? String(Number(_feeRaw)) : String(rateSheetClosingFees());
+    fields.closingFees = (_feeRaw!=='' && isFinite(Number(_feeRaw))) ? String(Number(_feeRaw)) : String(rateSheetClosingFees(fields.investorName));
   }
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
