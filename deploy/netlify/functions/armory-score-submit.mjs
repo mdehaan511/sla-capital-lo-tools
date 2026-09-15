@@ -1,7 +1,7 @@
 /**
  * armory-score-submit.mjs — POST /api/armory-score-submit
  *
- * Deploy 237.072 (Mike) — game over → the score comes here with the run
+ * Deploy 237.073 (Mike) — game over → the score comes here with the run
  * token from armory-run-start. The server checks the token signature,
  * expiry and single-use, measures the ride's elapsed time itself, and
  * rejects anything that scores faster than the game can possibly pay out

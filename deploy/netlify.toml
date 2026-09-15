@@ -845,7 +845,7 @@
   status = 200
   force = true
 
-# Deploy 237.072 (Mike): The Armory -- team mini-game (Sir Lends-A-Lot's
+# Deploy 237.073 (Mike): The Armory -- team mini-game (Sir Lends-A-Lot's
 # Gallop) monthly leaderboard + events board. armory-state feeds both pages;
 # run-start / score-submit are the signed-token score path; armory-admin is
 # the events editor + score void.

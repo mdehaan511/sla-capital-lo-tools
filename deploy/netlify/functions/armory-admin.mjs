@@ -1,7 +1,7 @@
 /**
  * armory-admin.mjs — POST /api/armory-admin   (admin only)
  *
- * Deploy 237.072 (Mike) — the two things an admin does on armory.html:
+ * Deploy 237.073 (Mike) — the two things an admin does on armory.html:
  *
  *   { action: 'events-save', events: [...] }   replace the events board
  *   { action: 'score-void', month, email }     wipe a player's score for a

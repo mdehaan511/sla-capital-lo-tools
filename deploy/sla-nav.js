@@ -139,7 +139,7 @@
     // the Baseline-synced page lives on at /dashboard-baseline.html for the
     // reconciliation deep links, and /dashboard.html 301s to the SLA one.
     { label: 'Dashboard',   href: '/sla-dashboard.html',   requires: 'processor' },
-    // Deploy 237.072 (Mike) — The Armory: the team's fun corner. Monthly
+    // Deploy 237.073 (Mike) — The Armory: the team's fun corner. Monthly
     // high-score contest for the Sir Lends-A-Lot's Gallop mini-game plus an
     // events board (March Madness, Secret Santa, …). Team members only —
     // brokers and borrowers never see the link; the endpoints enforce the

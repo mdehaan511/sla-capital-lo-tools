@@ -1,7 +1,7 @@
 /**
  * armory-state.mjs — GET /api/armory-state
  *
- * Deploy 237.072 (Mike) — everything armory.html and the game need in one
+ * Deploy 237.073 (Mike) — everything armory.html and the game need in one
  * call: this month's Round Table (leaderboard), the caller's own row, the
  * Hall of Champions (past monthly winners + all-time top runs), and the
  * events board. Team members only (see _shared/armory.mjs).

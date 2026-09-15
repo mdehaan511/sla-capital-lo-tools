@@ -1,5 +1,5 @@
 /**
- * _shared/armory.mjs — Deploy 237.072 (Mike)
+ * _shared/armory.mjs — Deploy 237.073 (Mike)
  *
  * THE ARMORY: the team's fun corner. Today that is one mini-game
  * ("Sir Lends-A-Lot's Gallop", sir-lends-a-lot.html — an endless runner)
