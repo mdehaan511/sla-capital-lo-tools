@@ -242,6 +242,8 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, o
       fields.nextDueDate = row.nextDueDate;
       fields.paidToDate = row.paidToDate;
       if (row.daysLate != null) fields.daysLate = String(row.daysLate);
+      fields.achStatus = row.achStatus || '';          // Deploy 237.067 -- Servicing tab ACH column
+      fields.nextDebitDate = row.nextDebitDate || '';
     } else {
       fields.payoffDate = row.paidOffDate || row.lastPaymentDate;
       fields.payoffAmount = row.origBalance != null ? String(row.origBalance) : '';

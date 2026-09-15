@@ -119,6 +119,11 @@ export function normalizeSpLoan(raw, accountKey) {
     regularPayment: spNum(r.LoanTermsRegularPayment) != null ? spNum(r.LoanTermsRegularPayment) : spNum(r.LoanTermsPmtPI),
     pmtPI: spNum(r.LoanTermsPmtPI),
     daysLate: spNum(r.LoanDaysLate),
+    // Deploy 237.067 (Mike) -- ACH: their feed has no status flag, but LoanNextDebitDate
+    // is set only while an auto-debit is scheduled (probe 2026-09-15: 20 of 21 loans).
+    nextDebitDate: spDate(r.LoanNextDebitDate),
+    achStatus: spDate(r.LoanNextDebitDate) ? 'ACTIVE' : 'NONE',
+    debitAmount: spNum(r.LoanDebitAmount),
     serviceStatus: spNum(r.LoanServiceStatus),      // 1 = active on their side
     unpaidInterest: spNum(r.LoanTermsUnpaidInterest),
     unpaidLateCharges: spNum(r.LoanTermsUnpaidLateCharges),
