@@ -397,8 +397,8 @@
     // once anything has waited past the 24h escalation line.
     // Deploy 237.050 -- @-mentions first: someone is waiting on you by name.
     if (mentions.length) {
-      var _hasSvc = mentions.some(function(m){ return m.kind === 'servicing'; });
-      html += '<div class="sla-notif-hdr"><span>' + (_hasSvc ? 'Mentions & servicing alerts' : 'Mentions') + '</span><span class="count">' + mentions.length + '</span></div>';
+      var _hasSvc = mentions.some(function(m){ return m.kind && m.kind !== 'mention'; }); // Deploy 237.072 -- servicing + full-file alerts
+      html += '<div class="sla-notif-hdr"><span>' + (_hasSvc ? 'Mentions & alerts' : 'Mentions') + '</span><span class="count">' + mentions.length + '</span></div>';
       mentions.forEach(function(m){ html += renderMentionItem(m); });
     }
     if (mailN) {
@@ -459,6 +459,19 @@
           '<div class="body">' +
             '<div class="title">\u26A0\uFE0F ' + esc(m.title || 'Servicing alert') + '</div>' +
             '<div class="meta">' + esc(m.text || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+          '</div>' +
+        '</a>' +
+        '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+      '</div>';
+    }
+    // Deploy 237.072 (Mike) -- full file for underwriting: every required document is in.
+    if (m.kind === 'full_file') {
+      return '<div class="sla-notif-item due">' +
+        '<a href="' + esc(href) + '" class="sla-notif-link">' +
+          '<div class="pin"></div>' +
+          '<div class="body">' +
+            '<div class="title">\uD83D\uDCC1 Full file ready for UW: ' + esc(m.address || m.borrower || 'a loan') + '</div>' +
+            '<div class="meta">' + esc(m.snippet || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
           '</div>' +
         '</a>' +
         '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +

@@ -332,6 +332,23 @@
       '.dr-root .dr-ai-collapse > summary { cursor:pointer; font-size:12px; font-weight:600; color:var(--muted); padding:6px 0; list-style:none; }',
       '.dr-root .dr-ai-collapse > summary::before { content:"\u25b8 "; }',
       '.dr-root .dr-ai-collapse[open] > summary::before { content:"\u25be "; }',
+      // Deploy 237.072 (Mike, items 3 + 8) -- what-to-verify panel + full-file tracker.
+      '.dr-root .dr-verify { margin-bottom:10px; padding:10px 14px; border:1px solid var(--gold-border, rgba(200,129,58,0.28)); background:var(--gold-light, rgba(200,129,58,0.08)); border-radius:8px; font-size:12px; line-height:1.5; }',
+      '.dr-root .dr-verify h5 { margin:0 0 6px; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--gold-mid); }',
+      '.dr-root .dr-verify ul { margin:0 0 8px; padding-left:18px; }',
+      '.dr-root .dr-verify li { margin:2px 0; }',
+      '.dr-root .dr-verify .kv { display:flex; flex-wrap:wrap; gap:4px 16px; }',
+      '.dr-root .dr-verify .kv b { color:var(--text); }',
+      '.dr-root .dr-fullfile { margin:0 0 16px; padding:12px 16px; border:1px solid var(--border); background:#fff; border-radius:10px; font-size:12px; }',
+      '.dr-root .dr-fullfile.complete { border-color:var(--dr-green-border); background:var(--dr-green-light); }',
+      '.dr-root .dr-fullfile .ff-head { display:flex; justify-content:space-between; align-items:center; gap:12px; font-weight:700; font-size:13px; }',
+      '.dr-root .dr-fullfile .ff-pct { font-size:12px; color:var(--muted); }',
+      '.dr-root .dr-fullfile .ff-bar { height:8px; border-radius:4px; background:#ece7df; margin:8px 0; overflow:hidden; }',
+      '.dr-root .dr-fullfile .ff-fill { height:100%; background:var(--gold-mid, #b5712d); border-radius:4px; }',
+      '.dr-root .dr-fullfile.complete .ff-fill { background:var(--dr-green); }',
+      '.dr-root .dr-fullfile .ff-missing-label { display:inline-block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--dr-red); margin:4px 0; }',
+      '.dr-root .dr-fullfile .ff-sec { margin:2px 0; line-height:1.5; }',
+      '.dr-root .dr-fullfile .ff-note { margin-top:6px; font-size:11px; color:var(--muted); }',
       '.dr-root .tray-body { padding:4px 18px 18px; border-top:1px solid var(--border); background:#fcfaf6; }',
       '.dr-root .tray-body.collapsed { display:none; }',
 
@@ -853,7 +870,8 @@
     // refs only) so a future re-add doesn't have to re-wire the
     // backend path.
 
-    _root.innerHTML = summary + sourcePanel + tabs + toolbar + traysHtml + bottom;
+    var fullFileHtml = (_activeTab === 'uw') ? _renderFullFileCard() : ''; // Deploy 237.072 (item 8)
+    _root.innerHTML = summary + sourcePanel + tabs + toolbar + fullFileHtml + traysHtml + bottom;
     _restoreScrollAnchor(_anchor); // Deploy 237.046
 
     // Deploy 236.533 — fill the borrower/broker invite status line async.
@@ -1304,6 +1322,159 @@
     return d.isCustom === true || /^(custom_|other_)/.test(String(slug || ''));
   }
 
+  // ── Deploy 237.072 (Mike, UW phase 3) — "what to verify" + full-file tracker ─────
+  // On Ready for UW each tray leads with the rubric's checks and the loan's
+  // EXPECTED values for that document (entity name of record, guarantors,
+  // amounts, liquidity requirement, freshness window) so the underwriter
+  // verifies instead of re-deriving. Facts come from the review's loan / client
+  // snapshot + the Articles tray's extracted name; nothing is computed the UW
+  // can't see the basis for.
+  function _fmtMoney(v) { var n = _num(v); return n ? '$' + Math.round(n).toLocaleString() : ''; }
+  function _num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+  function _loanFacts() {
+    var L = _review.sourceLoanSnapshot || {};
+    var C = _review.sourceClientSnapshot || {};
+    var art = (_review.docs || {}).articles_of_organization || {};
+    var ee = art.aiExtractedEntities || {};
+    var entityOfRecord = (art.aiReviewedAt && typeof ee.llcName === 'string' && ee.llcName.trim()) ? ee.llcName.trim() : '';
+    var entity = entityOfRecord || C.entityName || L.entityName || L.llcName || '';
+    var borrower = _review.borrowerName || ((C.firstName || '') + ' ' + (C.lastName || '')).trim();
+    var gs = (Array.isArray(L.guarantors) ? L.guarantors : []).map(function(g) {
+      return g ? (((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '') : '';
+    }).filter(Boolean);
+    if (!gs.length && borrower) gs = [borrower];
+    var loanAmt = _num(L.loanAmt) || _num(_review.loanAmount);
+    var pp = _num(L.purchasePrice), rehab = _num(L.rehabBudget), arv = _num(L.arv);
+    var rate = _num(L.rate); if (rate > 0 && rate < 1) rate = rate * 100;
+    var points = _num(L.points);
+    var isDscr = String(_review.loanType || '').toLowerCase() === 'dscr';
+    var purpose = String(L.loanPurpose || L.purpose || L.transactionType || '');
+    var cashOut = /cash/i.test(purpose);
+    var liq = [];
+    if (isDscr) {
+      var months = loanAmt > 2000000 ? 9 : loanAmt > 1000000 ? 6 : 3;
+      liq.push(months + ' months PITIA' + (loanAmt ? ' (loan ' + (loanAmt > 2000000 ? '> $2M' : loanAmt > 1000000 ? '$1M–$2M' : '≤ $1M') + ')' : ''));
+      if (cashOut) liq.push('+ 3 months (cash-out)');
+      if (loanAmt) liq.push('liquid net worth post-close ≥ ' + _fmtMoney(loanAmt * 0.05) + ' (5% of loan)');
+    } else {
+      var initial = (loanAmt && rehab && loanAmt > rehab) ? loanAmt - rehab : loanAmt;
+      var down = (pp && initial && pp > initial) ? pp - initial : 0;
+      var twenty = rehab ? rehab * 0.2 : 0;
+      var interest6 = (loanAmt && rate) ? loanAmt * (rate / 100) / 12 * 6 : 0;
+      var total = down + twenty + interest6;
+      liq.push('down payment ' + (down ? _fmtMoney(down) : '(purchase price − initial loan)') +
+        ' + 20% of rehab ' + (twenty ? _fmtMoney(twenty) : '') +
+        ' + 6 months interest ' + (interest6 ? _fmtMoney(interest6) : '') +
+        (total ? ' = ' + _fmtMoney(total) : ''));
+    }
+    return {
+      entity: entity, entityOfRecord: entityOfRecord, borrower: borrower, guarantors: gs,
+      address: _review.address || L.address || '', loanAmt: loanAmt, purchasePrice: pp, rehab: rehab, arv: arv,
+      rate: rate, points: points, rent: _num(L.rent), isDscr: isDscr, liquidity: liq.join('; '),
+      close: _review.expectedCloseDate || L.fundingDate || L.closeDate || '',
+    };
+  }
+  var _EXPECT_RULES = [
+    [/^(articles_of_organization|certificate_of_good_standing|ein_letter|ein_or_w9|ofac_entity|operating_agreement|entity_background_check|foreign_entity_registration)$/, ['entity', 'guarantors']],
+    [/^(guarantor_id|proof_of_citizenship|credit_authorization|guarantor_background_check|ofac_personal|pfs|guarantor_loe|borrower_loe|track_record|track_record_reo|vom|voh_corrfirst)$/, ['guarantors']],
+    [/^credit_report$/, ['guarantors', 'fico', 'fresh']],
+    [/^bank_stmt_(current|previous)$/, ['holder', 'liquidity', 'fresh']],
+    [/^(voided_check|voided_check_ach|executed_ach_form|draw_wire_form)$/, ['holder']],
+    [/^(loan_application|term_sheet|commitment_letter|revised_loan_terms|letter_of_intent|outstanding_conditions|exception_request)$/, ['borrower', 'entity', 'address', 'loanAmt', 'rate', 'points']],
+    [/^(psa|assignment_agreement|cost_basis)$/, ['buyer', 'purchasePrice', 'address']],
+    [/^sow$/, ['rehab', 'address']],
+    [/^(appraisal|appraisal_receipt|bpo_valuation|air|cda_report|property_profile|property_condition_assessment|environmental_survey|feasibility_study)/, ['address', 'purchasePrice', 'arv', 'loanAmt']],
+    [/^(evidence_of_insurance|property_insurance_binder|insurance_invoice|proof_of_insurance_pif|flood_insurance_policy|condo_insurance)$/, ['insured', 'address', 'coverage']],
+    [/^(flood_certificate|condo_documents|condo_hoa_docs|architectural_plans|building_permits|gc_review)$/, ['address']],
+    [/^(lease_agreements|proof_of_security_deposit|property_mgmt_summary|property_mgmt_agreement|property_mgmt_questionnaire)$/, ['landlord', 'address', 'rent']],
+    [/^(title_commitment|cpl|title_eo_insurance|title_escrow_contact|prelim_settlement|final_hud|tax_certificate|wire_instructions|emd_receipt|borrower_closing_funds_receipt|payoff_demand|mortgage_statements_payoffs|closing_w9|executed_closing_documents|executed_deed|original_doc_tracking|invoice)$/, ['entity', 'address', 'loanAmt', 'title', 'close']],
+  ];
+  function _expectedFor(slug, meta) {
+    var base = String(slug || '').replace(/__p\d+$/, '');
+    var keys = ['borrower', 'entity', 'address', 'loanAmt'];
+    for (var i = 0; i < _EXPECT_RULES.length; i++) { if (_EXPECT_RULES[i][0].test(base)) { keys = _EXPECT_RULES[i][1]; break; } }
+    var f = _loanFacts();
+    var out = [];
+    var ficoM = /(\d{3})/.exec(String((meta && meta.conditions) || ''));
+    var staleDays = { bank_stmt_current: 60, bank_stmt_previous: 60, certificate_of_good_standing: 90, entity_background_check: 90, guarantor_background_check: 90, ofac_entity: 90, ofac_personal: 90, credit_report: 120, appraisal: 120, appraisal_receipt: 120 };
+    keys.forEach(function(k) {
+      switch (k) {
+        case 'entity':   if (f.entity) out.push(['Entity name' + (f.entityOfRecord ? ' (per recorded Articles)' : ' (per loan record)'), f.entity]); break;
+        case 'borrower': if (f.borrower) out.push(['Borrower', f.borrower]); break;
+        case 'guarantors': if (f.guarantors.length) out.push(['Guarantor' + (f.guarantors.length > 1 ? 's' : ''), f.guarantors.join(', ')]); break;
+        case 'holder':   out.push(['Account holder', [f.entity, f.guarantors.join(', ')].filter(Boolean).join(' or ') || '—']); break;
+        case 'buyer':    if (f.entity) out.push(['Buyer', f.entity]); break;
+        case 'insured':  if (f.entity) out.push(['Named insured', f.entity]); break;
+        case 'landlord': if (f.entity) out.push(['Landlord', f.entity]); break;
+        case 'address':  if (f.address) out.push(['Property', f.address]); break;
+        case 'loanAmt':  if (f.loanAmt) out.push(['Loan amount', _fmtMoney(f.loanAmt)]); break;
+        case 'purchasePrice': if (f.purchasePrice) out.push(['Purchase price', _fmtMoney(f.purchasePrice)]); break;
+        case 'arv':      if (f.arv) out.push(['ARV', _fmtMoney(f.arv)]); break;
+        case 'rehab':    if (f.rehab) out.push(['Rehab budget', _fmtMoney(f.rehab)]); break;
+        case 'rate':     if (f.rate) out.push(['Rate', f.rate.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') + '%']); break;
+        case 'points':   if (f.points) out.push(['Points', String(f.points)]); break;
+        case 'rent':     if (f.rent) out.push(['Monthly rent', _fmtMoney(f.rent)]); break;
+        case 'fico':     if (ficoM) out.push(['Minimum middle score', ficoM[1]]); break;
+        case 'liquidity': if (f.liquidity) out.push(['Liquidity required', f.liquidity]); break;
+        case 'coverage': if (f.loanAmt) out.push(['Coverage', '≥ ' + _fmtMoney(f.loanAmt) + ' (loan amount) or 100% replacement cost; $1M liability']); break;
+        case 'title':    if (f.loanAmt) out.push(["Lender's title coverage", _fmtMoney(f.loanAmt * 1.25) + ' (125% of loan)']); break;
+        case 'close':    if (f.close) out.push(['Expected close', f.close]); break;
+        case 'fresh':    if (staleDays[base]) out.push(['Max age', staleDays[base] + ' days']); break;
+      }
+    });
+    return out;
+  }
+  function _renderVerifyPanel(slug, d, meta) {
+    // (no lookbehind -- older Safari in the field offices can't parse it; the split eats the period, which is fine)
+    var checks = String((meta && meta.conditions) || '').split(/[.;?]\s+(?=[A-Z“"(])/).map(function(s) { return s.replace(/[.;?]\s*$/, '').trim(); }).filter(Boolean).slice(0, 10);
+    var expected = _expectedFor(slug, meta);
+    if (!checks.length && !expected.length) return '';
+    return '<div class="dr-verify">' +
+      '<h5>What to verify</h5>' +
+      (checks.length ? '<ul>' + checks.map(function(c) { return '<li>' + escHtml(c) + '</li>'; }).join('') + '</ul>' : '') +
+      (expected.length ? '<div class="kv">' + expected.map(function(kv) { return '<span><b>' + escHtml(kv[0]) + ':</b> ' + escHtml(kv[1]) + '</span>'; }).join('') + '</div>' : '') +
+    '</div>';
+  }
+  // Full-file tracker (item 8): required trays = docs[slug].required (stamped at
+  // review creation from the checklist); hidden trays don't count; a tray is "in"
+  // with a live document or an N/A. Mirrors _shared/review-full-file.mjs.
+  function _fullFileStatus() {
+    var docs = (_review && _review.docs) || {};
+    var required = 0, have = 0, missing = [];
+    Object.keys(docs).forEach(function(s) {
+      var dd = docs[s] || {};
+      if (dd.required !== true || dd.hidden) return;
+      required++;
+      if (_trayHasDoc(dd) || dd.verdict === 'na') have++; else missing.push(s);
+    });
+    return { required: required, have: have, missing: missing, complete: required > 0 && have === required };
+  }
+  function _renderFullFileCard() {
+    var st = _fullFileStatus();
+    if (!st.required) return '';
+    var pct = Math.round(st.have / st.required * 100);
+    var bySec = {};
+    st.missing.forEach(function(s) {
+      var m = DOC_META[s] || {}; var dd = _review.docs[s] || {};
+      var sec = m.section || dd.section || 'loan';
+      (bySec[sec] = bySec[sec] || []).push(m.label || dd.label || s);
+    });
+    var missingHtml = st.missing.length
+      ? SECTIONS.map(function(sec) {
+          var list = bySec[sec.key] || [];
+          if (!list.length) return '';
+          return '<div class="ff-sec"><b>' + escHtml(sec.label) + ':</b> ' + list.map(escHtml).join(' · ') + '</div>';
+        }).join('')
+      : '';
+    return '<div class="dr-fullfile' + (st.complete ? ' complete' : '') + '">' +
+      '<div class="ff-head"><span class="ff-title">' + (st.complete ? '\u2713 Full file — every required document is in' : 'Full file: ' + st.have + ' of ' + st.required + ' required documents in') + '</span>' +
+        '<span class="ff-pct">' + pct + '%</span></div>' +
+      '<div class="ff-bar"><div class="ff-fill" style="width:' + pct + '%"></div></div>' +
+      (missingHtml ? '<div class="ff-missing"><span class="ff-missing-label">Missing (' + st.missing.length + ')</span>' + missingHtml + '</div>' : '') +
+      (_review.fullFileNotifiedAt ? '<div class="ff-note">Processor + admins notified ' + escHtml(formatDate(_review.fullFileNotifiedAt)) + '</div>' : '') +
+    '</div>';
+  }
+
   function renderTray(slug) {
     var d = _review.docs[slug] || {};
     // Deploy 236.162 — custom trays store label/conditions/section
@@ -1490,6 +1661,8 @@
     // →cleared). Audited (createdBy/clearedBy).
     var conds = _renderDocConditions(d, slug);
 
+    // Deploy 237.072 (item 3) -- what the underwriter should be checking, up top.
+    var verifyHtml = (_stage === 'uw' && !d.hidden) ? _renderVerifyPanel(slug, d, meta) : '';
     var verdictBtns;
     if (d.hidden) {
       // Deploy 237.071 (item 6) -- a hidden tray waits for the underwriter to confirm (or unhide, below).
@@ -1659,6 +1832,7 @@
         // Deploy 236.987 (processing team) — Conditions + processor notes
         // LEAD the tray, above the document list: they are the action items,
         // and at the bottom they were off-screen on any tray with docs.
+        verifyHtml + // Deploy 237.072
         conds +
         notes +
         currentHtml +

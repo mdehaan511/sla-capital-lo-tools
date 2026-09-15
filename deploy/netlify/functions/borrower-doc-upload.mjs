@@ -39,6 +39,7 @@ import {
 import { canReadLoan } from './_shared/access.mjs';
 // Deploy 236.895 — admin "view as a borrower" (read-only).
 import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
+import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -189,6 +190,8 @@ async function handle(req, context) {
 
   try { await reviewsStore.setJSON(keySafe(review.id), review); }
   catch (e) { return json(500, { error: 'Failed to save review: ' + (e && e.message || 'unknown') }); }
+  // Deploy 237.072 (Mike, item 8) -- a borrower upload can complete the file too.
+  try { await checkFullFile(review.id); } catch (_) {}
 
   return json(200, {
     ok:       true,

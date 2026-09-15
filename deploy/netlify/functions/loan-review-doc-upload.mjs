@@ -31,6 +31,7 @@ import {
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
+import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
@@ -596,6 +597,9 @@ async function handle(req, context) {
   if (body.slug === 'articles_of_organization' && !_bgQueued && docState.aiReviewedAt) {
     try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
   }
+  // Deploy 237.072 (Mike, item 8) -- was that the last required document? Then the
+  // processor + admins hear about it (bell + email), once per review.
+  try { await checkFullFile(body.reviewId); } catch (_) {}
   return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _bgQueued });
 }
 
