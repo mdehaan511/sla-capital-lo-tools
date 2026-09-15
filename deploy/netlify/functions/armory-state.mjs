@@ -11,7 +11,7 @@
  */
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { normalizeEmail } from './_shared/auth.mjs';
-import { isTeamMember, monthKey, monthLabel, daysLeftInMonth, listAllMonths, getEvents, GAME_ID } from './_shared/armory.mjs';
+import { isTeamMember, monthKey, monthLabel, daysLeftInMonth, listAllMonths, getEvents, legendsFrom, GAME_ID } from './_shared/armory.mjs';
 
 export default async (req, context) => {
   try {
@@ -39,9 +39,13 @@ export default async (req, context) => {
     }));
     const allTime = Object.keys(bestByPlayer).map((k) => bestByPlayer[k]).sort((a, b) => b.best - a.best).slice(0, 10);
 
+    // Deploy 237.063 — the three best scores ever, permanent (the monthly
+    // board resets; this never does).
+    const legends = legendsFrom(byMonth, 3);
+
     return json(200, {
       ok: true, gameId: GAME_ID, month, monthLabel: monthLabel(month), daysLeft: daysLeftInMonth(now),
-      board, me, champions, allTime, events, isAdmin: isAdmin(user),
+      board, me, champions, allTime, legends, events, isAdmin: isAdmin(user),
     });
   } catch (e) {
     console.error('armory-state error:', e);

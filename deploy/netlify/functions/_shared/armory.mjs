@@ -185,6 +185,20 @@ export async function listAllMonths() {
 }
 
 /**
+ * Deploy 237.063 (Mike) — Legends of the Realm: the top N scores EVER,
+ * across every month. Never reset. A player can hold more than one seat
+ * (their best from different months) — it is literally the top scores.
+ * Rows carry monthLabel so the page can say when the ride happened.
+ */
+export function legendsFrom(byMonth, n) {
+  const rows = [];
+  Object.keys(byMonth || {}).forEach((m) => (byMonth[m] || []).forEach((r) => {
+    rows.push(Object.assign({ monthLabel: monthLabel(r.month || m) }, r, { month: r.month || m }));
+  }));
+  return rows.sort((a, b) => b.best - a.best || String(a.bestAt).localeCompare(String(b.bestAt))).slice(0, n || 3);
+}
+
+/**
  * Record a finished run. `run` = { runId, issuedAt, score, coins, distance,
  * durationMs }. Returns { accepted, reason?, best, isNewBest, row }.
  */

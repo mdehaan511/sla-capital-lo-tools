@@ -59,6 +59,23 @@
     .banner .pennant { position: absolute; top: -6px; width: 34px; height: 70px; background: var(--crimson); clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 75%, 0 100%); box-shadow: inset 0 0 0 3px rgba(0,0,0,0.15); }
     .banner .pennant.l { left: 28px; } .banner .pennant.r { right: 28px; }
 
+    /* ── Legends of the Realm (Deploy 237.063): all-time top 3, never resets ── */
+    .legends { margin-top: 20px; border-radius: var(--r); padding: 14px 18px 16px; background: linear-gradient(180deg, #4a2e18, #2b1a0d); border: 3px solid var(--royal);
+      box-shadow: inset 0 0 0 5px #3a2313, inset 0 0 0 6px rgba(201,161,74,0.45), 0 12px 30px rgba(40,25,10,0.3); color: #f7f0dc; }
+    .legends h2 { font-family: 'Cinzel', serif; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; color: #f3d98a; text-align: center; margin-bottom: 4px; }
+    .legends .lede { text-align: center; font-size: 12px; color: rgba(247,240,220,0.7); margin-bottom: 12px; }
+    .plaques { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    @media (max-width: 640px) { .plaques { grid-template-columns: 1fr; } }
+    .plaque { border-radius: 10px; padding: 12px 14px; text-align: center; border: 2px solid rgba(201,161,74,0.55); background: rgba(0,0,0,0.25); position: relative; }
+    .plaque .rk { font-family: 'Cinzel Decorative', 'Cinzel', serif; font-weight: 900; font-size: 22px; line-height: 1; }
+    .plaque.g { border-color: #f3d98a; background: linear-gradient(180deg, rgba(243,217,138,0.22), rgba(0,0,0,0.25)); } .plaque.g .rk { color: #f3d98a; }
+    .plaque.s .rk { color: #d9dde2; } .plaque.b .rk { color: #e0a06a; }
+    .plaque .sc { font-family: 'DM Mono', monospace; font-size: 24px; font-weight: 500; color: #fff; margin-top: 4px; }
+    .plaque .nm { font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; margin-top: 4px; color: #f7f0dc; }
+    .plaque .mo { font-size: 11px; color: rgba(247,240,220,0.65); margin-top: 2px; }
+    .plaque.empty { border-style: dashed; opacity: 0.6; }
+    .plaque.empty .sc { font-size: 16px; font-family: 'DM Sans', sans-serif; font-style: italic; color: rgba(247,240,220,0.7); }
+
     .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; }
     @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .banner h1 { font-size: 28px; } }
 
@@ -177,6 +194,12 @@
         <div class="swords">⚔ 🛡 ⚔</div>
         <h1>The Armory</h1>
         <p>Where the knights of SLA Capital compete for glory, swag and bragging rights.</p>
+      </div>
+
+      <div class="legends">
+        <h2>⚜ Legends of the Realm ⚜</h2>
+        <div class="lede">The three greatest rides ever taken. The Round Table below resets every month — these seats never do.</div>
+        <div class="plaques" id="legends"><div class="plaque empty"><div class="sc">Reading the chronicles…</div></div></div>
       </div>
 
       <div class="grid">
@@ -328,7 +351,7 @@
     SLA.api('GET', '/api/armory-state').then(function (st) {
       _state = st || {};
       _events = Array.isArray(_state.events) ? _state.events : [];
-      renderRoundTable(); renderChampions(); renderEvents();
+      renderLegends(); renderRoundTable(); renderChampions(); renderEvents();
       document.getElementById('evAdmin').style.display = _state.isAdmin ? 'block' : 'none';
     }).catch(function (err) {
       document.getElementById('rtTable').innerHTML = '<div class="empty">The scroll could not be read: ' + escH(err && err.message || 'unknown') + '</div>';
@@ -377,6 +400,24 @@
     } else {
       s.innerHTML = '<div class="standing">🛡 You have not ridden this month. <a href="/sir-lends-a-lot.html" style="color:var(--crimson);font-weight:700">Saddle up →</a></div>';
     }
+  }
+
+  // Deploy 237.063 — permanent all-time top 3 (server: legendsFrom).
+  function renderLegends() {
+    var lg = (_state && _state.legends) || [];
+    var me = String((_user && _user.email) || '').toLowerCase();
+    var cls = ['g', 's', 'b'], rk = ['I', 'II', 'III'];
+    var html = '';
+    for (var i = 0; i < 3; i++) {
+      var r = lg[i];
+      if (r) {
+        html += '<div class="plaque ' + cls[i] + '"><div class="rk">' + rk[i] + '</div><div class="sc">' + fmt(r.best) + '</div>' +
+          '<div class="nm">' + escH(r.name || r.email) + (r.email === me ? ' (you)' : '') + '</div><div class="mo">' + escH(r.monthLabel || fmtMonth(r.month)) + '</div></div>';
+      } else {
+        html += '<div class="plaque ' + cls[i] + ' empty"><div class="rk">' + rk[i] + '</div><div class="sc">seat unclaimed</div></div>';
+      }
+    }
+    document.getElementById('legends').innerHTML = html;
   }
 
   function renderChampions() {

@@ -13,7 +13,7 @@
  *   say "you're #3 at the Round Table" without a second call.
  */
 import { handleOptions, json, requireAuth, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
-import { isTeamMember, verifyRunToken, recordRun, listMonth, monthKey, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
+import { isTeamMember, verifyRunToken, recordRun, listMonth, listAllMonths, legendsFrom, monthKey, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
 
 export default async (req, context) => {
   try {
@@ -37,9 +37,17 @@ export default async (req, context) => {
     const board = await listMonth(month);
     const email = normalizeEmail(user.email);
     const rankIdx = board.findIndex((r) => r.email === email);
+    // Deploy 237.063 — did this ride enter the permanent all-time top 3?
+    // Only worth the extra prefix read when the run set a new personal best.
+    let legendRank = null;
+    if (result.accepted && result.isNewBest) {
+      const legends = legendsFrom(await listAllMonths(), 3);
+      const li = legends.findIndex((r) => r.email === email && r.month === month && r.best === result.best);
+      if (li >= 0) legendRank = li + 1;
+    }
     return json(200, {
       ok: true, accepted: result.accepted, reason: result.reason || '', best: result.best, isNewBest: result.isNewBest,
-      rank: rankIdx >= 0 ? rankIdx + 1 : null, players: board.length,
+      rank: rankIdx >= 0 ? rankIdx + 1 : null, players: board.length, legendRank,
       top: board[0] ? { name: board[0].name, best: board[0].best, email: board[0].email } : null, month,
     });
   } catch (e) {

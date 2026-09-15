@@ -117,6 +117,11 @@
         <h2>This month's Round Table <span id="boardMonth"></span></h2>
         <ol id="boardList"><li class="empty">Loading the scrolls…</li></ol>
       </div>
+      <!-- Deploy 237.063 — the permanent all-time top 3 (never resets). -->
+      <div class="board" style="background:rgba(58,35,19,0.92);color:#f7f0dc;border-color:var(--royal)">
+        <h2 style="color:#f3d98a">⚜ Legends of the Realm <span style="color:rgba(247,240,220,0.65)">all-time top 3 · never resets</span></h2>
+        <ol id="legendList"><li class="empty" style="color:rgba(247,240,220,0.65)">—</li></ol>
+      </div>
     </div>
   </div>
 
@@ -187,6 +192,17 @@
       return '<li class="' + (r.email === me ? 'me' : '') + '"><span>' + (medals[i] || (i + 1) + '.') + ' ' + escH(shortName(r.name)) + '</span><span class="n">' + fmt(r.best) + '</span></li>';
     }).join('');
     document.getElementById('boardList').innerHTML = html || '<li class="empty">No knight has ridden yet this month. The table is yours for the taking.</li>';
+    // Deploy 237.063 — all-time top 3, permanent.
+    var lg = st.legends || [];
+    var seats = ['I', 'II', 'III'];
+    var lhtml = '';
+    for (var k = 0; k < 3; k++) {
+      var L = lg[k];
+      lhtml += '<li style="border-color:rgba(247,240,220,0.2)' + (L && L.email === me ? ';color:#f3d98a;font-weight:700' : '') + '"><span>' + seats[k] + '. ' +
+        (L ? escH(shortName(L.name)) + ' <span style="opacity:0.6;font-size:11px">' + escH(L.monthLabel || '') + '</span>' : '<span style="opacity:0.6;font-style:italic">seat unclaimed</span>') +
+        '</span><span class="n">' + (L ? fmt(L.best) : '—') + '</span></li>';
+    }
+    document.getElementById('legendList').innerHTML = lhtml;
   }
 
   // ── Sound (tiny WebAudio bleeps; off switch remembered per browser) ──
@@ -623,7 +639,9 @@
         _myBest = r.best || _myBest;
         if (r.top && r.top.best) { _topBest = r.top.best; _topName = shortName(r.top.name); }
         var who = r.rank ? '#' + r.rank + ' of ' + r.players : '';
-        if (r.isNewBest && r.rank === 1) setResult('👑 New personal best — you sit at the head of the Round Table! (' + fmt(r.best) + ')', true);
+        // Deploy 237.063 — entering the permanent all-time top 3 outranks everything else.
+        if (r.legendRank) setResult('⚜ LEGEND OF THE REALM — the #' + r.legendRank + ' ride of all time (' + fmt(r.best) + '). That seat never resets.', true);
+        else if (r.isNewBest && r.rank === 1) setResult('👑 New personal best — you sit at the head of the Round Table! (' + fmt(r.best) + ')', true);
         else if (r.isNewBest) setResult('🏆 New personal best! You are ' + who + ' at the Round Table. ' + (_topBest > r.best ? fmt(_topBest - r.best) + ' behind ' + _topName + '.' : ''), true);
         else setResult('Recorded. Your best this month stays at ' + fmt(r.best) + ' (' + who + ').', true);
         loadState();
