@@ -66,6 +66,35 @@ export async function queueTruthRefresh(opts) {
   }
 }
 
+// Deploy 237.074 (Mike) -- the point of truth also went stale when the TERMS changed:
+// a sizer re-price (higher purchase price / lower loan = bigger down payment)
+// or a Loan Details Terms/Valuation edit never queued the refresher, so the
+// UW panel kept showing the old liquidity requirement and the AI kept grading
+// bank statements against it. Callers diff before/after and queue when one of
+// these fields moved. Cheap no-op when the loan has no review (refresher
+// returns skipped:no-review) and coalesced server-side within 10 minutes.
+export const TRUTH_MATERIAL_FIELDS = [
+  'loanAmt', 'purchasePrice', 'rehabBudget', 'arv', 'arvBpo', 'aivBpo', 'propValue', 'currentLoanAmt',
+  'rate', 'points', 'loanTerm', 'loanType', 'isIO', 'downPayment', 'initialAdvance', 'holdback',
+  'loanPurpose', 'purpose', 'transactionType', 'address', 'entityName', 'llcName', 'rent', 'monthlyRent',
+  'toolType', 'fundingDate', 'expectedCloseDate', 'closeDate',
+];
+export function truthMaterialChanges(before, after) {
+  const b = before || {}, a = after || {};
+  const norm = (v) => (v == null ? '' : String(v)).trim();
+  return TRUTH_MATERIAL_FIELDS.filter((k) => norm(b[k]) !== norm(a[k]));
+}
+export async function queueTruthRefreshIfMaterial(opts) {
+  try {
+    const changed = truthMaterialChanges(opts && opts.before, opts && opts.after);
+    if (!changed.length) return { ok: true, skipped: 'no-material-change' };
+    return await queueTruthRefresh({
+      ownerKey: opts.ownerKey, clientId: opts.clientId, loanId: opts.loanId, actorEmail: opts.actorEmail,
+      reason: (opts.reason || 'loan terms updated') + ': ' + changed.slice(0, 6).join(', ') + (changed.length > 6 ? ', …' : ''),
+    });
+  } catch (e) { return { ok: false, reason: e && e.message }; }
+}
+
 // Deploy 237.049 -- Articles-as-truth follow-up (237.041/043). Every tray whose
 // rubric compares the entity name to the ENTITY NAME OF RECORD is graded either
 // "unclear - Articles not reviewed yet" or against a stale name until the Articles

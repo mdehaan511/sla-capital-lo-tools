@@ -269,7 +269,7 @@ async function handle(req, context) {
   const _props = buildProposals(_extractSpec, aiResult.extractedFields, docLabel);
   if (isCurrentTarget) {
     docState.aiExtractedFields = aiResult.extractedFields || {};
-    const _bpoAlert = bpoAlertFor(body.slug, _props, review.snapshotLoan);
+    const _bpoAlert = bpoAlertFor(body.slug, _props, review.sourceLoanSnapshot || review.snapshotLoan);
     if (_bpoAlert !== null) docState.bpoAlert = _bpoAlert;
     // Deploy 236.777 — felony hard stop on a background check (RTL + DSCR).
     const _felAlert = felonyAlertFor(body.slug, _props);
@@ -298,8 +298,11 @@ async function _saveReview(store, review, now) {
 // Mirror of the helper in loan-review-doc-upload.mjs — small enough
 // to inline rather than pull into a shared file.
 function _buildLoanContext(review) {
-  const client = review.snapshotClient || {};
-  const loan   = review.snapshotLoan   || {};
+  // Deploy 237.074 (Mike) -- staff-created reviews store source*Snapshot (loan-reviews-save +
+  // the truth refresher); only borrower-created reviews have snapshot*. Reading just
+  // the latter meant background / re-reviews ran with NO loan amount, borrower or entity.
+  const client = review.sourceClientSnapshot || review.snapshotClient || {};
+  const loan   = review.sourceLoanSnapshot   || review.snapshotLoan   || {};
   const pick = (k) => loan[k] || review[k] || '';
   return {
     propertyAddress: review.address || loan.address || '',
@@ -310,6 +313,7 @@ function _buildLoanContext(review) {
     borrowerName:    ((client.firstName || '') + ' ' + (client.lastName || '')).trim(),
     entityName:      client.entityName || '',
     articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
+    guarantorNames: (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
     loanType:        review.loanType || '',
     fundingDate:     pick('fundingDate') || review.expectedCloseDate || '',
   };

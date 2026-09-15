@@ -30,6 +30,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
+import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs'; // Deploy 237.074
 
 const FIELDS = {
   // Terms
@@ -221,6 +222,9 @@ async function handle(req, context) {
       changes: diffLoan(_beforeLoan, loan),
     });
   } catch (e) { console.warn('loan-fields-save: change log failed (non-fatal):', e && e.message); }
+  // Deploy 237.074 (Mike) -- Terms / Valuation edits refresh the Doc Review's point of truth.
+  try { await queueTruthRefreshIfMaterial({ ownerKey, clientId, loanId, before: _beforeLoan, after: loan, actorEmail: selfEmail, reason: 'loan terms updated on Loan Details' }); }
+  catch (e) { console.warn('loan-fields-save: truth refresh queue failed (non-fatal):', e && e.message); }
 
   return json(200, { ok: true, fields: applied });
 }

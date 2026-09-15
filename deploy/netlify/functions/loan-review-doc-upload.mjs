@@ -513,7 +513,7 @@ async function handle(req, context) {
     const _n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
     const _aivProp = Array.isArray(_fieldProposals) ? _fieldProposals.find((p) => p && p.key === 'aivBpo') : null;
     const _aivNum  = _aivProp ? _n(_aivProp.value) : 0;
-    const _ppNum   = _n(review.snapshotLoan && review.snapshotLoan.purchasePrice);
+    const _ppNum   = _n((review.sourceLoanSnapshot || review.snapshotLoan || {}).purchasePrice); // Deploy 237.074
     if (_aivNum > 0 && _ppNum > 0 && _aivNum < _ppNum) {
       docState.bpoAlert = 'BPO as-is value ($' + _aivNum.toLocaleString('en-US') + ') is BELOW the purchase price ($' +
         _ppNum.toLocaleString('en-US') + ') — this loan needs to be repriced due to the BPO.';
@@ -609,9 +609,9 @@ async function handle(req, context) {
 // so the AI is judging against the underwritten loan, not whatever
 // the LO has since changed on the underlying record.
 function buildLoanContext(review) {
-  const loan = review.sourceLoanSnapshot || {};
+  const loan = review.sourceLoanSnapshot || review.snapshotLoan || {}; // Deploy 237.074 -- borrower-created reviews store snapshotLoan
   const fd   = loan.formData || {};
-  const client = review.sourceClientSnapshot || {};
+  const client = review.sourceClientSnapshot || review.snapshotClient || {}; // Deploy 237.074
   function pick(k) {
     if (loan[k] != null && loan[k] !== '') return loan[k];
     if (fd[k]   != null && fd[k]   !== '') return fd[k];
@@ -625,6 +625,7 @@ function buildLoanContext(review) {
     borrowerEmail: client.email || '',
     entityName:    client.entityName || '',
     articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
+    guarantorNames: (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
     loanType:      review.loanType || '',
     fundingDate:   pick('fundingDate') || review.expectedCloseDate || '',
   };

@@ -37,14 +37,16 @@
     { key: 'closing',   label: 'Closing Documents'   },
   ];
   var DOC_META = {
-    articles_of_organization: { label: 'Articles of Organization', section: 'borrower', conditions: 'Verify LLC name matches loan application.' },
+    // Deploy 237.074 (Mike) -- the Articles are the SOURCE of the LLC name; the item to find is the LLC name, not the guarantor.
+    articles_of_organization: { label: 'Articles of Organization', section: 'borrower', conditions: 'Recorded copy stamped by the Secretary of State. Identify the LLC name exactly as filed (not the organizer / member / guarantor name). This name is the entity name of record every other entity document is compared against.' },
     entity_background_check:  { label: 'Entity Background Check',  section: 'borrower', conditions: 'No bankruptcies, liens, or judgements within 90 days of close date.' },
-    bank_stmt_current:        { label: 'Current-Month Bank Statements', section: 'borrower', conditions: 'Liquidity requirements met? Borrower’s ownership of accounts verified?' },
-    bank_stmt_previous:       { label: 'Previous-Month Bank Statements', section: 'borrower', conditions: 'Liquidity requirements met? Borrower’s ownership of accounts verified?' },
-    certificate_of_good_standing: { label: 'Certificate of Good Standing', section: 'borrower', conditions: 'Within last 90 days; correct LLC listed; state seal; Secretary of State signature.' },
-    ein_or_w9:                { label: 'EIN Letter or W9', section: 'borrower', conditions: 'If no EIN letter, request a W9 instead.' },
-    ofac_entity:              { label: 'OFAC Check (Entity)', section: 'borrower', conditions: 'Entity name on OFAC report matches AOO exactly.' },
-    operating_agreement:      { label: 'Operating Agreement', section: 'borrower', conditions: 'Verify LLC name; identify all owners with 20%+ ownership; all signatures + initials present.' },
+    // Deploy 237.074 (Mike) -- holder may be the entity or ANY guarantor, 100% owned; full statements only.
+    bank_stmt_current:        { label: 'Current-Month Bank Statements', section: 'borrower', conditions: 'Full bank-generated statement or Account Transaction History (not a screenshot or photo). Account holder is the borrowing entity or any guarantor. Account is 100% owned by those parties (no non-guarantor person or other entity on the account). Liquidity requirement met.' },
+    bank_stmt_previous:       { label: 'Previous-Month Bank Statements', section: 'borrower', conditions: 'Full bank-generated statement or Account Transaction History (not a screenshot or photo). Account holder is the borrowing entity or any guarantor. Account is 100% owned by those parties (no non-guarantor person or other entity on the account). Liquidity requirement met.' },
+    certificate_of_good_standing: { label: 'Certificate of Good Standing', section: 'borrower', conditions: 'Dated within the last 90 days. LLC name matches the recorded Articles. State seal. Secretary of State signature.' },
+    ein_or_w9:                { label: 'EIN Letter or W9', section: 'borrower', conditions: 'Entity name matches the recorded Articles. Readable EIN. Note the date of the letter. If no EIN letter, a signed W-9 instead.' },
+    ofac_entity:              { label: 'OFAC Check (Entity)', section: 'borrower', conditions: 'Entity name searched on the OFAC report matches the recorded Articles exactly.' },
+    operating_agreement:      { label: 'Operating Agreement', section: 'borrower', conditions: 'LLC name matches the recorded Articles. Identify all owners with 20%+ ownership. All signatures + initials present.' },
     track_record_reo:         { label: 'Track Record / REO Schedule', section: 'borrower', conditions: 'Max of 6 properties needed. Confirm all cells are filled in with reasonable info.' },
     voided_check_ach:         { label: 'Voided Check / ACH Letter', section: 'borrower', conditions: 'Account that borrower wants to make monthly payments from.' },
     track_record:             { label: 'Track Record', section: 'borrower', conditions: 'Max of 8 properties needed for top pricing. Confirm all cells filled in with reasonable info.' },
@@ -1332,8 +1334,8 @@
   function _fmtMoney(v) { var n = _num(v); return n ? '$' + Math.round(n).toLocaleString() : ''; }
   function _num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
   function _loanFacts() {
-    var L = _review.sourceLoanSnapshot || {};
-    var C = _review.sourceClientSnapshot || {};
+    var L = _review.sourceLoanSnapshot || _review.snapshotLoan || {}; // Deploy 237.074 -- borrower-created reviews store snapshotLoan
+    var C = _review.sourceClientSnapshot || _review.snapshotClient || {};
     var art = (_review.docs || {}).articles_of_organization || {};
     var ee = art.aiExtractedEntities || {};
     var entityOfRecord = (art.aiReviewedAt && typeof ee.llcName === 'string' && ee.llcName.trim()) ? ee.llcName.trim() : '';
@@ -1375,11 +1377,19 @@
     };
   }
   var _EXPECT_RULES = [
-    [/^(articles_of_organization|certificate_of_good_standing|ein_letter|ein_or_w9|ofac_entity|operating_agreement|entity_background_check|foreign_entity_registration)$/, ['entity', 'guarantors']],
+    // Deploy 237.074 (Mike) -- entity docs are compared to the LLC name (the Articles are its source); the
+    // guarantor list is NOT what these documents are checked against. COGS: entity + the
+    // certificate's own date (90-day window). EIN / W-9: entity + the letter's date. Only the
+    // Operating Agreement (members / owners) still lists the people.
+    [/^articles_of_organization$/, ['llcToFind']],
+    [/^certificate_of_good_standing$/, ['entity', 'docDate', 'fresh']],
+    [/^(ein_or_w9|ein_letter)$/, ['entity', 'docDate']],
+    [/^(ofac_entity|entity_background_check|foreign_entity_registration)$/, ['entity']],
+    [/^operating_agreement$/, ['entity', 'members']],
     [/^(guarantor_id|proof_of_citizenship|credit_authorization|guarantor_background_check|ofac_personal|pfs|guarantor_loe|borrower_loe|track_record|track_record_reo|vom|voh_corrfirst)$/, ['guarantors']],
     [/^credit_report$/, ['guarantors', 'fico', 'fresh']],
     [/^bank_stmt_(current|previous)$/, ['holder', 'liquidity', 'fresh']],
-    [/^(voided_check|voided_check_ach|executed_ach_form|draw_wire_form)$/, ['holder']],
+    [/^(voided_check|voided_check_ach|executed_ach_form|draw_wire_form)$/, ['holderOnly']], // Deploy 237.074 -- entity (per Articles) or any guarantor
     [/^(loan_application|term_sheet|commitment_letter|revised_loan_terms|letter_of_intent|outstanding_conditions|exception_request)$/, ['borrower', 'entity', 'address', 'loanAmt', 'rate', 'points']],
     [/^(psa|assignment_agreement|cost_basis)$/, ['buyer', 'purchasePrice', 'address']],
     [/^sow$/, ['rehab', 'address']],
@@ -1402,7 +1412,12 @@
         case 'entity':   if (f.entity) out.push(['Entity name' + (f.entityOfRecord ? ' (per recorded Articles)' : ' (per loan record)'), f.entity]); break;
         case 'borrower': if (f.borrower) out.push(['Borrower', f.borrower]); break;
         case 'guarantors': if (f.guarantors.length) out.push(['Guarantor' + (f.guarantors.length > 1 ? 's' : ''), f.guarantors.join(', ')]); break;
-        case 'holder':   out.push(['Account holder', [f.entity, f.guarantors.join(', ')].filter(Boolean).join(' or ') || '—']); break;
+        // Deploy 237.074 (Mike) -- every acceptable holder listed; 100% owned by those parties.
+        case 'holder':   out.push(['Account holder (any ONE of)', [].concat(f.entity ? [f.entity] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); out.push(['Ownership', '100% by the entity / guarantors above — no non-guarantor person or other entity on the account']); out.push(['Format', 'Full bank-generated statement or Account Transaction History — not a screenshot or photo']); break;
+        case 'llcToFind': out.push(['LLC name to identify', 'the entity name as filed with the state' + (f.entity ? ' — expected: ' + f.entity + (f.entityOfRecord ? ' (per this tray\'s last review)' : ' (per loan record; the Articles govern if they differ)') : '')]); out.push(['Not the', 'organizer / member / guarantor name']); break;
+        case 'members':  if (f.guarantors.length) out.push(['Members / guarantors', f.guarantors.join(', ')]); break;
+        case 'holderOnly': out.push(['Account holder (any ONE of)', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
+        case 'docDate':  (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var ee = dd.aiExtractedEntities || {}; var dt = String(ee.documentDate || ee.expirationDate || '').trim(); out.push(['Document date', dt ? dt + ' (per the last AI read — confirm on the document)' : 'confirm the issue date printed on the document']); })(); break;
         case 'buyer':    if (f.entity) out.push(['Buyer', f.entity]); break;
         case 'insured':  if (f.entity) out.push(['Named insured', f.entity]); break;
         case 'landlord': if (f.entity) out.push(['Landlord', f.entity]); break;

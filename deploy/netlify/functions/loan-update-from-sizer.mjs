@@ -45,6 +45,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // PG-first writeClient helper (blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
+import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs'; // Deploy 237.074
 
 export default async (req, context) => {
   try {
@@ -394,6 +395,8 @@ async function handle(req, context) {
       source: 'Sizer', changes: diffLoan(prior, merged),
     });
   } catch (e) { console.warn('loan-update-from-sizer: change log failed (non-fatal):', e && e.message); }
+  try { await queueTruthRefreshIfMaterial({ ownerKey, clientId: client.id, loanId: merged.id, before: prior, after: merged, actorEmail: normalizeEmail(user.email), reason: 'loan terms updated in the sizer' }); } // Deploy 237.074
+  catch (e) { console.warn('loan-update-from-sizer: truth refresh queue failed (non-fatal):', e && e.message); }
 
   return json(200, { ok: true, loan: merged, clientId: client.id, quotesSynced: 0 });
 }

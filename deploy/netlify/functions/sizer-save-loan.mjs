@@ -67,6 +67,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // store mutated.
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
+import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs'; // Deploy 237.074
 import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
@@ -614,6 +615,12 @@ async function handle(req, context) {
       source: _src, changes: _changes,
     });
   } catch (e) { console.warn('sizer-save-loan: change log failed (non-fatal):', e && e.message); }
+  // Deploy 237.074 (Mike) -- a re-priced term sheet must refresh the Doc Review's point of
+  // truth (liquidity requirement, amounts the UW verifies against). Fire-and-forget.
+  if (!loanCreated) {
+    try { await queueTruthRefreshIfMaterial({ ownerKey, clientId: client.id, loanId: loanRecord.id, before: _beforeSizerLoan, after: loanRecord, actorEmail: normalizeEmail(user.email), reason: 'loan terms updated in the sizer' }); }
+    catch (e) { console.warn('sizer-save-loan: truth refresh queue failed (non-fatal):', e && e.message); }
+  }
 
   // Response shape includes `client` and `loan` so it's a drop-in
   // replacement for both Clients.upsert (returned resp.client) and

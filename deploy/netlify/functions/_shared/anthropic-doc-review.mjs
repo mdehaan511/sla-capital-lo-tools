@@ -317,6 +317,10 @@ function buildSystemPrompt(opts) {
   // Articles, not the loan application. The Articles tray's extracted name is handed
   // in as the ENTITY NAME OF RECORD line in the user prompt.
   lines.push("• The ENTITY / LLC NAME is governed by the recorded Articles of Organization, NOT the loan application. When a rubric says 'matches the Articles' or 'ENTITY NAME OF RECORD', compare against the ENTITY NAME OF RECORD line in the user prompt (the name extracted from the Articles tray on this loan); ignore letter case and punctuation, but a different word (e.g. 'Drive' vs 'DR', a missing 'LLC', a different word order) is a mismatch. This applies to EVERY entity document (COGS, EIN letter / W-9, OFAC and background reports, operating agreement, foreign registration): if a rubric compares an entity name to the loan application, read it as a comparison to the ENTITY NAME OF RECORD instead - agreeing with the loan application's spelling proves nothing. For a search-type report (OFAC, background check) the name that was SEARCHED must be the name of record; a search run under a different spelling of the entity name is a defect on that report. If that line says the Articles have not been reviewed yet, mark the name-match condition 'unclear' and say so. NEVER claim the Articles do not exist, and NEVER fail a document merely because its entity name differs from the loan application — a loan-application name that differs from the Articles is a defect on the loan application.");
+  // Deploy 237.074 (Mike) -- Articles: find the LLC name, never the guarantor. Bank statements:
+  // the holder may be the entity OR any guarantor (100% owned; no outside holder).
+  lines.push("• ARTICLES OF ORGANIZATION: the item to identify is the LLC / ENTITY NAME as filed. Organizer, member, manager, and registered-agent names on the filing are NOT the entity name. Never compare the Articles to the guarantor or borrower name.");
+  lines.push("• BANK STATEMENTS / ACCOUNT OWNERSHIP: when a rubric checks the account holder, ANY name in the ACCEPTABLE ACCOUNT HOLDERS line of the user prompt satisfies it (the borrowing entity or any guarantor). The account must be 100% owned by those parties -- an additional holder who is not on that list (another person or another entity) fails the ownership condition. Only full bank-generated statements or a bank-generated Account Transaction History are acceptable; screenshots and photos of an online-banking page are not.");
   lines.push("• A finding's `condition` field should paraphrase one of the explicit rubric conditions you actually checked — not a check you made up.");
   lines.push("• `verdict: 'approved'` requires every applicable rubric condition to be met. Issues elsewhere in the doc that aren't part of the rubric do NOT downgrade the verdict.");
   return lines.join('\n');
@@ -347,6 +351,15 @@ function buildPrompt(opts) {
   // application PDF is attached -- so 'matches the Articles' is actually checkable
   // (3528 Park: the EIN review said no Articles existed because none were handed in).
   const _articlesName = String(ctx.articlesEntityName || '').trim();
+  // Deploy 237.074 (Mike) -- who may own a bank / payment account: the entity of record
+  // (or the loan-record entity until the Articles are reviewed) and EVERY guarantor.
+  const _holders = [];
+  (_articlesName ? [_articlesName] : []).concat(ctx.entityName && !_articlesName ? [String(ctx.entityName).trim()] : [])
+    .concat(Array.isArray(ctx.guarantorNames) ? ctx.guarantorNames : []).concat(ctx.borrowerName ? [String(ctx.borrowerName).trim()] : [])
+    .forEach(function (n) { n = String(n || '').replace(/\s+/g, ' ').trim(); if (n && !_holders.some(function (h) { return h.toLowerCase() === n.toLowerCase(); })) _holders.push(n); });
+  const _holdersBlock = _holders.length
+    ? 'ACCEPTABLE ACCOUNT HOLDERS (any ONE of these names satisfies an account-holder / account-ownership condition; the account must be 100% owned by these parties): ' + _holders.map(function (h) { return '"' + h + '"'; }).join(', ') + '.'
+    : '';
   const _articlesBlock = _articlesName
     ? 'ENTITY NAME OF RECORD (from the recorded Articles of Organization on file for this loan): "' + _articlesName + '". This — not the loan application — governs the borrowing entity name.'
     : 'ENTITY NAME OF RECORD: the Articles of Organization have NOT been reviewed yet for this loan, so no name of record is available. For any "matches the Articles" condition, mark it "unclear" and say the Articles are not yet reviewed. Do NOT say the Articles do not exist, and do NOT fail this document for a name that differs from the loan application.';
@@ -401,6 +414,7 @@ function buildPrompt(opts) {
     opts.docConditions || '(no conditions specified)',
     '',
     _articlesBlock,
+    _holdersBlock,
     '',
     hasLoanApp
       ? 'CROSS-REFERENCE: when the rubric says "match X to the loan application" or similar, look it up directly in the attached Loan Application PDF. That PDF is the source of truth for borrower name, property address, and loan amount — but NOT the entity / LLC name, which is governed by the ENTITY NAME OF RECORD above (from the Articles).'
