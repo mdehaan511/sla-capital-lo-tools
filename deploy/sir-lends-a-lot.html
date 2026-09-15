@@ -112,7 +112,8 @@
         </div>
       </div>
       <div id="result"></div>
-      <div class="hint"><kbd>Space</kbd> / <kbd>↑</kbd> / tap the field to jump &nbsp;·&nbsp; scores reset on the 1st of every month</div>
+      <div id="practiceNote" class="hint" style="display:none;background:rgba(201,161,74,0.18);border:1px solid rgba(201,161,74,0.5);border-radius:10px;padding:8px 12px;color:var(--ink);font-size:13px"></div>
+      <div class="hint"><kbd>Space</kbd> / <kbd>↑</kbd> / tap the field to jump &nbsp;·&nbsp; the Round Table resets on the 1st; the quest rotates every month</div>
       <div class="board">
         <h2>This month's Round Table <span id="boardMonth"></span></h2>
         <ol id="boardList"><li class="empty">Loading the scrolls…</li></ol>
@@ -177,12 +178,21 @@
 
   function paintState() {
     var st = _state || {};
-    var board = st.board || [];
-    _myBest = st.me ? (st.me.best || 0) : 0;
+    // Deploy 237.083 — the state's board is the month's QUEST. In a month where
+    // the quest is another game, this page is practice: no board, a pointer.
+    var isQuest = !st.gameId || st.gameId === 'gallop';
+    var note = document.getElementById('practiceNote');
+    if (note) {
+      note.style.display = isQuest ? 'none' : 'block';
+      note.innerHTML = isQuest ? '' : '🛡 <b>Practice month.</b> ' + escH((st.quest && st.quest.name) || 'Another game') + ' is this month\'s quest, so rides here are not recorded. ' +
+        (st.quest && st.quest.href ? '<a href="' + escH(st.quest.href) + '">Play the quest →</a>' : '');
+    }
+    var board = isQuest ? (st.board || []) : [];
+    _myBest = isQuest && st.me ? (st.me.best || 0) : 0;
     _topBest = board[0] ? board[0].best : 0;
     _topName = board[0] ? shortName(board[0].name) : '';
     document.getElementById('hudBest').textContent = _myBest ? fmt(_myBest) : '—';
-    document.getElementById('hudRank').textContent = st.me ? ('#' + st.me.rank + ' of ' + board.length + ' · ' + st.me.runs + ' ride' + (st.me.runs === 1 ? '' : 's')) : 'no rides yet this month';
+    document.getElementById('hudRank').textContent = !isQuest ? 'practice — not scored' : st.me ? ('#' + st.me.rank + ' of ' + board.length + ' · ' + st.me.runs + ' ride' + (st.me.runs === 1 ? '' : 's')) : 'no rides yet this month';
     document.getElementById('hudTop').textContent = _topBest ? fmt(_topBest) : '—';
     document.getElementById('hudTopWho').textContent = _topBest ? _topName : 'nobody yet — claim it';
     document.getElementById('boardMonth').textContent = (st.monthLabel || '') + (st.daysLeft ? ' · ' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' left' : '');
@@ -191,9 +201,9 @@
     var html = board.slice(0, 10).map(function (r, i) {
       return '<li class="' + (r.email === me ? 'me' : '') + '"><span>' + (medals[i] || (i + 1) + '.') + ' ' + escH(shortName(r.name)) + '</span><span class="n">' + fmt(r.best) + '</span></li>';
     }).join('');
-    document.getElementById('boardList').innerHTML = html || '<li class="empty">No knight has ridden yet this month. The table is yours for the taking.</li>';
-    // Deploy 237.077 — all-time top 3, permanent.
-    var lg = st.legends || [];
+    document.getElementById('boardList').innerHTML = html || (isQuest ? '<li class="empty">No knight has ridden yet this month. The table is yours for the taking.</li>' : '<li class="empty">The Round Table belongs to ' + escH((st.quest && st.quest.name) || 'the quest') + ' this month.</li>');
+    // Deploy 237.077 — all-time top 3, permanent. (237.083: per game.)
+    var lg = (st.legendsByGame && st.legendsByGame.gallop) || st.legends || [];
     var seats = ['I', 'II', 'III'];
     var lhtml = '';
     for (var k = 0; k < 3; k++) {
@@ -429,7 +439,7 @@
     var player, obstacles, pickups, floats, banner;
     var nextObstacleAt, nextCoinAt, milestoneIdx, crashLine;
     var houses = [], HOUSE_STRIP = 2600, clouds = [];
-    var runToken = null, runTokenPromise = null, fireTick = 0;
+    var runToken = null, runTokenPromise = null, fireTick = 0, _practiceQuest = null;
     var seed = 7;
     function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }   // deterministic scenery
     function rand(a, b) { return a + Math.random() * (b - a); }
@@ -487,7 +497,11 @@
       // Ask the server for the signed run token NOW (not on page load) so
       // its issue time is the ride's real start — that is what the score
       // cap is measured against. The token isn't needed until game over.
-      runTokenPromise = SLA.api('POST', '/api/armory-run-start').then(function (r) {
+      // Deploy 237.083 — quest rotation: in a month where another game is the
+      // quest the server answers { practice: true } and the ride is unscored.
+      _practiceQuest = null;
+      runTokenPromise = SLA.api('POST', '/api/armory-run-start', { game: 'gallop' }).then(function (r) {
+        if (r && r.practice) { _practiceQuest = r.quest || {}; runToken = null; return null; }
         runToken = (r && r.token) || null; return runToken;
       }).catch(function () { runToken = null; return null; });
     }
@@ -630,6 +644,7 @@
       var p = runTokenPromise || Promise.resolve(null);
       setResult('Sending your score to the Round Table…', true);
       p.then(function (token) {
+        if (!token && _practiceQuest) { setResult('Practice ride — ' + (_practiceQuest.name || 'another game') + ' is this month\'s quest, so this score is not recorded.', false); return null; }
         if (!token) { setResult('Score not recorded — the Round Table could not be reached. Check your connection and ride again.', false); return null; }
         payload.token = token;
         return SLA.api('POST', '/api/armory-score-submit', payload);

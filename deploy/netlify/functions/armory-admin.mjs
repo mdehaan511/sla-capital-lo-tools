@@ -10,7 +10,7 @@
  * Returns: { ok, events } or { ok, removed }
  */
 import { handleOptions, json, requireAuth, isAdmin, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
-import { saveEvents, voidScore, isMonthKey } from './_shared/armory.mjs';
+import { saveEvents, voidScore, isMonthKey, isGameId, questForMonth } from './_shared/armory.mjs';
 import { sendTownCrier, latestTownCrier } from './_shared/town-crier.mjs'; // Deploy 237.082
 
 export default async (req, context) => {
@@ -31,8 +31,9 @@ export default async (req, context) => {
       const month = String(body.month || '');
       const email = normalizeEmail(body.email);
       if (!isMonthKey(month) || !email) return json(400, { error: 'month (YYYY-MM) and email are required' });
-      const removed = await voidScore(month, email);
-      console.log('[armory] score voided', { month, email, by: normalizeEmail(user.email) });
+      const game = isGameId(body.game) ? body.game : questForMonth(month).id; // Deploy 237.083 — per game
+      const removed = await voidScore(month, email, game);
+      console.log('[armory] score voided', { month, email, game, by: normalizeEmail(user.email) });
       return json(200, { ok: true, removed });
     }
     // Deploy 237.082 — Town Crier controls. 'crier-send-test' emails the

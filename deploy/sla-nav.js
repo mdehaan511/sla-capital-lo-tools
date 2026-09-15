@@ -144,7 +144,7 @@
     // events board (March Madness, Secret Santa, …). Team members only —
     // brokers and borrowers never see the link; the endpoints enforce the
     // same gate server-side. `match` keeps the trigger lit on the game page.
-    { label: 'Armory',      href: '/armory.html',           requires: 'staff', match: ['/sir-lends-a-lot.html'] },
+    { label: 'Armory',      href: '/armory.html',           requires: 'staff', match: ['/sir-lends-a-lot.html', '/coin-catch.html', '/fund-the-house.html'] },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
     // page for admins (same surface). Keeping it as a separate top-level
     // link was redundant.

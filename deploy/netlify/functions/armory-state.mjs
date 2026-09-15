@@ -11,7 +11,7 @@
  */
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
 import { normalizeEmail } from './_shared/auth.mjs';
-import { isTeamMember, monthKey, monthLabel, daysLeftInMonth, listAllMonths, getEvents, legendsFrom, questForMonth, GAMES, ROTATION, ROTATION_START, GAME_ID } from './_shared/armory.mjs';
+import { isTeamMember, monthKey, monthLabel, daysLeftInMonth, listAllScores, getEvents, legendsFrom, questForMonth, GAMES, ROTATION, ROTATION_START } from './_shared/armory.mjs';
 import { listBells } from './_shared/closing-bell.mjs';                                   // Deploy 237.082
 import { loadTeamProfiles, celebrationsOn, upcomingCelebrations, todayPacific } from './_shared/team-events.mjs';
 import { latestTownCrier } from './_shared/town-crier.mjs';
@@ -28,9 +28,13 @@ export default async (req, context) => {
     const month = monthKey(now);
     // Deploy 237.082 — Closing Bell, celebrations, quest rotation and the
     // latest Town Crier ride along in the same call.
-    const [byMonth, events, bells, profiles, crier] = await Promise.all([
-      listAllMonths(), getEvents(), listBells(12).catch(() => []), loadTeamProfiles().catch(() => []), latestTownCrier().catch(() => null),
+    const [allScores, events, bells, profiles, crier] = await Promise.all([
+      listAllScores(), getEvents(), listBells(12).catch(() => []), loadTeamProfiles().catch(() => []), latestTownCrier().catch(() => null),
     ]);
+    // Deploy 237.083 — the Round Table / champions / legends are PER GAME; the
+    // page shows the month's quest. byMonth = the quest's months.
+    const questNow = questForMonth(month);
+    const byMonth = allScores[questNow.id] || {};
     const ymd = todayPacific(now);
     const celebrations = { today: celebrationsOn(profiles, ymd), upcoming: upcomingCelebrations(profiles, ymd, 30).filter((c) => c.daysAway > 0) };
     const quest = questForMonth(month);
@@ -43,9 +47,12 @@ export default async (req, context) => {
     const meIdx = board.findIndex((r) => r.email === email);
     const me = meIdx >= 0 ? Object.assign({ rank: meIdx + 1 }, board[meIdx]) : null;
 
-    // Past months, newest first: the #1 row of each closed month.
-    const champions = Object.keys(byMonth).filter((m) => m !== month).sort().reverse()
-      .map((m) => Object.assign({ monthLabel: monthLabel(m), players: byMonth[m].length }, byMonth[m][0]));
+    // Past months, newest first: the #1 row of each closed month, in whatever
+    // game was THAT month's quest (Deploy 237.083).
+    const pastMonths = {};
+    Object.keys(allScores).forEach((g) => Object.keys(allScores[g]).forEach((m) => { if (m !== month && questForMonth(m).id === g) pastMonths[m] = allScores[g][m]; }));
+    const champions = Object.keys(pastMonths).sort().reverse()
+      .map((m) => Object.assign({ monthLabel: monthLabel(m), players: pastMonths[m].length, gameName: questForMonth(m).name, gameIcon: questForMonth(m).icon }, pastMonths[m][0]));
     // Best run per player across every month, top 10.
     const bestByPlayer = {};
     Object.keys(byMonth).forEach((m) => byMonth[m].forEach((r) => {
@@ -56,10 +63,12 @@ export default async (req, context) => {
     // Deploy 237.077 — the three best scores ever, permanent (the monthly
     // board resets; this never does).
     const legends = legendsFrom(byMonth, 3);
+    const legendsByGame = {};
+    Object.keys(GAMES).forEach((g) => { legendsByGame[g] = legendsFrom(allScores[g] || {}, 3); });
 
     return json(200, {
-      ok: true, gameId: GAME_ID, month, monthLabel: monthLabel(month), daysLeft: daysLeftInMonth(now),
-      board, me, champions, allTime, legends, events, isAdmin: isAdmin(user),
+      ok: true, gameId: questNow.id, month, monthLabel: monthLabel(month), daysLeft: daysLeftInMonth(now),
+      board, me, champions, allTime, legends, legendsByGame, events, isAdmin: isAdmin(user),
       quest, rotation, bells, celebrations,
       crier: crier ? { ymd: crier.ymd, subject: crier.subject, at: crier.at } : null,
       myCalendar: myProfile ? { birthday: myProfile.birthday, startDate: myProfile.startDate } : null,

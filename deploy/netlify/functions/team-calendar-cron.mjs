@@ -14,7 +14,7 @@
 import { getStore } from '@netlify/blobs';
 import { postSlack } from './_shared/slack.mjs';
 import { loadTeamProfiles, celebrationsOn, todayPacific, addDays, ordinal, prettyYmd } from './_shared/team-events.mjs';
-import { listAllMonths, monthLabel } from './_shared/armory.mjs';
+import { listAllMonths, monthLabel, questForMonth } from './_shared/armory.mjs';
 
 export const config = { schedule: '0 15 * * *' };
 
@@ -48,11 +48,12 @@ export default async () => {
 
     // The 1st: crown last month's champion.
     if (ymd.slice(8) === '01') {
-      const byMonth = await listAllMonths();
       const prev = addDays(ymd, -1).slice(0, 7);
+      const prevQuest = questForMonth(prev);
+      const byMonth = await listAllMonths(prevQuest.id);
       const champ = (byMonth[prev] || [])[0];
       if (champ) {
-        const text = '👑 *' + monthLabel(prev) + ' champion of the Round Table:* ' + champ.name + ' with *' + String(champ.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🎉' +
+        const text = '👑 *' + monthLabel(prev) + ' champion of the Round Table (' + prevQuest.name + '):* ' + champ.name + ' with *' + String(champ.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🎉' +
           '\nTime for the swag. <' + PORTAL + '/armory.html|Hall of Champions>';
         await postSlack({ text }, { channel: 'leadership' });
         await postSlack({ text }, { channel: 'armory' });

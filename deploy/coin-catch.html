@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Catch — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js?v=237083"></script>
+  <script src="sla-notifications.js?v=237050"></script>
+  <script src="sla-chat.js"></script>
+  <script src="armory-game.js?v=237083"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+  <!-- Deploy 237.083 (Mike) — THE ARMORY, quest #2: COIN CATCH.
+       Sir Lends-A-Lot stands under a rain of gold with an open sack. Catch the
+       coins and money bags, dodge the DENIED stamps (three and you are out)
+       and the tax bills (they cost you). Arrows / A-D, or drag on touch.
+       Shared plumbing (auth, board, run tokens, submit, sound) is armory-game.js.
+
+       SCORING (server cap: GAMES['coin-catch'].maxPps in _shared/armory.mjs):
+         coin +10 · money bag +50 · tax bill −25 · stamp = a life
+         spawn interval 0.9s → 0.38s over 90s, ≤ 2.6 items/s, max value 50
+         theoretical ceiling ≈ 130 pts/s; server cap is 140 pts/s + 300 slack. -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --parch: #efe3c8; --wood: #3a2313; --wood-2: #5a3a1e; --ink: #2a1d12; --crimson: #7c1f1f; --royal: #c9a14a;
+    }
+    body { font-family: 'DM Sans', sans-serif; color: var(--ink); min-height: 100vh; padding: 0 1rem 4rem; background: var(--parch);
+      background-image: radial-gradient(ellipse at 50% 0%, rgba(255,250,235,0.9), rgba(239,227,200,0) 60%), repeating-linear-gradient(0deg, rgba(120,90,40,0.035) 0 2px, transparent 2px 6px); }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid rgba(90,58,30,0.25); white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .page { max-width: 960px; margin: 0 auto; padding-top: 1.25rem; }
+    .crest { text-align: center; margin-bottom: 14px; }
+    .crest h1 { font-family: 'Cinzel Decorative', 'Cinzel', serif; font-size: 30px; font-weight: 900; color: var(--wood); text-shadow: 0 1px 0 #fff8e6, 0 2px 0 rgba(0,0,0,0.12); }
+    .crest p { font-size: 13px; color: #6b5636; margin-top: 4px; }
+    .crest a { color: var(--crimson); font-weight: 600; text-decoration: none; }
+    .arena { position: relative; border: 10px solid var(--wood); border-radius: 14px; background: var(--wood-2); padding: 6px; box-shadow: inset 0 0 0 2px var(--royal), 0 18px 40px rgba(40,25,10,0.35);
+      background-image: repeating-linear-gradient(90deg, rgba(0,0,0,0.10) 0 3px, transparent 3px 22px); }
+    .arena-inner { position: relative; width: 100%; padding-top: 51.11%; /* 900x460 */ background: #000; border-radius: 6px; overflow: hidden; }
+    .arena canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: pointer; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .rivet { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e9d39a, #8a6a2c 60%, #4a3410); box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+    .rivet.tl { top: -6px; left: -6px; } .rivet.tr { top: -6px; right: -6px; } .rivet.bl { bottom: -6px; left: -6px; } .rivet.br { bottom: -6px; right: -6px; }
+    .hud { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .hud .stat { background: rgba(255,250,235,0.7); border: 1px solid rgba(90,58,30,0.25); border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #6b5636; }
+    .hud .stat b { font-family: 'DM Mono', monospace; font-size: 16px; color: var(--ink); display: block; }
+    .hud .stat small { display: block; color: #8a7350; }
+    .btn { display: inline-block; padding: 9px 16px; border-radius: 10px; border: 2px solid var(--wood); background: linear-gradient(#f3d98a, #c9a14a); color: var(--wood); font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; text-decoration: none; cursor: pointer; box-shadow: 0 2px 0 #4a3410; }
+    .btn.ghost { background: transparent; box-shadow: none; }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+    #result { margin-top: 12px; min-height: 22px; font-size: 14px; font-weight: 600; color: var(--crimson); text-align: center; }
+    #result.good { color: #256940; }
+    .hint { text-align: center; font-size: 12px; color: #8a7350; margin-top: 8px; }
+    kbd { font-family: 'DM Mono', monospace; font-size: 11px; background: #fff8e6; border: 1px solid #c9b78f; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--ink); }
+    .board { margin-top: 26px; background: rgba(255,250,235,0.65); border: 1px solid rgba(90,58,30,0.25); border-radius: 12px; padding: 14px 16px; }
+    .board h2 { font-family: 'Cinzel', serif; font-size: 15px; color: var(--wood); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+    .board h2 span { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: #8a7350; }
+    .board ol { list-style: none; }
+    .board li { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed rgba(90,58,30,0.18); font-size: 13px; }
+    .board li:last-child { border-bottom: 0; }
+    .board li .n { font-family: 'DM Mono', monospace; }
+    .board li.me { font-weight: 700; color: var(--crimson); }
+    .board .empty { color: #8a7350; font-size: 13px; }
+    @media (max-width: 640px) { .crest h1 { font-size: 22px; } body { padding: 0 8px 3rem; } .arena { border-width: 6px; } }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Opening the sack…</strong>Checking your sign-in</div></div>
+  <div id="appWrap" style="display:none">
+    <nav class="nav" id="slaNav"></nav>
+    <div class="page">
+      <div class="crest">
+        <h1>Coin Catch</h1>
+        <p>Catch the gold. Dodge the <b>DENIED</b> stamps. Three stamps and underwriting closes the file. &nbsp;·&nbsp; <a href="/armory.html">← Back to the Armory</a></p>
+      </div>
+      <div class="arena">
+        <span class="rivet tl"></span><span class="rivet tr"></span><span class="rivet bl"></span><span class="rivet br"></span>
+        <div class="arena-inner"><canvas id="game" width="900" height="460" aria-label="Coin Catch game"></canvas></div>
+      </div>
+      <div class="hud">
+        <div class="stat">Your best this month<b id="hudBest">—</b><small id="hudRank"></small></div>
+        <div class="stat">Head of the Round Table<b id="hudTop">—</b><small id="hudTopWho">nobody yet — claim it</small></div>
+        <div>
+          <button type="button" class="btn ghost" id="muteBtn" onclick="ArmoryGame.toggleMute()">🔊 Sound</button>
+          <a class="btn" href="/armory.html">🏰 Round Table</a>
+        </div>
+      </div>
+      <div id="result"></div>
+      <div id="practiceNote" class="hint" style="display:none;background:rgba(201,161,74,0.18);border:1px solid rgba(201,161,74,0.5);border-radius:10px;padding:8px 12px;color:var(--ink);font-size:13px"></div>
+      <div class="hint"><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> to move · drag on touch · <kbd>Space</kbd> to start &nbsp;·&nbsp; the Round Table resets on the 1st</div>
+      <div class="board">
+        <h2>This month's Round Table <span id="boardMonth"></span></h2>
+        <ol id="boardList"><li class="empty">Loading the scrolls…</li></ol>
+      </div>
+      <div class="board" style="background:rgba(58,35,19,0.92);color:#f7f0dc;border-color:var(--royal)">
+        <h2 style="color:#f3d98a">⚜ Legends of the Realm <span style="color:rgba(247,240,220,0.65)">Coin Catch · all-time top 3 · never resets</span></h2>
+        <ol id="legendList"><li class="empty" style="color:rgba(247,240,220,0.65)">—</li></ol>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var AG = window.ArmoryGame, Snd = AG.Snd, PAL = AG.PAL;
+  var W = 900, H = 460, GROUND = 418, SCALE = 4;
+  var COIN = 10, BAG = 50, TAX = -25, LIVES = 3;
+  var MOVE = 540;                      // px/s
+  var MILESTONES = [[250, 'Pre-approved!'], [500, 'Loan funded!'], [1000, 'Portfolio lender!'], [2000, 'Sir Lends-A-LOT!'], [3500, 'Knight of the Round Table'], [5000, 'Legendary Lender'], [8000, 'The Lending Lion']];
+  var DEATH_LINES = ['Three DENIED stamps. Underwriting has spoken.', 'The sack is full of stamps. Nobody wants a sack of stamps.', 'Even Sir Lends-A-Lot has limits.', 'Conditions not cleared: catching.', 'That last stamp was for “insufficient reflexes.”'];
+
+  var canvas, ctx, sprites = {};
+  var state = 'ready', lastT = 0, runTime = 0, startedAt = 0, deadAt = 0;
+  var score, coins, lives, items, floats, banner, nextSpawn, milestoneIdx, deathLine, tick = 0;
+  var player = { x: W / 2, dir: 0, target: null, w: 92 };
+  var keys = {};
+  var tokenPromise = null;
+  var clouds = [];
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  var KNIGHT = AG.sprites.KNIGHT_HEAD;
+  var SACK = [
+    '....TTTTTT....',
+    '...TTTTTTTT...',
+    '..NNNNNNNNNN..',
+    '.NNNNNNNNNNNN.',
+    'NNNNNNNNNNNNNN',
+    'NNNNNNNNNNNNNN',
+    'NNNNNNNNNNNNNN',
+    'NNNNNNNNNNNNNN',
+    '.NNNNNNNNNNNN.',
+    '..NNNNNNNNNN..',
+    '...NNNNNNNN...'
+  ];
+
+  function init() {
+    canvas = document.getElementById('game');
+    ctx = AG.setupCanvas(canvas, W, H);
+    sprites.knight = AG.makeSprite(KNIGHT, SCALE);
+    sprites.sack = AG.makeSprite(SACK, SCALE);
+    sprites.bag = AG.makeSprite(AG.sprites.BAG, 3);
+    for (var c = 0; c < 5; c++) clouds.push({ x: rand(0, W), y: rand(20, 120), w: rand(70, 150), v: rand(8, 20) });
+    resetRun();
+    bindInput();
+    lastT = performance.now();
+    requestAnimationFrame(frame);
+  }
+
+  function resetRun() {
+    score = 0; coins = 0; lives = LIVES; items = []; floats = []; banner = null; runTime = 0;
+    nextSpawn = 0.6; milestoneIdx = 0; deathLine = '';
+    player.x = W / 2; player.dir = 0; player.target = null;
+  }
+  function startRun() {
+    resetRun(); state = 'running'; startedAt = performance.now();
+    tokenPromise = AG.startRun();
+  }
+  function action() {
+    Snd.warm();
+    if (state === 'ready') { startRun(); return; }
+    if (state === 'dead' && performance.now() - deadAt > 500) { startRun(); }
+  }
+
+  function bindInput() {
+    document.addEventListener('keydown', function (e) {
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') { keys.left = true; e.preventDefault(); if (state !== 'running') action(); }
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') { keys.right = true; e.preventDefault(); if (state !== 'running') action(); }
+      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) action(); }
+    });
+    document.addEventListener('keyup', function (e) {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    });
+    var down = false;
+    canvas.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); down = true;
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      if (state !== 'running') { action(); return; }
+      player.target = AG.pointerPos(canvas, e, W, H).x;
+    });
+    canvas.addEventListener('pointermove', function (e) { if (down && state === 'running') player.target = AG.pointerPos(canvas, e, W, H).x; });
+    canvas.addEventListener('pointerup', function () { down = false; player.target = null; });
+    canvas.addEventListener('pointercancel', function () { down = false; player.target = null; });
+    document.addEventListener('visibilitychange', function () { lastT = performance.now(); });
+  }
+
+  // ── Update ─────────────────────────────────────────────────────
+  function difficulty() { return Math.min(1, runTime / 90); }
+  function spawn() {
+    var d = difficulty();
+    var r = Math.random();
+    var stampP = 0.12 + 0.16 * d, bagP = 0.08, taxP = 0.08;
+    var kind = r < stampP ? 'stamp' : r < stampP + bagP ? 'bag' : r < stampP + bagP + taxP ? 'tax' : 'coin';
+    var w = kind === 'stamp' ? 58 : kind === 'bag' ? 30 : kind === 'tax' ? 34 : 22;
+    var h = kind === 'stamp' ? 36 : kind === 'bag' ? 36 : kind === 'tax' ? 42 : 22;
+    items.push({ kind: kind, x: rand(30, W - 30 - w), y: -h - 10, w: w, h: h, vy: rand(180, 230) + 200 * d, rot: rand(-0.3, 0.3), spin: rand(-1.5, 1.5) });
+    nextSpawn = runTime + (0.9 - 0.52 * d) * rand(0.75, 1.25);
+  }
+  function catchZone() { return { x: player.x - 38, y: GROUND - 118, w: 76, h: 44 }; }
+  function overlaps(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+  function update(dt) {
+    tick += dt;
+    for (var c = 0; c < clouds.length; c++) { clouds[c].x -= clouds[c].v * dt; if (clouds[c].x < -200) clouds[c].x = W + 100; }
+    if (state !== 'running') return;
+    runTime += dt;
+    // movement
+    var dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    if (player.target != null) {
+      var dx = player.target - player.x;
+      if (Math.abs(dx) > 4) dir = dx > 0 ? 1 : -1; else dir = 0;
+    }
+    player.dir = dir;
+    player.x = Math.max(46, Math.min(W - 46, player.x + dir * MOVE * dt));
+    if (runTime >= nextSpawn) spawn();
+    var zone = catchZone();
+    for (var i = items.length - 1; i >= 0; i--) {
+      var it = items[i];
+      it.y += it.vy * dt; it.rot += it.spin * dt;
+      if (overlaps(zone, { x: it.x, y: it.y, w: it.w, h: it.h })) {
+        items.splice(i, 1);
+        if (it.kind === 'coin') { score += COIN; coins++; Snd.coin(); floats.push({ x: it.x, y: it.y, text: '+' + COIN, ttl: 0.7 }); }
+        else if (it.kind === 'bag') { score += BAG; coins++; Snd.bag(); floats.push({ x: it.x, y: it.y, text: '+' + BAG + ' cha-ching', ttl: 1, big: true }); }
+        else if (it.kind === 'tax') { score = Math.max(0, score + TAX); Snd.miss(); floats.push({ x: it.x, y: it.y, text: TAX + ' taxes', ttl: 1, bad: true }); }
+        else { lives--; Snd.stamp(); floats.push({ x: it.x, y: it.y, text: 'DENIED', ttl: 1.1, bad: true, big: true }); if (lives <= 0) { die(); return; } }
+        continue;
+      }
+      if (it.y > H + 20) items.splice(i, 1);
+    }
+    for (i = floats.length - 1; i >= 0; i--) { floats[i].y -= 40 * dt; floats[i].ttl -= dt; if (floats[i].ttl <= 0) floats.splice(i, 1); }
+    if (banner) { banner.ttl -= dt; if (banner.ttl <= 0) banner = null; }
+    if (milestoneIdx < MILESTONES.length && score >= MILESTONES[milestoneIdx][0]) { banner = { text: MILESTONES[milestoneIdx][1], ttl: 1.8 }; milestoneIdx++; Snd.win(); }
+  }
+  function die() {
+    state = 'dead'; deadAt = performance.now(); Snd.bad();
+    deathLine = DEATH_LINES[Math.floor(Math.random() * DEATH_LINES.length)];
+    AG.finishRun(tokenPromise, { score: score, coins: coins, distance: Math.floor(runTime), durationMs: Math.floor(performance.now() - startedAt) });
+  }
+
+  // ── Draw ───────────────────────────────────────────────────────
+  function draw() {
+    var g = ctx.createLinearGradient(0, 0, 0, GROUND);
+    g.addColorStop(0, '#8fc8ee'); g.addColorStop(1, '#e9f3f8');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    for (var c = 0; c < clouds.length; c++) { var cl = clouds[c]; ctx.beginPath(); ctx.ellipse(cl.x, cl.y, cl.w / 2, 12, 0, 0, Math.PI * 2); ctx.ellipse(cl.x + cl.w * 0.25, cl.y - 8, cl.w / 3, 12, 0, 0, Math.PI * 2); ctx.fill(); }
+    // castle wall + ground
+    ctx.fillStyle = 'rgba(59,42,85,0.28)';
+    for (var t = 0; t < 5; t++) { var bx = 60 + t * 200; ctx.fillRect(bx, GROUND - 150, 60, 150); for (var m = 0; m < 5; m++) ctx.fillRect(bx + m * 13, GROUND - 162, 7, 12); }
+    ctx.fillStyle = '#7a9a4a'; ctx.fillRect(0, GROUND, W, 10);
+    ctx.fillStyle = '#8b6a3e'; ctx.fillRect(0, GROUND + 10, W, H - GROUND - 10);
+    ctx.fillStyle = '#6e4527'; for (var x = 0; x < W; x += 60) ctx.fillRect(x + 10, GROUND + 22, 22, 3);
+    // items
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.kind === 'coin') AG.drawCoin(ctx, it.x + 11, it.y + 11, 11, tick * 5 + it.x);
+      else if (it.kind === 'bag') { ctx.drawImage(sprites.bag, it.x, it.y); ctx.fillStyle = '#5a3a1e'; ctx.font = 'bold 14px DM Mono, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('$', it.x + 15, it.y + 22); }
+      else if (it.kind === 'tax') {
+        ctx.save(); ctx.translate(it.x + it.w / 2, it.y + it.h / 2); ctx.rotate(it.rot * 0.5);
+        ctx.fillStyle = '#f7f0dc'; ctx.fillRect(-17, -21, 34, 42); ctx.strokeStyle = '#7c1f1f'; ctx.lineWidth = 2; ctx.strokeRect(-17, -21, 34, 42);
+        ctx.fillStyle = '#7c1f1f'; ctx.font = '900 11px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('TAX', 0, -6); ctx.fillText('BILL', 0, 8);
+        ctx.restore();
+      } else AG.drawStamp(ctx, it.x, it.y, it.w, it.h, it.rot);
+    }
+    // player: knight + sack
+    var kx = player.x - 20, ky = GROUND - sprites.knight.height;
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(player.x, GROUND + 4, 40, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.drawImage(sprites.knight, kx, ky);
+    ctx.drawImage(sprites.sack, player.x - sprites.sack.width / 2, GROUND - 120);
+    if (state === 'running' && player.dir) { ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(player.x - player.dir * 30, GROUND - 6, 14, 3); }
+    // floats
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (i = 0; i < floats.length; i++) {
+      var f = floats[i];
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.ttl * 1.5));
+      ctx.font = (f.big ? '700 16px' : '700 13px') + ' DM Mono, monospace';
+      ctx.fillStyle = f.bad ? '#7c1f1f' : '#5a3a1e'; ctx.fillText(f.text, f.x + 12, f.y + 1);
+      ctx.fillStyle = f.bad ? '#ff5a4a' : '#ffd866'; ctx.fillText(f.text, f.x + 11, f.y);
+    }
+    ctx.globalAlpha = 1;
+    if (banner) {
+      ctx.globalAlpha = Math.min(1, banner.ttl * 2);
+      ctx.font = '900 26px Cinzel Decorative, Cinzel, serif';
+      ctx.fillStyle = '#3a2313'; ctx.fillText(banner.text, W / 2 + 2, 92); ctx.fillStyle = '#ffd866'; ctx.fillText(banner.text, W / 2, 90);
+      ctx.globalAlpha = 1;
+    }
+    // HUD
+    ctx.textBaseline = 'top';
+    ctx.font = '700 22px DM Mono, monospace'; ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillText(AG.fmt(score), W - 18, 16);
+    ctx.fillStyle = '#fff'; ctx.fillText(AG.fmt(score), W - 20, 14);
+    ctx.font = '600 11px Cinzel, serif'; ctx.fillStyle = 'rgba(58,35,19,0.85)';
+    ctx.fillText('CATCHES ' + coins, W - 20, 42);
+    ctx.textAlign = 'left';
+    var G = AG.get();
+    ctx.fillText('BEST ' + AG.fmt(G.myBest), 20, 16);
+    if (G.topBest) ctx.fillText('⚔ TOP ' + AG.fmt(G.topBest) + (G.topName ? ' · ' + G.topName.toUpperCase() : ''), 20, 32);
+    ctx.font = '18px serif';
+    for (var l = 0; l < LIVES; l++) { ctx.globalAlpha = l < lives ? 1 : 0.25; ctx.fillText('❤', 20 + l * 22, 50); }
+    ctx.globalAlpha = 1;
+    if (Snd.muted()) { ctx.textAlign = 'center'; ctx.font = '600 11px Cinzel, serif'; ctx.fillText('🔇', W / 2, 14); }
+    // overlays
+    if (state === 'ready') {
+      AG.drawPanel(ctx, W, H, [
+        { text: 'COIN CATCH', font: '900 34px Cinzel Decorative, Cinzel, serif', y: 130, color: '#ffd866' },
+        { text: 'Catch coins (+10) and money bags (+50). Dodge DENIED stamps — three and you are out. Tax bills cost 25.', font: '500 14px DM Sans, sans-serif', y: 180 },
+        { text: 'Press SPACE, an arrow key, or tap to start', font: '700 18px Cinzel, serif', y: 240, color: '#fff' },
+        { text: '← → or A D to move · drag on touch', font: '500 12px DM Mono, monospace', y: 276, color: 'rgba(247,240,220,0.75)' }
+      ]);
+    } else if (state === 'dead') {
+      ctx.fillStyle = 'rgba(42,29,18,0.58)'; ctx.fillRect(0, 0, W, H);
+      ctx.save(); ctx.translate(W / 2, 140); ctx.rotate(-0.12);
+      ctx.strokeStyle = '#ff5a4a'; ctx.lineWidth = 5; ctx.strokeRect(-190, -34, 380, 68);
+      ctx.fillStyle = '#ff5a4a'; ctx.font = '900 40px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('FILE CLOSED', 0, 2);
+      ctx.restore();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#f7f0dc'; ctx.font = '500 15px DM Sans, sans-serif'; ctx.fillText(deathLine, W / 2, 200);
+      ctx.font = '700 20px DM Mono, monospace'; ctx.fillStyle = '#ffd866'; ctx.fillText('Score ' + AG.fmt(score) + '   ·   Catches ' + coins, W / 2, 240);
+      if (Math.floor(performance.now() / 500) % 2 === 0) { ctx.font = '700 15px Cinzel, serif'; ctx.fillStyle = '#fff'; ctx.fillText('Press SPACE or tap to play again', W / 2, 290); }
+    }
+  }
+
+  function frame(t) {
+    var dt = Math.min(0.05, (t - lastT) / 1000);
+    lastT = t;
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+
+  AG.boot({ gameId: 'coin-catch' }, init);
+})();
+</script>
+</body>
+</html>

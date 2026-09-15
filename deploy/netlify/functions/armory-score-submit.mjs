@@ -13,7 +13,7 @@
  *   say "you're #3 at the Round Table" without a second call.
  */
 import { handleOptions, json, requireAuth, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
-import { isTeamMember, verifyRunToken, recordRun, listMonth, listAllMonths, legendsFrom, monthKey, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
+import { isTeamMember, verifyRunToken, recordRun, listMonth, listAllMonths, legendsFrom, monthKey, questForMonth, GAMES, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
 import { postSlack } from './_shared/slack.mjs'; // Deploy 237.082
 
 export default async (req, context) => {
@@ -30,30 +30,36 @@ export default async (req, context) => {
     if (payload.e !== normalizeEmail(user.email)) return json(403, { error: 'Run token belongs to another knight' });
     if (Date.now() - Number(payload.t) > RUN_TOKEN_TTL_MS) return json(400, { error: 'Run token expired — start a new ride' });
 
+    // Deploy 237.083 — the game rides on the token; a token for a game that is
+    // no longer this month's quest (month rolled over mid-session) is practice.
+    const month = monthKey(new Date());
+    const game = payload.g;
+    const quest = questForMonth(month);
+    if (game !== quest.id) return json(200, { ok: true, accepted: false, practice: true, reason: 'Practice run — ' + quest.name + ' is this month\'s quest.', game, month });
+
     const result = await recordRun(user, {
-      runId: payload.id, issuedAt: payload.t,
+      runId: payload.id, issuedAt: payload.t, game,
       score: body.score, coins: body.coins, distance: body.distance, durationMs: body.durationMs,
     });
-    const month = monthKey(new Date());
-    const board = await listMonth(month);
+    const board = await listMonth(month, game);
     const email = normalizeEmail(user.email);
     const rankIdx = board.findIndex((r) => r.email === email);
-    // Deploy 237.077 — did this ride enter the permanent all-time top 3?
+    // Deploy 237.077 — did this ride enter the permanent all-time top 3 (per game)?
     // Only worth the extra prefix read when the run set a new personal best.
     let legendRank = null;
     if (result.accepted && result.isNewBest) {
-      const legends = legendsFrom(await listAllMonths(), 3);
+      const legends = legendsFrom(await listAllMonths(game), 3);
       const li = legends.findIndex((r) => r.email === email && r.month === month && r.best === result.best);
       if (li >= 0) legendRank = li + 1;
       // Deploy 237.082 — a new Legend seat is a milestone: tell leadership.
       if (legendRank) {
         const who = legends[li].name || email;
-        await postSlack({ text: '⚜ *Legend of the Realm!* ' + who + ' just took the #' + legendRank + ' all-time seat with *' + String(result.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🏆\n<https://portal.slacapital.ai/armory.html|The Armory>' }, { channel: 'leadership' });
+        await postSlack({ text: '⚜ *Legend of the Realm!* ' + who + ' just took the #' + legendRank + ' all-time seat in ' + GAMES[game].name + ' with *' + String(result.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🏆\n<https://portal.slacapital.ai/armory.html|The Armory>' }, { channel: 'leadership' });
       }
     }
     return json(200, {
       ok: true, accepted: result.accepted, reason: result.reason || '', best: result.best, isNewBest: result.isNewBest,
-      rank: rankIdx >= 0 ? rankIdx + 1 : null, players: board.length, legendRank,
+      rank: rankIdx >= 0 ? rankIdx + 1 : null, players: board.length, legendRank, game,
       top: board[0] ? { name: board[0].name, best: board[0].best, email: board[0].email } : null, month,
     });
   } catch (e) {

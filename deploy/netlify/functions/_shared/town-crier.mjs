@@ -37,7 +37,7 @@ export async function buildTownCrier(now) {
   const ymd = todayPacific(now || new Date());
   const month = monthKey(now || new Date());
   const quest = questForMonth(month);
-  const [byMonth, events, bells, profiles] = await Promise.all([listAllMonths(), getEvents(), listBells(40), loadTeamProfiles()]);
+  const [byMonth, events, bells, profiles] = await Promise.all([listAllMonths(quest.id), getEvents(), listBells(40), loadTeamProfiles()]);
   const board = byMonth[month] || [];
   const legends = legendsFrom(byMonth, 3);
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();

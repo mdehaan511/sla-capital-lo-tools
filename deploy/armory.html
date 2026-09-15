@@ -535,14 +535,25 @@
         html += '<div class="plaque ' + cls[i] + ' empty"><div class="rk">' + rk[i] + '</div><div class="sc">seat unclaimed</div></div>';
       }
     }
-    document.getElementById('legends').innerHTML = html;
+    // Deploy 237.083 — legends are per game; plaques = the month's quest, the
+    // other games get a compact line each.
+    var q = (_state && _state.quest) || {};
+    var lbg = (_state && _state.legendsByGame) || {};
+    var order = ((_state && _state.rotation && _state.rotation.order) || []).filter(function (g) { return g.id !== q.id; });
+    var others = order.map(function (g) {
+      var rows = lbg[g.id] || [];
+      var inner = rows.length ? rows.map(function (r, i) { return ['I', 'II', 'III'][i] + '. ' + escH(shortName(r.name)) + ' <span style="font-family:DM Mono,monospace">' + fmt(r.best) + '</span>'; }).join(' &nbsp;·&nbsp; ') : '<span style="opacity:0.6;font-style:italic">no legends yet</span>';
+      return '<div style="font-size:12px;color:rgba(247,240,220,0.85);margin-top:6px">' + escH(g.icon || '') + ' <b>' + escH(g.name) + '</b>: ' + inner + '</div>';
+    }).join('');
+    document.getElementById('legends').innerHTML = html + (others ? '<div style="grid-column:1/-1;border-top:1px solid rgba(201,161,74,0.35);padding-top:6px;margin-top:4px">' +
+      '<div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#f3d98a">Plaques above: ' + escH(q.name || 'the quest') + ' · other quests</div>' + others + '</div>' : '');
   }
 
   function renderChampions() {
     var st = _state;
     var ch = st.champions || [], at = st.allTime || [];
     document.getElementById('champList').innerHTML = ch.length
-      ? ch.map(function (c) { return '<li><span class="mo">' + escH(c.monthLabel) + '</span><span class="nm">👑 ' + escH(c.name) + '</span><span class="sc">' + fmt(c.best) + '</span></li>'; }).join('')
+      ? ch.map(function (c) { return '<li><span class="mo">' + escH(c.monthLabel) + '</span><span class="nm">👑 ' + escH(c.name) + (c.gameIcon ? ' <span style="font-weight:500;color:#8a7350;font-size:11px" title="' + escAttr(c.gameName || '') + '">' + escH(c.gameIcon) + '</span>' : '') + '</span><span class="sc">' + fmt(c.best) + '</span></li>'; }).join('')
       : '<li class="empty">No month has closed yet. The first champion is crowned on the 1st.</li>';
     document.getElementById('allTimeList').innerHTML = at.length
       ? at.map(function (r, i) { return '<li><span class="mo">' + (i + 1) + '. ' + escH(r.monthLabel || fmtMonth(r.month)) + '</span><span class="nm">' + escH(r.name) + '</span><span class="sc">' + fmt(r.best) + '</span></li>'; }).join('')
@@ -659,7 +670,7 @@
   function voidScore(email, name) {
     if (!_state || !_state.isAdmin) return;
     if (!window.confirm('Void ' + name + "'s score for " + _state.monthLabel + '? Their rides this month are wiped; the next ride starts them fresh.')) return;
-    SLA.api('POST', '/api/armory-admin', { action: 'score-void', month: _state.month, email: email }).then(function () {
+    SLA.api('POST', '/api/armory-admin', { action: 'score-void', month: _state.month, email: email, game: _state.gameId }).then(function () {
       showToast('Score voided.'); load();
     }).catch(function (err) { showToast('⚠ ' + (err && err.message || 'unknown')); });
   }

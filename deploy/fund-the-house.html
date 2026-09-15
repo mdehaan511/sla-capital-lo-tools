@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fund the House — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js?v=237083"></script>
+  <script src="sla-notifications.js?v=237050"></script>
+  <script src="sla-chat.js"></script>
+  <script src="armory-game.js?v=237083"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+  <!-- Deploy 237.083 (Mike) — THE ARMORY, quest #3: FUND THE HOUSE.
+       Whack-a-mole with a lending problem: houses pop up on twelve lots for a
+       heartbeat. Click / tap to FUND them before a competitor does. Golden
+       houses pay more. The house with the dragon in the window is a trap —
+       fund it and it costs you. Sixty seconds, streak bonus for clean runs.
+       Shared plumbing (auth, board, run tokens, submit, sound) is armory-game.js.
+
+       SCORING (server cap: GAMES['fund-the-house'].maxPps in _shared/armory.mjs):
+         house +100 · golden +250 · streak bonus +10 per streak level (max +50)
+         dragon −150 · pops every 0.9s → 0.45s, ≤ 3 on screen, 60s round
+         theoretical ceiling ≈ 660 pts/s; server cap is 700 pts/s + 300 slack. -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --parch: #efe3c8; --wood: #3a2313; --wood-2: #5a3a1e; --ink: #2a1d12; --crimson: #7c1f1f; --royal: #c9a14a;
+    }
+    body { font-family: 'DM Sans', sans-serif; color: var(--ink); min-height: 100vh; padding: 0 1rem 4rem; background: var(--parch);
+      background-image: radial-gradient(ellipse at 50% 0%, rgba(255,250,235,0.9), rgba(239,227,200,0) 60%), repeating-linear-gradient(0deg, rgba(120,90,40,0.035) 0 2px, transparent 2px 6px); }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid rgba(90,58,30,0.25); white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .page { max-width: 960px; margin: 0 auto; padding-top: 1.25rem; }
+    .crest { text-align: center; margin-bottom: 14px; }
+    .crest h1 { font-family: 'Cinzel Decorative', 'Cinzel', serif; font-size: 30px; font-weight: 900; color: var(--wood); text-shadow: 0 1px 0 #fff8e6, 0 2px 0 rgba(0,0,0,0.12); }
+    .crest p { font-size: 13px; color: #6b5636; margin-top: 4px; }
+    .crest a { color: var(--crimson); font-weight: 600; text-decoration: none; }
+    .arena { position: relative; border: 10px solid var(--wood); border-radius: 14px; background: var(--wood-2); padding: 6px; box-shadow: inset 0 0 0 2px var(--royal), 0 18px 40px rgba(40,25,10,0.35);
+      background-image: repeating-linear-gradient(90deg, rgba(0,0,0,0.10) 0 3px, transparent 3px 22px); }
+    .arena-inner { position: relative; width: 100%; padding-top: 53.33%; /* 900x480 */ background: #000; border-radius: 6px; overflow: hidden; }
+    .arena canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .rivet { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e9d39a, #8a6a2c 60%, #4a3410); box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+    .rivet.tl { top: -6px; left: -6px; } .rivet.tr { top: -6px; right: -6px; } .rivet.bl { bottom: -6px; left: -6px; } .rivet.br { bottom: -6px; right: -6px; }
+    .hud { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .hud .stat { background: rgba(255,250,235,0.7); border: 1px solid rgba(90,58,30,0.25); border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #6b5636; }
+    .hud .stat b { font-family: 'DM Mono', monospace; font-size: 16px; color: var(--ink); display: block; }
+    .hud .stat small { display: block; color: #8a7350; }
+    .btn { display: inline-block; padding: 9px 16px; border-radius: 10px; border: 2px solid var(--wood); background: linear-gradient(#f3d98a, #c9a14a); color: var(--wood); font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; text-decoration: none; cursor: pointer; box-shadow: 0 2px 0 #4a3410; }
+    .btn.ghost { background: transparent; box-shadow: none; }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+    #result { margin-top: 12px; min-height: 22px; font-size: 14px; font-weight: 600; color: var(--crimson); text-align: center; }
+    #result.good { color: #256940; }
+    .hint { text-align: center; font-size: 12px; color: #8a7350; margin-top: 8px; }
+    kbd { font-family: 'DM Mono', monospace; font-size: 11px; background: #fff8e6; border: 1px solid #c9b78f; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--ink); }
+    .board { margin-top: 26px; background: rgba(255,250,235,0.65); border: 1px solid rgba(90,58,30,0.25); border-radius: 12px; padding: 14px 16px; }
+    .board h2 { font-family: 'Cinzel', serif; font-size: 15px; color: var(--wood); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+    .board h2 span { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: #8a7350; }
+    .board ol { list-style: none; }
+    .board li { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed rgba(90,58,30,0.18); font-size: 13px; }
+    .board li:last-child { border-bottom: 0; }
+    .board li .n { font-family: 'DM Mono', monospace; }
+    .board li.me { font-weight: 700; color: var(--crimson); }
+    .board .empty { color: #8a7350; font-size: 13px; }
+    @media (max-width: 640px) { .crest h1 { font-size: 22px; } body { padding: 0 8px 3rem; } .arena { border-width: 6px; } }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Surveying the lots…</strong>Checking your sign-in</div></div>
+  <div id="appWrap" style="display:none">
+    <nav class="nav" id="slaNav"></nav>
+    <div class="page">
+      <div class="crest">
+        <h1>Fund the House</h1>
+        <p>Houses pop up for a heartbeat. <b>Fund</b> them before a competitor does. Never the one with the dragon in the window. Sixty seconds. &nbsp;·&nbsp; <a href="/armory.html">← Back to the Armory</a></p>
+      </div>
+      <div class="arena">
+        <span class="rivet tl"></span><span class="rivet tr"></span><span class="rivet bl"></span><span class="rivet br"></span>
+        <div class="arena-inner"><canvas id="game" width="900" height="480" aria-label="Fund the House game"></canvas></div>
+      </div>
+      <div class="hud">
+        <div class="stat">Your best this month<b id="hudBest">—</b><small id="hudRank"></small></div>
+        <div class="stat">Head of the Round Table<b id="hudTop">—</b><small id="hudTopWho">nobody yet — claim it</small></div>
+        <div>
+          <button type="button" class="btn ghost" id="muteBtn" onclick="ArmoryGame.toggleMute()">🔊 Sound</button>
+          <a class="btn" href="/armory.html">🏰 Round Table</a>
+        </div>
+      </div>
+      <div id="result"></div>
+      <div id="practiceNote" class="hint" style="display:none;background:rgba(201,161,74,0.18);border:1px solid rgba(201,161,74,0.5);border-radius:10px;padding:8px 12px;color:var(--ink);font-size:13px"></div>
+      <div class="hint">Click or tap a house to fund it · <kbd>Space</kbd> to start &nbsp;·&nbsp; the Round Table resets on the 1st</div>
+      <div class="board">
+        <h2>This month's Round Table <span id="boardMonth"></span></h2>
+        <ol id="boardList"><li class="empty">Loading the scrolls…</li></ol>
+      </div>
+      <div class="board" style="background:rgba(58,35,19,0.92);color:#f7f0dc;border-color:var(--royal)">
+        <h2 style="color:#f3d98a">⚜ Legends of the Realm <span style="color:rgba(247,240,220,0.65)">Fund the House · all-time top 3 · never resets</span></h2>
+        <ol id="legendList"><li class="empty" style="color:rgba(247,240,220,0.65)">—</li></ol>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var AG = window.ArmoryGame, Snd = AG.Snd;
+  var W = 900, H = 480, SCALE = 4;
+  var ROUND = 60, HOUSE = 100, GOLD = 250, DRAGON = -150, STREAK_STEP = 10, STREAK_MAX = 50, MAX_UP = 3;
+  var COLS = 4, ROWS = 3, LOT_W = 190, LOT_H = 118, OX = 70, OY = 90, GX = 20, GY = 14;
+  var FUND_LINES = ['FUNDED', 'FUNDED', 'CLEAR TO CLOSE', 'WIRED', 'FUNDED'];
+  var END_LINES = ['Sixty seconds. The lots are quiet again.', 'The title company would like a word about your pace.', 'Somewhere a competitor is crying.', 'Ye Olde Closing Department salutes you.'];
+
+  var canvas, ctx, sprites = {};
+  var state = 'ready', lastT = 0, runTime = 0, startedAt = 0, doneAt = 0, tick = 0;
+  var score, funded, streak, best, lots, floats, banner, nextPop, endLine;
+  var tokenPromise = null;
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  var HOUSE_ROWS = [
+    '....tt......',
+    '...tttttt...',
+    '..tttttttt..',
+    '.tttttttttt.',
+    'tttttttttttt',
+    '.WWWWWWWWWW.',
+    '.WWWWWWWWWW.',
+    '.WYYWWLLWYYW',
+    '.WYYWWLLWYYW',
+    '.WWWWWLLWWWW',
+    '.WWWWWLLWWWW',
+    'LLLLLLLLLLLL'
+  ];
+  var DRAGON_ROWS = HOUSE_ROWS.map(function (r, i) { return (i === 7 || i === 8) ? r.replace('YY', 'DD').replace('YY', 'EE') : r; });
+
+  function init() {
+    canvas = document.getElementById('game');
+    ctx = AG.setupCanvas(canvas, W, H);
+    var roofs = [{ t: '#5c3a1a' }, { t: '#8e2a22' }, { t: '#3b2a55' }, { t: '#2f5a6e' }];
+    sprites.houses = roofs.map(function (p) { return AG.makeSprite(HOUSE_ROWS, SCALE, p); });
+    sprites.gold = AG.makeSprite(HOUSE_ROWS, SCALE, { t: '#b8860b', W: '#f3d98a', L: '#8a6208', Y: '#fff3b0' });
+    sprites.dragon = AG.makeSprite(DRAGON_ROWS, SCALE, { t: '#2b612b', W: '#d9c9a3' });
+    sprites.dragonHead = AG.makeSprite(AG.sprites.DRAGON_HEAD, 3);
+    lots = [];
+    for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) lots.push({ x: OX + c * (LOT_W + GX), y: OY + r * (LOT_H + GY), w: LOT_W, h: LOT_H, house: null, fx: null, sign: (r * COLS + c) % 3 });
+    resetRun();
+    bindInput();
+    lastT = performance.now();
+    requestAnimationFrame(frame);
+  }
+  function resetRun() {
+    score = 0; funded = 0; streak = 0; best = 0; floats = []; banner = null; runTime = 0; nextPop = 0.4; endLine = '';
+    for (var i = 0; i < lots.length; i++) { lots[i].house = null; lots[i].fx = null; }
+  }
+  function startRun() { resetRun(); state = 'running'; startedAt = performance.now(); tokenPromise = AG.startRun(); }
+  function action() {
+    Snd.warm();
+    if (state === 'ready') { startRun(); return true; }
+    if (state === 'done' && performance.now() - doneAt > 700) { startRun(); return true; }
+    return false;
+  }
+
+  function bindInput() {
+    document.addEventListener('keydown', function (e) {
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) action(); }
+    });
+    canvas.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      if (state !== 'running') { action(); return; }
+      var p = AG.pointerPos(canvas, e, W, H);
+      hit(p.x, p.y);
+    });
+    document.addEventListener('visibilitychange', function () { lastT = performance.now(); });
+  }
+
+  // ── Game ───────────────────────────────────────────────────────
+  function difficulty() { return Math.min(1, runTime / ROUND); }
+  function pop() {
+    var free = lots.filter(function (l) { return !l.house; });
+    var up = lots.length - free.length;
+    if (free.length && up < MAX_UP) {
+      var lot = free[Math.floor(Math.random() * free.length)];
+      var r = Math.random();
+      var kind = r < 0.18 ? 'dragon' : r < 0.28 ? 'gold' : 'house';
+      var life = (kind === 'gold' ? 0.9 : 1.35) - 0.6 * difficulty();
+      lot.house = { kind: kind, t: 0, life: life, sprite: kind === 'gold' ? sprites.gold : kind === 'dragon' ? sprites.dragon : sprites.houses[Math.floor(Math.random() * sprites.houses.length)], state: 'up' };
+    }
+    nextPop = runTime + (0.9 - 0.45 * difficulty()) * rand(0.8, 1.2);
+  }
+  function hit(x, y) {
+    for (var i = 0; i < lots.length; i++) {
+      var l = lots[i];
+      if (x < l.x || x > l.x + l.w || y < l.y || y > l.y + l.h) continue;
+      var h = l.house;
+      if (!h || h.state !== 'up') { streak = 0; Snd.miss(); floats.push({ x: x, y: y, text: 'empty lot', ttl: 0.6, small: true }); return; }
+      if (h.kind === 'dragon') {
+        score = Math.max(0, score + DRAGON); streak = 0; Snd.roar();
+        l.fx = { kind: 'roar', t: 0 }; h.state = 'done'; h.t = 0;
+        floats.push({ x: l.x + l.w / 2, y: l.y + 20, text: DRAGON + ' DRAGON!', ttl: 1.2, bad: true, big: true });
+        return;
+      }
+      var bonus = Math.min(STREAK_MAX, streak * STREAK_STEP);
+      var pts = (h.kind === 'gold' ? GOLD : HOUSE) + bonus;
+      score += pts; funded++; streak++; best = Math.max(best, streak);
+      if (h.kind === 'gold') Snd.bag(); else Snd.coin();
+      l.fx = { kind: 'funded', t: 0, label: h.kind === 'gold' ? 'GOLDEN!' : FUND_LINES[Math.floor(Math.random() * FUND_LINES.length)] };
+      h.state = 'done'; h.t = 0;
+      floats.push({ x: l.x + l.w / 2, y: l.y + 24, text: '+' + pts + (bonus ? ' (streak +' + bonus + ')' : ''), ttl: 1, big: h.kind === 'gold' });
+      if (streak === 5 || streak === 10 || streak === 20) { banner = { text: streak + ' in a row — ' + (streak >= 20 ? 'Ye Olde Top Producer!' : streak >= 10 ? 'Closing machine!' : 'On a roll!'), ttl: 1.6 }; Snd.win(); }
+      return;
+    }
+  }
+  function update(dt) {
+    tick += dt;
+    if (state !== 'running') return;
+    runTime += dt;
+    if (runTime >= ROUND) { finish(); return; }
+    if (runTime >= nextPop) pop();
+    for (var i = 0; i < lots.length; i++) {
+      var l = lots[i], h = l.house;
+      if (h) {
+        h.t += dt;
+        if (h.state === 'up' && h.t >= h.life) {
+          h.state = 'gone'; h.t = 0;
+          if (h.kind !== 'dragon') { l.fx = { kind: 'sold', t: 0 }; streak = 0; Snd.tick(); }
+        }
+        if ((h.state === 'done' || h.state === 'gone') && h.t > 0.35) l.house = null;
+      }
+      if (l.fx) { l.fx.t += dt; if (l.fx.t > 0.7) l.fx = null; }
+    }
+    for (i = floats.length - 1; i >= 0; i--) { floats[i].y -= 36 * dt; floats[i].ttl -= dt; if (floats[i].ttl <= 0) floats.splice(i, 1); }
+    if (banner) { banner.ttl -= dt; if (banner.ttl <= 0) banner = null; }
+  }
+  function finish() {
+    state = 'done'; doneAt = performance.now(); Snd.win();
+    endLine = END_LINES[Math.floor(Math.random() * END_LINES.length)];
+    AG.finishRun(tokenPromise, { score: score, coins: funded, distance: best, durationMs: Math.floor(performance.now() - startedAt) });
+  }
+
+  // ── Draw ───────────────────────────────────────────────────────
+  function drawLot(l) {
+    ctx.fillStyle = '#8fbf6a'; ctx.fillRect(l.x, l.y, l.w, l.h);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(l.x, l.y + l.h - 14, l.w, 14);
+    ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 3; ctx.strokeRect(l.x + 1.5, l.y + 1.5, l.w - 3, l.h - 3);
+    ctx.fillStyle = '#4f7a2a'; for (var g = 0; g < 6; g++) { var gx = l.x + 14 + g * 30, gy = l.y + l.h - 22 + ((g % 2) * 4); ctx.fillRect(gx, gy, 2, 5); ctx.fillRect(gx + 4, gy + 1, 2, 4); }
+    var h = l.house;
+    if (h) {
+      var sp = h.sprite, full = sp.height;
+      var frac = h.state === 'up' ? Math.min(1, h.t / 0.12) : h.state === 'done' ? 1 : Math.max(0, 1 - h.t / 0.25);
+      var vis = Math.round(full * frac);
+      if (vis > 0) {
+        var hx = l.x + (l.w - sp.width) / 2 + (h.kind === 'dragon' && l.fx && l.fx.kind === 'roar' ? Math.sin(tick * 60) * 4 : 0);
+        var hy = l.y + l.h - 16 - vis;
+        ctx.drawImage(sp, 0, 0, sp.width, vis, hx, hy, sp.width, vis);
+        if (h.kind === 'dragon' && frac > 0.6 && h.state === 'up') ctx.drawImage(sprites.dragonHead, hx + sp.width - 30, hy - 14 + Math.sin(tick * 6) * 2);
+        if (h.state === 'up') {
+          var left = Math.max(0, 1 - h.t / h.life);
+          ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(l.x + 10, l.y + 8, l.w - 20, 5);
+          ctx.fillStyle = h.kind === 'dragon' ? '#b3261e' : h.kind === 'gold' ? '#ffd866' : '#f7f0dc'; ctx.fillRect(l.x + 10, l.y + 8, (l.w - 20) * left, 5);
+        }
+      }
+    }
+    if (l.fx) {
+      var a = Math.max(0, 1 - l.fx.t / 0.7);
+      ctx.globalAlpha = a;
+      if (l.fx.kind === 'funded') AG.drawStamp(ctx, l.x + 20, l.y + 34, l.w - 40, 44, -0.12, l.fx.label);
+      else if (l.fx.kind === 'sold') {
+        ctx.fillStyle = '#7c1f1f'; ctx.font = '700 12px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('SOLD TO A COMPETITOR', l.x + l.w / 2, l.y + l.h / 2);
+      } else if (l.fx.kind === 'roar') {
+        ctx.fillStyle = 'rgba(179,38,30,0.35)'; ctx.fillRect(l.x, l.y, l.w, l.h);
+        ctx.fillStyle = '#fff'; ctx.font = '900 20px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('ROAR', l.x + l.w / 2, l.y + l.h / 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  function draw() {
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#8fc8ee'); g.addColorStop(0.35, '#d8ecd0'); g.addColorStop(1, '#6e9a4a');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(59,42,85,0.22)';
+    for (var t = 0; t < 4; t++) { var bx = 120 + t * 220; ctx.fillRect(bx, 40, 44, 50); for (var m = 0; m < 4; m++) ctx.fillRect(bx + m * 12, 30, 6, 10); }
+    for (var i = 0; i < lots.length; i++) drawLot(lots[i]);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (i = 0; i < floats.length; i++) {
+      var f = floats[i];
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.ttl * 1.5));
+      ctx.font = (f.big ? '700 17px' : f.small ? '600 11px' : '700 13px') + ' DM Mono, monospace';
+      ctx.fillStyle = f.bad ? '#7c1f1f' : '#3a2313'; ctx.fillText(f.text, f.x + 1, f.y + 1);
+      ctx.fillStyle = f.bad ? '#ff5a4a' : '#ffd866'; ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.globalAlpha = 1;
+    if (banner) {
+      ctx.globalAlpha = Math.min(1, banner.ttl * 2);
+      ctx.font = '900 24px Cinzel Decorative, Cinzel, serif';
+      ctx.fillStyle = '#3a2313'; ctx.fillText(banner.text, W / 2 + 2, 62); ctx.fillStyle = '#ffd866'; ctx.fillText(banner.text, W / 2, 60);
+      ctx.globalAlpha = 1;
+    }
+    // HUD
+    ctx.textBaseline = 'top';
+    ctx.font = '700 22px DM Mono, monospace'; ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillText(AG.fmt(score), W - 18, 16);
+    ctx.fillStyle = '#fff'; ctx.fillText(AG.fmt(score), W - 20, 14);
+    ctx.font = '600 11px Cinzel, serif'; ctx.fillStyle = 'rgba(58,35,19,0.85)';
+    ctx.fillText('FUNDED ' + funded + '  ·  STREAK ' + streak, W - 20, 42);
+    ctx.textAlign = 'left';
+    var G = AG.get();
+    ctx.fillText('BEST ' + AG.fmt(G.myBest), 20, 16);
+    if (G.topBest) ctx.fillText('⚔ TOP ' + AG.fmt(G.topBest) + (G.topName ? ' · ' + G.topName.toUpperCase() : ''), 20, 32);
+    var left = Math.max(0, ROUND - runTime);
+    ctx.textAlign = 'center'; ctx.font = '700 22px DM Mono, monospace';
+    ctx.fillStyle = left < 10 && state === 'running' && Math.floor(tick * 4) % 2 === 0 ? '#ff5a4a' : '#fff';
+    ctx.fillText(state === 'running' ? (Math.ceil(left) + 's') : '60s', W / 2, 14);
+    if (Snd.muted()) { ctx.font = '600 11px Cinzel, serif'; ctx.fillStyle = 'rgba(58,35,19,0.85)'; ctx.fillText('🔇', W / 2, 44); }
+    if (state === 'ready') {
+      AG.drawPanel(ctx, W, H, [
+        { text: 'FUND THE HOUSE', font: '900 34px Cinzel Decorative, Cinzel, serif', y: 140, color: '#ffd866' },
+        { text: 'Click a house to fund it (+100). Golden houses +250. Streaks add up to +50 a pop.', font: '500 14px DM Sans, sans-serif', y: 190 },
+        { text: 'Never fund the house with the dragon in the window (−150).', font: '500 14px DM Sans, sans-serif', y: 214, color: '#ffb3a7' },
+        { text: 'Press SPACE or tap to start the 60-second round', font: '700 18px Cinzel, serif', y: 270, color: '#fff' }
+      ]);
+    } else if (state === 'done') {
+      ctx.fillStyle = 'rgba(42,29,18,0.62)'; ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffd866'; ctx.font = '900 38px Cinzel Decorative, Cinzel, serif'; ctx.fillText("TIME'S UP", W / 2, 140);
+      ctx.fillStyle = '#f7f0dc'; ctx.font = '500 15px DM Sans, sans-serif'; ctx.fillText(endLine, W / 2, 196);
+      ctx.font = '700 20px DM Mono, monospace'; ctx.fillStyle = '#ffd866'; ctx.fillText('Score ' + AG.fmt(score) + '   ·   Funded ' + funded + '   ·   Best streak ' + best, W / 2, 238);
+      if (Math.floor(performance.now() / 500) % 2 === 0) { ctx.font = '700 15px Cinzel, serif'; ctx.fillStyle = '#fff'; ctx.fillText('Press SPACE or tap to play again', W / 2, 290); }
+    }
+  }
+
+  function frame(t) {
+    var dt = Math.min(0.05, (t - lastT) / 1000);
+    lastT = t;
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+
+  AG.boot({ gameId: 'fund-the-house' }, init);
+})();
+</script>
+</body>
+</html>

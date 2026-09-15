@@ -52,11 +52,15 @@ export const GAME_ID = 'gallop';
  * quarter). Before ROTATION_START only the Gallop exists, so it is the
  * quest every month until then.
  */
+// maxPps = the server plausibility cap (points per second of server-measured
+// ride time) — keep each ABOVE the game's real ceiling (see the SCORING
+// comment at the top of each game page) or honest runs bounce.
 export const GAMES = {
-  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors and one very hungry dragon.', icon: '🏇' },
-  'coin-catch': { id: 'coin-catch', name: 'Coin Catch', href: '/coin-catch.html', blurb: 'Catch the falling gold, dodge the falling DENIED stamps. Two arrows, no mercy.', icon: '💰' },
-  'fund-the-house': { id: 'fund-the-house', name: 'Fund the House', href: '/fund-the-house.html', blurb: 'Houses pop up for a heartbeat. Fund them before a competitor does — but never the one with the dragon in the window.', icon: '🏠' },
+  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors and one very hungry dragon.', icon: '🏇', maxPps: 90 },
+  'coin-catch': { id: 'coin-catch', name: 'Coin Catch', href: '/coin-catch.html', blurb: 'Catch the falling gold, dodge the falling DENIED stamps. Two arrows, three lives, no mercy.', icon: '💰', maxPps: 140 },
+  'fund-the-house': { id: 'fund-the-house', name: 'Fund the House', href: '/fund-the-house.html', blurb: 'Houses pop up for a heartbeat. Fund them before a competitor does — but never the one with the dragon in the window. Sixty seconds.', icon: '🏠', maxPps: 700 },
 };
+export function isGameId(id) { return Object.prototype.hasOwnProperty.call(GAMES, String(id || '')); }
 export const ROTATION = ['gallop', 'coin-catch', 'fund-the-house'];
 export const ROTATION_START = '2026-10';
 export function questForMonth(month) {
@@ -137,8 +141,8 @@ function _b64u(buf) { return Buffer.from(buf).toString('base64').replace(/\+/g, 
 function _unb64u(s) { return Buffer.from(String(s || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64'); }
 function _sig(payloadB64) { return _b64u(createHmac('sha256', _secret()).update(payloadB64).digest()); }
 
-export function issueRunToken(email) {
-  const payload = { id: 'run_' + Date.now() + '_' + randomBytes(4).toString('hex'), e: normalizeEmail(email), t: Date.now(), g: GAME_ID };
+export function issueRunToken(email, game) {
+  const payload = { id: 'run_' + Date.now() + '_' + randomBytes(4).toString('hex'), e: normalizeEmail(email), t: Date.now(), g: isGameId(game) ? game : GAME_ID };
   const p = _b64u(JSON.stringify(payload));
   return { token: p + '.' + _sig(p), runId: payload.id, issuedAt: payload.t, expiresAt: payload.t + RUN_TOKEN_TTL_MS };
 }
@@ -153,19 +157,26 @@ export function verifyRunToken(token) {
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
   try {
     const payload = JSON.parse(_unb64u(parts[0]).toString('utf8'));
-    if (!payload || !payload.id || !payload.e || !payload.t || payload.g !== GAME_ID) return null;
+    if (!payload || !payload.id || !payload.e || !payload.t || !isGameId(payload.g)) return null;
     return payload;
   } catch (_) { return null; }
 }
 
 // ── Scores ────────────────────────────────────────────────────────
-function _scoreKey(month, email) { return 'scores/' + month + '/' + keySafe(normalizeEmail(email)); }
+// Deploy 237.083 — per-game keys. The Gallop keeps its original
+// scores/<month>/<owner> keys (its docs predate the rotation and carry no
+// game field); every other game lives at scores/<game>/<month>/<owner>.
+function _scoreKey(month, email, game) {
+  const g = isGameId(game) ? game : GAME_ID;
+  return 'scores/' + (g === GAME_ID ? '' : g + '/') + month + '/' + keySafe(normalizeEmail(email));
+}
 
 function _publicRow(doc) {
   return {
     email: doc.email, name: doc.name || '', best: Number(doc.best) || 0, bestAt: doc.bestAt || '',
     bestCoins: Number(doc.bestCoins) || 0, bestDurationMs: Number(doc.bestDurationMs) || 0,
     runs: Number(doc.runs) || 0, lastRunAt: doc.lastRunAt || '', month: doc.month || '',
+    game: isGameId(doc.game) ? doc.game : GAME_ID,
   };
 }
 
@@ -182,25 +193,38 @@ async function _readPrefix(prefix) {
   return docs.filter((d) => d && d.email);
 }
 
-/** This month's board, best-first. */
-export async function listMonth(month) {
-  const docs = await _readPrefix('scores/' + month + '/');
-  return docs.map(_publicRow).filter((r) => r.best > 0).sort((a, b) => b.best - a.best || String(a.bestAt).localeCompare(String(b.bestAt)));
+const _byBest = (a, b) => b.best - a.best || String(a.bestAt).localeCompare(String(b.bestAt));
+
+/** One game's board for a month, best-first. */
+export async function listMonth(month, game) {
+  const g = isGameId(game) ? game : GAME_ID;
+  const docs = await _readPrefix('scores/' + (g === GAME_ID ? '' : g + '/') + month + '/');
+  return docs.map(_publicRow).filter((r) => r.best > 0 && r.game === g).sort(_byBest);
 }
 
-/** Every month, { month: [rows best-first] }. Tens of docs per month — fine to read whole. */
-export async function listAllMonths() {
+/**
+ * Every score doc, grouped { game: { month: [rows best-first] } }. One prefix
+ * read for everything (tens of docs per month per game).
+ */
+export async function listAllScores() {
   const docs = await _readPrefix('scores/');
-  const byMonth = {};
+  const out = {};
   docs.forEach((d) => {
     const row = _publicRow(d);
     if (!(row.best > 0)) return;
     const m = row.month || (String(d.month || '')) || '';
     if (!m) return;
-    (byMonth[m] = byMonth[m] || []).push(row);
+    const g = out[row.game] = out[row.game] || {};
+    (g[m] = g[m] || []).push(row);
   });
-  Object.keys(byMonth).forEach((m) => byMonth[m].sort((a, b) => b.best - a.best || String(a.bestAt).localeCompare(String(b.bestAt))));
-  return byMonth;
+  Object.keys(out).forEach((g) => Object.keys(out[g]).forEach((m) => out[g][m].sort(_byBest)));
+  return out;
+}
+
+/** Every month for ONE game, { month: [rows best-first] }. Default: the Gallop. */
+export async function listAllMonths(game) {
+  const all = await listAllScores();
+  return all[isGameId(game) ? game : GAME_ID] || {};
 }
 
 /**
@@ -225,17 +249,19 @@ export async function recordRun(user, run) {
   const email = normalizeEmail(user.email);
   const now = Date.now();
   const month = monthKey(new Date(now));
+  const game = isGameId(run.game) ? run.game : GAME_ID;
   const store = _store();
-  const key = _scoreKey(month, email);
+  const key = _scoreKey(month, email, game);
   const doc = (await store.get(key, { type: 'json' }).catch(() => null)) || {
-    email, name: displayNameFor(user), month, best: 0, bestAt: '', bestCoins: 0, bestDurationMs: 0, runs: 0, lastRunAt: '', recentRuns: [],
+    email, name: displayNameFor(user), month, game, best: 0, bestAt: '', bestCoins: 0, bestDurationMs: 0, runs: 0, lastRunAt: '', recentRuns: [],
   };
+  doc.game = game;
   const recent = (Array.isArray(doc.recentRuns) ? doc.recentRuns : []).filter((r) => r && r.id && now - Number(r.at || 0) < RECENT_RUNS_KEEP_MS);
   if (recent.some((r) => r.id === run.runId)) {
     return { accepted: false, reason: 'That run was already scored.', best: Number(doc.best) || 0, isNewBest: false, row: _publicRow(doc) };
   }
   const elapsedMs = Math.min(Math.max(0, now - Number(run.issuedAt || 0)), MAX_RUN_MS);
-  const cap = Math.floor(MAX_POINTS_PER_SEC * (elapsedMs / 1000) + SCORE_SLACK);
+  const cap = Math.floor((GAMES[game].maxPps || MAX_POINTS_PER_SEC) * (elapsedMs / 1000) + SCORE_SLACK);
   const score = Math.max(0, Math.floor(Number(run.score) || 0));
   recent.push({ id: run.runId, at: now });
   doc.recentRuns = recent;
@@ -247,7 +273,7 @@ export async function recordRun(user, run) {
   if (score > cap) {
     accepted = false;
     reason = 'Score is higher than a ' + Math.round(elapsedMs / 1000) + 's ride could earn — not counted.';
-    console.warn('[armory] implausible score', { email, score, cap, elapsedMs });
+    console.warn('[armory] implausible score', { email, game, score, cap, elapsedMs });
   } else if (score > (Number(doc.best) || 0)) {
     isNewBest = true;
     doc.best = score;
@@ -260,9 +286,9 @@ export async function recordRun(user, run) {
 }
 
 /** Admin: wipe one player's score for a month (the doc goes away; the next run starts them fresh). */
-export async function voidScore(month, email) {
+export async function voidScore(month, email, game) {
   const store = _store();
-  const key = _scoreKey(month, email);
+  const key = _scoreKey(month, email, game);
   const doc = await store.get(key, { type: 'json' }).catch(() => null);
   if (!doc) return false;
   await store.delete(key);
