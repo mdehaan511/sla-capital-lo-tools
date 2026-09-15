@@ -98,8 +98,9 @@
     .shield.p1 .sh { background: linear-gradient(#f3d98a, #b8860b); border: 3px solid #7a5218; width: 86px; height: 98px; }
     .shield.p2 { left: 6%; top: 42px; } .shield.p2 .sh { background: linear-gradient(#e6e6e6, #8f9aa3); border: 3px solid #5c6770; }
     .shield.p3 { right: 6%; top: 42px; } .shield.p3 .sh { background: linear-gradient(#e0a06a, #9a5a2a); border: 3px solid #5c3a1a; }
-    .shield .nm { margin-top: 6px; font-weight: 700; font-size: 13px; color: var(--ink); }
-    .shield .sc { font-family: 'DM Mono', monospace; font-size: 13px; color: #6b5636; }
+    /* Labels sit over the dark table top — parchment pills keep them readable. */
+    .shield .nm { display: inline-block; margin-top: 6px; padding: 1px 9px; border-radius: 9px; background: rgba(255,250,235,0.92); border: 1px solid rgba(201,161,74,0.5); font-weight: 700; font-size: 13px; color: var(--ink); }
+    .shield .sc { display: inline-block; margin-top: 3px; padding: 0 8px; border-radius: 8px; background: rgba(255,250,235,0.85); font-family: 'DM Mono', monospace; font-size: 12px; color: #6b5636; }
     .shield.empty .sh { background: repeating-linear-gradient(45deg, rgba(0,0,0,0.05) 0 6px, rgba(0,0,0,0.02) 6px 12px); border: 3px dashed rgba(90,58,30,0.35); color: #8a7350; }
     .shield.empty .nm { color: #8a7350; font-weight: 500; font-style: italic; }
     @media (max-width: 520px) { .shield.p2 { left: -4px; } .shield.p3 { right: -4px; } }

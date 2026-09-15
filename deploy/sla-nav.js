@@ -243,7 +243,7 @@
       // canWorkMail includes senior_lo, so the link must too.
       return hasRole(user, 'processor') || _rawRoles(user).some(function (r) { return r === 'office_assistant' || r === 'senior_lo'; });
     }
-    // Deploy 237.072 — 'staff' = any SLA Capital team member. Mirrors the
+    // Deploy 237.073 — 'staff' = any SLA Capital team member. Mirrors the
     // server's classifyAccount (team-roster-rules.mjs): a staff role, or the
     // @slacapital.com backstop index.html also uses for legacy LOs.
     if (link.requires === 'staff') {
