@@ -27,7 +27,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // never written — exactly the big BPOs the feature exists for.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
-import { internalBgSig } from './_shared/review-truth.mjs'; // Deploy 236.818
+import { internalBgSig, queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 236.818 / 237.049
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
 const BG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -65,6 +65,9 @@ async function handle(req, context) {
 
   const docState = review.docs && review.docs[body.slug];
   if (!docState) return json(400, { error: 'slug not on this review' });
+  // Deploy 237.049 -- remember the Articles' previous extracted name so the
+  // dependent-tray re-grade can tell "same name, already graded" from a change.
+  const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
   if (!docState.currentDocId) return json(400, { error: 'No document uploaded for this tray yet' });
   if (docState.noReview) return json(200, { ok: true, skipped: 'noReview' });
 
@@ -228,6 +231,10 @@ async function handle(req, context) {
   // Deploy 236.762 — fresh-read merge (see _saveTrayPatch); the stale
   // whole-record write here was the concurrency clobber.
   const saved = await _saveTrayPatch(_ok, _integrity, aiResult.costCents || 0);
+  // Deploy 237.049 -- Articles reviewed in the background: re-grade the entity-name-dependent trays.
+  if (saved && body.slug === 'articles_of_organization' && isCurrentTarget) {
+    try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
+  }
 
   // Write the loan fields AFTER the review is saved, so a proposal-write failure
   // can never lose the review itself (same ordering as the upload path).
