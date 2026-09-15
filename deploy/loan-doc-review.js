@@ -1356,6 +1356,10 @@
     var tray = (_review.docs || {})[slug] || {};
     var docs = (tray.documents || []).filter(function(d) { return d && !d.hidden; });
     var names = docs.map(function(d) { var ee = d.aiExtractedEntities || {}; return String((ee.borrowerName || '') + ' ' + (d.filename || '')).toLowerCase(); });
+    // Deploy 237.076 -- auto-attached docs (Xactus credit pull, background checks) can carry only the
+    // tray-level currentFilename / extraction with no documents[] entry; 3528 Park's credit
+    // report showed "missing" for the very guarantor it was pulled for.
+    if (tray.currentDocId) { var tee = tray.aiExtractedEntities || {}; names.push(String((tee.borrowerName || '') + ' ' + (tray.currentFilename || '')).toLowerCase()); }
     return guarantors.map(function(g) {
       var parts = String(g).toLowerCase().split(/\s+/).filter(Boolean); var last = parts[parts.length - 1] || ''; var first = parts[0] || '';
       var ok = !!last && names.some(function(n) { return n.indexOf(last) >= 0 && (!first || n.indexOf(first) >= 0 || n.indexOf(first.charAt(0) + ' ') >= 0 || n.indexOf(first.charAt(0) + '.') >= 0); });
