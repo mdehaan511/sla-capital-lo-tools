@@ -93,7 +93,11 @@
     var pts = num(l.points);
     var tool = String(l.toolType || '').toLowerCase();
     if (tool === 'dscr') {
-      var tpo = num(l.tpoSpread) || num(l.tpo) || num(l.tpoPremium);
+      // Deploy 237.059 (Mike: "a TPO of 0 is acceptable") -- take the first field
+      // that is SET, so an explicit 0 on the Funding Plan no longer falls through
+      // to the migrated tpoPremium (num()||num() treated 0 as unset).
+      var _set = function (v) { return v != null && String(v).trim() !== ''; };
+      var tpo = num(_set(l.tpoSpread) ? l.tpoSpread : (_set(l.tpo) ? l.tpo : l.tpoPremium));
       return { margin: pts + tpo, parts: pts.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO', missing: false };
     }
     // Deploy 236.941 (Mike) — the RTL base is the SIZER's engine rate, NOT the

@@ -82,7 +82,7 @@
       var k = (num(p.tpoPerRate) > 0) ? num(p.tpoPerRate) : 1;
       var tpoDelta = spread * k;
       margin = points + tpo + tpoDelta;
-      parts = points.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + (p.tpoAssumed ? ' (assumed — set at closing)' : '') +
+      parts = points.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + (p.tpoAssumed ? ' (assumed — set at closing)' : (p.tpoAdmin ? ' (Admin Mode)' : '')) +
         (spread > 0 ? ' + ' + tpoDelta.toFixed(2) + ' TPO for ' + spread.toFixed(2) + ' over sizer base'
           : spread < 0 ? ' − ' + Math.abs(tpoDelta).toFixed(2) + ' TPO for ' + Math.abs(spread).toFixed(2) + ' under sizer base' : '') +
         ((spread !== 0 && k !== 1) ? ' (' + k.toFixed(2) + ' pts per 1%)' : '');
@@ -124,15 +124,21 @@
     if (!calc || typeof calc !== 'object') return null;
     var eff = root._dscrLastCalcEffective || {};
     var o = root._dscrOverrides || {};
-    var tpo = (typeof calc.netHiddenTpoPct === 'number' && calc.netHiddenTpoPct > 0) ? calc.netHiddenTpoPct : DEFAULT_DSCR_TPO;
+    // Deploy 237.059 (Mike) -- Admin Mode TPO premium (dscr-sizer): an explicit
+    // premium for whichever investor the admin is pricing off of. It replaces the
+    // assumed DIYA 1.00 AND switches off the rate-spread scaling (that curve is
+    // DIYA's): margin = points + this TPO, exactly. 0 is a valid premium.
+    var adminTpo = (root._dscrAdminMode && root._dscrAdminTpo != null && isFinite(Number(root._dscrAdminTpo))) ? Number(root._dscrAdminTpo) : null;
+    var tpo = (adminTpo != null) ? adminTpo : ((typeof calc.netHiddenTpoPct === 'number' && calc.netHiddenTpoPct > 0) ? calc.netHiddenTpoPct : DEFAULT_DSCR_TPO);
+    var effRate = (eff.finalRate != null) ? eff.finalRate : calc.finalRate;
     return withLoanStamps({
       tool: tool || 'dscr',
       tpoPerRate: dscrTpoPerRate(),
       amount: (eff.loan != null) ? eff.loan : calc.loan,
-      ratePct: (eff.finalRate != null) ? eff.finalRate : calc.finalRate,
-      basePct: calc.finalRate,
+      ratePct: effRate,
+      basePct: (adminTpo != null) ? effRate : calc.finalRate,
       points: (o.points != null) ? o.points : (1 + (num(calc.buydown) || 0)),
-      tpoSpread: tpo, tpoAssumed: true,
+      tpoSpread: tpo, tpoAssumed: adminTpo == null, tpoAdmin: adminTpo != null,
     });
   }
   // Deploy 236.964 — points of TPO premium per 1% of rate, from the DSCR engine
