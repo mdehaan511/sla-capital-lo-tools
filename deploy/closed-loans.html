@@ -237,7 +237,8 @@ var _pmtHist = {};           // loanKey -> { loading, error, data }
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
 var _investorBook = [];      // Deploy 237.016 — full investor records (id, name, closingFees)
 var _noteServicers = [];     // Deploy 236.628 — org-wide Note Servicer names (Vendors, role note_servicer)
-var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'pmtStatus',d:-1}, // Deploy 237.056 — delinquent loans first pending_sale:{k:'funded',d:-1},
+// Deploy 237.056 (Mike) - servicing default sort = pmtStatus desc (delinquent loans first).
+var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'pmtStatus',d:-1}, pending_sale:{k:'funded',d:-1},
   sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
 
 // ── Helpers ────────────────────────────────────────────────────────
