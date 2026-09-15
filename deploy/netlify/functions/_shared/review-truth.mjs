@@ -20,6 +20,7 @@
 import crypto from 'node:crypto';
 import { getStore } from '@netlify/blobs';   // Deploy 237.049
 import { keySafe } from './auth.mjs';        // Deploy 237.049
+import { newRecordKey, legacyRecordKey } from './borrower-info-keys.mjs'; // Deploy 237.081
 
 function _secret() { return process.env.ESIGN_SEAL_SECRET || ''; }
 
@@ -93,6 +94,42 @@ export async function queueTruthRefreshIfMaterial(opts) {
       reason: (opts.reason || 'loan terms updated') + ': ' + changed.slice(0, 6).join(', ') + (changed.length > 6 ? ', …' : ''),
     });
   } catch (e) { return { ok: false, reason: e && e.message }; }
+}
+
+// Deploy 237.081 (Mike, Marianne's Farnwood loan) -- the GUARANTOR ROSTER. loan.guarantors[] is
+// only filled by manual adds; co-borrowers who signed the long app live as linked
+// clients (loan.guarantorClientIds) and in the borrower_info record's guarantors[],
+// so a two-guarantor file showed 'Guarantor 1' only. Resolved once at review create /
+// truth refresh into review.guarantorNames (ordered: primary client first, then the
+// linked ids in order, then anyone else found); the page and the AI context read it.
+export async function resolveGuarantorNames({ ownerKey, client, loan, clientsStore }) {
+  const out = [];
+  const push = (n) => { n = String(n || '').replace(/\s+/g, ' ').trim(); if (n && !/^(null|n\/?a|none|unknown|tbd)$/i.test(n) && !out.some((x) => x.toLowerCase() === n.toLowerCase())) out.push(n); };
+  const nameOf = (p) => p ? (((p.firstName || '') + ' ' + (p.lastName || '')).trim() || p.name || '') : '';
+  try {
+    const c = client || {};
+    const l = loan || {};
+    const flat = Array.isArray(l.guarantors) ? l.guarantors : [];
+    if (!c._isBroker && !c.isBroker) push(nameOf(c));
+    const ids = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
+    const store = clientsStore || getStore({ name: 'clients', consistency: 'strong' });
+    for (const id of ids) {
+      if (!id || id === c.id) continue;
+      const hit = flat.find((g) => g && (g.clientId === id || g.id === id));
+      if (hit && nameOf(hit)) { push(nameOf(hit)); continue; }
+      try { const gc = await store.get(keySafe(ownerKey) + '/' + keySafe(id), { type: 'json' }); if (gc) push(nameOf(gc)); } catch (_) {}
+    }
+    flat.forEach((g) => push(nameOf(g)));
+    // Long-app co-borrowers (guarantors[1..]) -- the signed application is the record of who applied.
+    try {
+      const bi = getStore({ name: 'borrower_info', consistency: 'strong' });
+      let rec = await bi.get(newRecordKey(keySafe(ownerKey), c.id, l.id), { type: 'json' }).catch(() => null);
+      if (!rec) rec = await bi.get(legacyRecordKey(keySafe(ownerKey), c.id), { type: 'json' }).catch(() => null);
+      const gs = rec && rec.data && Array.isArray(rec.data.guarantors) ? rec.data.guarantors : [];
+      gs.forEach((g) => push(nameOf(g)));
+    } catch (_) {}
+  } catch (e) { console.warn('[review-truth] resolveGuarantorNames failed (non-fatal):', e && e.message); }
+  return out;
 }
 
 // Deploy 237.049 -- Articles-as-truth follow-up (237.041/043). Every tray whose

@@ -29,6 +29,7 @@ import { getChecklist, getDefaultInvestor, findCategory, portfolioCollateralEntr
 // Deploy 236.564 — denormalize the open-conditions count onto the loan (for the
 // pipeline badge). PG-first strict writer.
 import { writeClient } from './_shared/client-write.mjs';
+import { resolveGuarantorNames } from './_shared/review-truth.mjs'; // Deploy 237.081
 // Deploy 236.746 — flagged issues land in the loan's Notes & Activity stream.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
@@ -240,6 +241,7 @@ async function handle(req, context) {
         const loan = (client.loans || []).find((l) => l.id === review.source.loanId);
         if (loan) {
           review.sourceLoanSnapshot = loan;
+          try { review.guarantorNames = await resolveGuarantorNames({ ownerKey, client, loan, clientsStore }); } catch (_) {} // Deploy 237.081
           // Strip the heavy fields from the client snapshot — we only
           // need contact / identity. Trim out the full loans array
           // since the targeted loan is already on sourceLoanSnapshot.

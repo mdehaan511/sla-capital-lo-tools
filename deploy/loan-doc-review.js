@@ -1364,7 +1364,12 @@
     if (!_review || !_review.id) return;
     if (document.body.classList.contains('dr-lo-readonly')) return;
     if (global.SLA && typeof global.SLA.isProcessor === 'function' && !global.SLA.isProcessor(_user)) return;
-    var drift = _termsDrift(_review); if (!drift.length) return;
+    var drift = _termsDrift(_review);
+    // Deploy 237.081 -- reviews created before the roster existed: a loan with linked co-guarantors
+    // but no review.guarantorNames gets one refresh so Guarantor 2+ appear.
+    var lv = _liveFor(_review);
+    if (!Array.isArray(_review.guarantorNames) && lv && Array.isArray(lv.guarantorClientIds) && lv.guarantorClientIds.length) drift = drift.concat(['guarantorRoster']);
+    if (!drift.length) return;
     var key = _review.id + '|' + drift.join(',');
     if (_autoSynced[key]) return;
     try { if (global.sessionStorage && global.sessionStorage.getItem('dr-autosync:' + key)) return; } catch (_) {}
@@ -1481,6 +1486,8 @@
     var gs = (Array.isArray(L.guarantors) ? L.guarantors : []).map(function(g) {
       return g ? (((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '') : '';
     }).filter(Boolean);
+    // Deploy 237.081 -- the resolved roster (primary + linked co-guarantors + long-app co-borrowers)
+    if (Array.isArray(_review.guarantorNames) && _review.guarantorNames.length) gs = _review.guarantorNames.slice();
     if (!gs.length && borrower) gs = [borrower];
     var loanAmt = _num(L.loanAmt) || _num(_review.loanAmount);
     var pp = _num(L.purchasePrice), rehab = _num(L.rehabBudget), arv = _num(L.arv);

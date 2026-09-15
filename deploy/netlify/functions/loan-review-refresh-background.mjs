@@ -33,7 +33,7 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { findReviewForLoan, readSignedApp, attachToSlug } from './_shared/loan-review-auto-attach.mjs';
-import { internalTruthSig, internalBgSig } from './_shared/review-truth.mjs';
+import { internalTruthSig, internalBgSig, resolveGuarantorNames } from './_shared/review-truth.mjs'; // Deploy 237.081
 
 const LOAN_APP_SLUG   = 'loan_application';
 const RATE_SHEET_SLUG = 'term_sheet';
@@ -86,6 +86,7 @@ async function handle(req, context) {
   // ── 2. Repair source + refresh snapshots ─────────────────────────
   review.source = { kind: 'existing', ownerKey, clientId: client.id, loanId };
   review.sourceLoanSnapshot = loan;
+  try { review.guarantorNames = await resolveGuarantorNames({ ownerKey, client, loan, clientsStore }); } catch (_) {} // Deploy 237.081
   review.sourceClientSnapshot = {
     id: client.id,
     firstName: client.firstName || '',
