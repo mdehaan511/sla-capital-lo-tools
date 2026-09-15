@@ -837,6 +837,20 @@
   status = 200
   force = true
 
+# Deploy 237.050: in-app notifications (@-mentions in loan notes) -- the
+# bell polls the list; the check mark / Clear all dismiss server-side.
+[[redirects]]
+  from = "/api/notifications-list"
+  to = "/.netlify/functions/notifications-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/notifications-dismiss"
+  to = "/.netlify/functions/notifications-dismiss"
+  status = 200
+  force = true
+
 # Deploy 236.800: loan-note-pin — processors pin/unpin a note to the top
 # of the Notes & Activity feed on Loan Details.
 [[redirects]]
@@ -1121,6 +1135,18 @@
 [[redirects]]
   from = "/api/fci-payoff"
   to = "/.netlify/functions/fci-payoff"
+  status = 200
+  force = true
+# Deploy 237.053 -- borrower payment history (Closed Loans Servicing tab row expansion).
+[[redirects]]
+  from = "/api/loan-payment-history"
+  to = "/.netlify/functions/loan-payment-history"
+  status = 200
+  force = true
+# Deploy 237.054 -- nightly payment-history cache warm (background; cron triggers it with an HMAC).
+[[redirects]]
+  from = "/api/payment-history-warm"
+  to = "/.netlify/functions/payment-history-warm-background"
   status = 200
   force = true
 # Deploy 236.806 — read-only preview of who the maturity cron would email next

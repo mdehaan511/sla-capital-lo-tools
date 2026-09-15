@@ -18,6 +18,8 @@
  *     the background functions accept in place of a staff JWT.
  */
 import crypto from 'node:crypto';
+import { getStore } from '@netlify/blobs';   // Deploy 237.049
+import { keySafe } from './auth.mjs';        // Deploy 237.049
 
 function _secret() { return process.env.ESIGN_SEAL_SECRET || ''; }
 
@@ -61,5 +63,74 @@ export async function queueTruthRefresh(opts) {
   } catch (e) {
     console.warn('[review-truth] queue failed (non-fatal):', e && e.message);
     return { ok: false, reason: e && e.message };
+  }
+}
+
+// Deploy 237.049 -- Articles-as-truth follow-up (237.041/043). Every tray whose
+// rubric compares the entity name to the ENTITY NAME OF RECORD is graded either
+// "unclear - Articles not reviewed yet" or against a stale name until the Articles
+// tray is (re)reviewed. Once the Articles land an extracted llcName, re-queue those
+// dependents in the background so the processor doesn't Retry AI on each by hand.
+// Same re-read + aiReviewing flag + internal-HMAC kick as the truth refresher.
+// Skips: trays with no doc, storage-only trays, trays already reviewing, trays a
+// human already approved / marked N/A, trays never graded (a fresh upload reads
+// the name of record anyway), trays graded after this Articles review, and -- when
+// the name did not change -- trays graded after the PREVIOUS Articles review.
+export const ENTITY_NAME_DEPENDENT_SLUGS = [
+  'certificate_of_good_standing', 'ein_letter', 'ein_or_w9', 'ofac_entity',
+  'operating_agreement', 'entity_background_check', 'foreign_entity_registration', 'loan_application',
+];
+export async function queueEntityNameDependents(reviewId, prevArticles) {
+  try {
+    if (!reviewId || !_secret()) return { ok: false, queued: [] };
+    const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
+    const review = await store.get(keySafe(reviewId), { type: 'json' });
+    const art = review && review.docs && review.docs.articles_of_organization;
+    const ee = (art && art.aiExtractedEntities) || {};
+    const name = (art && art.aiReviewedAt && typeof ee.llcName === 'string') ? ee.llcName.trim() : '';
+    if (!name) return { ok: true, queued: [] };
+    const prevName = String((prevArticles && prevArticles.llcName) || '').trim();
+    const prevAt = String((prevArticles && prevArticles.aiReviewedAt) || '');
+    const nameChanged = !prevName || prevName.toLowerCase() !== name.toLowerCase();
+    const queued = [];
+    for (const slug of ENTITY_NAME_DEPENDENT_SLUGS) {
+      const ds = review.docs[slug];
+      if (!ds || !ds.currentDocId || ds.hidden || ds.noReview || ds.aiReviewing) continue;
+      if (ds.verdict === 'approved' || ds.verdict === 'na') continue;
+      if (!ds.aiReviewedAt) continue;
+      if (ds.aiReviewedAt >= art.aiReviewedAt) continue;
+      if (!nameChanged && prevAt && ds.aiReviewedAt >= prevAt) continue;
+      ds.aiReviewing = true;
+      queued.push(slug);
+    }
+    if (!queued.length) return { ok: true, queued };
+    review.lastEntityNameRequeue = { at: new Date().toISOString(), name, slugs: queued };
+    review.updatedAt = new Date().toISOString();
+    await store.setJSON(keySafe(review.id), review);
+    const base = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://portal.slacapital.ai';
+    for (const slug of queued) {
+      let ok = false;
+      try {
+        const r = await fetch(base + '/.netlify/functions/loan-review-ai-background', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(review.id, slug) },
+          body: JSON.stringify({ reviewId: review.id, slug }),
+        });
+        ok = r.status === 202 || r.ok;
+        if (!ok) console.warn('[review-truth] entity-name requeue kickoff HTTP', r.status, slug);
+      } catch (e) { console.warn('[review-truth] entity-name requeue kickoff failed:', slug, e && e.message); }
+      if (!ok) {
+        // don't leave the tray spinning: clear the flag we just set
+        try {
+          const fresh = await store.get(keySafe(review.id), { type: 'json' });
+          if (fresh && fresh.docs && fresh.docs[slug]) { fresh.docs[slug].aiReviewing = false; await store.setJSON(keySafe(fresh.id), fresh); }
+        } catch (_) {}
+      }
+    }
+    console.log('[review-truth] entity-name requeue', review.id, name, queued.join(','));
+    return { ok: true, queued };
+  } catch (e) {
+    console.warn('[review-truth] entity-name requeue failed (non-fatal):', e && e.message);
+    return { ok: false, queued: [] };
   }
 }

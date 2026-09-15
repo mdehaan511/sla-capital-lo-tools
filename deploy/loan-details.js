@@ -2181,7 +2181,8 @@ function render() {
       '</div>' +
       '<div class="section-body">' +
         '<div class="notes-input-wrap">' +
-          '<textarea id="noteInput" placeholder="Add a note about this loan — borrower contact, status checkpoint, conversation summary…" onkeydown="handleNoteKeydown(event)"></textarea>' +
+          '<textarea id="noteInput" placeholder="Add a note about this loan — borrower contact, status checkpoint, conversation summary… Type @ to tag a teammate." onkeydown="handleNoteKeydown(event)" oninput="handleNoteInput(event)" onblur="closeNoteMentions()"></textarea>' +
+          '<div class="user-picker-list" id="noteMentionList" style="display:none"></div>' + // Deploy 237.050 -- @-mention picker
           '<div class="notes-input-row">' +
             '<button class="btn-add" id="noteAddBtn" onclick="addNoteFromUI()">Add Note</button>' +
           '</div>' +
@@ -7058,7 +7059,7 @@ function renderNotesLog() {
           '<span class="note-entry-kind nk-' + escH(e.kind || 'manual') + '">' + escH(kindLabel) + '</span>' +
           ctrls +
         '</div>' +
-        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + (e.html ? e.html : escH(e.text || '')) + editedMark + '</div>' + // 236.967 -- esign entries carry markup
+        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + (e.html ? e.html : _noteTextHtml(e)) + editedMark + '</div>' + // 236.967 -- esign entries carry markup
       '</div>';
   }
   var html = '';
@@ -7574,12 +7575,115 @@ function _syncNoteJumpBtn() {
 }
 
 function handleNoteKeydown(e) {
+  // Deploy 237.050 -- the @-mention picker owns arrows / Enter / Tab / Esc while open.
+  if (_noteMentionOpen) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); _moveNoteMention(e.key === 'ArrowDown' ? 1 : -1); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickNoteMention(_noteMentionActive); return; }
+    if (e.key === 'Escape') { e.preventDefault(); closeNoteMentions(); return; }
+  }
   // Ctrl+Enter / Cmd+Enter to submit, mirroring chat patterns LOs are
   // already familiar with.
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
     addNoteFromUI();
   }
+}
+
+// ── Deploy 237.050 (Mike) — @-mention SLA users in a note ──────────────
+// Typing "@" in the note box opens a picker fed by the users directory (the
+// same source as the task-assignee picker). Picking someone inserts "@First
+// Last" and remembers {email, name}; on save, the picks whose "@Name" is still
+// in the text go to loan-note-add, which notifies each person (bell + email).
+var _noteMentions = [];        // [{email, name}] picked while composing
+var _noteMentionOpen = false;
+var _noteMentionMatches = [];
+var _noteMentionActive = 0;
+var _noteMentionRange = null;  // {start, end} of the "@query" being typed
+function handleNoteInput(e) {
+  var ta = (e && e.target) ? e.target : document.getElementById('noteInput');
+  if (!ta) return;
+  var caret = ta.selectionStart || 0;
+  var before = String(ta.value || '').slice(0, caret);
+  // "@", "@da", "@dan a" -- one optional space so a first+last query still matches.
+  var m = /(^|[\s(])@([^\s@]*(?:[ ][^\s@]*)?)$/.exec(before);
+  if (!m) { closeNoteMentions(); return; }
+  var q = m[2];
+  _noteMentionRange = { start: caret - q.length - 1, end: caret };
+  loadUserDirectory(function(users) { _renderNoteMentions(ta, users, q); });
+}
+function _renderNoteMentions(ta, users, q) {
+  var list = document.getElementById('noteMentionList');
+  if (!list || !_noteMentionRange) return;
+  var ql = String(q || '').toLowerCase().trim();
+  var self = String((_user && _user.email) || '').toLowerCase();
+  _noteMentionMatches = (users || []).filter(function(u) {
+    if (!u || !u.email || String(u.email).toLowerCase() === self) return false;
+    if (!ql) return true;
+    return String(u.name || '').toLowerCase().indexOf(ql) >= 0 || String(u.email).toLowerCase().indexOf(ql) >= 0;
+  }).slice(0, 8);
+  if (!_noteMentionMatches.length) { closeNoteMentions(); return; }
+  if (_noteMentionActive >= _noteMentionMatches.length) _noteMentionActive = 0;
+  list.innerHTML = _noteMentionMatches.map(function(u, i) {
+    return '<div class="user-picker-item"' +
+      (i === _noteMentionActive ? ' style="background:rgba(200,129,58,0.12)"' : '') +
+      ' onmousedown="event.preventDefault();pickNoteMention(' + i + ')">' +
+      '<div class="up-name">' + escH(u.name || u.email) + '</div>' +
+      (u.name ? '<div class="up-email">' + escH(u.email) + '</div>' : '') +
+    '</div>';
+  }).join('');
+  var r = ta.getBoundingClientRect();
+  list.style.top   = (r.bottom + 4) + 'px';
+  list.style.left  = r.left + 'px';
+  list.style.width = Math.min(r.width, 360) + 'px';
+  list.style.display = 'block';
+  _noteMentionOpen = true;
+}
+function _moveNoteMention(dir) {
+  if (!_noteMentionMatches.length) return;
+  _noteMentionActive = (_noteMentionActive + dir + _noteMentionMatches.length) % _noteMentionMatches.length;
+  var ta = document.getElementById('noteInput');
+  if (ta) _renderNoteMentions(ta, _noteMentionMatches, '');
+}
+function pickNoteMention(i) {
+  var u = _noteMentionMatches[i];
+  var ta = document.getElementById('noteInput');
+  if (!u || !ta || !_noteMentionRange) { closeNoteMentions(); return; }
+  var name = String(u.name || u.email).trim();
+  var v = String(ta.value || '');
+  var insert = '@' + name + ' ';
+  ta.value = v.slice(0, _noteMentionRange.start) + insert + v.slice(_noteMentionRange.end);
+  var pos = _noteMentionRange.start + insert.length;
+  try { ta.setSelectionRange(pos, pos); } catch (_) {}
+  var dup = false;
+  for (var k = 0; k < _noteMentions.length; k++) { if (_noteMentions[k].email === u.email) dup = true; }
+  if (!dup) _noteMentions.push({ email: u.email, name: name });
+  closeNoteMentions();
+  ta.focus();
+}
+function closeNoteMentions() {
+  var list = document.getElementById('noteMentionList');
+  if (list) list.style.display = 'none';
+  _noteMentionOpen = false; _noteMentionMatches = []; _noteMentionActive = 0; _noteMentionRange = null;
+}
+function _noteMentionsInText(text) {
+  // Only the picks whose "@Name" survived editing are sent.
+  var out = [];
+  for (var k = 0; k < _noteMentions.length; k++) {
+    var m = _noteMentions[k];
+    if (m && m.name && text.indexOf('@' + m.name) >= 0) out.push({ email: m.email, name: m.name });
+  }
+  return out;
+}
+function _noteTextHtml(e) {
+  // Highlight the @-mentions a saved note carries (loan-note-add stores them).
+  var html = escH(e.text || '');
+  var ms = Array.isArray(e.mentions) ? e.mentions : [];
+  for (var k = 0; k < ms.length; k++) {
+    var nm = ms[k] && ms[k].name; if (!nm) continue;
+    var needle = escH('@' + nm);
+    html = html.split(needle).join('<span class="note-mention" title="' + escH(ms[k].email || '') + '" style="color:#b5712d;font-weight:600">' + needle + '</span>');
+  }
+  return html;
 }
 
 function addNoteFromUI() {
@@ -7600,7 +7704,15 @@ function addNoteFromUI() {
   stat.textContent = '';
 
   var ownerOverride = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
-  SLA.Loans.addNote(_client.id, _loan.id, { text: text, kind: 'manual', owner: ownerOverride }).then(function(r) {
+  // Deploy 237.050 -- send @-mentions along. Direct SLA.api call (not SLA.Loans.addNote)
+  // so a stale cached sla-api.js can never silently drop the field.
+  var body = { clientId: _client.id, loanId: _loan.id, text: text, kind: 'manual' };
+  if (ownerOverride) body.owner = ownerOverride;
+  var mentions = _noteMentionsInText(text);
+  if (mentions.length) body.mentions = mentions;
+  SLA.api('POST', '/api/loan-note-add', body).then(function(r) {
+    if (SLA.cache && SLA.cache.clear) { try { SLA.cache.clear('clients'); } catch (_) {} }
+    _noteMentions = [];
     if (r && r.entry) {
       if (!Array.isArray(_loan.notesLog)) _loan.notesLog = [];
       _loan.notesLog.push(r.entry);
@@ -7608,8 +7720,9 @@ function addNoteFromUI() {
     ta.value = '';
     btn.disabled = false; btn.textContent = originalLabel;
     stat.className = 'notes-status ok';
-    stat.textContent = 'Note saved';
-    setTimeout(function(){ if (stat.textContent === 'Note saved') stat.textContent = ''; }, 2500);
+    var savedMsg = 'Note saved' + ((r && r.notified) ? ' \u00b7 ' + r.notified + ' teammate' + (r.notified === 1 ? '' : 's') + ' notified' : '');
+    stat.textContent = savedMsg;
+    setTimeout(function(){ if (stat.textContent === savedMsg) stat.textContent = ''; }, 2500);
     renderNotesLog();
   }).catch(function(err) {
     btn.disabled = false; btn.textContent = originalLabel;

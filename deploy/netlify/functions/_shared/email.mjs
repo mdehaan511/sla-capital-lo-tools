@@ -189,6 +189,67 @@ export async function notifyLoLoanClosed({ ownerKey, loan }) {
   }
 }
 
+// Deploy 237.050 (Mike) -- "@Name" in a Loan Details note: email the teammate a
+// link to the loan. Reply-to is the person who wrote the note (resolved by the
+// caller via getOwnerReplyTo) so a reply goes back to them, not to noreply@.
+export async function notifyMention({ toEmail, fromEmail, fromName, address, borrower, text, loanUrl, replyTo }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) { console.warn('notifyMention: RESEND_API_KEY not configured'); return false; }
+  if (!toEmail) return false;
+  const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const who = String(fromName || fromEmail || 'A teammate').trim();
+  const where = String(address || borrower || 'a loan').trim();
+  const note = String(text || '').trim();
+  const noteShort = note.length > 1200 ? note.slice(0, 1197) + '...' : note;
+  const subject = who + ' mentioned you: ' + where;
+  const textBody = [
+    who + ' mentioned you in a note on ' + where + (borrower && address ? ' (' + borrower + ')' : '') + ':',
+    '',
+    noteShort,
+    '',
+    'Open the loan: ' + loanUrl,
+    '',
+    'SLA Capital',
+  ].join('\n');
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+      '<div style="background:#261A36;padding:24px">' +
+        '<h1 style="color:#C8813A;margin:0;font-size:18px">&#128172; You were mentioned on a loan</h1>' +
+      '</div>' +
+      '<div style="padding:24px;color:#1A1520">' +
+        '<p style="font-size:15px;line-height:1.6"><strong>' + escH(who) + '</strong> mentioned you in a note on <strong>' + escH(where) + '</strong>' +
+          (borrower && address ? ' (' + escH(borrower) + ')' : '') + ':</p>' +
+        '<blockquote style="margin:12px 0 18px;padding:12px 16px;border-left:4px solid #C8813A;background:#F7F2EA;font-size:14px;line-height:1.6;white-space:pre-wrap">' + escH(noteShort) + '</blockquote>' +
+        '<p style="margin:0 0 24px"><a href="' + escH(loanUrl) + '" style="display:inline-block;background:#C8813A;color:#fff;text-decoration:none;font-weight:700;padding:11px 20px;border-radius:8px;font-size:14px">Open the loan</a></p>' +
+        '<p style="font-size:12px;color:#7A7488">Or copy this link: ' + escH(loanUrl) + '</p>' +
+        '<p style="font-size:12px;color:#7A7488;margin-top:24px">Sir Lends A Lot LLC dba SLA Capital.</p>' +
+      '</div>' +
+    '</div>' +
+    '</body></html>';
+  try {
+    const resp = await fetch('https://api.resend.com/emails', {
+      signal: AbortSignal.timeout(15000),
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'SLA Capital <noreply@leads.slacapital.com>',
+        to: [toEmail], subject, text: textBody, html,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      console.warn('notifyMention: Resend ' + resp.status, t.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('notifyMention: fetch threw:', e && e.message);
+    return false;
+  }
+}
+
 export async function getOwnerReplyTo(ownerKey) {
   if (!ownerKey) return null;
   try {

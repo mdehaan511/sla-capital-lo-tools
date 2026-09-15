@@ -7,7 +7,7 @@
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
-  <script src="sla-notifications.js"></script>
+  <script src="sla-notifications.js?v=237050"></script>
   <script src="sla-chat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- Deploy 237.028 (Mike) — E-Sign tool. Upload any PDF, drop signature /
@@ -348,6 +348,18 @@
 </div>
 
 <!-- Links modal (after link-only send) -->
+<!-- Deploy 237.044 (Mike) — delete confirmation -->
+<div class="modal-bg" id="deleteConfirmModal" style="display:none" onclick="if(event.target===this)closeDeleteConfirm()">
+  <div class="modal" style="width:min(460px,96vw)">
+    <h2 style="margin:0 0 6px">Delete “<span id="delTitle"></span>”?</h2>
+    <p id="delDetail" style="font-size:13px;color:var(--muted);margin:0 0 14px"></p>
+    <div id="delStatus" class="muted" style="font-size:12px;min-height:16px;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" class="btn ghost" onclick="closeDeleteConfirm()">Keep it</button>
+      <button type="button" class="btn danger" id="delBtn" onclick="confirmDeleteDoc()">Delete</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="linksModal" style="display:none" onclick="if(event.target===this)document.getElementById('linksModal').style.display='none'">
   <div class="modal" style="width:min(640px,96vw)">
     <h2>Signing links</h2>
@@ -497,12 +509,20 @@ function renderList() {
       var st = s.signedAt ? 'Signed' : s.viewedAt ? 'Viewed' : s.invitedAt ? 'Sent' : (d.status === 'draft' ? '' : 'Waiting');
       return '<span class="sig-chip ' + cls + '"><span class="dot"></span>' + esc(s.name || s.email || 'Signer') + (st ? ' · ' + st : '') + '</span>';
     }).join('');
+    var sentTo = (d.signers || []).filter(function (s) { return s.invitedAt || (d.status !== 'draft' && s.email); }).map(function (s) { return (s.name || s.email || 'Signer') + (s.name && s.email ? ' (' + s.email + ')' : ''); });
     var assigned = d.assignment ? ' · <span style="color:var(--success)">Filed to ' + esc(d.assignment.slaNumber || d.assignment.address || 'loan') + '</span>' :
       (d.status === 'completed' && d.suggestion ? ' · <span style="color:var(--blue)">AI suggests ' + esc(d.suggestion.address || 'a loan') + '</span>' : '');
     return '<div class="doc-card" onclick="location.hash=\'' + target.replace(/'/g, '') + '\'">' +
       '<div><div class="doc-title">' + esc(d.title || 'Untitled') + '</div>' +
-      '<div class="doc-meta">' + when + ' · ' + (d.pageCount || 0) + ' page' + (d.pageCount === 1 ? '' : 's') + (other ? ' · ' + esc(d.ownerName || d.ownerEmail) : '') + (d.templateName ? ' · from “' + esc(d.templateName) + '”' : '') + assigned + '</div></div>' +
-      '<div class="card-actions"><span class="status-pill ' + esc(d.status) + '">' + esc(d.status) + '</span></div>' +
+      '<div class="doc-meta">' + when + ' · ' + (d.pageCount || 0) + ' page' + (d.pageCount === 1 ? '' : 's') + (d.templateName ? ' · from “' + esc(d.templateName) + '”' : '') + assigned + '</div>' +
+      // Deploy 237.044 (Mike) — who created it and who it went to, on every card.
+      '<div class="doc-meta">Created by <strong>' + esc(d.ownerName || d.ownerEmail || '—') + (d.ownerName && d.ownerEmail ? ' (' + esc(d.ownerEmail) + ')' : '') + '</strong>' +
+        (sentTo.length ? ' · Sent to <strong>' + sentTo.map(esc).join(', ') + '</strong>' : (d.status === 'draft' ? ' · Not sent yet' : '')) + '</div></div>' +
+      '<div class="card-actions">' +
+        ((d.status === 'draft' || d.status === 'cancelled')
+          ? '<button type="button" class="btn xs danger" onclick="event.stopPropagation();openDeleteConfirm(\'' + esc(d.id) + '\',\'' + esc(other ? d.ownerEmail : '') + '\',\'' + esc(String(d.title || 'Untitled').replace(/'/g, '')) + '\')" title="Delete this ' + d.status + '">Delete</button>'
+          : '') +
+        '<span class="status-pill ' + esc(d.status) + '">' + esc(d.status) + '</span></div>' +
       (chips ? '<div class="doc-signers">' + chips + '</div>' : '') +
     '</div>';
   }).join('') + '</div>';
@@ -1267,9 +1287,38 @@ function cancelDoc() {
     .catch(function (e) { showToast(e.message, 'err'); });
 }
 function deleteDoc() {
-  if (!confirm('Permanently delete this document and its PDF?')) return;
-  SLA.api('POST', '/api/esign-doc-cancel', ownerBody({ id: _doc.id, delete: true })).then(function () { showToast('Deleted', 'ok'); _docs = []; location.hash = '#tab=cancelled'; })
-    .catch(function (e) { showToast(e.message, 'err'); });
+  // Deploy 237.044 — confirmation modal instead of the browser confirm().
+  openDeleteConfirm(_doc.id, _docOwner || '', _doc.title || 'Untitled', true);
+}
+// ── Deploy 237.044 (Mike) — delete a draft / cancelled document with a proper
+// confirmation modal (from the list cards or the detail view).
+var _delTarget = null;
+function openDeleteConfirm(id, owner, title, fromDetail) {
+  _delTarget = { id: id, owner: owner || '', fromDetail: !!fromDetail };
+  var d = _docs.filter(function (x) { return x.id === id; })[0] || (_doc && _doc.id === id ? _doc : null);
+  document.getElementById('delTitle').textContent = title || (d && d.title) || 'Untitled';
+  var n = d ? (d.signers || []).length : 0;
+  document.getElementById('delDetail').textContent = 'This permanently removes the document, its PDF' + (n ? ' and its ' + n + ' signer' + (n === 1 ? '' : 's') : '') + '. This cannot be undone.';
+  var st = document.getElementById('delStatus'); st.textContent = ''; st.className = 'muted';
+  var btn = document.getElementById('delBtn'); btn.disabled = false; btn.textContent = 'Delete';
+  document.getElementById('deleteConfirmModal').style.display = 'flex';
+}
+function closeDeleteConfirm() { document.getElementById('deleteConfirmModal').style.display = 'none'; _delTarget = null; }
+function confirmDeleteDoc() {
+  if (!_delTarget) return;
+  var t = _delTarget;
+  var btn = document.getElementById('delBtn'); btn.disabled = true; btn.textContent = 'Deleting…';
+  var body = { id: t.id, delete: true };
+  if (t.owner) body.owner = t.owner;
+  SLA.api('POST', '/api/esign-doc-cancel', body).then(function () {
+    closeDeleteConfirm();
+    showToast('Deleted', 'ok');
+    _docs = _docs.filter(function (x) { return x.id !== t.id; });
+    if (t.fromDetail) { location.hash = '#tab=draft'; } else { renderList(); loadDocs(true); }
+  }).catch(function (e) {
+    btn.disabled = false; btn.textContent = 'Delete';
+    var st = document.getElementById('delStatus'); st.textContent = e.message || 'Delete failed'; st.style.color = 'var(--danger)';
+  });
 }
 function saveDetailAsTemplate() {
   var name = prompt('Template name:', _doc.title || '');

@@ -32,6 +32,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
+import { queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
@@ -64,6 +65,9 @@ async function handle(req, context) {
 
   const docState = review.docs && review.docs[body.slug];
   if (!docState) return json(400, { error: 'slug not on this review' });
+  // Deploy 237.049 -- remember the Articles' previous extracted name so the
+  // dependent-tray re-grade can tell "same name, already graded" from a change.
+  const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
   if (!docState.currentDocId) return json(400, { error: 'No document uploaded for this tray yet' });
   // Deploy 236.752 — storage-only trays (Executed Closing Documents) are never AI-reviewed.
   if (docState.noReview) return json(200, { ok: true, review, skipped: 'noReview' });
@@ -273,6 +277,11 @@ async function handle(req, context) {
   }
 
   await _saveReview(reviewStore, review, now);
+
+  // Deploy 237.049 -- Articles re-reviewed: re-grade the entity-name-dependent trays.
+  if (body.slug === 'articles_of_organization' && isCurrentTarget) {
+    try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
+  }
 
   if (_props && _canWriteFields) {
     try { await writeFieldProposals(review.source, _props, normalizeEmail(user.email)); }

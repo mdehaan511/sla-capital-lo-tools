@@ -118,7 +118,7 @@ const PORTFOLIO_FIELDS = `
   name city state loanStatus
   originationDate boardingDate closedDate closedReason paidOffDate maturityDate
   originalBalance currentBalance noteRate investorRate
-  daysLate nextDueDate paidToDate totalPayment
+  daysLate nextDueDate paidToDate totalPayment achStatus
   drawStatus maximumDraw fundedAmount drawAvailableBalance
   propertyType lastModifiedAt
   borrowerFullName borrowerEmail borrowerMobilePhone

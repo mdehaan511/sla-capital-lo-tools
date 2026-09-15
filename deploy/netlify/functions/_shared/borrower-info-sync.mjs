@@ -112,6 +112,21 @@ export function occupancyIntentUpdates(data) {
   return null;
 }
 
+// Deploy 237.045 (Mike) -- the record's top-level borrowerEmail is the address the
+// form was first SENT to (borrower-info-request stamps client.email at request
+// time). Nothing refreshed it when the borrower / LO corrected the email inside
+// the application, so borrower-info-sign stamped the OLD address into the
+// signature audit + the PDF certificate page and mailed the signed copy there
+// (Kruse: mkruse@ vs krusesconsulting@). Every save / sign now re-derives it from
+// the CURRENT form data (page-1 contact email, else the Guarantor #1 mirror).
+export function refreshRecordBorrowerEmail(record) {
+  const d = (record && record.data) || {};
+  const g0 = (Array.isArray(d.guarantors) && d.guarantors[0]) || {};
+  const cur = String(d.borrowerEmail || g0.email || '').toLowerCase().trim();
+  if (cur && cur.indexOf('@') > 0 && cur !== record.borrowerEmail) record.borrowerEmail = cur;
+  return record.borrowerEmail || '';
+}
+
 export async function syncPropertyFieldsToLoan(record) {
   if (!record.ownerKey || !record.clientId) return;
   const data = record.data || {};
@@ -234,6 +249,14 @@ export async function syncPropertyFieldsToLoan(record) {
   if (g0.rentals !== undefined && g0.rentals !== '')  clientUpdates.rentals  = String(g0.rentals);
   if (g0.ssn_enc) clientUpdates.ssn_enc = g0.ssn_enc;
 
+  // Deploy 237.045 -- mirror the primary's corrected identity onto the loan's flat
+  // guarantors[] entry (clientId === record.clientId). loan-extension-send /
+  // loan-bundle-download / rate-sheet signers read g.email from that array, so a
+  // corrected email otherwise kept going to the old address. Applied below;
+  // never stored as a loan field itself.
+  const _idKeys = ['firstName', 'lastName', 'email', 'phone'].filter((k) => clientUpdates[k]);
+  if (_idKeys.length) loanUpdates._primaryIdentity = _idKeys.reduce((o, k) => { o[k] = clientUpdates[k]; return o; }, {});
+
   let companiesUpdate = null;
   if (Array.isArray(data.companies) && data.companies.length > 0) {
     companiesUpdate = data.companies
@@ -293,6 +316,7 @@ export async function syncPropertyFieldsToLoan(record) {
     if (bn) loanUpdates.borrowerName = bn;
     if (data.borrowerEmail) loanUpdates.borrowerEmail = String(data.borrowerEmail).toLowerCase().trim();
     for (const k of Object.keys(clientUpdates)) delete clientUpdates[k];
+    delete loanUpdates._primaryIdentity; // Deploy 237.045 -- the broker's flat guarantor entry stays too
     companiesUpdate = null;
     console.log('borrower-info-sync: primary client is a broker record — borrower identity kept off it (loan-level fields updated instead)');
   }
@@ -370,6 +394,17 @@ export async function syncPropertyFieldsToLoan(record) {
         // fields like guarantorOwnership. Without this, syncing the
         // primary's ownership entry would clobber any additional-
         // guarantor entries the 236.128/129 invite flow has added.
+        // Deploy 237.045 -- primary identity mirror (see above): patch the flat
+        // guarantors[] entry that points at this client; nothing else on the loan.
+        if (k === '_primaryIdentity') {
+          (Array.isArray(targetLoan.guarantors) ? targetLoan.guarantors : []).forEach((g) => {
+            if (!g || String(g.clientId || '') !== String(record.clientId)) return;
+            Object.keys(incoming).forEach((f) => {
+              if (g[f] !== incoming[f]) { g[f] = incoming[f]; changed = true; }
+            });
+          });
+          return;
+        }
         if (k === 'guarantorOwnership' && incoming && typeof incoming === 'object') {
           const existing = (targetLoan[k] && typeof targetLoan[k] === 'object') ? targetLoan[k] : {};
           const merged = Object.assign({}, existing, incoming);

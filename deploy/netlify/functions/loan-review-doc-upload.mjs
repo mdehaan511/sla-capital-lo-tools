@@ -30,6 +30,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
+import { queueEntityNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
@@ -227,6 +228,9 @@ async function handle(req, context) {
   docState.originalSizeBytes  = Number(body.originalSizeBytes) || 0;
   // New upload resets verdict — even if AI re-runs auto-approve, the
   // processor still has to click Approve again on the new doc.
+  // Deploy 237.049 -- remember the Articles' previous extracted name so the
+  // dependent-tray re-grade can tell "same name, already graded" from a change.
+  const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
   docState.verdict = 'pending';
   docState.processorNotes = '';
   docState.aiVerdict = '';
@@ -587,6 +591,11 @@ async function handle(req, context) {
     await completeAutoTasks({ ownerKey: keySafe(review.source.ownerKey), loanId: review.source.loanId, reason: 'Credit report uploaded to the Doc Review' });
   }
 
+  // Deploy 237.049 -- the Articles were reviewed inline: re-grade the trays whose
+  // rubric compares the entity name to the ENTITY NAME OF RECORD (237.041/043).
+  if (body.slug === 'articles_of_organization' && !_bgQueued && docState.aiReviewedAt) {
+    try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
+  }
   return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _bgQueued });
 }
 

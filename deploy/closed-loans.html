@@ -8,7 +8,7 @@
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
   <script src="/sla-search.js"></script>
-  <script src="sla-notifications.js"></script>
+  <script src="sla-notifications.js?v=237056"></script>
   <script src="sla-chat.js"></script>
   <!-- Deploy 236.624 — DSCR rate-sheet constants (SLA_DSCR.FEES) are the single
        source of truth for the closing-fees figure in Sold-DSCR profitability. -->
@@ -107,6 +107,10 @@
     .cl-tbl tbody tr.lrow.mat-warn:hover { background: #fef08a; }
     .cl-tbl tbody tr.lrow.mat-urgent { background: #fee2e2; }
     .cl-tbl tbody tr.lrow.mat-urgent:hover { background: #fecaca; }
+    /* Deploy 237.053 — expanded servicing row + its payment-history panel */
+    .cl-tbl tbody tr.lrow.pmt-open { background: var(--d-sold-bg); }
+    .cl-tbl tbody tr.pmt-sub td { background: #faf8f4; padding: 10px 14px 14px; border-bottom: 2px solid var(--border); cursor: default; }
+    .cl-tbl tbody tr.pmt-sub .cl-tbl th { background: #f3efe8; }
     /* Deploy 236.847 (Mike) — extension eSign status chip on servicing rows:
        amber = sent (awaiting lender), blue = lender signed (borrower's turn),
        green = fully executed. Fed by loan.extensionEsign (loan-extension-send
@@ -228,10 +232,13 @@ var _tab = 'all';
 var _openAcc = { post_close: true, servicing: true, pending_sale: true, sold_rtl: false, sold_dscr: false, paid_off: false,
   pending_boarding: true }; // Deploy 236.982 — open by default: it exists to be seen
 var _openDraws = {};         // loanKey -> bool
+var _openPmt = {};           // Deploy 237.053 — loanKey -> bool (servicing row expanded)
+var _pmtHist = {};           // loanKey -> { loading, error, data }
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
 var _investorBook = [];      // Deploy 237.016 — full investor records (id, name, closingFees)
 var _noteServicers = [];     // Deploy 236.628 — org-wide Note Servicer names (Vendors, role note_servicer)
-var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'funded',d:-1}, pending_sale:{k:'funded',d:-1},
+// Deploy 237.056 (Mike) - servicing default sort = pmtStatus desc (delinquent loans first).
+var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'pmtStatus',d:-1}, pending_sale:{k:'funded',d:-1},
   sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -638,7 +645,80 @@ function svcVal(it, k){
   if (k==='payoff') return num(l.payoffAmount);
   if (k==='payment') return num(l.paymentAmount);
   if (k==='amount') return num(l.finalLoanAmount||l.loanAmt);
+  if (k==='pmtStatus') return _pmtStatus(l, it).rank;
+  if (k==='daysLate') { var _d = _pmtDerive(l, it).daysLate; return _d == null ? -1 : _d; }
+  if (k==='nextDue') return _pmtDerive(l, it).nextDue||'';
+  if (k==='paidTo') return _pmtDerive(l, it).paidTo||'';
+  if (k==='ach') return String(l.achStatus||'');
   return '';
+}
+// Deploy 237.051 (Mike) — payment status from the servicer sync. daysLate /
+// nextDueDate / paidToDate are stamped nightly by fci-portfolio-sync and
+// servicingpros-portfolio-sync; fciSyncedAt / spSyncedAt say how fresh.
+// rank: 0 current … 4 = 90+ so the column sorts worst-first when descending.
+// Deploy 237.056 (Mike) — payment status is derived from the borrower's PAYMENT
+// HISTORY (cached nightly, prefetched on this tab): the servicer sync's
+// nextDueDate/daysLate proved stale (6401 S Pine paid 9/2, sync still said due
+// 9/1). Paid to = the latest due date with a good payment received; next due =
+// +1 month; days late = today − next due (floor 0). Falls back to the synced
+// fields until the history arrives. Paid off = FCI loan status / disposition /
+// zero balance with a payoff date. NSF within 90 days is flagged.
+function _isGoodPayment(p){ return !!(p && p.dateReceived && !/nsf|revers|return|reject/i.test(String(p.type||'')) && (p.amount == null || Number(p.amount) > 0)); }
+function _addMonthsYmd(y, n){ var m = String(y||'').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return ''; var d = new Date(Date.UTC(+m[1], +m[2]-1+n, +m[3])); return d.toISOString().slice(0,10); }
+function _pmtDerive(l, it){
+  var out = { paidTo: l.paidToDate || '', nextDue: l.nextDueDate || '', daysLate: null, source: 'sync', nsf: null, lastPaid: '' };
+  var st = it ? (_pmtHist[loanKey(it)] || {}) : {};
+  var rows = (st.data && st.data.rows) || null;
+  if (rows && rows.length) {
+    var paidTo = '', last = '', nsf = null, cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+    rows.forEach(function(p){
+      if (_isGoodPayment(p)) { if (String(p.dateDue||'') > paidTo) paidTo = String(p.dateDue||''); if (String(p.dateReceived||'') > last) last = String(p.dateReceived||''); }
+      else if (/nsf/i.test(String(p.type||'')) && p.dateReceived && parseLocalDate(p.dateReceived) >= cutoff) { if (!nsf || p.dateReceived > nsf.dateReceived) nsf = p; }
+    });
+    // Deploy 237.058 (Mike) — an NSF is only flagged while OPEN: a good payment for that
+    // due date (or a later one) received after it clears the flag.
+    if (nsf && rows.some(function(p){ return _isGoodPayment(p) && String(p.dateReceived) > String(nsf.dateReceived) && String(p.dateDue||'') >= String(nsf.dateDue||''); })) nsf = null;
+    if (paidTo) { out.paidTo = paidTo; out.nextDue = _addMonthsYmd(paidTo, 1); out.source = 'history'; }
+    out.lastPaid = last; out.nsf = nsf;
+  }
+  var nd = parseLocalDate(out.nextDue);
+  if (nd) { var t = new Date(); t.setHours(0,0,0,0); out.daysLate = Math.max(0, Math.round((t.getTime() - nd.getTime()) / 86400000)); }
+  else if (l.daysLate !== '' && l.daysLate != null) out.daysLate = Math.max(0, num(l.daysLate));
+  return out;
+}
+function _isPaidOff(l){
+  if (/PAID ?OFF/i.test(String(l.fciLoanStatus||''))) return true;
+  if (dispositionOf(l)==='paid_off') return true;
+  return !!(l.payoffDate && num(l.currentBalance) === 0 && String(l.currentBalance) !== '');
+}
+// rank: no data -2 · paid off -1 · current 0 · late 1-4 — sort DESC = worst first.
+function _pmtStatus(l, it){
+  var d = _pmtDerive(l, it);
+  var asOf = ' (next due ' + (d.nextDue ? fmtDate(d.nextDue) : '—') + (d.source==='history' ? ', from payment history' : ', from the servicer sync' + (l.fciSyncedAt||l.spSyncedAt ? ' of ' + fmtDate(String(l.fciSyncedAt||l.spSyncedAt).slice(0,10)) : '')) + ')';
+  if (_isPaidOff(l)) return { label:'Paid off', cls:'ok', rank:-1, title:'Paid off' + (l.payoffDate ? ' ' + fmtDate(l.payoffDate) : ''), d:d };
+  var dl = d.daysLate;
+  if (dl == null) {
+    if (!l.servicerLoanNumber) return { label:'No servicer #', cls:'muted', rank:-2, title:'No servicer loan number on file — add it on the Servicing tab so the nightly sync can find this loan', d:d };
+    return { label:'No sync yet', cls:'muted', rank:-2, title:'Servicer has not reported this loan yet', d:d };
+  }
+  var nsfTag = d.nsf ? ' · NSF ' + fmtDate(d.nsf.dateReceived) : '';
+  if (dl <= 0)  return { label:'Current' + nsfTag, cls:(d.nsf?'warn':'ok'), rank:(d.nsf?1:0), title:'Current' + asOf, d:d };
+  if (dl < 30)  return { label:dl + ' days late' + nsfTag, cls:(dl > 5 ? 'bad' : 'warn'), rank:1 + dl/100, title:'Late, under 30 days' + asOf, d:d };
+  if (dl < 60)  return { label:'30+ late' + nsfTag, cls:'bad', rank:2 + dl/1000, title:dl + ' days late' + asOf, d:d };
+  if (dl < 90)  return { label:'60+ late' + nsfTag, cls:'bad', rank:3 + dl/1000, title:dl + ' days late' + asOf, d:d };
+  return { label:'90+ late' + nsfTag, cls:'bad', rank:4 + dl/1000, title:dl + ' days late' + asOf, d:d };
+}
+function _pmtStatusCells(l, it){
+  var ps = _pmtStatus(l, it), d = ps.d;
+  var style = ps.cls==='ok' ? 'background:var(--d-servicing-bg);color:var(--d-servicing)'
+            : ps.cls==='warn' ? 'background:var(--d-pending-bg);color:var(--d-pending)'
+            : ps.cls==='bad' ? 'background:rgba(124,31,31,.10);color:var(--danger)'
+            : 'background:rgba(122,116,136,.10);color:var(--muted)';
+  var ach = String(l.achStatus||'').trim();
+  return '<td><span class="stpill" style="'+style+'" title="'+escAttr(ps.title)+'">'+escH(ps.label)+'</span></td>' +
+    '<td class="cl-num">'+(d.daysLate==null?'<span class="cl-ph">—</span>':escH(String(d.daysLate)))+'</td>' +
+    _tdDate(d.nextDue) + _tdDate(d.paidTo) +
+    '<td>'+(ach?escH(ach):'<span class="cl-ph">—</span>')+'</td>';
 }
 
 // Deploy 236.620 — withLoan inserts Loan Amount + Close Date after Type (used by
@@ -646,7 +726,10 @@ function svcVal(it, k){
 function svcHeadCols(tab, extra, withLoan){
   var cols = th(tab,'address','Property') + th(tab,'borrower','Borrower') + th(tab,'type','Type') +
              (withLoan ? (th(tab,'amount','Loan Amount') + th(tab,'funded','Close Date')) : '') +
-             th(tab,'maturity','Maturity') + th(tab,'payoff','Payoff') + th(tab,'payment','Payment');
+             th(tab,'maturity','Maturity') + th(tab,'payment','Payment') +  // Deploy 237.056 — Payoff column removed (Mike)
+             // Deploy 237.051 (Mike) — current payment status / delinquency from the
+             // servicer sync (FCI nightly, Servicing Pros nightly).
+             (withLoan ? (th(tab,'pmtStatus','Payment Status') + th(tab,'daysLate','Days Late') + th(tab,'nextDue','Next Due') + th(tab,'paidTo','Paid To') + th(tab,'ach','ACH')) : '');
   return extra ? cols + extra : cols;
 }
 function svcRow(it, extraCells, withLoan){
@@ -699,15 +782,21 @@ function _tdDate(v){ return '<td class="cl-num">'+(v?escH(fmtDate(v)):'<span cla
 function _tdText(v){ return '<td>'+(v?escH(v):'<span class="cl-ph">—</span>')+'</td>'; }
 function _actTd(inner){ return '<td onclick="event.stopPropagation()">'+inner+'</td>'; }
 function _pbt(it){ return escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey); } // packed args
-function _cName(it){ var l=it.loan;
-  return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+function _cName(it, svcLink){ var l=it.loan;
+  // Deploy 237.053 — on servicing rows the address is the link to the loan (the row
+  // itself expands payment history), so stop the click from reaching the row.
+  var addr = svcLink
+    ? '<a href="'+escAttr(loanHref(it))+'" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px" title="Open the loan">'+escH(l.address||'(no address)')+'</a>'
+    : escH(l.address||'(no address)');
+  return '<td class="cl-addr">'+addr+'</td>' +
     '<td>'+escH(clientName(it.client))+'</td>' +
     '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>';
 }
 // ── Full servicing columns (Servicing tab + derived view) ──
 function _svcCellsFull(it){ var l=it.loan;
-  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdDate(l.maturityDate) +
-    _tdMoney(l.payoffAmount) + _tdMoney(l.paymentAmount) +
+  return _cName(it, true) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdDate(l.maturityDate) +
+    _tdMoney(l.paymentAmount) +
+    _pmtStatusCells(l, it) +
     '<td>'+(l.servicerName?escH(l.servicerName):'<span class="cl-ph">—</span>')+'</td>' +
     '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>';
 }
@@ -787,9 +876,17 @@ function _matClass(l){
 function _dispBody(group, disp, includeDisp){
   var d=_colDesc(disp);
   var head='<tr>'+d.head+(includeDisp?'<th>Disposition</th>':'')+'</tr>';
+  var nCols = (d.head.match(/<th/g)||[]).length + (includeDisp?1:0);
   var rows=group.map(function(it){
     // Maturity tint only on servicing views — sold/paid-off buckets don't service maturity.
     var mc = disp==='servicing' ? _matClass(it.loan) : '';
+    if (disp==='servicing') {
+      // Deploy 237.053 (Mike) — a servicing row expands to the borrower's payment
+      // history; the ADDRESS is the link to the loan (see _cName's svcLink).
+      var key = loanKey(it), open = !!_openPmt[key];
+      return '<tr class="lrow'+mc+(open?' pmt-open':'')+'" data-pk="'+escAttr(key)+'" data-cols="'+nCols+'" onclick="togglePmt(\''+escAttr(key)+'\')">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>' +
+        (open ? '<tr class="pmt-sub" data-pk="'+escAttr(key)+'"><td colspan="'+nCols+'">'+_pmtHistoryHtml(it)+'</td></tr>' : '');
+    }
     return '<tr class="lrow'+mc+'" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>';
   }).join('');
   return '<div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>';
@@ -1682,6 +1779,7 @@ function renderServicing(items){
   // the loans in THIS view that still need boarding).
   var pb = group.filter(function(it){ return needsBoarding(it.loan); });
   var pbAcc = accordion('pending_boarding', pb, '', _pbBody(pb));
+  setTimeout(function(){ _pmtPrefetch(group); }, 0); // Deploy 237.054
   return pbAcc + note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', true) + '</div>';
 }
 // Generic single-bucket tab (Sold-RTL / Sold-DSCR). Pending Sale wraps this with a note.
@@ -2083,6 +2181,100 @@ function renderDraws(items){
   return note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div></div>';
 }
 function toggleDraws(key){ _openDraws[key] = !_openDraws[key]; render(); }
+// ── Deploy 237.053 (Mike) — borrower payment history under a servicing row ──
+function togglePmt(key){
+  _openPmt[key] = !_openPmt[key];
+  if (_openPmt[key] && !_pmtHist[key]) _pmtLoad(key);
+  if (!_pmtPaint(key)) render();
+}
+// Deploy 237.055 — paint the expansion in place (a full render() of the page
+// took ~1s per click); returns false when the row isn't in the DOM.
+function _pmtPaint(key){
+  var rows = Array.prototype.filter.call(document.querySelectorAll('tr.lrow[data-pk]'), function(tr){ return tr.getAttribute('data-pk') === key; });
+  if (!rows.length) return false;
+  var it = _findByKey(key);
+  rows.forEach(function(tr){
+    var next = tr.nextElementSibling;
+    var sub = (next && next.classList.contains('pmt-sub') && next.getAttribute('data-pk') === key) ? next : null;
+    if (_openPmt[key]) {
+      tr.classList.add('pmt-open');
+      var html = it ? _pmtHistoryHtml(it) : '';
+      if (sub) { sub.firstElementChild.innerHTML = html; }
+      else { sub = document.createElement('tr'); sub.className = 'pmt-sub'; sub.setAttribute('data-pk', key); sub.innerHTML = '<td colspan="'+(tr.getAttribute('data-cols')||'15')+'">'+html+'</td>'; tr.parentNode.insertBefore(sub, tr.nextSibling); }
+    } else {
+      tr.classList.remove('pmt-open');
+      if (sub) sub.parentNode.removeChild(sub);
+    }
+  });
+  return true;
+}
+// Deploy 237.054 — warm the page-side cache for every serviced loan shown, 4 at a
+// time, without re-rendering (only an already-open row re-renders on arrival).
+var _pmtPrefetchQueue = [], _pmtPrefetchBusy = 0, _pmtPrefetchStarted = false;
+function _pmtPrefetch(group){
+  if (_pmtPrefetchStarted) return;
+  _pmtPrefetchStarted = true;
+  group.forEach(function(it){ var l = it.loan; if (l.servicerLoanNumber && !_pmtHist[loanKey(it)]) _pmtPrefetchQueue.push(it); });
+  _pmtPrefetchNext();
+}
+// Deploy 237.056 — statuses/sort come from the history, so re-render once the
+// prefetch goes quiet (debounced; a burst of arrivals = one redraw).
+var _pmtRenderTimer = null;
+function _pmtScheduleRender(){
+  if (_pmtRenderTimer) clearTimeout(_pmtRenderTimer);
+  _pmtRenderTimer = setTimeout(function(){ _pmtRenderTimer = null; if (_tab === 'servicing' || _tab === 'all') render(); }, 400);
+}
+function _pmtPrefetchNext(){
+  while (_pmtPrefetchBusy < 4 && _pmtPrefetchQueue.length) {
+    (function(it){
+      var key = loanKey(it), l = it.loan;
+      if (_pmtHist[key]) return;
+      _pmtPrefetchBusy++;
+      _pmtHist[key] = { loading: true, prefetch: true };
+      SLA.api('GET', '/api/loan-payment-history?servicer=' + encodeURIComponent(l.servicerName||'') + '&account=' + encodeURIComponent(l.servicerLoanNumber))
+        .then(function(r){ _pmtHist[key] = { data: r }; })
+        .catch(function(e){ _pmtHist[key] = { error: (e && e.message) || 'Could not load payment history' }; })
+        .then(function(){ _pmtPrefetchBusy--; if (_openPmt[key] && !_pmtPaint(key)) render(); _pmtPrefetchNext(); _pmtScheduleRender(); });
+    })(_pmtPrefetchQueue.shift());
+  }
+}
+function _pmtLoad(key, force){
+  var it = _findByKey(key); if (!it) return;
+  var l = it.loan;
+  _pmtHist[key] = { loading: true };
+  if (!l.servicerLoanNumber) { _pmtHist[key] = { error: 'No servicer loan number on this loan yet — add it on the loan\'s Servicing tab so the servicer sync (and this history) can find it.' }; if (!_pmtPaint(key)) render(); return; }
+  SLA.api('GET', '/api/loan-payment-history?servicer=' + encodeURIComponent(l.servicerName||'') + '&account=' + encodeURIComponent(l.servicerLoanNumber) + (force ? '&force=1' : ''))
+    .then(function(r){ _pmtHist[key] = { data: r }; if (_openPmt[key] && !_pmtPaint(key)) render(); })
+    .catch(function(e){ _pmtHist[key] = { error: (e && e.message) || 'Could not load payment history' }; if (_openPmt[key] && !_pmtPaint(key)) render(); });
+}
+function _pmtRefresh(key){ _pmtLoad(key, true); if (!_pmtPaint(key)) render(); }
+function _pmtHistoryHtml(it){
+  var key = loanKey(it), st = _pmtHist[key] || {}, l = it.loan;
+  var head = '<div style="display:flex;align-items:center;gap:10px;margin:2px 0 8px;font-size:12px;color:var(--muted)">' +
+    '<strong style="color:var(--text)">Borrower payment history</strong>' +
+    (l.servicerName ? ' · ' + escH(l.servicerName) + (l.servicerLoanNumber ? ' #' + escH(l.servicerLoanNumber) : '') : '') +
+    (st.data && st.data.asOf ? ' · as of ' + escH(fmtDate(String(st.data.asOf).slice(0,10))) + (st.data.cached ? ' (cached)' : '') : '') +
+    '<span style="flex:1"></span>' +
+    '<button type="button" class="cl-act" onclick="event.stopPropagation();_pmtRefresh(\''+escAttr(key)+'\')">↻ Refresh</button></div>';
+  if (st.loading) return head + '<div class="cl-empty">Loading payment history…</div>';
+  if (st.error) return head + '<div class="cl-empty" style="color:var(--danger)">'+escH(st.error)+'</div>';
+  var rows = (st.data && st.data.rows) || [];
+  if (!rows.length) return head + '<div class="cl-empty">No payments on record at the servicer yet.</div>';
+  var body = rows.map(function(p){
+    var dl = (p.daysLate == null) ? null : Number(p.daysLate);
+    var dlCell = dl == null ? '<span class="cl-ph">—</span>' : (dl > 0 ? '<span style="color:var(--danger);font-weight:600">'+dl+'</span>' : '0');
+    return '<tr><td class="cl-num">'+(p.dateDue?escH(fmtDate(p.dateDue)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(p.dateReceived?escH(fmtDate(p.dateReceived)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+dlCell+'</td>' +
+      '<td class="cl-num">'+(p.amount!=null?escH(money(p.amount)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(p.toInterest!=null?escH(money(p.toInterest)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(p.toPrincipal!=null?escH(money(p.toPrincipal)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(p.lateCharges?escH(money(p.lateCharges)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(p.balance!=null?escH(money(p.balance)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td>'+escH(p.type||'')+(p.reference?' <span class="cl-ph">'+escH(p.reference)+'</span>':'')+'</td></tr>';
+  }).join('');
+  return head + '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Due</th><th>Received</th><th>Days Late</th><th>Amount</th><th>Interest</th><th>Principal</th><th>Late Charges</th><th>Balance After</th><th>Type</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+}
 
 // TABS: Sold – RTL / Sold – DSCR are rendered via renderBucketTab (see above);
 // the old single 'Sold' tab was split by loan type in Deploy 236.624.

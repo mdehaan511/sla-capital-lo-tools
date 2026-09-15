@@ -122,6 +122,11 @@ export function pickLoanForFciRow(matches, row) {
 function dispositionFor(status) {
   const s = String(status || '').toUpperCase().trim();
   if (s === 'PERFORMING') return 'sold';
+  // Deploy 237.060 (Mike) -- FCI flips a late payer to status DELINQUENCY (also
+  // DEFAULT / FORECLOSURE). Those loans are still on the serviced book and are
+  // exactly the ones whose next-due / days-late must refresh; skipping them as
+  // needs-review left 7 loans frozen at their last PERFORMING sync.
+  if (s === 'DELINQUENCY' || s === 'DELINQUENT' || s === 'DEFAULT' || s === 'FORECLOSURE') return 'sold';
   if (s === 'PAID OFF') return 'paid_off';
   return '';
 }
@@ -316,6 +321,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       // investorName/investorId — see the header.
       fciLenderName: String(row.lenderName || '').trim(),
       fciLoanStatus: String(row.loanStatus || '').trim(),
+      achStatus: String(row.achStatus || '').trim(), // Deploy 237.056 — Servicing tab ACH column
       // Deploy 236.808 — servicer-side borrower contact. Kept in fci* fields
       // rather than written onto client.email, because this is FCI's copy and
       // the client record is ours; a sync should not quietly rewrite a borrower's

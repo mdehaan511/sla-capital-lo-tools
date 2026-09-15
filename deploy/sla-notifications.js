@@ -50,6 +50,8 @@
   var _mailCache = null;
   var _lastMailFetch = 0;
   var MAIL_TTL = 3 * 60 * 1000;
+  // Deploy 237.050 -- @-mentions addressed to me (server-side list; one blob read per poll).
+  var _mentionCache = [];
 
   // Resolve the caller's role once so refresh() knows whether to fetch the
   // processing-alerts feed. Kicks a prompt refresh the moment we learn we're
@@ -254,7 +256,15 @@
       fetchMail = Promise.resolve(null);
     }
 
-    return Promise.all([fetchReminders, fetchQuotes, fetchPa, fetchTasks, fetchMail]).then(function(results) {
+    // Deploy 237.050 -- my @-mentions (cheap: one blob read), every poll.
+    var fetchMentions = SLA.api
+      ? trackAuth(SLA.api('GET', '/api/notifications-list')).then(function(r) {
+          _mentionCache = (r && r.items) || [];
+          return _mentionCache;
+        }).catch(function(){ return _mentionCache; })
+      : Promise.resolve([]);
+
+    return Promise.all([fetchReminders, fetchQuotes, fetchPa, fetchTasks, fetchMail, fetchMentions]).then(function(results) {
       var reminders = (results[0] && results[0].reminders) || [];
       var quotes    = (results[1] && results[1].quotes)    || [];
       var procList  = results[2] || [];
@@ -290,7 +300,7 @@
         // Hide events the user has already dismissed (persisted in localStorage)
         return !isDismissed(ev.id);
       });
-      render(reminders, loanAppEvents, procAlerts, dueTasks, results[4]);
+      render(reminders, loanAppEvents, procAlerts, dueTasks, results[4], results[5] || []); // Deploy 237.050 -- mentions
     }).catch(function() { /* silent */ });
   }
 
@@ -346,7 +356,8 @@
     return !!ts && (Date.now() - ts) < PA_SNOOZE_MS;
   }
 
-  function render(reminders, loanAppEvents, procAlerts, dueTasks, mail) {
+  function render(reminders, loanAppEvents, procAlerts, dueTasks, mail, mentions) {
+    mentions = mentions || []; // Deploy 237.050
     loanAppEvents = loanAppEvents || [];
     procAlerts = procAlerts || [];
     dueTasks = dueTasks || []; // Deploy 236.961
@@ -365,8 +376,8 @@
     // The bell glows red if there's anything due, a fresh loan-app event, or
     // an actionable processing alert.
     var mailN = (mail && mail.unsorted) || 0; // Deploy 236.995
-    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0 || dueTasks.length > 0 || mailN > 0;
-    var alertCount = due.length + loanAppEvents.length + procAlerts.length + dueTasks.length + mailN;
+    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0 || dueTasks.length > 0 || mailN > 0 || mentions.length > 0;
+    var alertCount = due.length + loanAppEvents.length + procAlerts.length + dueTasks.length + mailN + mentions.length;
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');
@@ -384,6 +395,12 @@
     // aging, open conditions). Deploy 236.565.
     // Deploy 236.995 — Mail to Sort leads: it's the front-desk queue, and red
     // once anything has waited past the 24h escalation line.
+    // Deploy 237.050 -- @-mentions first: someone is waiting on you by name.
+    if (mentions.length) {
+      var _hasSvc = mentions.some(function(m){ return m.kind === 'servicing'; });
+      html += '<div class="sla-notif-hdr"><span>' + (_hasSvc ? 'Mentions & servicing alerts' : 'Mentions') + '</span><span class="count">' + mentions.length + '</span></div>';
+      mentions.forEach(function(m){ html += renderMentionItem(m); });
+    }
     if (mailN) {
       var mOver = (mail && mail.overdue) || 0;
       html += '<div class="sla-notif-hdr"><span>Mail to Sort</span><span class="count">' + mailN + '</span></div>' +
@@ -413,11 +430,11 @@
       html += '<div class="sla-notif-hdr"><span>Upcoming</span><span>' + future.length + '</span></div>';
       future.forEach(function(r){ html += renderItem(r, 'future'); });
     }
-    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length && !dueTasks.length && !mailN) {
-      html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders, tasks and loan-app completions will appear here.</span></div>';
+    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length && !dueTasks.length && !mailN && !mentions.length) {
+      html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Mentions, reminders, tasks and loan-app completions will appear here.</span></div>';
     }
     // Footer: Clear All button (only if there's anything actionable)
-    if (due.length || loanAppEvents.length || procAlerts.length || dueTasks.length) {
+    if (due.length || loanAppEvents.length || procAlerts.length || dueTasks.length || mentions.length) {
       html += '<div class="sla-notif-footer">' +
         '<button class="sla-notif-clear-all" onclick="window.__slaNotifClearAll()">Clear all notifications</button>' +
       '</div>';
@@ -425,6 +442,40 @@
 
     var drop = document.getElementById('slaNotifDrop');
     drop.innerHTML = html;
+  }
+
+  // Deploy 237.050 -- one @-mention. Links to the loan (owner-scoped so admin /
+  // processor links keep working); the check mark dismisses it server-side.
+  function renderMentionItem(m) {
+    var href = (window.SLA && SLA.urls && SLA.urls.loanDetails)
+      ? SLA.urls.loanDetails(m.loanId, { owner: m.owner })
+      : ('loan-details.html?loanId=' + encodeURIComponent(m.loanId || ''));
+    // Deploy 237.056 (Mike) -- servicing alerts (NSF / >5 days late) ride the same
+    // per-user notification doc; link to the Closed Loans Servicing tab.
+    if (m.kind === 'servicing') {
+      return '<div class="sla-notif-item due">' +
+        '<a href="' + esc(m.href || '/closed-loans.html') + '" class="sla-notif-link">' +
+          '<div class="pin"></div>' +
+          '<div class="body">' +
+            '<div class="title">\u26A0\uFE0F ' + esc(m.title || 'Servicing alert') + '</div>' +
+            '<div class="meta">' + esc(m.text || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+          '</div>' +
+        '</a>' +
+        '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+      '</div>';
+    }
+    var who = m.fromName || m.fromEmail || 'Someone';
+    var where = m.address || m.borrower || 'a loan';
+    return '<div class="sla-notif-item due">' +
+      '<a href="' + esc(href) + '" class="sla-notif-link">' +
+        '<div class="pin"></div>' +
+        '<div class="body">' +
+          '<div class="title">\uD83D\uDCAC ' + esc(who) + ' mentioned you on ' + esc(where) + '</div>' +
+          '<div class="meta">' + esc(m.snippet || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+        '</div>' +
+      '</a>' +
+      '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+    '</div>';
   }
 
   function renderEventItem(ev) {
@@ -604,6 +655,20 @@
 
   // Clear all visible notifications: complete every due reminder + dismiss
   // every loan-app event in the dropdown.
+  // Deploy 237.050 -- dismiss one mention (server-side, so it's gone on every device).
+  window.__slaNotifDismissMention = function(btn) {
+    if (!window.SLA || !SLA.api) return;
+    var id = btn.getAttribute('data-mention-id');
+    if (!id) return;
+    btn.disabled = true; btn.textContent = '\u2026';
+    var row = btn.closest('.sla-notif-item');
+    if (row) row.remove();
+    _mentionCache = _mentionCache.filter(function(m){ return m && m.id !== id; });
+    SLA.api('POST', '/api/notifications-dismiss', { ids: [id] })
+      .then(function(){ refresh(); })
+      .catch(function(err){ console.warn('Mention dismiss failed:', err); refresh(); });
+  };
+
   window.__slaNotifClearAll = function() {
     if (!confirm('Clear all visible notifications? Due reminders will be marked complete.')) return;
     var drop = document.getElementById('slaNotifDrop');
@@ -613,6 +678,7 @@
     var loanAppBtns  = drop.querySelectorAll('button[data-loanapp-id]');
     var paBtns       = drop.querySelectorAll('button[data-pa-id]');
     var taskBtns     = drop.querySelectorAll('button[data-task-id]'); // Deploy 236.961
+    var mentionBtns  = drop.querySelectorAll('button[data-mention-id]'); // Deploy 237.050
     // Dismiss loan-app events first (synchronous)
     var loanAppIds = Array.from(loanAppBtns).map(function(b) { return b.getAttribute('data-loanapp-id'); });
     if (loanAppIds.length) dismissAllVisible(loanAppIds);
@@ -640,6 +706,12 @@
         owner: b.getAttribute('data-task-owner') || '',
       }).catch(function(){}));
     });
+    // Deploy 237.050 -- dismiss every visible mention server-side.
+    var mentionIds = Array.from(mentionBtns).map(function(b){ return b.getAttribute('data-mention-id'); }).filter(Boolean);
+    if (mentionIds.length && window.SLA && SLA.api) {
+      _mentionCache = [];
+      promises.push(SLA.api('POST', '/api/notifications-dismiss', { ids: mentionIds }).catch(function(){}));
+    }
     Promise.all(promises).then(function() { _lastTaskFetch = 0; refresh(); });
   };
 
