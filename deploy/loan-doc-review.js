@@ -135,6 +135,7 @@
   var _stylesInjected = false;
   // Deploy 236.161 — per-section "Show N hidden" toggle state.
   var _showHidden = {};
+  var _pendingHide = null;   // Deploy 237.071 -- slug awaiting a hide reason
   // Deploy 236.162 — pending Add-Document section key + label for
   // the modal. Captured when the LO opens the modal so confirm
   // can route the new tray into the right section.
@@ -312,6 +313,25 @@
       '.dr-root .tray-verdict.awaiting-ok     { background:var(--dr-green-light); color:var(--dr-green); border:1px solid var(--dr-green-border); }',
       '.dr-root .tray-verdict.awaiting-issues { background:var(--dr-red-light); color:var(--dr-red); border:1px solid var(--dr-red-border); }',
       '.dr-root .tray-verdict.awaiting        { background:var(--gold-light); color:var(--gold-mid); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); }',
+      // Deploy 237.071 (Mike, item 9) -- loud chips + a thick left border once a human has acted,
+      // so approved vs not-approved reads at a glance on the UW / Reviewed tabs.
+      '.dr-root .tray-verdict.uw-pending { background:#b45309; color:#fff; border:1px solid #b45309; }',
+      '.dr-root .tray-verdict.uw-approved { background:var(--dr-green); color:#fff; border:1px solid var(--dr-green); }',
+      '.dr-root .tray-verdict.uw-na { background:var(--dr-blue); color:#fff; border:1px solid var(--dr-blue); }',
+      '.dr-root .tray-verdict.hidden-confirm { background:#7a7488; color:#fff; border:1px solid #7a7488; }',
+      '.dr-root .tray-verdict.hidden-ok { background:#e9e5de; color:#4a4458; border:1px solid #d6cfc0; }',
+      '.dr-root .tray-verdict.ai-ok { background:var(--dr-green-light); color:var(--dr-green); border:1px solid var(--dr-green-border); margin-right:6px; }',
+      '.dr-root .tray-verdict.ai-bad { background:var(--dr-red-light); color:var(--dr-red); border:1px solid var(--dr-red-border); margin-right:6px; }',
+      '.dr-root .tray-verdict.ai-unclear { background:var(--gold-light); color:var(--gold-mid); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); margin-right:6px; }',
+      '.dr-root .tray.uw-pending { border-color:#b45309; border-left:5px solid #b45309; }',
+      '.dr-root .tray.uw-approved { border-color:var(--dr-green); border-left:5px solid var(--dr-green); }',
+      '.dr-root .tray.uw-na { border-color:var(--dr-blue); border-left:5px solid var(--dr-blue); }',
+      '.dr-root .tray.hidden-confirm { border-left:5px solid #7a7488; opacity:1; }',
+      // Deploy 237.071 (item 5) -- the AI review folds up on Ready for UW.
+      '.dr-root .dr-ai-collapse { margin-top:10px; }',
+      '.dr-root .dr-ai-collapse > summary { cursor:pointer; font-size:12px; font-weight:600; color:var(--muted); padding:6px 0; list-style:none; }',
+      '.dr-root .dr-ai-collapse > summary::before { content:"\u25b8 "; }',
+      '.dr-root .dr-ai-collapse[open] > summary::before { content:"\u25be "; }',
       '.dr-root .tray-body { padding:4px 18px 18px; border-top:1px solid var(--border); background:#fcfaf6; }',
       '.dr-root .tray-body.collapsed { display:none; }',
 
@@ -512,6 +532,16 @@
           '<button class="dr-modal-btn" style="color:#1e40af;border-color:rgba(30,64,175,0.40)" onclick="dr_confirmNa()">Mark N/A</button>',
         '</div>',
       '</div></div>',
+      // Deploy 237.071 (item 6) -- Hide tray modal: who + why, for the underwriter to confirm.
+      '<div class="dr-modal-bg" id="dr-hideModal"><div class="dr-modal">',
+        '<h3>Hide this tray</h3>',
+        '<p>Why does this loan not need this document? The underwriter sees your name and reason under Ready for UW and confirms the hide.</p>',
+        '<textarea id="dr-hideReason" class="notes-area" placeholder="e.g., Refinance — no purchase contract on this loan."></textarea>',
+        '<div class="dr-modal-actions">',
+          '<button class="dr-modal-btn" onclick="dr_closeHideModal()">Cancel</button>',
+          '<button class="dr-modal-btn" onclick="dr_confirmHide()">Hide tray</button>',
+        '</div>',
+      '</div></div>',
       // Deploy 236.162 — Add Custom Document modal.
       '<div class="dr-modal-bg" id="dr-addDocModal"><div class="dr-modal">',
         '<h3>Add a document category</h3>',
@@ -602,6 +632,7 @@
     _aiDetailsOpen = {}; // Deploy 237.070
     _pendingOverride = null;
     _pendingNa = null;
+    _pendingHide = null; // Deploy 237.071
     _docSearch = '';
     _sourceOpen = false;
     _uploadingSlug = null;
@@ -668,6 +699,42 @@
     }
   }
 
+  // ── Deploy 237.071 (Mike, UW phase 2) — four-stage tray flow ─────────────
+  //   pending  -> no document yet, or the AI hasn't finished with it
+  //   ai       -> AI reviewed, waiting on the processor
+  //   uw       -> processor approved / N/A'd (or hid it) -- waiting on underwriting
+  //   reviewed -> the underwriter approved (or confirmed the hide)
+  // Stored per tray: verdict (processor); uwVerdict / uwApprovedAt / uwApprovedBy
+  // (underwriter); hidden + hiddenBy / hiddenAt / hiddenReason + hiddenConfirmedBy
+  // / hiddenConfirmedAt. Docs approved before this deploy have no uwVerdict, so
+  // they sit in Ready for UW until an underwriter clears them (Mike's call --
+  // "UW approve all" per section makes the catch-up quick). Any processor-tier
+  // user may UW-approve (Mike's call; no underwriter role yet).
+  function _trayHasDoc(dd) {
+    return !!(dd && (dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; }))));
+  }
+  function _stageOf(slug) {
+    var dd = (_review && _review.docs && _review.docs[slug]) || {};
+    if (dd.hidden) return dd.hiddenConfirmedAt ? 'reviewed' : 'uw';
+    var v = dd.verdict || 'pending';
+    if (v === 'approved' || v === 'na') return dd.uwVerdict === 'approved' ? 'reviewed' : 'uw';
+    if (!_trayHasDoc(dd)) return 'pending';
+    if (dd.aiReviewing) return 'pending';
+    if (dd.aiVerdict) return 'ai'; // includes 'stored' (storage-only tray, filed) and needs_manual_review
+    if ((DOC_META[slug] && DOC_META[slug].noReview) || dd.noReview) return 'ai';
+    return 'pending';
+  }
+  var STAGE_EMPTY = {
+    pending:  'Nothing waiting on an upload or the AI. \uD83C\uDF89',
+    ai:       'No AI-reviewed documents waiting on a processor.',
+    uw:       'Nothing waiting on underwriting.',
+    reviewed: 'No documents reviewed yet.',
+  };
+  function _tabHtml(key, label, n) {
+    return '<div class="tab ' + (_activeTab === key ? 'active' : '') + '" onclick="dr_switchTab(\'' + key + '\')">' +
+      label + ' <span class="tab-count">' + n + '</span></div>';
+  }
+
   function render() {
     var _anchor = _captureScrollAnchor(); // Deploy 237.046 -- keep the viewport steady across the re-render
     var docs = _review.docs || {};
@@ -690,8 +757,13 @@
     // reveals them when the LO wants.
     var slugs  = allSlugs.filter(function(s) { return !docs[s] || !docs[s].hidden; });
     var hidden = allSlugs.filter(function(s) { return docs[s] && docs[s].hidden; });
-    var pendingSlugs  = slugs.filter(function(s) { var v = docs[s].verdict; return v !== 'approved' && v !== 'na'; });
-    var reviewedSlugs = slugs.filter(function(s) { var v = docs[s].verdict; return v === 'approved' || v === 'na'; });
+    // Deploy 237.071 -- four stages (see _stageOf). Hidden trays awaiting the
+    // underwriter's confirmation ride along in Ready for UW.
+    var stageSlugs = { pending: [], ai: [], uw: [], reviewed: [] };
+    slugs.forEach(function(s) { stageSlugs[_stageOf(s)].push(s); });
+    hidden.forEach(function(s) { if (_stageOf(s) === 'uw') stageSlugs.uw.push(s); });
+    var pendingSlugs  = stageSlugs.pending;
+    var reviewedSlugs = stageSlugs.reviewed;
 
     var amt = _review.loanAmount ? '$' + Number(_review.loanAmount).toLocaleString() : '—';
     var lo = _review.loEmail || '—';
@@ -735,12 +807,13 @@
 
     var sourcePanel = renderSourcePanel();
 
+    // Deploy 237.071 (Mike, item 2) -- Pending -> AI Reviewed -> Ready for UW -> Reviewed.
     var tabs =
       '<div class="tabs">' +
-        '<div class="tab ' + (_activeTab === 'pending' ? 'active' : '') + '" onclick="dr_switchTab(\'pending\')">' +
-          'Pending Docs <span class="tab-count">' + pendingSlugs.length + '</span></div>' +
-        '<div class="tab ' + (_activeTab === 'reviewed' ? 'active' : '') + '" onclick="dr_switchTab(\'reviewed\')">' +
-          'Reviewed Docs <span class="tab-count">' + reviewedSlugs.length + '</span></div>' +
+        _tabHtml('pending',  'Pending Docs',  stageSlugs.pending.length) +
+        _tabHtml('ai',       'AI Reviewed',   stageSlugs.ai.length) +
+        _tabHtml('uw',       'Ready for UW',  stageSlugs.uw.length) +
+        _tabHtml('reviewed', 'Reviewed Docs', stageSlugs.reviewed.length) +
       '</div>';
 
     var toolbar =
@@ -764,7 +837,7 @@
         '<input type="file" id="dr-uploadZipFile" accept=".zip,application/zip,application/x-zip-compressed" style="display:none" onchange="dr_onUploadZipPick(event)" />' +
       '</div>';
 
-    var activeSlugs = _activeTab === 'pending' ? pendingSlugs : reviewedSlugs;
+    var activeSlugs = stageSlugs[_activeTab] || stageSlugs.pending; // Deploy 237.071
     if (_docSearch) {
       var q = _docSearch.toLowerCase();
       activeSlugs = activeSlugs.filter(function(slug) {
@@ -1092,7 +1165,7 @@
   function renderSections(slugs) {
     if (!slugs.length) {
       return '<div class="loading-page">' +
-        (_activeTab === 'pending' ? 'All docs reviewed. 🎉' : 'No docs reviewed yet.') +
+        (STAGE_EMPTY[_activeTab] || STAGE_EMPTY.pending) + // Deploy 237.071
         '</div>';
     }
     var bySection = {};
@@ -1114,6 +1187,7 @@
     var hiddenBySection = {};
     Object.keys(docs).forEach(function(s) {
       if (!docs[s] || !docs[s].hidden) return;
+      if (!docs[s].hiddenConfirmedAt) return; // Deploy 237.071 -- unconfirmed hides live in Ready for UW
       var meta = DOC_META[s] || { section: (docs[s] && docs[s].section) || 'loan' };
       var sec = meta.section || (docs[s] && docs[s].section) || 'loan';
       (hiddenBySection[sec] = hiddenBySection[sec] || []).push(s);
@@ -1151,6 +1225,14 @@
       var bulkBtn = bulkable.length
         ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escAttr(sec.key) + '\')" title="Approve every uploaded doc in this section that\'s still pending">✓ Approve ' + bulkable.length + ' pending</button>'
         : '';
+      // Deploy 237.071 -- the underwriter's per-section sweep on Ready for UW.
+      var uwable = (_activeTab === 'uw') ? slugsInSec.filter(function(s) {
+        var dd = docs[s] || {};
+        return !dd.hidden && (dd.verdict === 'approved' || dd.verdict === 'na') && dd.uwVerdict !== 'approved';
+      }) : [];
+      if (uwable.length) {
+        bulkBtn += '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkUwApprove(\'' + escAttr(sec.key) + '\')" title="Underwriter: approve every processor-approved document in this section">\u2713 UW approve all (' + uwable.length + ')</button>';
+      }
 
       // Deploy 236.501 — split this section's visible slugs into standard
       // checklist docs and "Other" (custom / uncategorized) docs so every
@@ -1249,6 +1331,7 @@
     }
     var verdict = d.verdict || 'pending';
     var hasDoc = !!d.currentDocId;
+    var _stage = _stageOf(slug); // Deploy 237.071
     // Deploy 236.161 — Awaiting Review: when a doc has been uploaded
     // but the processor hasn't acted yet, the tray takes the AI
     // verdict's color (approved/issues/pending) and the badge reads
@@ -1285,6 +1368,24 @@
     // flips the header chip to "Conditions (N)" so nobody has to expand
     // every tray to find them. Clearing them all restores the normal
     // verdict chip; the count includes outstanding + received.
+    // Deploy 237.071 (Mike, item 9) -- once a human has acted the chip says exactly
+    // where the tray stands; open UW conditions (below) still take precedence.
+    if (d.hidden) {
+      effectiveVerdict = d.hiddenConfirmedAt ? 'hidden-ok' : 'hidden-confirm';
+      verdictLabel = d.hiddenConfirmedAt ? 'Hidden · UW confirmed' : 'Hidden — UW to confirm';
+    } else if (_stage === 'uw') {
+      effectiveVerdict = 'uw-pending';
+      verdictLabel = (verdict === 'na' ? 'N/A' : 'Processor approved') + ' — awaiting UW';
+    } else if (_stage === 'reviewed') {
+      effectiveVerdict = verdict === 'na' ? 'uw-na' : 'uw-approved';
+      verdictLabel = verdict === 'na' ? '\u2713 N/A — UW approved' : '\u2713 UW APPROVED';
+    }
+    var _aiChip = '';
+    if ((_stage === 'uw' || _stage === 'reviewed') && !d.hidden && hasDoc && _trayAi && _trayAi !== 'stored') {
+      _aiChip = _trayAi === 'approved' ? '<span class="tray-verdict ai-ok" title="AI verdict: looks good">AI \u2713</span>'
+              : _trayAi === 'issues'   ? '<span class="tray-verdict ai-bad" title="AI verdict: issues found">AI \u2717</span>'
+              : '<span class="tray-verdict ai-unclear" title="AI could not fully verify this document">AI ?</span>';
+    }
     var _openConds = (Array.isArray(d.conditions) ? d.conditions : [])
       .filter(function(c) { return c && c.status !== 'cleared'; }).length;
     if (_openConds > 0) {
@@ -1352,6 +1453,12 @@
     } else {
       aiHtml = renderAiBlock(d, slug, (d.currentDocId || ''));
     }
+    // Deploy 237.071 (item 5) -- on Ready for UW the AI review folds up so the
+    // underwriter clicks through trays quickly; the summary line carries the verdict.
+    if (_stage === 'uw' && aiHtml && hasDoc && !d.hidden) {
+      var _aiSum = _trayAi === 'approved' ? '\u2713 AI: looks good' : _trayAi === 'issues' ? '\u26a0 AI: issues found' : _trayAi === 'needs_manual_review' ? '\u26a0 AI: needs manual review' : 'AI review';
+      aiHtml = '<details class="dr-ai-collapse"><summary>' + escHtml(_aiSum) + ' — expand</summary>' + aiHtml + '</details>';
+    }
 
     var dz =
       '<label class="dropzone" id="dr-dz_' + escAttr(slug) + '" ondragover="dr_dzOver(event,\'' + escAttr(slug) + '\')" ondragleave="dr_dzLeave(event,\'' + escAttr(slug) + '\')" ondrop="dr_dzDrop(event,\'' + escAttr(slug) + '\')">' +
@@ -1384,9 +1491,18 @@
     var conds = _renderDocConditions(d, slug);
 
     var verdictBtns;
-    if (verdict === 'approved' || verdict === 'na') {
+    if (d.hidden) {
+      // Deploy 237.071 (item 6) -- a hidden tray waits for the underwriter to confirm (or unhide, below).
+      verdictBtns = d.hiddenConfirmedAt ? '' :
+        '<button class="v-btn approve" onclick="dr_confirmHidden(\'' + escAttr(slug) + '\')">\u2713 Confirm hidden</button>';
+    } else if (_stage === 'reviewed') {
       verdictBtns =
-        '<button class="v-btn unapprove" onclick="dr_setVerdict(\'' + escAttr(slug) + '\',\'pending\')">↶ Reopen for editing</button>';
+        '<button class="v-btn unapprove" onclick="dr_uwSet(\'' + escAttr(slug) + '\',\'back\')" title="Take this back to the Ready for UW queue">↶ Back to Ready for UW</button>';
+    } else if (verdict === 'approved' || verdict === 'na') {
+      // Deploy 237.071 -- Ready for UW: the underwriter's call.
+      verdictBtns =
+        '<button class="v-btn approve" onclick="dr_uwSet(\'' + escAttr(slug) + '\',\'approve\')">\u2713 UW Approve</button>' +
+        '<button class="v-btn unapprove" onclick="dr_setVerdict(\'' + escAttr(slug) + '\',\'pending\')" title="Send this document back to the processor">↶ Send back to processor</button>';
     } else {
       var approveOnclick = (d.aiVerdict === 'issues')
         ? "dr_openOverrideModal('" + escAttr(slug) + "')"
@@ -1415,6 +1531,14 @@
       ? '<div style="margin-top:10px;padding:10px 14px;background:var(--dr-blue-light);border:1px solid var(--dr-blue-border);border-radius:6px;font-size:12px;color:var(--dr-blue);"><strong>N/A:</strong> ' + escHtml(d.naReason) + '</div>'
       : '';
 
+    // Deploy 237.071 (item 6) -- who hid this tray and why, for the underwriter to confirm.
+    var hiddenBlock = d.hidden
+      ? '<div style="margin-top:10px;padding:10px 14px;background:rgba(122,116,136,0.10);border:1px solid rgba(122,116,136,0.35);border-radius:6px;font-size:12px;color:#4a4458">' +
+          '<strong>Hidden</strong> by ' + escHtml(d.hiddenBy || 'unknown') + (d.hiddenAt ? ' on ' + escHtml(formatDate(d.hiddenAt)) : '') +
+          (d.hiddenReason ? ': ' + escHtml(d.hiddenReason) : ' (no reason recorded)') +
+          (d.hiddenConfirmedAt ? '<br><span style="color:var(--dr-green)">\u2713 Confirmed by ' + escHtml(d.hiddenConfirmedBy || '') + ' on ' + escHtml(formatDate(d.hiddenConfirmedAt)) + '</span>' : '') +
+        '</div>'
+      : '';
     var historyHtml = '';
     if (Array.isArray(d.history) && d.history.length) {
       historyHtml = '<details class="history-accordion"><summary>Prior reviews (' + d.history.length + ')</summary>' +
@@ -1510,6 +1634,7 @@
           reqBadge +
           formBadge +
         '</div>' +
+        _aiChip + // Deploy 237.071
         '<span class="tray-verdict ' + effectiveVerdict + '"' +
           (_openConds > 0 ? ' title="' + _openConds + ' uncleared underwriting condition' + (_openConds === 1 ? '' : 's') + ' — expand the tray to view or clear"' : '') +
           '>' + verdictLabel + '</span>' +
@@ -1540,6 +1665,7 @@
         aiHtml +
         dz +
         naBlock +
+        hiddenBlock + // Deploy 237.071
         '<div class="verdict-actions">' + verdictBtns + '</div>' +
         historyHtml +
       '</div>' +
@@ -2257,15 +2383,82 @@
   // hidden trays out of the main flow and into a per-section
   // collapsible.
   global.dr_toggleHideTray = function(slug, hide) {
+    if (hide) { global.dr_openHideModal(slug); return; } // Deploy 237.071 (item 6) -- a reason is required
     var patch = { docs: {} };
-    patch.docs[slug] = { hidden: !!hide };
+    patch.docs[slug] = { hidden: false, hiddenConfirmedBy: '', hiddenConfirmedAt: '' };
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
-      showToast(hide ? 'Tray hidden.' : 'Tray unhidden.', 'success');
+      showToast('Tray unhidden.', 'success');
       render();
     }).catch(function(err) {
-      showToast('Hide/unhide failed: ' + (err.message || 'Unknown'), 'error');
+      showToast('Unhide failed: ' + (err.message || 'Unknown'), 'error');
     });
+  };
+  // ── Deploy 237.071 (Mike, UW phase 2) — underwriter + hide-with-reason actions ───
+  global.dr_uwSet = function(slug, action) {
+    var now = new Date().toISOString();
+    var patch = { docs: {} };
+    if (action === 'approve') patch.docs[slug] = { uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: (_user && _user.email) || '' };
+    else patch.docs[slug] = { uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast(action === 'approve' ? 'UW approved.' : 'Back in Ready for UW.', 'success');
+      render();
+    }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
+  };
+  global.dr_bulkUwApprove = function(sectionKey) {
+    var docs = _review.docs || {};
+    var targets = Object.keys(docs).filter(function(s) {
+      var dd = docs[s] || {};
+      if (dd.hidden) return false;
+      var meta = DOC_META[s] || { section: dd.section || 'loan' };
+      if ((meta.section || dd.section || 'loan') !== sectionKey) return false;
+      return (dd.verdict === 'approved' || dd.verdict === 'na') && dd.uwVerdict !== 'approved';
+    });
+    if (!targets.length) { showToast('Nothing waiting on UW in this section.', 'info'); return; }
+    if (!confirm('UW approve ' + targets.length + ' document' + (targets.length === 1 ? '' : 's') + ' in this section?')) return;
+    var now = new Date().toISOString();
+    var actor = (_user && _user.email) || '';
+    var patch = { docs: {} };
+    targets.forEach(function(s) { patch.docs[s] = { uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: actor }; });
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('UW approved ' + targets.length + ' document' + (targets.length === 1 ? '' : 's') + '.', 'success');
+      render();
+    }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
+  };
+  global.dr_confirmHidden = function(slug) {
+    var patch = { docs: {} };
+    patch.docs[slug] = { hiddenConfirmedBy: (_user && _user.email) || '', hiddenConfirmedAt: new Date().toISOString() };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('Hide confirmed.', 'success');
+      render();
+    }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
+  };
+  global.dr_openHideModal = function(slug) {
+    _pendingHide = slug;
+    var ta = document.getElementById('dr-hideReason');
+    if (ta) ta.value = '';
+    document.getElementById('dr-hideModal').classList.add('show');
+  };
+  global.dr_closeHideModal = function() {
+    _pendingHide = null;
+    document.getElementById('dr-hideModal').classList.remove('show');
+  };
+  global.dr_confirmHide = function() {
+    var reason = (document.getElementById('dr-hideReason').value || '').trim();
+    if (!reason) { showToast('Say why this tray is being hidden.', 'error'); return; }
+    var slug = _pendingHide;
+    if (!slug) return;
+    var patch = { docs: {} };
+    patch.docs[slug] = { hidden: true, hiddenBy: (_user && _user.email) || '', hiddenAt: new Date().toISOString(), hiddenReason: reason, hiddenConfirmedBy: '', hiddenConfirmedAt: '' };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      global.dr_closeHideModal();
+      showToast('Tray hidden — the underwriter will confirm.', 'success');
+      render();
+    }).catch(function(err) { showToast('Hide failed: ' + (err.message || 'Unknown'), 'error'); });
   };
   global.dr_toggleHiddenInSection = function(sectionKey) {
     _showHidden[sectionKey] = !_showHidden[sectionKey];
@@ -2314,7 +2507,7 @@
     var actor = (_user && _user.email) || '';
     var patch = { docs: {} };
     targets.forEach(function(s) {
-      patch.docs[s] = { verdict: 'approved', approvedAt: now, approvedBy: actor };
+      patch.docs[s] = { verdict: 'approved', approvedAt: now, approvedBy: actor, uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' }; // Deploy 237.071
     });
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
@@ -3402,9 +3595,9 @@
     var now = new Date().toISOString();
     var patch = { docs: {} };
     if (verdict === 'approved') {
-      patch.docs[slug] = { verdict: 'approved', approvedAt: now, approvedBy: (_user && _user.email) || '' };
+      patch.docs[slug] = { verdict: 'approved', approvedAt: now, approvedBy: (_user && _user.email) || '', uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' }; // Deploy 237.071 -- a fresh approval re-enters Ready for UW
     } else {
-      patch.docs[slug] = { verdict: 'pending', approvedAt: '', approvedBy: '', flagReason: '' };
+      patch.docs[slug] = { verdict: 'pending', approvedAt: '', approvedBy: '', flagReason: '', uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
     }
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
@@ -3511,6 +3704,7 @@
       naReason: reason,
       approvedAt: now,
       approvedBy: (_user && _user.email) || '',
+      uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '', // Deploy 237.071
     };
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
