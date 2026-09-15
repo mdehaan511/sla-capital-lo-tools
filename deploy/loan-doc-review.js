@@ -1328,7 +1328,7 @@
         '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
       '</label>';
 
-    // Deploy 237.043 (Mike) — processor notes are a per-document NOTE LOG now
+    // Deploy 237.063 (Mike) — processor notes are a per-document NOTE LOG now
     // (a mini version of the loan's Notes & Activity): each save is its own
     // dated, authored entry; entries can be edited or deleted; the legacy
     // single processorNotes string shows as the first entry and is kept in
@@ -3109,7 +3109,7 @@
     _dr_patchConds(slug, conds);
   };
 
-  // Deploy 237.043 — per-document note log actions.
+  // Deploy 237.063 — per-document note log actions.
   function _noteAuthor() {
     var meta = (_user && _user.user_metadata) || {};
     return { author: String(meta.full_name || meta.fullName || meta.name || (_user && _user.email) || '').trim(), authorEmail: String((_user && _user.email) || '').toLowerCase() };
