@@ -139,6 +139,12 @@
     // the Baseline-synced page lives on at /dashboard-baseline.html for the
     // reconciliation deep links, and /dashboard.html 301s to the SLA one.
     { label: 'Dashboard',   href: '/sla-dashboard.html',   requires: 'processor' },
+    // Deploy 237.072 (Mike) — The Armory: the team's fun corner. Monthly
+    // high-score contest for the Sir Lends-A-Lot's Gallop mini-game plus an
+    // events board (March Madness, Secret Santa, …). Team members only —
+    // brokers and borrowers never see the link; the endpoints enforce the
+    // same gate server-side. `match` keeps the trigger lit on the game page.
+    { label: 'Armory',      href: '/armory.html',           requires: 'staff', match: ['/sir-lends-a-lot.html'] },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
     // page for admins (same surface). Keeping it as a separate top-level
     // link was redundant.
@@ -236,6 +242,15 @@
       // hasRole('processor') predates the Senior LO tier; the server's
       // canWorkMail includes senior_lo, so the link must too.
       return hasRole(user, 'processor') || _rawRoles(user).some(function (r) { return r === 'office_assistant' || r === 'senior_lo'; });
+    }
+    // Deploy 237.072 — 'staff' = any SLA Capital team member. Mirrors the
+    // server's classifyAccount (team-roster-rules.mjs): a staff role, or the
+    // @slacapital.com backstop index.html also uses for legacy LOs.
+    if (link.requires === 'staff') {
+      var staffRoles = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant', 'user'];
+      var em = String((user && user.email) || '').toLowerCase();
+      return _rawRoles(user).some(function (r) { return staffRoles.indexOf(String(r).toLowerCase()) >= 0; })
+          || /@slacapital\.com$/.test(em);
     }
     return true;
   }

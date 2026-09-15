@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sir Lends-A-Lot's Gallop — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <!-- Deploy 237.072: version-pinned so the new Armory link + 'staff' gate render
+       here even while the cached sla-nav.js is still stale elsewhere. -->
+  <script src="sla-nav.js?v=237072"></script>
+  <script src="sla-notifications.js?v=237050"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+  <!-- Deploy 237.072 (Mike) — THE ARMORY, part 2: the mini-game.
+       "Sir Lends-A-Lot's Gallop" is a one-button endless runner (think the
+       Chrome dinosaur, but a knight on a horse riding past houses). Jump the
+       DENIED stamps, the tax collector and the dragon; grab the gold. Score =
+       distance + coins. Every ride asks the server for a signed run token and
+       submits the score with it on game over; the server keeps the monthly
+       Round Table (armory.html). All art is pixel sprites drawn in code —
+       no image assets, no libraries, ES5 only.
+
+       SCORING (the server's plausibility cap depends on this — keep in sync
+       with MAX_POINTS_PER_SEC in _shared/armory.mjs):
+         distance: 1 pt per 30px  → 11 pts/s at BASE_SPEED, 25 pts/s at MAX_SPEED
+         coin +25, money bag +100; a cluster of ≤6 coins every ≥2.4s → ≤ ~50 pts/s
+         theoretical ceiling ≈ 75 pts/s; server cap is 90 pts/s + 300 slack. -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --parch: #efe3c8; --parch-2: #e4d3ae; --wood: #3a2313; --wood-2: #5a3a1e; --ink: #2a1d12; --crimson: #7c1f1f; --royal: #c9a14a;
+    }
+    body { font-family: 'DM Sans', sans-serif; color: var(--ink); min-height: 100vh; padding: 0 1rem 4rem;
+      background: var(--parch);
+      background-image: radial-gradient(ellipse at 50% 0%, rgba(255,250,235,0.9), rgba(239,227,200,0) 60%),
+        repeating-linear-gradient(0deg, rgba(120,90,40,0.035) 0 2px, transparent 2px 6px); }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid rgba(90,58,30,0.25); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+    .page { max-width: 960px; margin: 0 auto; padding-top: 1.25rem; }
+    .crest { text-align: center; margin-bottom: 14px; }
+    .crest h1 { font-family: 'Cinzel Decorative', 'Cinzel', serif; font-size: 30px; font-weight: 900; color: var(--wood); letter-spacing: 0.02em; text-shadow: 0 1px 0 #fff8e6, 0 2px 0 rgba(0,0,0,0.12); }
+    .crest p { font-size: 13px; color: #6b5636; margin-top: 4px; }
+    .crest a { color: var(--crimson); font-weight: 600; text-decoration: none; }
+    .crest a:hover { text-decoration: underline; }
+
+    .arena { position: relative; border: 10px solid var(--wood); border-radius: 14px; background: var(--wood-2); padding: 6px;
+      box-shadow: inset 0 0 0 2px var(--royal), 0 18px 40px rgba(40,25,10,0.35);
+      background-image: repeating-linear-gradient(90deg, rgba(0,0,0,0.10) 0 3px, transparent 3px 22px); }
+    .arena-inner { position: relative; width: 100%; padding-top: 35.556%; /* 900x320 */ background: #000; border-radius: 6px; overflow: hidden; }
+    .arena canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: pointer; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .rivet { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e9d39a, #8a6a2c 60%, #4a3410); box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+    .rivet.tl { top: -6px; left: -6px; } .rivet.tr { top: -6px; right: -6px; } .rivet.bl { bottom: -6px; left: -6px; } .rivet.br { bottom: -6px; right: -6px; }
+
+    .hud { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .hud .stat { background: rgba(255,250,235,0.7); border: 1px solid rgba(90,58,30,0.25); border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #6b5636; }
+    .hud .stat b { font-family: 'DM Mono', monospace; font-size: 16px; color: var(--ink); display: block; }
+    .hud .stat small { display: block; color: #8a7350; }
+    .btn { display: inline-block; padding: 9px 16px; border-radius: 10px; border: 2px solid var(--wood); background: linear-gradient(#f3d98a, #c9a14a); color: var(--wood); font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; letter-spacing: 0.04em; text-decoration: none; cursor: pointer; box-shadow: 0 2px 0 #4a3410; }
+    .btn:hover { filter: brightness(1.05); }
+    .btn.ghost { background: transparent; box-shadow: none; }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+    #result { margin-top: 12px; min-height: 22px; font-size: 14px; font-weight: 600; color: var(--crimson); text-align: center; }
+    #result.good { color: #256940; }
+    .hint { text-align: center; font-size: 12px; color: #8a7350; margin-top: 8px; }
+    kbd { font-family: 'DM Mono', monospace; font-size: 11px; background: #fff8e6; border: 1px solid #c9b78f; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--ink); }
+
+    .board { margin-top: 26px; background: rgba(255,250,235,0.65); border: 1px solid rgba(90,58,30,0.25); border-radius: 12px; padding: 14px 16px; }
+    .board h2 { font-family: 'Cinzel', serif; font-size: 15px; color: var(--wood); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+    .board h2 span { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: #8a7350; }
+    .board ol { list-style: none; }
+    .board li { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed rgba(90,58,30,0.18); font-size: 13px; }
+    .board li:last-child { border-bottom: 0; }
+    .board li .n { font-family: 'DM Mono', monospace; }
+    .board li.me { font-weight: 700; color: var(--crimson); }
+    .board .empty { color: #8a7350; font-size: 13px; }
+    @media (max-width: 640px) { .crest h1 { font-size: 22px; } body { padding: 0 8px 3rem; } .arena { border-width: 6px; } }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Saddling the horse…</strong>Checking your sign-in</div></div>
+  <div id="appWrap" style="display:none">
+    <nav class="nav" id="slaNav"></nav>
+    <div class="page">
+      <div class="crest">
+        <h1>Sir Lends-A-Lot's Gallop</h1>
+        <p>Jump the <b>DENIED</b> stamps, dodge the dragon, grab the gold. One button. No mercy. &nbsp;·&nbsp; <a href="/armory.html">← Back to the Armory</a></p>
+      </div>
+      <div class="arena">
+        <span class="rivet tl"></span><span class="rivet tr"></span><span class="rivet bl"></span><span class="rivet br"></span>
+        <div class="arena-inner"><canvas id="game" width="900" height="320" aria-label="Sir Lends-A-Lot's Gallop game"></canvas></div>
+      </div>
+      <div class="hud">
+        <div class="stat">Your best this month<b id="hudBest">—</b><small id="hudRank"></small></div>
+        <div class="stat">Head of the Round Table<b id="hudTop">—</b><small id="hudTopWho">nobody yet — claim it</small></div>
+        <div>
+          <button type="button" class="btn ghost" id="muteBtn" onclick="Gallop.toggleMute()">🔊 Sound</button>
+          <a class="btn" href="/armory.html">🏰 Round Table</a>
+        </div>
+      </div>
+      <div id="result"></div>
+      <div class="hint"><kbd>Space</kbd> / <kbd>↑</kbd> / tap the field to jump &nbsp;·&nbsp; scores reset on the 1st of every month</div>
+      <div class="board">
+        <h2>This month's Round Table <span id="boardMonth"></span></h2>
+        <ol id="boardList"><li class="empty">Loading the scrolls…</li></ol>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Auth: team members only (mirrors index.html's staff check) ──────
+  var STAFF_ROLES = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant', 'user'];
+  function rolesOf(user) {
+    var meta = (user && user.app_metadata) || {};
+    var roles = Array.isArray(meta.roles) ? meta.roles : (typeof meta.roles === 'string' ? [meta.roles] : []);
+    if (!roles.length && user && user.user_metadata && user.user_metadata.roles) {
+      roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
+    }
+    return roles;
+  }
+  function isStaff(user) {
+    if (!user) return false;
+    var em = String(user.email || '').toLowerCase();
+    return rolesOf(user).some(function (r) { return STAFF_ROLES.indexOf(String(r).toLowerCase()) >= 0; }) || /@slacapital\.com$/.test(em);
+  }
+
+  var _user = null;
+  var _state = null;      // /api/armory-state payload
+  var _myBest = 0, _topBest = 0, _topName = '';
+
+  window.netlifyIdentity.on('init', function (user) {
+    if (!user || !isStaff(user)) { window.location.replace('/'); return; }
+    _user = user;
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('appWrap').style.display = 'block';
+    loadState();
+    Game.init();
+  });
+
+  function escH(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function fmt(n) { return String(Math.floor(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function shortName(n) {
+    var parts = String(n || '').trim().split(/\s+/);
+    if (!parts[0]) return 'A knight';
+    return parts[0] + (parts.length > 1 ? ' ' + parts[parts.length - 1].charAt(0).toUpperCase() + '.' : '');
+  }
+
+  function loadState() {
+    SLA.api('GET', '/api/armory-state').then(function (st) {
+      _state = st || {};
+      paintState();
+    }).catch(function (err) {
+      document.getElementById('boardList').innerHTML = '<li class="empty">Could not reach the Round Table: ' + escH(err && err.message || 'unknown') + '</li>';
+    });
+  }
+
+  function paintState() {
+    var st = _state || {};
+    var board = st.board || [];
+    _myBest = st.me ? (st.me.best || 0) : 0;
+    _topBest = board[0] ? board[0].best : 0;
+    _topName = board[0] ? shortName(board[0].name) : '';
+    document.getElementById('hudBest').textContent = _myBest ? fmt(_myBest) : '—';
+    document.getElementById('hudRank').textContent = st.me ? ('#' + st.me.rank + ' of ' + board.length + ' · ' + st.me.runs + ' ride' + (st.me.runs === 1 ? '' : 's')) : 'no rides yet this month';
+    document.getElementById('hudTop').textContent = _topBest ? fmt(_topBest) : '—';
+    document.getElementById('hudTopWho').textContent = _topBest ? _topName : 'nobody yet — claim it';
+    document.getElementById('boardMonth').textContent = (st.monthLabel || '') + (st.daysLeft ? ' · ' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' left' : '');
+    var me = String((_user && _user.email) || '').toLowerCase();
+    var medals = ['👑', '🥈', '🥉'];
+    var html = board.slice(0, 10).map(function (r, i) {
+      return '<li class="' + (r.email === me ? 'me' : '') + '"><span>' + (medals[i] || (i + 1) + '.') + ' ' + escH(shortName(r.name)) + '</span><span class="n">' + fmt(r.best) + '</span></li>';
+    }).join('');
+    document.getElementById('boardList').innerHTML = html || '<li class="empty">No knight has ridden yet this month. The table is yours for the taking.</li>';
+  }
+
+  // ── Sound (tiny WebAudio bleeps; off switch remembered per browser) ──
+  var Snd = (function () {
+    var ctx = null, muted = false;
+    try { muted = localStorage.getItem('sla_gallop_mute') === '1'; } catch (_) {}
+    function ac() {
+      if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) { ctx = null; } }
+      if (ctx && ctx.state === 'suspended') { try { ctx.resume(); } catch (_) {} }
+      return ctx;
+    }
+    function tone(freq, dur, type, vol, slideTo, delay) {
+      if (muted) return;
+      var a = ac(); if (!a) return;
+      try {
+        var o = a.createOscillator(), g = a.createGain();
+        var t0 = a.currentTime + (delay || 0);
+        o.type = type || 'square';
+        o.frequency.setValueAtTime(freq, t0);
+        if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+        g.gain.setValueAtTime(vol || 0.05, t0);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g); g.connect(a.destination);
+        o.start(t0); o.stop(t0 + dur + 0.02);
+      } catch (_) {}
+    }
+    return {
+      jump: function () { tone(380, 0.14, 'square', 0.04, 720); },
+      coin: function () { tone(1180, 0.07, 'square', 0.04); tone(1580, 0.11, 'square', 0.04, 0, 0.06); },
+      bag: function () { tone(660, 0.08, 'square', 0.05); tone(880, 0.08, 'square', 0.05, 0, 0.07); tone(1320, 0.16, 'square', 0.05, 0, 0.14); },
+      crash: function () { tone(220, 0.4, 'sawtooth', 0.07, 55); },
+      milestone: function () { tone(523, 0.1, 'square', 0.04); tone(659, 0.1, 'square', 0.04, 0, 0.1); tone(784, 0.1, 'square', 0.04, 0, 0.2); tone(1047, 0.25, 'square', 0.05, 0, 0.3); },
+      toggle: function () { muted = !muted; try { localStorage.setItem('sla_gallop_mute', muted ? '1' : '0'); } catch (_) {} if (!muted) ac(); return muted; },
+      muted: function () { return muted; },
+      warm: function () { ac(); }
+    };
+  })();
+
+  // ── Pixel art ──────────────────────────────────────────────────────
+  var PAL = {
+    R: '#b3261e', S: '#cfd6dd', s: '#7d8790', E: '#1a1a1a', P: '#3b2a55', G: '#e3b341', g: '#b8860b',
+    H: '#a0673f', h: '#6e4527', M: '#3b2414', K: '#1a1a1a', W: '#f7f0dc', D: '#3f8a3f', d: '#7cc36a',
+    Y: '#ffd866', B: '#2b2b2b', F: '#f1c27d', T: '#8b5a2b', t: '#5c3a1a', L: '#5a3a1e', N: '#d9c9a3', k: '#000000', O: '#e8752a', o: '#ffb347'
+  };
+  var KNIGHT_TOP = [
+    '...........RR...............',
+    '..........RRR...............',
+    '..........SSSS..............',
+    '.........SSSSSS.............',
+    '.........SEEESS.............',
+    '.........SSSSSS.............',
+    '........sSSSSSSs......G.....',
+    '.......sSSSSSSSSs....GG.....',
+    '.......sS.SSSS.Ss...GG......',
+    '.........SSSSSS....GG.......',
+    '.........sSSSSs...GG..hhhh..',
+    '........PPPSSPPP.GG..hHHHhh.',
+    '....M...PPPPPPPPPHHHhhHHHEHh',
+    '...MMM.HHHPPPPPPHHHHHHHHhhh.',
+    '..MMMHHHHHHHHHHHHHHHHHHh.hh.',
+    '.MMMHHHHHHHHHHHHHHHHHHH.....',
+    '..MM.HHHHHHHHHHHHHHHHH......'
+  ];
+  var KNIGHT_A = KNIGHT_TOP.concat([
+    '...M..hhh.......hhh.........',
+    '......hh.........hh.........',
+    '.....hh...........hh........',
+    '....hh.............hh.......',
+    '....KK.............KK.......'
+  ]);
+  var KNIGHT_B = KNIGHT_TOP.concat([
+    '...M..hhh.......hhh.........',
+    '.......hh.......hh..........',
+    '.......hh.......hh..........',
+    '......hh.........hh.........',
+    '......KK.........KK.........'
+  ]);
+  var TAXMAN = [
+    '....BBBBBB....',
+    '....BBBBBB....',
+    '...BBBBBBBB...',
+    '.....FFFF.....',
+    '.....FEFE.....',
+    '.....FFFF.....',
+    '....BBBBBB....',
+    '...BBBBBBBB.G.',
+    '..BBBBBBBBBGGG',
+    '..B.BBBBBB.GgG',
+    '....BBBBBB.GGG',
+    '....BBBBBB..G.',
+    '....BBBBBB....',
+    '....BB..BB....',
+    '....BB..BB....',
+    '....BB..BB....',
+    '....BB..BB....',
+    '...kkk..kkk...'
+  ];
+  var DRAGON = [
+    '......DD..............',
+    '.....DDDD.............',
+    '....DDDDDD............',
+    '...DDDDDDDD...........',
+    '..DDDDDDDDDD.....DDDD.',
+    '..DDDDDDDDDD....DDEDDD',
+    '....DDDDDDDDD..DDDDDDD',
+    '....DDDDDDDDDDDDDDDDD.',
+    '.....DDDDDDDDDDDDDD...',
+    '....DDDDDDDDDDDDDD....',
+    '..DDDDDDDDDDDDDDDD....',
+    '.DDDDDDDDDDDDDDDD.....',
+    'DDDDDDDdddddddDDD.....',
+    '.DDDDDDdddddddDDD.....',
+    '..DDDDDDDDDDDDDDD.....',
+    '....DDDDDDDDDDDD......',
+    '....DDD.....DDD.......',
+    '....DDD.....DDD.......',
+    '...DDDD....DDDD.......',
+    '...kkkk....kkkk.......'
+  ];
+  var FIRE = [
+    '..oo..',
+    '.oOOo.',
+    'oOOOOo',
+    '.oOOo.'
+  ];
+  var BAG = [
+    '...TTTT...',
+    '....TT....',
+    '...NNNN...',
+    '..NNNNNN..',
+    '.NNNNNNNN.',
+    'NNNNNNNNNN',
+    'NNNNNNNNNN',
+    'NNNNNNNNNN',
+    'NNNNNNNNNN',
+    'NNNNNNNNNN',
+    '.NNNNNNNN.',
+    '..NNNNNN..'
+  ];
+  var HOUSE_A = [
+    '....tt......',
+    '...tttttt...',
+    '..tttttttt..',
+    '.tttttttttt.',
+    'tttttttttttt',
+    '.WWWWWWWWWW.',
+    '.WWWWWWWWWW.',
+    '.WYYWWLLWYYW',
+    '.WYYWWLLWYYW',
+    '.WWWWWLLWWWW',
+    '.WWWWWLLWWWW',
+    'LLLLLLLLLLLL'
+  ];
+  var HOUSE_B = [
+    '....tt....',
+    '...tttt...',
+    '..tttttt..',
+    '.tttttttt.',
+    'tttttttttt',
+    '.WWWWWWWW.',
+    '.WYYWWYYW.',
+    '.WYYWWYYW.',
+    '.WWWWWWWW.',
+    '.WYYWWYYW.',
+    '.WYYWWYYW.',
+    '.WWWWWWWW.',
+    '.WWWLLWWW.',
+    '.WWWLLWWW.',
+    '.WWWLLWWW.',
+    'LLLLLLLLLL'
+  ];
+
+  function makeSprite(rows, scale, palOverride, flip) {
+    var h = rows.length, w = rows[0].length;
+    var c = document.createElement('canvas'); c.width = w * scale; c.height = h * scale;
+    var x = c.getContext('2d');
+    for (var r = 0; r < h; r++) {
+      for (var i = 0; i < w; i++) {
+        var ch = rows[r].charAt(i);
+        if (ch === '.') continue;
+        var col = (palOverride && palOverride[ch]) || PAL[ch];
+        if (!col) continue;
+        x.fillStyle = col;
+        x.fillRect((flip ? (w - 1 - i) : i) * scale, r * scale, scale, scale);
+      }
+    }
+    return c;
+  }
+
+  // ── The game ───────────────────────────────────────────────────────
+  var Game = (function () {
+    var W = 900, H = 320, GROUND = 270, SCALE = 3;
+    var GRAV = 2400, JUMP_V = -720;
+    var BASE_SPEED = 340, MAX_SPEED = 760, ACCEL = 6;   // px/s, px/s, px/s per s (→ max after ~70s)
+    var COIN_PTS = 25, BAG_PTS = 100;
+    var DUSK_SECONDS = 150;
+
+    var CRASH_LINES = [
+      'DENIED. Insufficient DSCR.',
+      'The dragon ate your term sheet.',
+      'The tax collector got you. Should have asked about cost segregation.',
+      'Sir Lends-A-Lot has been… unhorsed.',
+      'Appraisal came in low. Ground-level low.',
+      'Your rate lock expired mid-air.',
+      'Underwriting requests one more document: a helmet.',
+      'Loan denied. Reason: borrower fell off horse.',
+      'Title found a cloud. You rode straight into it.',
+      'That was a hard money landing.',
+      'Conditions not cleared. Neither was that jump.',
+      'The exit strategy was the ground.'
+    ];
+    var MILESTONES = [
+      [250, 'Pre-approved!'], [500, 'Loan funded!'], [1000, 'Portfolio lender!'], [1500, 'Ye Olde Top Producer'],
+      [2000, 'Sir Lends-A-LOT!'], [3000, 'Knight of the Round Table'], [4000, 'Duke of DSCR'], [5000, 'Legendary Lender'],
+      [7500, 'The Lending Lion'], [10000, 'Immortal. Someone check the servers.']
+    ];
+    var SIGNS = ['FUNDED', 'SOLD', 'CLOSED', 'DSCR 1.25', 'FIX & FLIP', 'BRIDGE', '10-DAY CLOSE', 'NO TAX RETURNS'];
+
+    var canvas, ctx, dpr = 1;
+    var sprites = {};
+    var state = 'ready';          // ready | running | dead
+    var lastT = 0, runTime = 0, deadAt = 0, startedAt = 0;
+    var speed, distance, score, coinPts, coins, bags;
+    var player, obstacles, pickups, floats, banner;
+    var nextObstacleAt, nextCoinAt, milestoneIdx, crashLine;
+    var houses = [], HOUSE_STRIP = 2600, clouds = [];
+    var runToken = null, runTokenPromise = null, fireTick = 0;
+    var seed = 7;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }   // deterministic scenery
+    function rand(a, b) { return a + Math.random() * (b - a); }
+
+    function init() {
+      canvas = document.getElementById('game');
+      ctx = canvas.getContext('2d');
+      dpr = Math.min(3, window.devicePixelRatio || 1);
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+
+      sprites.knightA = makeSprite(KNIGHT_A, SCALE);
+      sprites.knightB = makeSprite(KNIGHT_B, SCALE);
+      sprites.taxman = makeSprite(TAXMAN, SCALE);
+      sprites.dragon = makeSprite(DRAGON, SCALE, null, true);     // flipped so the head faces the knight
+      sprites.fire = makeSprite(FIRE, SCALE);
+      sprites.bag = makeSprite(BAG, SCALE);
+      var roofs = [{ t: '#5c3a1a' }, { t: '#8e2a22' }, { t: '#3b2a55' }, { t: '#2f5a6e' }, { t: '#6b4f2a' }];
+      sprites.houses = [];
+      for (var i = 0; i < roofs.length; i++) {
+        sprites.houses.push(makeSprite(HOUSE_A, SCALE, roofs[i]));
+        sprites.houses.push(makeSprite(HOUSE_B, SCALE, roofs[i]));
+      }
+      // Scenery strip: houses at fixed world positions, wrapping every HOUSE_STRIP px.
+      var x = 40;
+      while (x < HOUSE_STRIP - 120) {
+        var sp = sprites.houses[Math.floor(rnd() * sprites.houses.length)];
+        houses.push({ x: x, sp: sp, sign: rnd() < 0.35 ? SIGNS[Math.floor(rnd() * SIGNS.length)] : '' });
+        x += sp.width + 90 + rnd() * 220;
+      }
+      for (var c = 0; c < 6; c++) clouds.push({ x: rnd() * 1800, y: 20 + rnd() * 70, w: 60 + rnd() * 90 });
+
+      resetRun();
+      state = 'ready';
+      bindInput();
+      paintMute();
+      lastT = performance.now();
+      requestAnimationFrame(frame);
+    }
+
+    function resetRun() {
+      speed = BASE_SPEED; distance = 0; score = 0; coinPts = 0; coins = 0; bags = 0; runTime = 0;
+      player = { x: 96, y: GROUND - sprites.knightA.height, vy: 0, onGround: true, anim: 0 };
+      obstacles = []; pickups = []; floats = []; banner = null;
+      nextObstacleAt = 700; nextCoinAt = 380; milestoneIdx = 0; crashLine = '';
+      runToken = null; runTokenPromise = null;
+    }
+
+    function startRun() {
+      resetRun();
+      state = 'running';
+      startedAt = performance.now();
+      setResult('', false);
+      // Ask the server for the signed run token NOW (not on page load) so
+      // its issue time is the ride's real start — that is what the score
+      // cap is measured against. The token isn't needed until game over.
+      runTokenPromise = SLA.api('POST', '/api/armory-run-start').then(function (r) {
+        runToken = (r && r.token) || null; return runToken;
+      }).catch(function () { runToken = null; return null; });
+    }
+
+    function jump() {
+      if (player.onGround) { player.vy = JUMP_V; player.onGround = false; Snd.jump(); }
+    }
+
+    function action() {
+      Snd.warm();
+      if (state === 'ready') { startRun(); jump(); return; }
+      if (state === 'dead') { if (performance.now() - deadAt > 450) { startRun(); jump(); } return; }
+      jump();
+    }
+
+    function bindInput() {
+      document.addEventListener('keydown', function (e) {
+        var tag = (e.target && e.target.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+          e.preventDefault();
+          if (!e.repeat) action();
+        }
+      });
+      canvas.addEventListener('pointerdown', function (e) { e.preventDefault(); action(); });
+      // Hidden tab: rAF stops; when it resumes, don't let a giant dt teleport
+      // an obstacle into the knight. lastT reset below keeps dt sane.
+      document.addEventListener('visibilitychange', function () { lastT = performance.now(); });
+    }
+
+    // ── Update ─────────────────────────────────────────────────────
+    function spawnObstacle() {
+      var r = Math.random();
+      var type;
+      if (runTime > 20 && r < 0.12) type = 'stamp2';
+      else if (runTime > 9 && r < 0.34) type = 'dragon';
+      else if (r < 0.64) type = 'taxman';
+      else type = 'stamp';
+      var w, h;
+      if (type === 'stamp') { w = 54; h = 36; }
+      else if (type === 'stamp2') { w = 114; h = 36; }
+      else if (type === 'taxman') { w = sprites.taxman.width; h = sprites.taxman.height; }
+      else { w = sprites.dragon.width; h = sprites.dragon.height; }
+      obstacles.push({ type: type, x: W + 30, y: GROUND - h, w: w, h: h, rot: rand(-0.16, 0.16) });
+      // Gap in TIME (so it scales with speed): ≥ 0.95s between obstacles.
+      nextObstacleAt = distance + speed * rand(0.95, 1.75) + w;
+    }
+
+    function spawnPickups() {
+      // Heights are capped so everything is reachable at the jump apex
+      // (knight hitbox top reaches ~GROUND-150).
+      if (Math.random() < 0.12) {
+        pickups.push({ kind: 'bag', x: W + 30, y: GROUND - 135 - rand(0, 20), w: sprites.bag.width, h: sprites.bag.height, taken: false });
+      } else {
+        var n = 3 + Math.floor(Math.random() * 4);
+        var base = GROUND - 70 - rand(0, 60);
+        var arc = Math.random() < 0.5 ? rand(20, 50) : 0;
+        for (var i = 0; i < n; i++) {
+          var cy = Math.max(GROUND - 152, base - Math.sin((i / Math.max(1, n - 1)) * Math.PI) * arc);
+          pickups.push({ kind: 'coin', x: W + 30 + i * 34, y: cy, w: 22, h: 22, taken: false });
+        }
+      }
+      nextCoinAt = distance + speed * rand(2.4, 4.2);
+    }
+
+    function hitbox(o) {
+      if (o.kind) return { x: o.x + 2, y: o.y + 2, w: o.w - 4, h: o.h - 4 };
+      return { x: o.x + 7, y: o.y + 6, w: o.w - 14, h: o.h - 6 };
+    }
+    function overlaps(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+    function update(dt) {
+      if (state !== 'running') return;
+      runTime += dt;
+      speed = Math.min(MAX_SPEED, BASE_SPEED + ACCEL * runTime);
+      distance += speed * dt;
+      score = Math.floor(distance / 30) + coinPts;
+
+      // Player physics
+      player.vy += GRAV * dt;
+      player.y += player.vy * dt;
+      var floor = GROUND - sprites.knightA.height;
+      if (player.y >= floor) { player.y = floor; player.vy = 0; player.onGround = true; }
+      player.anim += dt * (speed / 40);
+
+      if (distance >= nextObstacleAt) spawnObstacle();
+      if (distance >= nextCoinAt) spawnPickups();
+
+      var i;
+      for (i = obstacles.length - 1; i >= 0; i--) {
+        var o = obstacles[i];
+        o.x -= speed * dt;
+        if (o.x + o.w < -60) { obstacles.splice(i, 1); continue; }
+      }
+      for (i = pickups.length - 1; i >= 0; i--) {
+        var p = pickups[i];
+        p.x -= speed * dt;
+        if (p.x + p.w < -40) pickups.splice(i, 1);
+      }
+      for (i = floats.length - 1; i >= 0; i--) {
+        floats[i].y -= 40 * dt; floats[i].ttl -= dt;
+        if (floats[i].ttl <= 0) floats.splice(i, 1);
+      }
+      if (banner) { banner.ttl -= dt; if (banner.ttl <= 0) banner = null; }
+
+      // Collisions
+      var kb = { x: player.x + 14, y: player.y + 24, w: sprites.knightA.width - 30, h: sprites.knightA.height - 26 };
+      for (i = 0; i < pickups.length; i++) {
+        var pk = pickups[i];
+        if (pk.taken) continue;
+        if (overlaps(kb, hitbox(pk))) {
+          pk.taken = true;
+          if (pk.kind === 'bag') { coinPts += BAG_PTS; bags++; Snd.bag(); floats.push({ x: pk.x, y: pk.y, text: '+' + BAG_PTS + ' cha-ching', ttl: 1.1, big: true }); }
+          else { coinPts += COIN_PTS; coins++; Snd.coin(); floats.push({ x: pk.x, y: pk.y, text: '+' + COIN_PTS, ttl: 0.8 }); }
+        }
+      }
+      for (i = 0; i < obstacles.length; i++) {
+        if (overlaps(kb, hitbox(obstacles[i]))) { die(obstacles[i]); return; }
+      }
+
+      if (milestoneIdx < MILESTONES.length && score >= MILESTONES[milestoneIdx][0]) {
+        banner = { text: MILESTONES[milestoneIdx][1], ttl: 1.8 };
+        milestoneIdx++;
+        Snd.milestone();
+      }
+    }
+
+    function die(by) {
+      state = 'dead'; deadAt = performance.now();
+      Snd.crash();
+      var lines = CRASH_LINES;
+      if (by.type === 'dragon') lines = [CRASH_LINES[1], 'Roasted. The dragon prefers its lenders well done.', 'Dragon 1, Knight 0. Try a shorter amortization.'];
+      else if (by.type === 'taxman') lines = [CRASH_LINES[2], 'Audited at full gallop.', 'The tax man always collects.'];
+      crashLine = lines[Math.floor(Math.random() * lines.length)];
+      finishRun();
+    }
+
+    function finishRun() {
+      var payload = { score: score, coins: coins + bags, distance: Math.floor(distance), durationMs: Math.floor(performance.now() - startedAt) };
+      var p = runTokenPromise || Promise.resolve(null);
+      setResult('Sending your score to the Round Table…', true);
+      p.then(function (token) {
+        if (!token) { setResult('Score not recorded — the Round Table could not be reached. Check your connection and ride again.', false); return null; }
+        payload.token = token;
+        return SLA.api('POST', '/api/armory-score-submit', payload);
+      }).then(function (r) {
+        if (!r) return;
+        if (!r.accepted) { setResult(r.reason || 'Score not counted.', false); return; }
+        _myBest = r.best || _myBest;
+        if (r.top && r.top.best) { _topBest = r.top.best; _topName = shortName(r.top.name); }
+        var who = r.rank ? '#' + r.rank + ' of ' + r.players : '';
+        if (r.isNewBest && r.rank === 1) setResult('👑 New personal best — you sit at the head of the Round Table! (' + fmt(r.best) + ')', true);
+        else if (r.isNewBest) setResult('🏆 New personal best! You are ' + who + ' at the Round Table. ' + (_topBest > r.best ? fmt(_topBest - r.best) + ' behind ' + _topName + '.' : ''), true);
+        else setResult('Recorded. Your best this month stays at ' + fmt(r.best) + ' (' + who + ').', true);
+        loadState();
+      }).catch(function (err) {
+        setResult('⚠ Score did not reach the server: ' + ((err && err.message) || 'unknown'), false);
+      });
+    }
+
+    function setResult(text, good) {
+      var el = document.getElementById('result');
+      el.textContent = text || '';
+      el.className = good ? 'good' : '';
+    }
+
+    // ── Draw ───────────────────────────────────────────────────────
+    function lerpColor(a, b, t) {
+      function h(s) { return [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)]; }
+      var A = h(a), B = h(b);
+      return 'rgb(' + Math.round(A[0] + (B[0] - A[0]) * t) + ',' + Math.round(A[1] + (B[1] - A[1]) * t) + ',' + Math.round(A[2] + (B[2] - A[2]) * t) + ')';
+    }
+
+    function drawSky() {
+      var t = Math.min(1, runTime / DUSK_SECONDS);
+      var g = ctx.createLinearGradient(0, 0, 0, GROUND);
+      g.addColorStop(0, lerpColor('#8fc8ee', '#d2784f', t));
+      g.addColorStop(1, lerpColor('#e9f3f8', '#f6c98a', t));
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // sun
+      ctx.fillStyle = lerpColor('#fff3b0', '#ffb347', t);
+      ctx.beginPath(); ctx.arc(W - 120, 60 + t * 120, 26, 0, Math.PI * 2); ctx.fill();
+      // clouds
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      var off = (distance * 0.1) % 1800;
+      for (var i = 0; i < clouds.length; i++) {
+        var c = clouds[i];
+        var cx = c.x - off; if (cx < -200) cx += 1800;
+        ctx.beginPath(); ctx.ellipse(cx, c.y, c.w / 2, 12, 0, 0, Math.PI * 2); ctx.ellipse(cx + c.w * 0.25, c.y - 8, c.w / 3, 12, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    function drawCastle() {
+      var period = 1500, off = (distance * 0.18) % period;
+      ctx.fillStyle = 'rgba(59,42,85,0.35)';
+      for (var k = -1; k < 2; k++) {
+        var bx = 300 - off + k * period, by = GROUND - 40;
+        ctx.fillRect(bx, by - 70, 260, 70);
+        var tw = [0, 100, 210];
+        for (var i = 0; i < tw.length; i++) {
+          ctx.fillRect(bx + tw[i], by - 120, 50, 120);
+          for (var m = 0; m < 5; m++) ctx.fillRect(bx + tw[i] + m * 11, by - 130, 6, 10);
+        }
+        ctx.fillRect(bx + 118, by - 160, 24, 40);
+        ctx.fillStyle = 'rgba(200,129,58,0.8)'; ctx.fillRect(bx + 130, by - 176, 16, 9); ctx.fillStyle = 'rgba(59,42,85,0.35)';
+      }
+    }
+
+    function drawHills() {
+      var period = 900, off = (distance * 0.35) % period;
+      ctx.fillStyle = '#9ec98a';
+      ctx.beginPath(); ctx.moveTo(0, GROUND);
+      for (var x = -period; x <= W + period; x += 30) {
+        var wx = x + off;
+        var y = GROUND - 26 - 22 * Math.sin(wx / 140) - 12 * Math.sin(wx / 53);
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, GROUND); ctx.closePath(); ctx.fill();
+    }
+
+    function drawHouses() {
+      var off = (distance * 0.55) % HOUSE_STRIP;
+      for (var i = 0; i < houses.length; i++) {
+        var hs = houses[i];
+        for (var k = 0; k < 2; k++) {
+          var hx = hs.x - off + k * HOUSE_STRIP;
+          if (hx > W + 40 || hx + hs.sp.width < -40) continue;
+          ctx.drawImage(hs.sp, hx, GROUND - hs.sp.height + 4);
+          if (hs.sign) {
+            ctx.fillStyle = '#5a3a1e'; ctx.fillRect(hx + hs.sp.width + 8, GROUND - 22, 3, 26);
+            ctx.fillStyle = '#256940'; ctx.fillRect(hx + hs.sp.width - 12, GROUND - 34, 44, 15);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 7px DM Sans, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(hs.sign, hx + hs.sp.width + 10, GROUND - 26);
+          }
+        }
+      }
+    }
+
+    function drawGround() {
+      ctx.fillStyle = '#7a9a4a'; ctx.fillRect(0, GROUND, W, 10);
+      ctx.fillStyle = '#8b6a3e'; ctx.fillRect(0, GROUND + 10, W, H - GROUND - 10);
+      ctx.fillStyle = '#6e4527';
+      var off = distance % 60;
+      for (var x = -60; x < W; x += 60) ctx.fillRect(x - off, GROUND + 22, 22, 3);
+      ctx.fillStyle = '#4f7a2a';
+      var off2 = distance % 37;
+      for (var gx = -37; gx < W; gx += 37) { ctx.fillRect(gx - off2, GROUND - 4, 2, 5); ctx.fillRect(gx - off2 + 4, GROUND - 3, 2, 4); }
+    }
+
+    function drawStamp(x, y, w, h, rot) {
+      ctx.save();
+      ctx.translate(x + w / 2, y + h / 2); ctx.rotate(rot);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.strokeStyle = '#b3261e'; ctx.lineWidth = 3; ctx.strokeRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4);
+      ctx.fillStyle = '#b3261e'; ctx.font = '900 15px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('DENIED', 0, 1);
+      ctx.restore();
+    }
+
+    function drawObstacles() {
+      for (var i = 0; i < obstacles.length; i++) {
+        var o = obstacles[i];
+        if (o.type === 'stamp') drawStamp(o.x, o.y, o.w, o.h, o.rot);
+        else if (o.type === 'stamp2') { drawStamp(o.x, o.y, 54, o.h, o.rot); drawStamp(o.x + 60, o.y, 54, o.h, -o.rot); }
+        else if (o.type === 'taxman') ctx.drawImage(sprites.taxman, o.x, o.y);
+        else {
+          ctx.drawImage(sprites.dragon, o.x, o.y);
+          if (Math.floor(fireTick * 8) % 2 === 0) ctx.drawImage(sprites.fire, o.x - sprites.fire.width + 2, o.y + 12);
+        }
+      }
+    }
+
+    function drawPickups() {
+      for (var i = 0; i < pickups.length; i++) {
+        var p = pickups[i];
+        if (p.taken) continue;
+        if (p.kind === 'bag') {
+          ctx.drawImage(sprites.bag, p.x, p.y);
+          ctx.fillStyle = '#5a3a1e'; ctx.font = 'bold 14px DM Mono, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('$', p.x + p.w / 2, p.y + p.h * 0.62);
+        } else {
+          var sx = Math.abs(Math.cos(fireTick * 5 + p.x / 40));
+          ctx.save(); ctx.translate(p.x + 11, p.y + 11); ctx.scale(Math.max(0.15, sx), 1);
+          ctx.fillStyle = '#b8860b'; ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#e3b341'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#8a6208'; ctx.font = 'bold 11px DM Mono, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('$', 0, 1);
+          ctx.restore();
+        }
+      }
+    }
+
+    function drawPlayer() {
+      var sp = (state === 'running' && player.onGround && Math.floor(player.anim) % 2 === 1) ? sprites.knightB : sprites.knightA;
+      if (state === 'running' && !player.onGround) sp = sprites.knightB;
+      // shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath(); ctx.ellipse(player.x + sp.width / 2, GROUND + 4, sp.width / 2.6, 5, 0, 0, Math.PI * 2); ctx.fill();
+      if (state === 'dead') {
+        ctx.save(); ctx.translate(player.x + sp.width / 2, player.y + sp.height); ctx.rotate(-0.35); ctx.drawImage(sp, -sp.width / 2, -sp.height + 10); ctx.restore();
+      } else {
+        ctx.drawImage(sp, player.x, player.y);
+      }
+    }
+
+    function drawFloats() {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (var i = 0; i < floats.length; i++) {
+        var f = floats[i];
+        ctx.globalAlpha = Math.max(0, Math.min(1, f.ttl * 1.5));
+        ctx.font = (f.big ? '700 16px' : '700 13px') + ' DM Mono, monospace';
+        ctx.fillStyle = '#5a3a1e'; ctx.fillText(f.text, f.x + 12, f.y + 1);
+        ctx.fillStyle = '#ffd866'; ctx.fillText(f.text, f.x + 11, f.y);
+      }
+      ctx.globalAlpha = 1;
+      if (banner) {
+        var a = Math.min(1, banner.ttl * 2);
+        ctx.globalAlpha = a;
+        ctx.font = '900 26px Cinzel Decorative, Cinzel, serif';
+        ctx.fillStyle = '#3a2313'; ctx.fillText(banner.text, W / 2 + 2, 82);
+        ctx.fillStyle = '#ffd866'; ctx.fillText(banner.text, W / 2, 80);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawHUD() {
+      ctx.textBaseline = 'top';
+      ctx.font = '700 22px DM Mono, monospace'; ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillText(fmt(score), W - 18, 16);
+      ctx.fillStyle = '#fff'; ctx.fillText(fmt(score), W - 20, 14);
+      ctx.font = '600 11px Cinzel, serif';
+      ctx.fillStyle = 'rgba(58,35,19,0.85)';
+      ctx.fillText('COINS ' + (coins + bags), W - 20, 42);
+      ctx.textAlign = 'left';
+      ctx.fillText('BEST ' + fmt(_myBest), 20, 16);
+      if (_topBest) ctx.fillText('⚔ TOP ' + fmt(_topBest) + (_topName ? ' · ' + _topName.toUpperCase() : ''), 20, 32);
+      if (Snd.muted()) { ctx.textAlign = 'center'; ctx.fillText('🔇', W / 2, 14); }
+    }
+
+    function drawPanel(lines) {
+      ctx.fillStyle = 'rgba(42,29,18,0.72)'; ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (var i = 0; i < lines.length; i++) {
+        var L = lines[i];
+        ctx.font = L.font; ctx.fillStyle = L.color || '#f7f0dc';
+        ctx.fillText(L.text, W / 2, L.y);
+      }
+    }
+
+    function drawOverlay() {
+      if (state === 'ready') {
+        drawPanel([
+          { text: "SIR LENDS-A-LOT'S GALLOP", font: '900 30px Cinzel Decorative, Cinzel, serif', y: 96, color: '#ffd866' },
+          { text: 'Jump the DENIED stamps, the tax collector and the dragon. Grab the gold.', font: '500 14px DM Sans, sans-serif', y: 140 },
+          { text: 'Press SPACE or tap to gallop', font: '700 18px Cinzel, serif', y: 196, color: '#fff' },
+          { text: 'Distance = points · Coin +25 · Money bag +100', font: '500 12px DM Mono, monospace', y: 230, color: 'rgba(247,240,220,0.75)' }
+        ]);
+        return;
+      }
+      if (state === 'dead') {
+        var blink = Math.floor(performance.now() / 500) % 2 === 0;
+        ctx.fillStyle = 'rgba(42,29,18,0.58)'; ctx.fillRect(0, 0, W, H);
+        ctx.save(); ctx.translate(W / 2, 92); ctx.rotate(-0.12);
+        ctx.strokeStyle = '#ff5a4a'; ctx.lineWidth = 5; ctx.strokeRect(-150, -34, 300, 68);
+        ctx.fillStyle = '#ff5a4a'; ctx.font = '900 44px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('DENIED', 0, 2);
+        ctx.restore();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#f7f0dc'; ctx.font = '500 15px DM Sans, sans-serif'; ctx.fillText(crashLine, W / 2, 152);
+        ctx.font = '700 20px DM Mono, monospace'; ctx.fillStyle = '#ffd866'; ctx.fillText('Score ' + fmt(score) + '   ·   Coins ' + (coins + bags), W / 2, 190);
+        if (blink) { ctx.font = '700 15px Cinzel, serif'; ctx.fillStyle = '#fff'; ctx.fillText('Press SPACE or tap to ride again', W / 2, 236); }
+      }
+    }
+
+    function frame(t) {
+      var dt = Math.min(0.05, (t - lastT) / 1000);
+      lastT = t; fireTick += dt;
+      update(dt);
+      drawSky(); drawCastle(); drawHills(); drawHouses(); drawGround();
+      drawPickups(); drawObstacles(); drawPlayer(); drawFloats(); drawHUD(); drawOverlay();
+      requestAnimationFrame(frame);
+    }
+
+    function paintMute() {
+      var b = document.getElementById('muteBtn');
+      if (b) b.textContent = Snd.muted() ? '🔇 Muted' : '🔊 Sound';
+    }
+
+    return {
+      init: init,
+      // Blur the button so a following SPACE jumps instead of re-toggling sound.
+      toggleMute: function () { Snd.toggle(); paintMute(); try { document.activeElement.blur(); } catch (_) {} }
+    };
+  })();
+
+  window.Gallop = { toggleMute: Game.toggleMute };
+})();
+</script>
+</body>
+</html>

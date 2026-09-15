@@ -845,6 +845,34 @@
   status = 200
   force = true
 
+# Deploy 237.072 (Mike): The Armory -- team mini-game (Sir Lends-A-Lot's
+# Gallop) monthly leaderboard + events board. armory-state feeds both pages;
+# run-start / score-submit are the signed-token score path; armory-admin is
+# the events editor + score void.
+[[redirects]]
+  from = "/api/armory-state"
+  to = "/.netlify/functions/armory-state"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/armory-run-start"
+  to = "/.netlify/functions/armory-run-start"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/armory-score-submit"
+  to = "/.netlify/functions/armory-score-submit"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/armory-admin"
+  to = "/.netlify/functions/armory-admin"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/notifications-dismiss"
   to = "/.netlify/functions/notifications-dismiss"
