@@ -342,7 +342,8 @@
       '.dr-root .dr-verify h5 { margin:0 0 6px; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--gold-mid); }',
       '.dr-root .dr-verify ul { margin:0 0 8px; padding-left:18px; }',
       '.dr-root .dr-verify li { margin:2px 0; }',
-      '.dr-root .dr-verify .kv { display:flex; flex-wrap:wrap; gap:4px 16px; }',
+      '.dr-root .dr-verify .kv { display:flex; flex-direction:column; gap:3px; }', // Deploy 237.079 (Mike) -- one item per line
+      '.dr-root .dr-verify .kv span { display:block; line-height:1.35; }',
       '.dr-root .dr-verify .kv b { color:var(--text); }',
       '.dr-root .dr-fullfile { margin:0 0 16px; padding:12px 16px; border:1px solid var(--border); background:#fff; border-radius:10px; font-size:12px; }',
       '.dr-root .dr-fullfile.complete { border-color:var(--dr-green-border); background:var(--dr-green-light); }',
@@ -1383,6 +1384,20 @@
       if (r.status === 202 || r.ok) { showToast('Loan terms changed since the last review (' + drift.slice(0, 4).join(', ') + ') — snapshot refreshed, AI re-reviews queued.', 'info'); setTimeout(function() { loadReview(); }, 5000); }
     }).catch(function() {});
   }
+  // Deploy 237.079 (Mike) -- every party list is one row per party, numbered Guarantor 1, 2, …
+  // (plus the entity where the entity is an acceptable party), so a multi-guarantor
+  // file reads top-to-bottom instead of a slash-joined blob.
+  function _partyRows(out, what, f, withEntity) {
+    if (withEntity && f.entity) out.push([what + ' — Entity', f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : ' (per loan record)')]);
+    f.guarantors.forEach(function(g, i) { out.push([what + ' — Guarantor ' + (i + 1), g]); });
+    if (!f.guarantors.length && !(withEntity && f.entity)) out.push([what, '—']);
+  }
+  function _idNameFor(g, idNames, guarantorCount) {
+    var parts = String(g || '').toLowerCase().split(/\s+/).filter(Boolean); var last = parts[parts.length - 1] || ''; var first = parts[0] || '';
+    var hit = idNames.filter(function(n) { var l = n.toLowerCase(); return last && l.indexOf(last) >= 0 && (!first || l.indexOf(first) >= 0 || l.charAt(0) === first.charAt(0)); });
+    if (hit.length) return hit[0];
+    return (guarantorCount === 1 && idNames.length === 1) ? idNames[0] : '';
+  }
   // Deploy 237.075 (Mike) -- legal names per the ID tray, expected mortgagee (mirrors
   // _shared/loan-review-checklists.mjs expectedMortgagee), per-guarantor coverage,
   // and valuation minimums (RTL caps from window.SLA_RTL, loaded on Loan Details).
@@ -1546,31 +1561,31 @@
         case 'borrower': if (f.borrower) out.push(['Borrower', f.borrower]); break;
         case 'guarantors': if (f.guarantors.length) out.push(['Guarantor' + (f.guarantors.length > 1 ? 's' : ''), f.guarantors.join(', ')]); break;
         // Deploy 237.074 (Mike) -- every acceptable holder listed; 100% owned by those parties.
-        case 'holder':   out.push(['Account holder (any ONE of)', [].concat(f.entity ? [f.entity] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); out.push(['Ownership', '100% by the entity / guarantors above — no non-guarantor person or other entity on the account']); out.push(['Format', 'Full bank-generated statement or Account Transaction History — not a screenshot or photo']); break;
+        case 'holder':   _partyRows(out, 'Account holder (any ONE)', f, true); out.push(['Ownership', '100% by the entity / guarantors above — no non-guarantor person or other entity on the account']); out.push(['Format', 'Full bank-generated statement or Account Transaction History — not a screenshot or photo']); break; // Deploy 237.079
         case 'llcToFind': out.push(['LLC name to identify', 'the entity name as filed with the state' + (f.entity ? ' — expected: ' + f.entity + (f.entityOfRecord ? ' (per this tray\'s last review)' : ' (per loan record; the Articles govern if they differ)') : '')]); out.push(['Not the', 'organizer / member / guarantor name']); break;
-        case 'members':  if (f.guarantors.length) out.push(['Members / guarantors', f.guarantors.join(', ')]); break;
+        case 'members':  f.guarantors.forEach(function(g, i) { out.push(['Member / Guarantor ' + (i + 1), g]); }); break; // Deploy 237.079
         // Deploy 237.075 (Mike) -- guarantor roster / legal names / copies per guarantor; valuation minimums; insurance.
-        case 'guarantorsAll': if (f.guarantors.length) out.push([f.guarantors.length > 1 ? 'Guarantors (' + f.guarantors.length + ') — verify against EACH' : 'Guarantor', f.guarantors.join(' / ')]); break;
-        case 'legalName': out.push(['Legal name per ID', f.idNames.length ? f.idNames.join(' / ') + ' — every document must match INCLUDING the middle name; no nicknames' : 'no guarantor ID reviewed yet — compare the full name (incl. middle) to the driver\'s license before approving; no nicknames']); break;
-        case 'copies': (function () { var cov = _coverageFor(slug, f.guarantors); if (!cov.length) return; var have = 0; cov.forEach(function(c) { if (c.ok) have++; }); out.push(['Copies on file', cov.map(function(c) { return c.name + (c.ok ? ' ✓' : ' ✗ missing'); }).join(' · ') + (cov.length > 1 ? ' (' + have + ' of ' + cov.length + ' guarantors)' : '')]); })(); break;
+        case 'guarantorsAll': f.guarantors.forEach(function(g, i) { out.push(['Guarantor ' + (i + 1), g]); }); break; // Deploy 237.079
+        case 'legalName': f.guarantors.forEach(function(g, i) { var nm = _idNameFor(g, f.idNames, f.guarantors.length); out.push(['Guarantor ' + (i + 1) + ' legal name (per ID)', nm ? nm : 'no ID reviewed yet for ' + g + ' — compare to the driver\'s license before approving']); }); out.push(['Name rule', 'every document must match the ID INCLUDING the middle name — no nicknames']); break; // Deploy 237.079
+        case 'copies': (function () { var cov = _coverageFor(slug, f.guarantors); if (!cov.length) return; cov.forEach(function(c, i) { out.push(['Guarantor ' + (i + 1) + ' copy on file', c.name + (c.ok ? ' ✓' : ' ✗ missing')]); }); })(); break; // Deploy 237.079
         case 'aiv': out.push(['As-is value (AIV)', (f.val.aiv ? _fmtMoney(f.val.aiv) + ' per the valuation' : 'read it off the report') + (f.val.minAiv ? ' — minimum ' + _fmtMoney(f.val.minAiv) + ' to hold the loan amount' : '') + (f.purchasePrice ? '; must not be below the purchase price ' + _fmtMoney(f.purchasePrice) : '') + (f.loanAmt ? ' or the loan amount ' + _fmtMoney(f.loanAmt) : '')]); break;
         case 'arvMin': if (!f.isDscr) out.push(['ARV', (f.val.docArv ? _fmtMoney(f.val.docArv) + ' per the valuation' : (f.arv ? _fmtMoney(f.arv) + ' per the loan' : 'read it off the report')) + (f.val.minArv ? ' — minimum ' + _fmtMoney(f.val.minArv) + ' to keep this loan amount within ' + (f.val.caps || 'the LTARV cap') : (f.val.caps ? ' — ' + f.val.caps : ''))]); else if (f.val.caps) out.push(['Value', f.val.caps]); break;
         case 'valuationFlags': if (f.val.flags.length) out.push(['⚠ FLAG', f.val.flags.join('; ')]); break;
         case 'mortgagee': out.push(['Mortgagee clause', f.mortgagee]); break;
         case 'policy': (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var pn = String(((dd.aiExtractedEntities || {}).policyNumber) || '').trim(); var eoi = (_review.docs || {}).evidence_of_insurance || {}; var epn = String(((eoi.aiExtractedEntities || {}).policyNumber) || '').trim(); var isEoi = slug === 'evidence_of_insurance'; out.push(['Policy number', pn ? pn + (!isEoi && epn && epn !== pn ? ' — EOI shows ' + epn + ' (MISMATCH)' : '') : (!isEoi && epn ? epn + ' (per the EOI) — confirm it matches' : 'read it off the document')]); })(); break;
         case 'pifBalance': out.push(['Balance owed', '$0 — paid in full (coverage amounts are not verified on this document)']); break;
-        case 'buyerParty': out.push(['Buyer (any ONE of)', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
+        case 'buyerParty': _partyRows(out, 'Buyer (any ONE)', f, true); break; // Deploy 237.079
         case 'assignor': (function () { var psa = (_review.docs || {}).psa || {}; var pe = psa.aiExtractedEntities || {}; var pb = String(pe.buyerName || pe.llcName || pe.borrowerName || '').trim(); out.push(['Seller on the assignment', pb ? 'must be the PSA buyer: ' + pb : 'must be the buyer named on the PSA (PSA not reviewed yet — check it by hand)']); })(); break;
         case 'assignmentFee': (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var fee = _num((dd.aiExtractedEntities || {}).assignmentFee); var cap = f.purchasePrice ? f.purchasePrice * 0.15 : 0; out.push(['Assignment fee', (fee ? _fmtMoney(fee) + ' per the assignment' : 'must be clearly stated — read it off the assignment') + (cap ? ' — maximum ' + _fmtMoney(cap) + ' (15% of the ' + _fmtMoney(f.purchasePrice) + ' purchase price)' : '') + (fee && cap && fee > cap ? ' ⚠ OVER THE 15% LIMIT' : '')]); })(); break;
         case 'signed': out.push(['Signatures', 'fully signed AND dated by every party' + (slug === 'assignment_agreement' ? ' (assignor and assignee)' : ' (buyer and seller)')]); break;
         case 'rehabTerms': out.push(['Rehab budget per the term sheet', f.rehab ? _fmtMoney(f.rehab) + ' — the SOW total must match it' : 'no rehab budget on the loan record — confirm against the term sheet']); break;
         case 'term':     if (f.term) out.push(['Term', f.term + ' months']); break;
-        case 'borrowerEntity': out.push(['Borrower / entity', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
+        case 'borrowerEntity': _partyRows(out, 'Borrower / entity', f, true); break; // Deploy 237.079
         case 'lender':   out.push(['Lender name', String(f.mortgagee || '').replace(/, ISAOA\/ATIMA/g, '')]); break;
-        case 'holderOnly': out.push(['Account holder (any ONE of)', [].concat(f.entity ? [f.entity + (f.entityOfRecord ? ' (per recorded Articles)' : '')] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break;
+        case 'holderOnly': _partyRows(out, 'Account holder (any ONE)', f, true); break; // Deploy 237.079
         case 'docDate':  (function () { var dd = (_review.docs && _review.docs[slug]) || {}; var ee = dd.aiExtractedEntities || {}; var dt = String(ee.documentDate || ee.expirationDate || '').trim(); out.push(['Document date', dt ? dt + ' (per the last AI read — confirm on the document)' : 'confirm the issue date printed on the document']); })(); break;
         case 'buyer':    if (f.entity) out.push(['Buyer', f.entity]); break;
-        case 'insured':  out.push(['Named insured (any ONE of)', [].concat(f.entity ? [f.entity] : [], f.guarantors).filter(Boolean).join(' / ') || '—']); break; // Deploy 237.075
+        case 'insured':  _partyRows(out, 'Named insured (any ONE)', f, true); break; // Deploy 237.079
         case 'landlord': if (f.entity) out.push(['Landlord', f.entity]); break;
         case 'address':  if (f.address) out.push(['Property', f.address]); break;
         case 'loanAmt':  if (f.loanAmt) out.push(['Loan amount', _fmtMoney(f.loanAmt)]); break;
