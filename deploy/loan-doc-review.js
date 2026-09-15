@@ -338,6 +338,20 @@
       '.dr-root .dr-notes-status.saving { color:var(--muted); }',
       '.dr-root .dr-notes-status.saved  { color:var(--dr-green); }',
       '.dr-root .dr-notes-status.failed { color:var(--dr-red); }',
+      /* Deploy 237.043 — per-document note log */
+      '.dr-root .dr-note-list { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }',
+      '.dr-root .dr-note { border:1px solid var(--border,#ddd8d0); border-left:3px solid var(--gold,#C8813A); border-radius:6px; background:#fff; padding:7px 10px; }',
+      '.dr-root .dr-note.editing { border-left-color:#261a36; }',
+      '.dr-root .dr-note-head { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); margin-bottom:3px; }',
+      '.dr-root .dr-note-who { font-weight:700; color:var(--text,#1a1520); }',
+      '.dr-root .dr-note-when { font-size:10.5px; }',
+      '.dr-root .dr-note-act { cursor:pointer; text-decoration:underline; color:var(--gold-mid,#b5712d); font-size:10.5px; }',
+      '.dr-root .dr-note-act.danger { color:var(--dr-red,#7c1f1f); }',
+      '.dr-root .dr-note-text { font-size:12.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }',
+      '.dr-root .dr-note-add .notes-area { min-height:54px; }',
+      '.dr-root .dr-note-btns { display:flex; align-items:center; gap:8px; margin-top:5px; }',
+      '.dr-root .dr-note-btns .small-btn.primary { background:#261a36; color:#fff; border-color:#261a36; }',
+      '.dr-root .dr-note-hint { font-size:10.5px; color:var(--muted); }',
       // Deploy 236.158 — inline rename UI on doc-name.
       '.dr-root .doc-name { display:flex; align-items:center; gap:6px; min-width:0; }',
       '.dr-root .doc-name-text { word-break:break-all; }',
@@ -1314,19 +1328,12 @@
         '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
       '</label>';
 
-    // Deploy 236.158 — notes save indicator. The textarea fires on
-    // blur (onchange) — the indicator next to the label flashes
-    // "Saving…" → "Saved ✓" so the LO can see the autosave landed.
-    var notes =
-      '<div class="dr-notes-wrap">' +
-        '<div class="dr-notes-label">' +
-          '<span>Processor notes</span>' +
-          '<span class="dr-notes-status" id="dr-notes-status_' + escAttr(slug) + '"></span>' +
-        '</div>' +
-        '<textarea class="notes-area" placeholder="Processor notes (optional)…" data-slug="' + escAttr(slug) + '" onchange="dr_saveNotes(\'' + escAttr(slug) + '\', this.value)">' +
-          escHtml(d.processorNotes || '') +
-        '</textarea>' +
-      '</div>';
+    // Deploy 237.043 (Mike) — processor notes are a per-document NOTE LOG now
+    // (a mini version of the loan's Notes & Activity): each save is its own
+    // dated, authored entry; entries can be edited or deleted; the legacy
+    // single processorNotes string shows as the first entry and is kept in
+    // sync (derived) so history snapshots and older readers still see text.
+    var notes = _renderDocNotes(d, slug);
 
     // Deploy 236.561 — per-document underwriting Conditions, below the processor
     // notes. Stored on _review.docs[slug].conditions[] (patched like notes). The
@@ -1499,6 +1506,58 @@
   }
 
   // Deploy 236.561 — per-document underwriting Conditions (below processor notes).
+  var _noteEditing = null;   // { slug, id } — which note is open in the inline editor
+  var _noteDrafts = {};      // slug → unsaved "add a note" text (survives re-renders)
+  function _docNoteLog(d) {
+    var log = Array.isArray(d.noteLog) ? d.noteLog.slice() : [];
+    // Legacy: a tray that only has the old free-text field shows it as the first entry.
+    if (!log.length && d.processorNotes && String(d.processorNotes).trim()) {
+      log.push({ id: 'legacy', ts: d.aiReviewedAt || d.uploadedAt || '', author: 'Earlier note', authorEmail: '', text: String(d.processorNotes), legacy: true });
+    }
+    return log;
+  }
+  function _noteCanEdit(n) {
+    var me = String((_user && _user.email) || '').toLowerCase();
+    if (!me) return false;
+    if (n.legacy || !n.authorEmail) return true;
+    return String(n.authorEmail).toLowerCase() === me || !!(global.SLA && global.SLA.isAdmin && global.SLA.isAdmin(_user));
+  }
+  function _renderDocNotes(d, slug) {
+    var log = _docNoteLog(d);
+    var rows = log.map(function(n) {
+      var editing = _noteEditing && _noteEditing.slug === slug && _noteEditing.id === n.id;
+      var when = n.ts ? formatDate(n.ts) : '';
+      var head = '<div class="dr-note-head"><span class="dr-note-who">' + escHtml(n.author || n.authorEmail || 'Note') + '</span>' +
+        (when ? '<span class="dr-note-when">' + escHtml(when) + '</span>' : '') +
+        (n.editedAt ? '<span class="dr-note-when" title="Edited ' + escAttr(formatDate(n.editedAt)) + (n.editedBy ? ' by ' + escAttr(n.editedBy) : '') + '">(edited)</span>' : '') +
+        '<span style="flex:1"></span>' +
+        (!editing && _noteCanEdit(n)
+          ? '<span class="dr-note-act" onclick="dr_noteEdit(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">Edit</span>' +
+            '<span class="dr-note-act danger" onclick="dr_noteDelete(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">Delete</span>'
+          : '') +
+        '</div>';
+      var body = editing
+        ? '<textarea class="notes-area" id="dr-note-edit_' + escAttr(slug) + '" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\')dr_noteEditSave(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">' + escHtml(n.text || '') + '</textarea>' +
+          '<div class="dr-note-btns"><button class="small-btn" onclick="dr_noteEditSave(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">Save</button>' +
+          '<button class="small-btn" onclick="dr_noteEditCancel()">Cancel</button></div>'
+        : '<div class="dr-note-text">' + escHtml(n.text || '') + '</div>';
+      return '<div class="dr-note' + (editing ? ' editing' : '') + '">' + head + body + '</div>';
+    }).join('');
+    var draft = _noteDrafts[slug] || '';
+    var add = '<div class="dr-note-add">' +
+        '<textarea class="notes-area" id="dr-note-new_' + escAttr(slug) + '" placeholder="' + (log.length ? 'Add another note…' : 'Add a note about this document…') + '" oninput="dr_noteDraft(\'' + escAttr(slug) + '\',this.value)" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\')dr_noteAdd(\'' + escAttr(slug) + '\')">' + escHtml(draft) + '</textarea>' +
+        '<div class="dr-note-btns"><button class="small-btn primary" onclick="dr_noteAdd(\'' + escAttr(slug) + '\')">Save note</button><span class="dr-note-hint">Ctrl+Enter saves</span></div>' +
+      '</div>';
+    return '<div class="dr-notes-wrap">' +
+        '<div class="dr-notes-label">' +
+          '<span>Processor notes' + (log.length ? ' (' + log.length + ')' : '') + '</span>' +
+          '<span class="dr-notes-status" id="dr-notes-status_' + escAttr(slug) + '"></span>' +
+        '</div>' +
+        (rows ? '<div class="dr-note-list">' + rows + '</div>' : '') +
+        add +
+      '</div>';
+  }
+
   function _renderDocConditions(d, slug) {
     var conds = Array.isArray(d.conditions) ? d.conditions : [];
     var CS = { outstanding: 'Outstanding', received: 'Received', cleared: 'Cleared' };
@@ -3048,6 +3107,80 @@
     var d = (_review.docs && _review.docs[slug]) || {};
     var conds = (Array.isArray(d.conditions) ? d.conditions : []).filter(function(c) { return c.id !== id; });
     _dr_patchConds(slug, conds);
+  };
+
+  // Deploy 237.043 — per-document note log actions.
+  function _noteAuthor() {
+    var meta = (_user && _user.user_metadata) || {};
+    return { author: String(meta.full_name || meta.fullName || meta.name || (_user && _user.email) || '').trim(), authorEmail: String((_user && _user.email) || '').toLowerCase() };
+  }
+  // processorNotes stays a derived, readable transcript of the log so tray
+  // history snapshots + anything that still reads the old field keep working.
+  function _noteTranscript(log) {
+    return (log || []).map(function(n) {
+      var who = n.author || n.authorEmail || '';
+      var when = n.ts ? new Date(n.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+      var tag = [who, when].filter(Boolean).join(' · ');
+      return (tag ? '[' + tag + '] ' : '') + String(n.text || '');
+    }).join('\n\n');
+  }
+  function _dr_patchNotes(slug, log, okMsg) {
+    // A legacy entry becomes a real, editable entry the first time the log is written.
+    log = log.map(function(n) { if (n.legacy) { var c = Object.assign({}, n); delete c.legacy; c.id = 'dn_legacy'; return c; } return n; });
+    var patch = { docs: {} };
+    patch.docs[slug] = { noteLog: log, processorNotes: _noteTranscript(log) };
+    var statusEl = document.getElementById('dr-notes-status_' + slug);
+    if (statusEl) { statusEl.textContent = 'Saving…'; statusEl.className = 'dr-notes-status saving'; }
+    return global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      _noteEditing = null;
+      render();
+      var el2 = document.getElementById('dr-notes-status_' + slug);
+      if (el2) { el2.textContent = okMsg || 'Saved ✓'; el2.className = 'dr-notes-status saved'; setTimeout(function() { if (el2.textContent === (okMsg || 'Saved ✓')) { el2.textContent = ''; el2.className = 'dr-notes-status'; } }, 2000); }
+    }).catch(function(err) {
+      var el3 = document.getElementById('dr-notes-status_' + slug);
+      if (el3) { el3.textContent = 'Save failed'; el3.className = 'dr-notes-status failed'; }
+      showToast('Note save failed: ' + ((err && err.message) || 'Unknown'), 'error');
+    });
+  }
+  global.dr_noteDraft = function(slug, v) { _noteDrafts[slug] = v; };
+  global.dr_noteAdd = function(slug) {
+    var ta = document.getElementById('dr-note-new_' + slug);
+    var text = String((ta && ta.value) || '').trim();
+    if (!text) { if (ta) ta.focus(); return; }
+    var d = (_review.docs && _review.docs[slug]) || {};
+    var log = _docNoteLog(d);
+    var who = _noteAuthor();
+    log.push({ id: 'dn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), ts: new Date().toISOString(), author: who.author, authorEmail: who.authorEmail, text: text.slice(0, 4000) });
+    delete _noteDrafts[slug];
+    _dr_patchNotes(slug, log, 'Note saved ✓');
+  };
+  global.dr_noteEdit = function(slug, id) {
+    _noteEditing = { slug: slug, id: id };
+    render();
+    var ta = document.getElementById('dr-note-edit_' + slug);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  };
+  global.dr_noteEditCancel = function() { _noteEditing = null; render(); };
+  global.dr_noteEditSave = function(slug, id) {
+    var ta = document.getElementById('dr-note-edit_' + slug);
+    var text = String((ta && ta.value) || '').trim();
+    if (!text) { showToast('A note can\'t be empty — use Delete to remove it.', 'error'); return; }
+    var d = (_review.docs && _review.docs[slug]) || {};
+    var who = _noteAuthor();
+    var log = _docNoteLog(d).map(function(n) {
+      if (n.id !== id) return n;
+      var c = Object.assign({}, n, { text: text.slice(0, 4000) });
+      if (n.text !== text) { c.editedAt = new Date().toISOString(); c.editedBy = who.authorEmail; }
+      return c;
+    });
+    _dr_patchNotes(slug, log, 'Note updated ✓');
+  };
+  global.dr_noteDelete = function(slug, id) {
+    if (!global.confirm('Delete this note?')) return;
+    var d = (_review.docs && _review.docs[slug]) || {};
+    var log = _docNoteLog(d).filter(function(n) { return n.id !== id; });
+    _dr_patchNotes(slug, log, 'Note deleted');
   };
 
   global.dr_saveNotes = function(slug, value) {
