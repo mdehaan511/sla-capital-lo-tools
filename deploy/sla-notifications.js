@@ -464,6 +464,20 @@
         '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
       '</div>';
     }
+    // Deploy 237.120 (Mike) -- a new rank in the Hall of Deeds, sent to the earner
+    // only (deeds no longer post to Slack). Links to the Armory's Hall of Deeds tab.
+    if (m.kind === 'deed') {
+      return '<div class="sla-notif-item due">' +
+        '<a href="' + esc(m.href || '/armory.html#deeds') + '" class="sla-notif-link">' +
+          '<div class="pin"></div>' +
+          '<div class="body">' +
+            '<div class="title">' + esc(m.title || '\uD83D\uDCDC New deed earned') + '</div>' +
+            '<div class="meta">' + esc(m.text || 'See it in the Hall of Deeds') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+          '</div>' +
+        '</a>' +
+        '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+      '</div>';
+    }
     // Deploy 237.072 (Mike) -- full file for underwriting: every required document is in.
     if (m.kind === 'full_file') {
       return '<div class="sla-notif-item due">' +

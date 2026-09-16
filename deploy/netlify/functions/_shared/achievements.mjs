@@ -28,7 +28,7 @@
 import { getStore } from '@netlify/blobs';
 import { keySafe, normalizeEmail } from './auth.mjs';
 import { db } from './supabase-db.mjs';
-import { postSlack } from './slack.mjs';
+import { pushUserNotification } from './user-notifications.mjs'; // Deploy 237.120
 import { loadTeamProfiles, todayPacific } from './team-events.mjs';
 import { listAllScores, legendsFrom, questForMonth, monthKey, touchPulse, GAMES } from './armory.mjs';
 import { programLabel } from './closing-bell.mjs';
@@ -233,9 +233,23 @@ export async function computeAchievements(opts) {
   const index = { computedAt: now, members, recent: recent.slice(0, 40), version: ACH_VERSION, since: ACH_START };
   await store.setJSON('achievements-index', index);
 
+  // Deploy 237.120 (Mike): "turn off the new deeds going to Slack -- keep them
+  // in the deeds section of the Armory, but send the users that got those deeds
+  // a notification on SLA." One bell notification per new rank, to the earner
+  // only (kind 'deed', rendered by sla-notifications.js); the Armory link still
+  // pulses for everyone. No Slack post.
   if (announcements.length && o.announce !== false) {
-    const lines = announcements.slice(0, 12).map((a) => a.icon + ' *' + a.name + '* — ' + a.name_ + ' Rank ' + RANKS[a.tier - 1] + (a.value != null ? ' (' + fmtValue(DEEDS.find((d) => d.key === a.key), a.value) + ')' : ''));
-    await postSlack({ text: '📜 *New deeds in the Hall of Deeds*\n' + lines.join('\n') + (announcements.length > 12 ? '\n…and ' + (announcements.length - 12) + ' more' : '') + '\n<' + PORTAL + '/armory.html|The Armory>' }, { channel: 'armory' });
+    for (const a of announcements) {
+      const def = DEEDS.find((d) => d.key === a.key) || {};
+      try {
+        await pushUserNotification(a.email, {
+          kind: 'deed', deedKey: a.key, tier: a.tier, icon: a.icon,
+          title: a.icon + ' New deed: ' + a.name_ + ' Rank ' + RANKS[a.tier - 1],
+          text: (def.desc || '') + (a.value != null ? ' · ' + fmtValue(def, a.value) + (def.unit ? ' ' + def.unit : '') : ''),
+          href: '/armory.html#deeds',
+        });
+      } catch (e) { console.warn('[achievements] notification push failed for', a.email, e && e.message); }
+    }
     await touchPulse('deed', announcements[0].name + ' earned ' + announcements[0].name_ + ' Rank ' + RANKS[announcements[0].tier - 1]);
   }
   console.log('[achievements] computed', { members: members.length, announced: announcements.length });

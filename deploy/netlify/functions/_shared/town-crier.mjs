@@ -109,11 +109,12 @@ export async function buildTownCrier(now) {
   if (weekDeeds.length) {
     weekDeeds.forEach((d) => {
       const def = DEEDS.find((x) => x.key === d.key) || { icon: '📜', name: d.key };
-      line(escH(def.icon) + ' <b>' + escH(d.name) + '</b> — ' + escH(def.name) + ' Rank ' + RANKS[d.tier - 1], def.icon + ' ' + d.name + ' — ' + def.name + ' Rank ' + RANKS[d.tier - 1]);
+      // Deploy 237.120 (Mike): deeds stay off Slack entirely -- email/Armory only.
+      line(escH(def.icon) + ' <b>' + escH(d.name) + '</b> — ' + escH(def.name) + ' Rank ' + RANKS[d.tier - 1], def.icon + ' ' + d.name + ' — ' + def.name + ' Rank ' + RANKS[d.tier - 1], false);
     });
-    line('<a href="' + PORTAL + '/armory.html" style="color:#7c1f1f;font-weight:700">See everyone\'s deeds →</a>', 'See everyone\'s deeds: ' + PORTAL + '/armory.html', '<' + PORTAL + '/armory.html|See everyone\'s deeds →>');
+    line('<a href="' + PORTAL + '/armory.html#deeds" style="color:#7c1f1f;font-weight:700">See everyone\'s deeds →</a>', 'See everyone\'s deeds: ' + PORTAL + '/armory.html#deeds', '<' + PORTAL + '/armory.html#deeds|See everyone\'s deeds in the Hall →>');
   } else {
-    line('No new ranks this week. Close something, ride something.', 'No new ranks this week. Close something, ride something.');
+    line('No new ranks this week. Close something, ride something.', 'No new ranks this week. Close something, ride something.', false);
   }
 
   if (legends.length) {
