@@ -185,6 +185,15 @@
     <div class="chart-wrap"><canvas id="volumeChart"></canvas></div>
   </div>
 
+  <!-- Upcoming Closings -- Deploy 237.109 (Mike): moved up under Loan Volume by Month;
+       only loans on the Processing Pipeline board (Intake / Processing / Underwriting /
+       Cleared to Close), never the sales pipeline. -->
+  <div class="chart-card">
+    <h2>Upcoming Closings by Week</h2>
+    <div class="chart-sub">PROCESSING PIPELINE BOARD ONLY (INTAKE · PROCESSING · UNDERWRITING · CLEARED TO CLOSE) · FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND</div>
+    <div id="upcomingWrap"></div>
+  </div>
+
   <!-- Deploy 236.786 — Leads intake chart. The ONE chart that includes the
        Leads pipeline: every loan that came in each month (by created date,
        everything counted — even later-denied), $ stacked by loan type with
@@ -215,13 +224,6 @@
     <h2>Performance Stats</h2>
     <div class="chart-sub">PROCESSING PIPELINE + CLOSED ONLY · ACTIVE · CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
     <div id="perfStatsWrap"></div>
-  </div>
-
-  <!-- Upcoming Closings -->
-  <div class="chart-card">
-    <h2>Upcoming Closings by Week</h2>
-    <div class="chart-sub">PROCESSING PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND</div>
-    <div id="upcomingWrap"></div>
   </div>
 
   <!-- Loans by State -->
@@ -651,6 +653,7 @@ function adaptLoan(client, l, ownerKey) {
     _slaStatusRaw: String(l.status || ''),
     _dispositionRaw: String(l.disposition || ''),
     _stageRaw: String(l.processingStage || ''),
+    _ppCol: ppColumnFor(l), // Deploy 237.109 -- which Processing Pipeline column the loan sits in (null = not on the board)
     // Baseline linkage for the reconciliation: imported loans carry the
     // Baseline record id in their loan id (l_baseline_<Id>) and/or the
     // SLA display id, which Baseline uses as its Id.
@@ -688,6 +691,27 @@ function adaptLoan(client, l, ownerKey) {
 // upcoming closings, and the SLA side of the Baseline comparison — which
 // also makes the comparison fairer, since Baseline never saw raw leads).
 // The Leads chart + the Loans table still read the full _loans set.
+// Deploy 237.109 -- mirror of processing-pipeline.html columnFor(): the column a loan
+// occupies on the Processing Pipeline board, or null when it isn't on that board
+// (sales pipeline, on hold, dead, offloaded). Keep the two in sync.
+function ppColumnFor(loan) {
+  var st0 = String(loan.status || '').toLowerCase().trim();
+  if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
+  if (st0 === 'closed') {
+    var disp = String(loan.disposition || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    var offloaded = (disp === 'sold' || disp === 'servicing' || disp === 'paid off' || disp === 'liquidated'
+      || bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off');
+    return offloaded ? null : 'pp_closed';
+  }
+  if (st0 === 'sold' || st0 === 'liquidated') return null;
+  var stage = String(loan.processingStage || '').toLowerCase().trim();
+  if (stage === 'processing' || stage === 'underwriting' || stage === 'pp_approved' || stage === 'pp_closed' || stage === 'new_loan') return stage;
+  if (st0 === 'approved') return 'new_loan';
+  return null;
+}
+var PP_ACTIVE_COLUMNS = { new_loan: 1, processing: 1, underwriting: 1, pp_approved: 1 };
+
 function finLoans() {
   return _loans.filter(function(l) { return l._finScope; });
 }
@@ -1460,11 +1484,12 @@ function renderUpcomingClosings() {
     d.setHours(0,0,0,0);
     return d.getTime();
   }
-  var fin = finLoans(); // Deploy 236.786 — processing scope only
+  // Deploy 237.109 (Mike) -- only loans on the active Processing Pipeline board. The old
+  // finLoans() scope also pulled on-hold and stage-less approved/closed-state loans.
+  var fin = _loans;
   for (var i = 0; i < fin.length; i++) {
     var l = fin[i];
-    if (isArchived(l)) continue;
-    if (!isOpen(l) && !isOnHold(l)) continue;
+    if (!PP_ACTIVE_COLUMNS[l._ppCol]) continue;
     var parsed = parseLoanDate(l.Origination);
     if (!parsed) continue;
     var ms = new Date(parsed.year, parsed.month - 1, parsed.day).getTime();
