@@ -35,6 +35,10 @@
       background: var(--parch);
       background-image: radial-gradient(ellipse at 50% 0%, rgba(255,250,235,0.9), rgba(239,227,200,0) 60%),
         repeating-linear-gradient(0deg, rgba(120,90,40,0.035) 0 2px, transparent 2px 6px); }
+    /* Deploy 237.112 — the realm backdrop (see paintRealm) */
+    #realmBg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; image-rendering: pixelated; image-rendering: crisp-edges; pointer-events: none; }
+    .card { background: rgba(255,250,235,0.96); }
+    .board { background: rgba(255,250,235,0.96); }
     #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
     #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
     #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
@@ -284,6 +288,10 @@
   </style>
 </head>
 <body>
+  <!-- Deploy 237.112 (Mike) — pixel-art realm behind the whole page: sky, mountains,
+       a castle, a village, a flowered field. Drawn at 1/4 scale on an offscreen canvas
+       and blown up with smoothing off so it stays crisp; repainted on resize. -->
+  <canvas id="realmBg" aria-hidden="true"></canvas>
   <div id="auth-gate"><div class="gate-msg"><strong>Opening the Armory…</strong>Checking your sign-in</div></div>
   <div id="appWrap" style="display:none">
     <nav class="nav" id="slaNav"></nav>
@@ -402,7 +410,7 @@
             </div>
             <div class="card">
               <h2>🏰 The Hall <span class="sub">everyone's ranks · click a name for the full sheet</span></h2>
-              <div class="lede">Ranks I–V. The bar under a rank is progress toward the next one. Counting from <span id="deedSince">9/15/26</span> onward.</div>
+              <div class="lede">Ranks I–V. The bar under a rank is progress toward the next one.</div>
               <div id="deedTable" class="deed-scroll"><div class="empty">Reading the chronicles…</div></div>
               <div id="deedAdmin" style="display:none;margin-top:10px"></div>
             </div>
@@ -479,6 +487,8 @@
   }
 
   var _user = null, _state = null, _events = [];
+  var _rtPage = 0;   // Deploy 237.112 — Round Table page (10 per page)
+  function rtPage(d) { _rtPage += d; renderRoundTable(); }
 
   window.netlifyIdentity.on('init', function (user) {
     if (!user || !isStaff(user)) { window.location.replace('/'); return; }
@@ -568,24 +578,33 @@
     }
     document.getElementById('podium').innerHTML = '<div class="table-top"></div><div class="table-leg"></div>' + pod;
 
-    // Deploy 237.097 — the FULL table: every knight on the roster, ridden or
-    // not (Mike: "everyone's high score and rides for that month, not just top 3").
-    var seen = {};
-    var all = board.map(function (r) { seen[r.email] = true; return r; });
-    ((st.roster) || []).forEach(function (p) { if (!seen[p.email]) all.push({ email: p.email, name: p.name, best: 0, runs: 0, bestAt: '', idle: true }); });
-    var rows = all.map(function (r, i) {
-      return '<tr class="' + (r.email === me ? 'me' : '') + (r.idle ? ' idle' : '') + '"' + (r.idle ? ' style="opacity:0.6"' : '') + '>' +
-        '<td class="rank">' + (r.idle ? '' : (medals[i] || (i + 1))) + '</td>' +
+    // Deploy 237.112 (Mike) — only knights who have ridden, 10 per page.
+    var PAGE = 10, pages = Math.max(1, Math.ceil(board.length / PAGE));
+    if (_rtPage >= pages) _rtPage = pages - 1;
+    if (_rtPage < 0) _rtPage = 0;
+    var start = _rtPage * PAGE;
+    var rows = board.slice(start, start + PAGE).map(function (r, k) {
+      var i = start + k;
+      return '<tr class="' + (r.email === me ? 'me' : '') + '">' +
+        '<td class="rank">' + (medals[i] || (i + 1)) + '</td>' +
         '<td>' + avatarTag(r.email) + escH(r.name || r.email) + '</td>' +
-        '<td class="n">' + (r.idle ? '—' : fmt(r.best)) + '</td>' +
-        '<td class="n">' + (r.idle ? '0' : fmt(r.runs)) + '</td>' +
-        '<td class="n" title="' + escAttr(r.bestAt) + '">' + (r.idle ? 'not yet' : escH(ago(r.bestAt))) + '</td>' +
-        (st.isAdmin ? '<td>' + (r.idle ? '' : '<button type="button" class="void" title="Void this knight\'s score for the month" onclick="Armory.voidScore(\'' + escAttr(r.email) + '\',\'' + escAttr(r.name || r.email) + '\')">✕</button>') + '</td>' : '') +
+        '<td class="n">' + fmt(r.best) + '</td>' +
+        '<td class="n">' + fmt(r.runs) + '</td>' +
+        '<td class="n" title="' + escAttr(r.bestAt) + '">' + escH(ago(r.bestAt)) + '</td>' +
+        (st.isAdmin ? '<td><button type="button" class="void" title="Void this knight\'s score for the month" onclick="Armory.voidScore(\'' + escAttr(r.email) + '\',\'' + escAttr(r.name || r.email) + '\')">✕</button></td>' : '') +
       '</tr>';
     }).join('');
-    document.getElementById('rtTable').innerHTML = (board.length ? '' : '<div class="empty">No knight has ridden yet this month. The whole table is up for grabs.</div>') +
-      '<table class="rt"><thead><tr><th></th><th>Knight</th><th class="n">Best</th><th class="n">Rides</th><th class="n">Set</th>' + (st.isAdmin ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div style="font-size:11px;color:#8a7350;margin-top:6px">' + board.length + ' of ' + all.length + ' knights have ridden this month.</div>';
+    var pager = pages > 1
+      ? '<div style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:8px;font-size:12px;color:#6b5636">' +
+          '<button type="button" class="btn ghost sm" onclick="Armory.rtPage(-1)"' + (_rtPage === 0 ? ' disabled' : '') + '>‹ Prev</button>' +
+          '<span>Page ' + (_rtPage + 1) + ' of ' + pages + '</span>' +
+          '<button type="button" class="btn ghost sm" onclick="Armory.rtPage(1)"' + (_rtPage >= pages - 1 ? ' disabled' : '') + '>Next ›</button></div>'
+      : '';
+    var rosterN = ((st.roster) || []).length;
+    document.getElementById('rtTable').innerHTML = board.length
+      ? '<table class="rt"><thead><tr><th></th><th>Knight</th><th class="n">Best</th><th class="n">Rides</th><th class="n">Set</th>' + (st.isAdmin ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' + pager +
+        '<div style="font-size:11px;color:#8a7350;margin-top:6px">' + board.length + (rosterN ? ' of ' + rosterN : '') + ' knights have ridden this month.</div>'
+      : '<div class="empty">No knight has ridden yet this month. The whole table is up for grabs.</div>';
 
     var s = document.getElementById('standing');
     if (st.me) {
@@ -620,6 +639,57 @@
     var lede = document.getElementById('rtLede');
     if (lede) lede.innerHTML = 'This month\'s best rides in <b>' + escH(q.name || 'the quest') + '</b>. Resets on the 1st. Top of the table when the month ends takes the prize.';
   }
+
+  // ── Deploy 237.112 — the realm backdrop ─────────────────────────
+  // Pixel scene at 1/4 resolution, deterministic (seeded) so it doesn't
+  // shuffle on every resize. Colours stay soft so the parchment cards read.
+  function paintRealm() {
+    var c = document.getElementById('realmBg'); if (!c) return;
+    var W = window.innerWidth, H = window.innerHeight, S = 4;
+    var w = Math.ceil(W / S), h = Math.ceil(H / S);
+    var off = document.createElement('canvas'); off.width = w; off.height = h;
+    var x = off.getContext('2d');
+    var seed = 42; function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    function px(col, X, Y, ww, hh) { x.fillStyle = col; x.fillRect(Math.round(X), Math.round(Y), Math.max(1, Math.round(ww)), Math.max(1, Math.round(hh))); }
+    // Sky bands
+    var sky = ['#78b7e6', '#86c1ec', '#97ccf0', '#accff3', '#c3ddf5', '#d9e8f6'];
+    var horizon = Math.round(h * 0.56);
+    for (var b = 0; b < sky.length; b++) px(sky[b], 0, Math.round(horizon * b / sky.length), w, Math.ceil(horizon / sky.length) + 1);
+    // Sun
+    px('#fff3b0', w * 0.82, h * 0.08, 10, 10); px('#ffe58a', w * 0.82 + 2, h * 0.08 + 2, 6, 6);
+    // Clouds
+    for (var cl = 0; cl < 7; cl++) { var cx = rnd() * w, cy = h * 0.05 + rnd() * h * 0.22, cw = 10 + rnd() * 18; px('#ffffff', cx, cy, cw, 3); px('#ffffff', cx + 3, cy - 2, cw - 6, 2); px('#eef5fb', cx - 2, cy + 3, cw + 4, 2); }
+    // Far mountains
+    for (var m = 0; m < 9; m++) { var mx = (m / 9) * w + rnd() * 20, mh = 18 + rnd() * 26, mw = 40 + rnd() * 40; for (var r = 0; r < mh; r++) px(r < 5 ? '#d9d4e8' : '#8c7bb0', mx - (mw * (mh - r) / mh) / 2, horizon - r, mw * (mh - r) / mh, 1); }
+    // Hills (three shades, back to front)
+    var hills = ['#7fb36a', '#6fa85c', '#5f9c4e'];
+    for (var hi = 0; hi < hills.length; hi++) { for (var X = 0; X < w; X++) { var y = horizon - 6 + hi * 10 + Math.sin((X + hi * 40) / (26 + hi * 8)) * (6 - hi) + Math.sin(X / 9) * 1.5; px(hills[hi], X, y, 1, h - y); } }
+    // Castle on the left hill
+    var cxs = Math.round(w * 0.10), cy0 = horizon - 4;
+    px('#8f8a9c', cxs, cy0 - 22, 44, 22); px('#77728a', cxs, cy0 - 22, 44, 2);
+    [0, 18, 36].forEach(function (t) { px('#a5a0b3', cxs + t, cy0 - 36, 8, 36); for (var k = 0; k < 3; k++) px('#a5a0b3', cxs + t + k * 3, cy0 - 39, 2, 3); });
+    px('#b3261e', cxs + 20, cy0 - 45, 4, 3); px('#5c3a1a', cxs + 20, cy0 - 45, 1, 10);
+    px('#3b2414', cxs + 19, cy0 - 10, 6, 10);
+    // Village on the right
+    for (var v = 0; v < 6; v++) { var vx = Math.round(w * 0.62 + v * (w * 0.06)), vy = horizon + 2 + (v % 2) * 3; var roof = ['#8e2a22', '#5c3a1a', '#3b2a55', '#2f5a6e'][v % 4]; px('#f7f0dc', vx, vy - 8, 12, 8); px(roof, vx - 1, vy - 12, 14, 4); px(roof, vx + 2, vy - 14, 8, 2); px('#ffd866', vx + 2, vy - 6, 2, 2); px('#ffd866', vx + 8, vy - 6, 2, 2); px('#5a3a1e', vx + 5, vy - 4, 2, 4); }
+    // Trees
+    for (var t2 = 0; t2 < 26; t2++) { var tx = rnd() * w, ty = horizon + 4 + rnd() * (h * 0.1); px('#5c3a1a', tx + 2, ty, 2, 6); px('#3f8a3f', tx, ty - 6, 6, 6); px('#7cc36a', tx + 1, ty - 7, 4, 2); }
+    // Field: rows, path, flowers
+    var fieldTop = horizon + Math.round(h * 0.12);
+    for (var fy = fieldTop; fy < h; fy += 6) px(((fy / 6) % 2) ? '#79b35e' : '#6ea653', 0, fy, w, 6);
+    for (var py = fieldTop; py < h; py += 2) { var pxw = 10 + (py - fieldTop) * 0.12; px('#c9a86a', w * 0.48 - pxw / 2 + Math.sin(py / 14) * 4, py, pxw, 2); }
+    var petals = ['#ffd866', '#ff8fa3', '#ffffff', '#c98fff', '#ffb347'];
+    for (var f = 0; f < Math.round(w * h / 900); f++) { var fx = rnd() * w, fyy = fieldTop + rnd() * (h - fieldTop); px(petals[Math.floor(rnd() * petals.length)], fx, fyy, 2, 2); px('#4f7a2a', fx, fyy + 2, 1, 2); }
+    for (var g = 0; g < Math.round(w * h / 600); g++) { var gx = rnd() * w, gy = fieldTop + rnd() * (h - fieldTop); px('#4f7a2a', gx, gy, 1, 3); }
+    // A tiny knight on the path and a dragon over the mountains
+    px('#cfd6dd', w * 0.47, fieldTop + 10, 3, 5); px('#b3261e', w * 0.47, fieldTop + 8, 3, 2); px('#a0673f', w * 0.45, fieldTop + 13, 8, 4);
+    px('#3f8a3f', w * 0.30, h * 0.14, 10, 3); px('#3f8a3f', w * 0.28, h * 0.12, 4, 2); px('#3f8a3f', w * 0.38, h * 0.12, 4, 2); px('#e8752a', w * 0.41, h * 0.145, 3, 1);
+    c.width = W; c.height = H;
+    var gctx = c.getContext('2d'); gctx.imageSmoothingEnabled = false; gctx.drawImage(off, 0, 0, W, H);
+  }
+  paintRealm();
+  var _realmT = null;
+  window.addEventListener('resize', function () { clearTimeout(_realmT); _realmT = setTimeout(paintRealm, 150); });
 
   // ── Deploy 237.097 — tabs (hash + remembered) ───────────────────
   var TABS = ['quest', 'news', 'deeds'];
@@ -781,7 +851,6 @@
     var me = String((_user && _user.email) || '').toLowerCase();
     function pts(m) { var s = 0; Object.keys(m.earned || {}).forEach(function (k) { s += m.earned[k].tier; }); return s; }
     members.sort(function (a, b) { return pts(b) - pts(a) || String(a.name).localeCompare(String(b.name)); });
-    if (d.since) document.getElementById('deedSince').textContent = fmtDay(d.since);
 
     // New deeds: today vs this week.
     var dayAgo = Date.now() - 86400000, weekAgo = Date.now() - 7 * 86400000;
@@ -859,7 +928,7 @@
       return '<tr class="' + (m.email === me ? 'me' : '') + '" onclick="Armory.showDeeds(\'' + escAttr(m.email) + '\')"><td class="nm">' + avatarTag(m.email) + escH(m.name || m.email) + '</td><td>' + (badges || '<span style="color:#8a7350;font-style:italic;font-size:12px">no deeds yet — the chronicles await</span>') + '</td></tr>';
     }).join('');
     document.getElementById('deedTable').innerHTML = '<table class="deeds"><tbody>' + rows + '</tbody></table>' +
-      '<div style="font-size:11px;color:#8a7350;margin-top:8px">Updated ' + escH(ago(d.computedAt)) + ' · recomputed every morning' + (d.since ? ' · counting from ' + escH(fmtDay(d.since)) + ' onward' : '') + '.</div>';
+      '<div style="font-size:11px;color:#8a7350;margin-top:8px">Updated ' + escH(ago(d.computedAt)) + ' · recomputed every morning.</div>';
     // Deploy 237.108 (Mike) — the "Recompute deeds now" button is gone; the
     // daily cron (8:10am PT) and armory-admin 'achievements-recompute' remain.
   }
@@ -1025,7 +1094,7 @@
 
   window.Armory = { editEvent: editEvent, closeModal: closeModal, saveEvent: saveEvent, deleteEvent: deleteEvent, voidScore: voidScore,
     readCrier: readCrier, closeCrier: closeCrier, crierTest: crierTest,
-    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds, seedCalendar: seedCalendar, tab: tab };
+    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds, seedCalendar: seedCalendar, tab: tab, rtPage: rtPage };
 })();
 </script>
 </body>
