@@ -27,7 +27,8 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // never written — exactly the big BPOs the feature exists for.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
-import { internalBgSig, queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs'; // Deploy 236.818 / 237.049
+import { internalBgSig, queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs';
+import { guidelinesTextFor } from './_shared/guidelines-text.mjs'; // Deploy 237.096 // Deploy 236.818 / 237.049
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
 const BG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -144,6 +145,7 @@ async function handle(req, context) {
 
   // Optional context PDFs (program guidelines, then investor; + signed loan app).
   let guidelinesBytes = null;
+  let _gKey = ''; // Deploy 237.096
   {
     const gStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
     const gKeys = [];
@@ -151,9 +153,17 @@ async function handle(req, context) {
     if (review.investor) gKeys.push(String(review.investor).toLowerCase().trim());
     for (const k of gKeys) {
       if (!k) continue;
-      try { const g = await gStore.get(k, { type: 'arrayBuffer' }); if (g) { guidelinesBytes = Buffer.from(g); break; } }
+      try { const g = await gStore.get(k, { type: 'arrayBuffer' }); if (g) { guidelinesBytes = Buffer.from(g); _gKey = k; break; } }
       catch (e) { console.warn('loan-review-ai-background: guidelines fetch failed for ' + k + ':', e && e.message); }
     }
+  }
+  // Deploy 237.096 (Mike: spend) -- prefer the extracted TEXT of the guidelines
+  // (~60% fewer tokens than the PDF, same 1h cache). The PDF is only sent while the
+  // one-time extraction runs (queued here on first use; see guidelines-text.mjs).
+  let guidelinesText = '';
+  if (guidelinesBytes && _gKey) {
+    const _gt = await guidelinesTextFor(_gKey, guidelinesBytes);
+    if (_gt && _gt.text) { guidelinesText = _gt.text; guidelinesBytes = null; }
   }
   let loanAppBytes = null;
   if (review.source && review.source.loanId && review.source.clientId && review.source.ownerKey) {
@@ -190,7 +200,7 @@ async function handle(req, context) {
       reviewId: body.reviewId, slug: body.slug, address: review.address || '', // Deploy 237.093 -- usage log meta
       bytes, mimeType, docLabel, docConditions,
       loanContext: ctx, investor: review.investor || '',
-      guidelinesBytes, loanAppBytes,
+      guidelinesBytes, guidelinesText, guidelinesKey: _gKey, loanAppBytes, // Deploy 237.096
       extractFields: _extractFields,
       integrityCheck: _runIntegrity, docCategory: _docCategory,
       timeoutMs: BG_TIMEOUT_MS,

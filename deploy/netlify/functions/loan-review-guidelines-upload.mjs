@@ -15,6 +15,7 @@
  * overwrites the previous version.
  */
 import { getStore } from '@netlify/blobs';
+import { queueGuidelinesExtraction, GUIDELINES_TEXT_STORE } from './_shared/guidelines-text.mjs'; // Deploy 237.096
 import {
   handleOptions, json, requireAuth, readJsonBody, isSuperAdmin, normalizeEmail,
 } from './_shared/auth.mjs';
@@ -61,9 +62,20 @@ async function handle(req, context) {
     },
   });
 
+  // Deploy 237.096 (Mike: spend) -- a new PDF invalidates the extracted text that
+  // reviews attach instead of the PDF; re-extract now (background, one time).
+  let extraction = null;
+  try {
+    const tStore = getStore({ name: GUIDELINES_TEXT_STORE, consistency: 'strong' });
+    await tStore.delete(investor).catch(() => {});
+    await tStore.delete(investor + '.extracting').catch(() => {});
+    extraction = await queueGuidelinesExtraction(investor);
+  } catch (e) { console.warn('guidelines-upload: extraction kick failed:', e && e.message); }
+
   return json(200, {
     ok: true,
     investor,
+    extraction,
     sizeBytes: bytes.length,
     uploadedAt: now,
   });

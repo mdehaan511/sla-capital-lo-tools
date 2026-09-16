@@ -32,6 +32,7 @@ import {
 import { getChecklist, staleAfterFor, expectedMortgagee } from './_shared/loan-review-checklists.mjs';
 import { queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
 import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
+import { guidelinesTextFor } from './_shared/guidelines-text.mjs'; // Deploy 237.096
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
@@ -291,6 +292,7 @@ async function handle(req, context) {
   // investor-specific PDF. Mike: multiple investors fund RTLs, so the RTL
   // guidelines must review ALL RTLs — not just Colchis-funded ones.
   let guidelinesBytes = null;
+  let _gKey = ''; // Deploy 237.096 -- which key the PDF came from
   {
     const guidelinesStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
     const gKeys = [];
@@ -300,11 +302,19 @@ async function handle(req, context) {
       if (!k) continue;
       try {
         const g = await guidelinesStore.get(k, { type: 'arrayBuffer' });
-        if (g) { guidelinesBytes = Buffer.from(g); break; }
+        if (g) { guidelinesBytes = Buffer.from(g); _gKey = k; break; }
       } catch (e) {
         console.warn('loan-review-doc-upload: guidelines fetch failed for ' + k + ':', e && e.message);
       }
     }
+  }
+  // Deploy 237.096 (Mike: spend) -- prefer the extracted TEXT of the guidelines
+  // (~60% fewer tokens than the PDF, same 1h cache). The PDF is only sent while the
+  // one-time extraction runs (queued here on first use; see guidelines-text.mjs).
+  let guidelinesText = '';
+  if (guidelinesBytes && _gKey) {
+    const _gt = await guidelinesTextFor(_gKey, guidelinesBytes);
+    if (_gt && _gt.text) { guidelinesText = _gt.text; guidelinesBytes = null; }
   }
   // Deploy 236.78 — also attach the signed Loan Application PDF as
   // a third cached document so the AI has the source-of-truth for
@@ -394,7 +404,7 @@ async function handle(req, context) {
       docConditions: docMeta.conditions,
       loanContext: ctx,
       investor: review.investor || '',
-      guidelinesBytes,
+      guidelinesBytes, guidelinesText, guidelinesKey: _gKey, // Deploy 237.096
       loanAppBytes,
       extractFields: _extractFields,
       integrityCheck: _runIntegrity,

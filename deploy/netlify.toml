@@ -920,6 +920,15 @@
   status = 200
   force = true
 
+# Deploy 237.096: one-time transcription of a guidelines PDF to text (background;
+# reviews attach the text instead of the PDF). Super-admin manual kick; the
+# review endpoints queue it themselves with the internal HMAC.
+[[redirects]]
+  from = "/api/loan-review-guidelines-extract"
+  to = "/.netlify/functions/loan-review-guidelines-extract-background"
+  status = 200
+  force = true
+
 # Deploy 236.800: loan-note-pin — processors pin/unpin a note to the top
 # of the Notes & Activity feed on Loan Details.
 [[redirects]]

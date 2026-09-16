@@ -108,7 +108,19 @@ export async function reviewDocument(opts) {
   // loan app).
   const content = [];
   let _gBlock = null; // Deploy 237.093 -- kept so the 1h-TTL fallback below can downgrade it
-  if (opts.guidelinesBytes && opts.guidelinesBytes.length) {
+  if (opts.guidelinesText) {
+    // Deploy 237.096 (Mike: spend) -- the guidelines as extracted TEXT (~60% fewer
+    // tokens than the PDF, which is tokenised as page images + text). Same 1h
+    // breakpoint as the PDF branch below; _shared/guidelines-text.mjs decides which.
+    const tblock = {
+      type: 'text',
+      text: 'INVESTOR UNDERWRITING GUIDELINES' + (opts.guidelinesKey ? ' (' + String(opts.guidelinesKey).toUpperCase() + ' program)' : '') +
+        ' -- verbatim transcription of the guidelines document:\n\n' + String(opts.guidelinesText),
+      cache_control: { type: 'ephemeral', ttl: '1h' },
+    };
+    _gBlock = tblock;
+    content.push(tblock);
+  } else if (opts.guidelinesBytes && opts.guidelinesBytes.length) {
     const block = {
       type: 'document',
       source: { type: 'base64', media_type: 'application/pdf', data: opts.guidelinesBytes.toString('base64') },
@@ -317,8 +329,8 @@ function buildSystemPrompt(opts) {
     "Documents attached in the user message (in order):",
   ];
   let idx = 1;
-  if (opts.guidelinesBytes && opts.guidelinesBytes.length) {
-    lines.push(`  ${idx}. INVESTOR UNDERWRITING GUIDELINES PDF — authoritative reference for what the investor requires. Cross-check the doc being reviewed against the relevant sections (entity / borrower / appraisal / title / insurance / etc.).`);
+  if (opts.guidelinesText || (opts.guidelinesBytes && opts.guidelinesBytes.length)) { // Deploy 237.096 -- text or PDF
+    lines.push(`  ${idx}. INVESTOR UNDERWRITING GUIDELINES ${opts.guidelinesText ? '(verbatim text transcription)' : 'PDF'} — authoritative reference for what the investor requires. Cross-check the doc being reviewed against the relevant sections (entity / borrower / appraisal / title / insurance / etc.).`);
     idx += 1;
   }
   if (opts.loanAppBytes && opts.loanAppBytes.length) {
