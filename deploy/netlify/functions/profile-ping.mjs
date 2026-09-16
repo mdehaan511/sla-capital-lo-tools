@@ -50,7 +50,7 @@ export default async (req, context) => {
     await store.setJSON(keySafe(profile.email), merged);
     // Deploy 237.082 — hand back the calendar fields so the client can decide
     // whether to prompt for a birthday (they live on the blob, not the token).
-    return json(200, { ok: true, profile: { fullName: merged.fullName || '', birthday: merged.birthday || '', birthYear: merged.birthYear || '', startDate: merged.startDate || '' } });
+    return json(200, { ok: true, profile: { fullName: merged.fullName || '', birthday: merged.birthday || '', birthYear: merged.birthYear || '', startDate: merged.startDate || '', avatar: merged.avatar || '' } });
   } catch (e) {
     console.error('profile-ping error:', e);
     return json(500, { error: 'Failed to save profile' });

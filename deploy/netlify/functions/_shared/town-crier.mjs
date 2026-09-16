@@ -95,15 +95,19 @@ export async function buildTownCrier(now) {
     });
   }
 
-  // Deploy 237.085 — deeds earned this week (Hall of Deeds).
+  // Deploy 237.086 (Mike) — "This Week's Achievements": every new rank earned
+  // in the last 7 days (Hall of Deeds). Always present, even when quiet.
   const deedsIdx = await getAchievementsIndex().catch(() => null);
-  const weekDeeds = ((deedsIdx && deedsIdx.recent) || []).filter((d) => String(d.at) >= weekAgo).slice(0, 15);
+  const weekDeeds = ((deedsIdx && deedsIdx.recent) || []).filter((d) => String(d.at) >= weekAgo).slice(0, 20);
+  section('🏅 This Week\'s Achievements');
   if (weekDeeds.length) {
-    section('📜 Deeds of the week');
     weekDeeds.forEach((d) => {
       const def = DEEDS.find((x) => x.key === d.key) || { icon: '📜', name: d.key };
       line(escH(def.icon) + ' <b>' + escH(d.name) + '</b> — ' + escH(def.name) + ' Rank ' + RANKS[d.tier - 1], def.icon + ' ' + d.name + ' — ' + def.name + ' Rank ' + RANKS[d.tier - 1]);
     });
+    line('<a href="' + PORTAL + '/armory.html" style="color:#7c1f1f;font-weight:700">See everyone\'s deeds →</a>', 'See everyone\'s deeds: ' + PORTAL + '/armory.html', '<' + PORTAL + '/armory.html|See everyone\'s deeds →>');
+  } else {
+    line('No new ranks this week. Close something, ride something.', 'No new ranks this week. Close something, ride something.');
   }
 
   if (legends.length) {

@@ -116,6 +116,7 @@ export async function loadTeamProfiles() {
       birthday: String(p.birthday || ''),
       birthYear: String(p.birthYear || ''),
       startDate: String(p.startDate || ''),
+      avatar: String(p.avatar || ''),                         // Deploy 237.086 — chosen pixel character
       roles: table.get(email) || [],
     };
   }));

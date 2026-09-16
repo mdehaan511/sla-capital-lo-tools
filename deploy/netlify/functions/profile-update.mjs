@@ -62,6 +62,15 @@ export default async (req, context) => {
     calendar.startDate = sd;
   }
 
+  // Deploy 237.086 (Mike) — Armory avatar: one of the pixel characters in
+  // armory-avatars.js (keys mirrored here so a bad key can never be stored).
+  const AVATARS = ['paladin', 'dragon_knight', 'berserker', 'ranger', 'wizard', 'rogue', 'valkyrie', 'bard', 'monk', 'alchemist'];
+  if (typeof body.avatar === 'string') {
+    const a = body.avatar.trim();
+    if (a && AVATARS.indexOf(a) < 0) return json(400, { error: 'Unknown avatar' });
+    calendar.avatar = a;
+  }
+
   if (!Object.keys(updates).length && !Object.keys(calendar).length) {
     return json(400, { error: 'Nothing to update' });
   }
@@ -99,6 +108,7 @@ export default async (req, context) => {
     if (updates.phone != null) profile.phone = updates.phone;
     if (calendar.birthday != null) { profile.birthday = calendar.birthday; profile.birthYear = calendar.birthYear; }
     if (calendar.startDate != null) profile.startDate = calendar.startDate;
+    if (calendar.avatar != null) profile.avatar = calendar.avatar;
     profile.user_metadata = Object.assign({}, profile.user_metadata || {}, updates);
     profile.last_seen_at = new Date().toISOString();
     await store.setJSON(profileKey, profile);

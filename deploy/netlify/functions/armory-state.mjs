@@ -71,7 +71,9 @@ export default async (req, context) => {
       board, me, champions, allTime, legends, legendsByGame, events, isAdmin: isAdmin(user),
       quest, rotation, bells, celebrations,
       crier: crier ? { ymd: crier.ymd, subject: crier.subject, at: crier.at } : null,
-      myCalendar: myProfile ? { birthday: myProfile.birthday, startDate: myProfile.startDate } : null,
+      myCalendar: myProfile ? { birthday: myProfile.birthday, startDate: myProfile.startDate, avatar: myProfile.avatar || '' } : null,
+      // Deploy 237.086 — chosen avatars, email → key (Round Table, podium, Legends, Hall of Deeds).
+      avatars: profiles.reduce((m, p) => { if (p.avatar) m[p.email] = p.avatar; return m; }, {}),
     });
   } catch (e) {
     console.error('armory-state error:', e);

@@ -8,6 +8,7 @@
   <script src="sla-api.js"></script>
   <script src="lo-comp.js?v=237059"></script>
   <script src="sla-nav.js"></script>
+  <script src="armory-avatars.js?v=237086"></script>
 <script src="/sla-search.js"></script>
   <script src="sla-notifications.js?v=237072"></script>
 <script src="sla-chat.js"></script>
@@ -171,6 +172,16 @@
         <button class="save-btn" id="saveProfileBtn" onclick="saveProfile()">Save changes</button>
         <span class="save-status" id="profileStatus"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- Deploy 237.086 (Mike) — pick your Armory character. Shown on the Round Table,
+       the podium, the Hall of Deeds and your Legend plaque. -->
+  <div class="card" id="avatarCard" style="display:none">
+    <div class="card-header"><div><h2>🧙 Your Character</h2><p>Pick the knight (or wizard, or bard) who represents you in the Armory. Click one to choose it.</p></div></div>
+    <div class="card-body">
+      <div id="avatarGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px"></div>
+      <div class="save-status" id="avatarStatus" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -494,6 +505,41 @@ netlifyIdentity.on('init', function(user) {
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
+// Deploy 237.086 — character picker (team members only: shown once the deeds
+// endpoint confirms membership). Saves profile.avatar via /api/profile-update.
+var _avatarCurrent = '';
+function renderAvatarPicker(current) {
+  if (!window.ArmoryAvatars) return;
+  _avatarCurrent = current || '';
+  var grid = document.getElementById('avatarGrid');
+  grid.innerHTML = '';
+  ArmoryAvatars.list().forEach(function (a) {
+    var cell = document.createElement('button');
+    cell.type = 'button';
+    cell.setAttribute('data-key', a.key);
+    cell.title = a.title;
+    var sel = a.key === _avatarCurrent;
+    cell.style.cssText = 'cursor:pointer;font-family:inherit;text-align:center;padding:10px 6px 8px;border-radius:12px;background:' + (sel ? 'rgba(201,161,74,0.22)' : '#fffaf0') + ';border:2px solid ' + (sel ? '#C8813A' : '#e6e1d8') + ';display:flex;flex-direction:column;align-items:center;gap:4px';
+    var fig = document.createElement('div'); fig.style.cssText = 'height:96px;display:flex;align-items:flex-end;justify-content:center';
+    ArmoryAvatars.mount(fig, a.key, 2.5, sel ? '' : 'av-still');
+    cell.appendChild(fig);
+    var nm = document.createElement('div'); nm.style.cssText = 'font-size:12px;font-weight:700;color:#261A36'; nm.textContent = a.name + (sel ? ' ✓' : '');
+    cell.appendChild(nm);
+    cell.onclick = function () { chooseAvatar(a.key); };
+    grid.appendChild(cell);
+  });
+  document.getElementById('avatarCard').style.display = 'block';
+}
+function chooseAvatar(key) {
+  var st = document.getElementById('avatarStatus');
+  st.textContent = 'Saving…'; st.className = 'save-status';
+  SLA.api('POST', '/api/profile-update', { avatar: key }).then(function () {
+    st.textContent = '✓ ' + ArmoryAvatars.names(key) + ' it is. See you in the Armory.'; st.className = 'save-status ok';
+    renderAvatarPicker(key);
+    setTimeout(function () { st.textContent = ''; st.className = 'save-status'; }, 4000);
+  }).catch(function (err) { st.textContent = 'Failed: ' + ((err && err.message) || 'unknown'); st.className = 'save-status err'; });
+}
+
 // Deploy 237.085 — Your Deeds card (team members only; the endpoint 403s for anyone else).
 function loadMyDeeds() {
   SLA.api('GET', '/api/armory-achievements').then(function (r) {
@@ -515,7 +561,8 @@ function loadMyDeeds() {
     document.getElementById('deedsEarned').innerHTML = earned.join('') || '<span style="color:#7a7488;font-size:13px;font-style:italic">No deeds yet — close a loan or ride at the Round Table.</span>';
     document.getElementById('deedsNext').innerHTML = next.length ? '<b>Closest to the next rank:</b><br>' + next.slice(0, 4).map(function (n) { return n.text; }).join('<br>') : '';
     document.getElementById('deedsCard').style.display = 'block';
-  }).catch(function () { /* borrowers / brokers: card stays hidden */ });
+    renderAvatarPicker(m.avatar || '');   // Deploy 237.086 — membership confirmed → show the picker
+  }).catch(function () { /* borrowers / brokers: cards stay hidden */ });
 }
 
 function initProfile() {

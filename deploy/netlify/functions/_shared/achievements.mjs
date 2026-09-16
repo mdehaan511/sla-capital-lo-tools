@@ -36,6 +36,16 @@ import { programLabel } from './closing-bell.mjs';
 const PORTAL = 'https://portal.slacapital.ai';
 const DAY_MS = 86400000;
 
+// Deploy 237.086 (Mike): "clear all achievements and don't use historicals —
+// do the achievements moving forward for everyone." Only loans funded on or
+// after ACH_START count, and only quest months from that month on. Bumping
+// ACH_VERSION makes every stored doc read as "no prior" (silent backfill, no
+// Slack), which is how the earlier history was wiped without a delete pass.
+// Loyal Knight (years of service) is tenure, not production, and still
+// reads the real start date.
+export const ACH_START = '2026-09-15';
+export const ACH_VERSION = 2;
+
 // ── Definitions ───────────────────────────────────────────────────
 // tiers = thresholds for Rank I, II, III… ; metric = key into member metrics.
 export const DEEDS = [
@@ -99,6 +109,7 @@ async function _closedLoansByOwner() {
       if (!owner || owner.indexOf('@') < 0) continue;
       const amount = Number(ex.finalLoanAmount || r.loan_amt) || 0;
       const funded = _ymd(r.funding_date || ex.fundingDate || '');
+      if (!funded || funded < ACH_START) continue;          // forward-only (see ACH_START)
       const submitted = _ymd(ex.submittedAt || ex.submitDate || '');
       (byOwner[owner] = byOwner[owner] || []).push({
         id: r.id, clientId: r.client_id || '', amount, funded, submitted,
@@ -141,8 +152,10 @@ function _gameMetrics(allScores, email) {
   const m = { champion: 0, legend: 0, gamesWon: 0, runs: 0 };
   const thisMonth = monthKey(new Date());
   const won = new Set();
+  const startMonth = ACH_START.slice(0, 7);
   Object.keys(allScores).forEach((g) => {
     Object.keys(allScores[g]).forEach((mo) => {
+      if (mo < startMonth) return;                          // forward-only
       const rows = allScores[g][mo];
       rows.forEach((r) => { if (r.email === email) m.runs += Number(r.runs) || 0; });
       if (mo === thisMonth || questForMonth(mo).id !== g) return;   // only closed quest months count as wins
@@ -181,7 +194,8 @@ export async function computeAchievements(opts) {
   for (const p of profiles) {
     const metrics = Object.assign({}, _productionMetrics(byOwner[p.email]), _gameMetrics(allScores, p.email), { years: _years(p.startDate) });
     const key = 'achievements/' + keySafe(p.email);
-    const prior = await store.get(key, { type: 'json' }).catch(() => null);
+    let prior = await store.get(key, { type: 'json' }).catch(() => null);
+    if (prior && prior.version !== ACH_VERSION) prior = null;   // history wiped: treat as first run
     const priorEarned = (prior && prior.earned) || {};
     const earned = {};
     DEEDS.forEach((def) => {
@@ -193,15 +207,15 @@ export async function computeAchievements(opts) {
       earned[def.key] = entry;
       if (prior) announcements.push({ email: p.email, name: p.name, key: def.key, name_: def.name, icon: def.icon, tier, value: metrics[def.metric], at: now });
     });
-    const doc = { email: p.email, name: p.name, metrics, earned, computedAt: now };
+    const doc = { email: p.email, name: p.name, avatar: p.avatar || '', metrics, earned, computedAt: now, version: ACH_VERSION };
     await store.setJSON(key, doc);
-    members.push({ email: p.email, name: p.name, earned, metrics });
+    members.push({ email: p.email, name: p.name, avatar: p.avatar || '', earned, metrics });
   }
   // Recent: newest 40 earned entries across everyone (backfills excluded).
   const recent = [];
   members.forEach((mb) => Object.keys(mb.earned).forEach((k) => { const e = mb.earned[k]; if (!e.backfill) recent.push({ email: mb.email, name: mb.name, key: k, tier: e.tier, at: e.at }); }));
   recent.sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  const index = { computedAt: now, members, recent: recent.slice(0, 40) };
+  const index = { computedAt: now, members, recent: recent.slice(0, 40), version: ACH_VERSION, since: ACH_START };
   await store.setJSON('achievements-index', index);
 
   if (announcements.length && o.announce !== false) {
@@ -220,7 +234,7 @@ export async function getAchievementsIndex() {
 /** Index, computing it on the spot if it has never been built (or is > 30h old). */
 export async function ensureAchievementsIndex() {
   const idx = await getAchievementsIndex();
-  if (idx && Date.now() - Date.parse(idx.computedAt || 0) < 30 * 3600000) return idx;
+  if (idx && idx.version === ACH_VERSION && Date.now() - Date.parse(idx.computedAt || 0) < 30 * 3600000) return idx;
   const r = await computeAchievements({ announce: !!idx });
   return r.index;
 }

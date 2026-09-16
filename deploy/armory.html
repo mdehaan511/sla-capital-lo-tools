@@ -11,6 +11,7 @@
   <script src="sla-nav.js?v=237073"></script>
   <script src="sla-notifications.js?v=237050"></script>
   <script src="sla-chat.js"></script>
+  <script src="armory-avatars.js?v=237086"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
   <!-- Deploy 237.073 (Mike) — THE ARMORY, part 1: the team's fun corner.
        Deliberately styled unlike the rest of the portal (parchment, dark
@@ -459,6 +460,13 @@
   }
 
   // ── Round Table ────────────────────────────────────────────────────
+  // Deploy 237.086 — chosen avatars (state.avatars: email → key; armory-avatars.js).
+  function avatarKey(email) { return ((_state && _state.avatars) || {})[String(email || '').toLowerCase()] || ''; }
+  function avatarSrc(email, scale) { var k = avatarKey(email); return (k && window.ArmoryAvatars) ? ArmoryAvatars.src(k, scale || 2) : ''; }
+  function avatarTag(email) {
+    var s = avatarSrc(email, 2);
+    return s ? '<img src="' + s + '" alt="" title="' + escAttr(ArmoryAvatars.names(avatarKey(email))) + '" style="height:26px;vertical-align:middle;margin-right:6px;image-rendering:pixelated">' : '';
+  }
   function renderRoundTable() {
     var st = _state, board = st.board || [];
     var me = String((_user && _user.email) || '').toLowerCase();
@@ -468,8 +476,9 @@
     var pod = '';
     for (var i = 0; i < 3; i++) {
       var r = board[i];
+      var av = r ? avatarSrc(r.email, 2) : '';   // Deploy 237.086 — chosen character on the shield
       pod += '<div class="shield p' + (i + 1) + (r ? '' : ' empty') + '">' +
-        '<div class="sh"><div class="medal">' + medals[i] + '</div><div class="ini">' + (r ? escH(initials(r.name)) : '?') + '</div></div>' +
+        '<div class="sh"><div class="medal">' + medals[i] + '</div>' + (av ? '<img src="' + av + '" alt="" style="height:40px;image-rendering:pixelated;margin-top:-4px">' : '<div class="ini">' + (r ? escH(initials(r.name)) : '?') + '</div>') + '</div>' +
         '<div class="nm">' + (r ? escH(shortName(r.name)) : 'seat open') + '</div>' +
         (r ? '<div class="sc">' + fmt(r.best) + '</div>' : '') +
       '</div>';
@@ -482,7 +491,7 @@
       var rows = board.map(function (r, i) {
         return '<tr class="' + (r.email === me ? 'me' : '') + '">' +
           '<td class="rank">' + (medals[i] || (i + 1)) + '</td>' +
-          '<td>' + escH(r.name || r.email) + '</td>' +
+          '<td>' + avatarTag(r.email) + escH(r.name || r.email) + '</td>' +
           '<td class="n">' + fmt(r.best) + '</td>' +
           '<td class="n">' + fmt(r.runs) + '</td>' +
           '<td class="n" title="' + escAttr(r.bestAt) + '">' + escH(ago(r.bestAt)) + '</td>' +
@@ -542,7 +551,8 @@
     document.getElementById('celeList').innerHTML = out || '<div class="empty">Nothing in the next 30 days. Add your birthday on the Profile page so yours shows up.</div>';
     var mine = (_state && _state.myCalendar) || null;
     var el = document.getElementById('celeMine');
-    if (mine && !mine.birthday) el.innerHTML = '🎂 Your birthday is not on file — <a href="/profile.html" style="color:var(--crimson);font-weight:700">add it on your Profile</a>.';
+    if (mine && !mine.avatar) el.innerHTML = '🧙 You have no character yet — <a href="/profile.html#avatarCard" style="color:var(--crimson);font-weight:700">pick one on your Profile</a>.' + (!mine.birthday ? ' 🎂 Birthday not on file either.' : '');
+    else if (mine && !mine.birthday) el.innerHTML = '🎂 Your birthday is not on file — <a href="/profile.html" style="color:var(--crimson);font-weight:700">add it on your Profile</a>.';
     else if (mine && !mine.startDate) el.innerHTML = 'Your start date has not been entered yet (an admin sets it).';
     else el.innerHTML = '';
   }
@@ -610,46 +620,20 @@
   }
 
   // ── Deploy 237.085 — animated warriors behind the Legend plaques ──
-  // Pixel maps → canvas → <img>; CSS does the bobbing, swinging and flapping.
-  var WPAL = { G: '#e3b341', g: '#b8860b', S: '#cfd6dd', s: '#7d8790', R: '#b3261e', Y: '#ffd866', E: '#1a1a1a', F: '#f1c27d', M: '#3b2414', D: '#3f8a3f', d: '#7cc36a', T: '#b87333', t: '#7a4a1e', P: '#3b2a55', O: '#e8752a' };
-  var WARRIORS = {
-    paladin: { body: [
-      '.....YYYY.....', '....Y.YY.Y....', '....GGGGGG....', '...GGGGGGGG...', '...GGEEEEGG...', '...GGGGGGGG...', '....GGGGGG....',
-      '..RRGGGGGGRR..', '.RRGGGGGGGGRR.', '.RR.GGGGGG.RR.', '.RR.GGGGGG.RR.', '.RR.GGGGGG.RR.', '.RR.GGGGGG.RR.', '.RR..GGGG..RR.',
-      '.RR..GGGG..RR.', '.RR.GGGGGG.RR.', '....GGGGGG....', '....GG..GG....', '....GG..GG....', '....GG..GG....', '...ggg..ggg...', '...ggg..ggg...' ],
-      weapon: [ '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '.SSSS.', 'GGGGGG', '..gg..', '..gg..', '..gg..', '..YY..' ] },
-    dragon: { body: [
-      '..s........s..', '..s........s..', '...sSSSSSSs...', '...SSSSSSSS...', '...SSEEEESS...', '...SSSSSSSS...', '....SSSSSS....',
-      '..PPSSSSSSPP..', '.PPSSSSSSSSPP.', '.P..SSSSSS..P.', '....SSSSSS....', '....SDDDDS....', '....SSSSSS....', '....SSSSSS....',
-      '.....SSSS.....', '.....SSSS.....', '....SSSSSS....', '....SS..SS....', '....SS..SS....', '....SS..SS....', '...sss..sss...', '...sss..sss...' ],
-      wing: [ 'DD....................DD', 'DDD..................DDD', 'DDDD................DDDD', 'DDDDD..............DDDDD', 'DDDDDD............DDDDDD', 'DDDdDDD..........DDDdDDD',
-        'DDDdDDDD........DDDDdDDD', '.DDdDDDDD......DDDDDdDD.', '..DDDDDDDD....DDDDDDDD..', '...DDDDDDD....DDDDDDD...', '....DDDDD......DDDDD....', '.....DDD........DDD.....' ],
-      weapon: [ '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '.SSSS.', 'PPPPPP', '..gg..', '..gg..', '..OO..' ] },
-    berserker: { body: [
-      '....RRRRRR....', '...RRRRRRRR...', '...RFFFFFFR...', '...RFEFFEFR...', '...RFFFFFFR...', '...MMMMMMMM...', '....MMMMMM....', '.....MMMM.....',
-      '..FFTTTTTTFF..', '.FFFTTTTTTFFF.', '.FF.TTTTTT.FF.', '.FF.TtTTtT.FF.', '.FF.TTTTTT.FF.', '....TTTTTT....', '....TTTTTT....', '....tttttt....',
-      '....TT..TT....', '....TT..TT....', '....TT..TT....', '....TT..TT....', '...ttt..ttt...', '...ttt..ttt...' ],
-      weapon: [ '.SSS....', 'SSSSS...', 'SSSSSS..', 'SSSSSSS.', '.SSSSgg.', '..SSSgg.', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..' ],
-      weapon2: [ '....SSS.', '...SSSSS', '..SSSSSS', '.SSSSSSS', '.ggSSSS.', '.ggSSS..', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....' ] }
-  };
-  function wSprite(rows, scale) {
-    var h = rows.length, w = rows[0].length;
-    var c = document.createElement('canvas'); c.width = w * scale; c.height = h * scale;
-    var x = c.getContext('2d');
-    for (var r = 0; r < h; r++) for (var i = 0; i < w; i++) { var ch = rows[r].charAt(i); if (ch === '.' || !WPAL[ch]) continue; x.fillStyle = WPAL[ch]; x.fillRect(i * scale, r * scale, scale, scale); }
-    var img = document.createElement('img'); img.src = c.toDataURL(); img.width = c.width; img.height = c.height; img.alt = '';
-    return img;
-  }
+  // Deploy 237.086 — sprites moved to armory-avatars.js (the same characters
+  // are now everyone's pickable avatars). A seat shows its holder's chosen
+  // character; an unclaimed seat (or a holder with no pick) shows the rank
+  // warrior: Grand Paladin / Dragon Knight / Berserker.
   function mountWarriors() {
+    if (!window.ArmoryAvatars) return;
     var plaques = document.querySelectorAll('#legends .plaque');
-    var kinds = ['paladin', 'dragon', 'berserker'];
+    var lg = (_state && _state.legends) || [];
+    var kinds = ['paladin', 'dragon_knight', 'berserker'];
     for (var i = 0; i < plaques.length && i < 3; i++) {
-      var def = WARRIORS[kinds[i]], wrap = document.createElement('div');
+      var holder = lg[i], key = (holder && avatarKey(holder.email)) || kinds[i];
+      var wrap = document.createElement('div');
       wrap.className = 'warrior w' + (i + 1);
-      if (def.wing) { var wg = wSprite(def.wing, 2); wg.className = 'wing'; wrap.appendChild(wg); }
-      var body = wSprite(def.body, 2.5); body.className = 'body'; wrap.appendChild(body);
-      var wp = wSprite(def.weapon, 2.5); wp.className = 'weapon'; wrap.appendChild(wp);
-      if (def.weapon2) { var wp2 = wSprite(def.weapon2, 2.5); wp2.className = 'weapon2'; wrap.appendChild(wp2); }
+      ArmoryAvatars.mount(wrap, key, 2.5);
       plaques[i].appendChild(wrap);
     }
   }
@@ -682,10 +666,10 @@
       var badges = Object.keys(m.earned || {}).map(function (k) { return { k: k, t: m.earned[k].tier, def: deedDef(k) }; }).filter(function (b) { return b.def; })
         .sort(function (a, b) { return b.t - a.t; })
         .map(function (b) { return '<span class="badge r' + b.t + '" title="' + escAttr(b.def.name + ' — Rank ' + rankName(b.t)) + '">' + escH(b.def.icon) + '<span class="rk">' + rankName(b.t) + '</span></span>'; }).join('');
-      return '<tr class="' + (m.email === me ? 'me' : '') + '" onclick="Armory.showDeeds(\'' + escAttr(m.email) + '\')"><td class="nm">' + escH(m.name || m.email) + '</td><td>' + (badges || '<span style="color:#8a7350;font-style:italic;font-size:12px">no deeds yet — the chronicles await</span>') + '</td></tr>';
+      return '<tr class="' + (m.email === me ? 'me' : '') + '" onclick="Armory.showDeeds(\'' + escAttr(m.email) + '\')"><td class="nm">' + avatarTag(m.email) + escH(m.name || m.email) + '</td><td>' + (badges || '<span style="color:#8a7350;font-style:italic;font-size:12px">no deeds yet — the chronicles await</span>') + '</td></tr>';
     }).join('');
     document.getElementById('deedTable').innerHTML = '<table class="deeds"><tbody>' + rows + '</tbody></table>' +
-      '<div style="font-size:11px;color:#8a7350;margin-top:8px">Updated ' + escH(ago(d.computedAt)) + ' · recomputed every morning.</div>';
+      '<div style="font-size:11px;color:#8a7350;margin-top:8px">Updated ' + escH(ago(d.computedAt)) + ' · recomputed every morning' + (d.since ? ' · counting from ' + escH(fmtDay(d.since)) + ' onward' : '') + '.</div>';
     var adm = document.getElementById('deedAdmin');
     if (_state && _state.isAdmin) { adm.style.display = 'block'; adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.recomputeDeeds(this)">⟳ Recompute deeds now</button> <span style="font-size:11px;color:#8a7350">after entering start dates, or to check a fresh closing</span>'; }
   }
