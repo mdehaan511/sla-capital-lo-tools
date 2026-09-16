@@ -704,6 +704,13 @@
   status = 200
   force = true
 
+# Deploy 237.103 -- one-off: mirror doc-review counts onto every loan (Processing tiles)
+[[redirects]]
+  from = "/api/admin-review-counts-backfill"
+  to = "/.netlify/functions/admin-review-counts-backfill"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/users-directory"
   to = "/.netlify/functions/users-directory"
