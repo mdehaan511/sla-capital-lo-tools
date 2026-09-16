@@ -432,7 +432,12 @@
     // obstacles come in PAIRS you must clear in one hop or with a quick re-jump,
     // and a BAT flies at jump height so a reflex jump is sometimes the wrong move.
     var MAX_SPEED2 = 1000, ACCEL2 = 1.6, DIFF_SECONDS = 240;
-    var BAT_AFTER = 45, PAIR_AFTER = 60;
+    // Deploy 237.092 (Mike): "the bats made it easier — they gave stretches of
+    // nothing, and I never saw the pairs." Bats now ride on their OWN timer on
+    // top of the normal cadence (they never take a slot), pairs start at 35s
+    // and get common (triples late), a CHARGING tax collector closes at 1.45×,
+    // and a SLAM stamp drops in close in front with ~0.4s warning.
+    var BAT_AFTER = 45, PAIR_AFTER = 35, CHARGER_AFTER = 40, SLAM_AFTER = 50;   // seconds into the ride
     var COIN_PTS = 25, BAG_PTS = 100;
     var DUSK_SECONDS = 150;
 
@@ -463,7 +468,7 @@
     var lastT = 0, runTime = 0, deadAt = 0, startedAt = 0;
     var speed, distance, score, coinPts, coins, bags;
     var player, obstacles, pickups, floats, banner;
-    var nextObstacleAt, nextCoinAt, milestoneIdx, crashLine;
+    var nextObstacleAt, nextCoinAt, nextBatAt, milestoneIdx, crashLine;
     var houses = [], HOUSE_STRIP = 2600, clouds = [];
     var runToken = null, runTokenPromise = null, fireTick = 0, _practiceQuest = null;
     var seed = 7;
@@ -513,7 +518,7 @@
       speed = BASE_SPEED; distance = 0; score = 0; coinPts = 0; coins = 0; bags = 0; runTime = 0;
       player = { x: 96, y: GROUND - sprites.knightA.height, vy: 0, onGround: true, anim: 0 };
       obstacles = []; pickups = []; floats = []; banner = null;
-      nextObstacleAt = 700; nextCoinAt = 380; milestoneIdx = 0; crashLine = '';
+      nextObstacleAt = 700; nextCoinAt = 380; nextBatAt = BAT_AFTER + 1; milestoneIdx = 0; crashLine = '';
       runToken = null; runTokenPromise = null;
     }
 
@@ -562,42 +567,61 @@
 
     // ── Update ─────────────────────────────────────────────────────
     function difficulty() { return Math.min(1, runTime / DIFF_SECONDS); }
+    function groundDims(type) {
+      if (type === 'stamp' || type === 'slam') return { w: 54, h: 36 };
+      if (type === 'stamp2') return { w: 114, h: 36 };
+      if (type === 'taxman' || type === 'charger') return { w: sprites.taxman.width, h: sprites.taxman.height };
+      return { w: sprites.dragon.width, h: sprites.dragon.height };
+    }
     function spawnObstacle() {
       var d = difficulty();
       var r = Math.random();
       var type;
-      var batP = runTime > BAT_AFTER ? 0.08 + 0.17 * d : 0;
-      if (r < batP) type = 'bat';
-      else if (runTime > 20 && r < batP + 0.12) type = 'stamp2';
-      else if (runTime > 9 && r < batP + 0.34) type = 'dragon';
-      else if (r < batP + 0.64) type = 'taxman';
+      if (runTime > SLAM_AFTER && r < 0.10 + 0.10 * d) type = 'slam';
+      else if (runTime > 20 && r < 0.22) type = 'stamp2';
+      else if (runTime > 9 && r < 0.42) type = 'dragon';
+      else if (r < 0.70) type = (runTime > CHARGER_AFTER && Math.random() < 0.35 + 0.3 * d) ? 'charger' : 'taxman';
       else type = 'stamp';
-      var w, h, y;
-      if (type === 'stamp') { w = 54; h = 36; }
-      else if (type === 'stamp2') { w = 114; h = 36; }
-      else if (type === 'taxman') { w = sprites.taxman.width; h = sprites.taxman.height; }
-      else if (type === 'bat') { w = sprites.batA.width; h = sprites.batA.height; }
-      else { w = sprites.dragon.width; h = sprites.dragon.height; }
-      // The bat flies where a JUMPING knight's body is (hitbox top reaches
-      // ~GROUND-150 at the apex; a grounded knight's hitbox starts at GROUND-42),
-      // and comes in faster than the ground scrolls. Stay down and it misses.
-      y = type === 'bat' ? GROUND - 128 - rand(0, 10) : GROUND - h;
-      var first = { type: type, x: W + 30, y: y, w: w, h: h, rot: rand(-0.16, 0.16), vx: type === 'bat' ? 1.25 : 1 };
+      var dim = groundDims(type);
+      var first;
+      if (type === 'slam') {
+        // Drops out of the sky CLOSE in front (~0.4s of warning at speed), then
+        // scrolls like any stamp. Falling or landed, it hurts.
+        var sx = player.x + 300 + rand(0, 140);
+        first = { type: 'slam', x: sx, y: -60, landY: GROUND - dim.h, w: dim.w, h: dim.h, rot: rand(-0.3, 0.3), vx: 1 };
+      } else {
+        // The charger is the tax collector at a run: 1.45× closing speed, so the
+        // jump has to come ~30% sooner than the eye expects.
+        first = { type: type, x: W + 30, y: GROUND - dim.h, w: dim.w, h: dim.h, rot: rand(-0.16, 0.16), vx: type === 'charger' ? 1.45 : 1 };
+      }
       obstacles.push(first);
-      var lastRight = first.x + w;
-      // Late game: a second ground obstacle right behind the first — clear both
-      // in one hop, or land and re-jump instantly (air time is 0.6s).
-      if (runTime > PAIR_AFTER && type !== 'bat' && type !== 'stamp2' && type !== 'dragon' && Math.random() < 0.10 + 0.18 * d) {
-        var t2 = Math.random() < 0.5 ? 'stamp' : 'taxman';
-        var w2 = t2 === 'stamp' ? 54 : sprites.taxman.width, h2 = t2 === 'stamp' ? 36 : sprites.taxman.height;
-        var x2 = lastRight + speed * rand(0.72, 0.88);
-        obstacles.push({ type: t2, x: x2, y: GROUND - h2, w: w2, h: h2, rot: rand(-0.16, 0.16), vx: 1 });
-        lastRight = x2 + w2;
+      var lastRight = first.x + first.w;
+      // PAIRS (and late TRIPLES): more ground obstacles right behind the first —
+      // clear them in one hop or land and re-jump instantly (air time 0.6s).
+      // From 35s, ~22% rising to ~65%; a third one 30% of the time late.
+      if (runTime > PAIR_AFTER && type !== 'stamp2' && type !== 'slam' && first.vx === 1 && Math.random() < 0.22 + 0.43 * d) {
+        var n = (d > 0.6 && Math.random() < 0.3) ? 2 : 1;
+        for (var k = 0; k < n; k++) {
+          var t2 = Math.random() < 0.55 ? 'stamp' : 'taxman';
+          var d2 = groundDims(t2);
+          var x2 = lastRight + speed * rand(0.68, 0.84);
+          obstacles.push({ type: t2, x: x2, y: GROUND - d2.h, w: d2.w, h: d2.h, rot: rand(-0.16, 0.16), vx: 1 });
+          lastRight = x2 + d2.w;
+        }
       }
       // Gap in TIME (so it scales with speed) that SHRINKS with difficulty:
-      // 1.0–1.7s early → 0.62–1.06s by DIFF_SECONDS. Never below 0.62s.
-      var gapT = Math.max(0.62, (1.35 - 0.5 * d) * rand(0.75, 1.25));
-      nextObstacleAt = distance + (lastRight - (W + 30)) + speed * gapT;
+      // 1.0–1.7s early → 0.6–1.0s by DIFF_SECONDS. Never below 0.6s.
+      var gapT = Math.max(0.6, (1.35 - 0.55 * d) * rand(0.75, 1.25));
+      nextObstacleAt = distance + Math.max(0, lastRight - (W + 30)) + speed * gapT;
+    }
+    // BATS ride their own clock, ON TOP of the ground cadence. They fly where a
+    // JUMPING knight's body is (hitbox top reaches ~GROUND-150 at the apex; a
+    // grounded knight's hitbox starts at GROUND-42) and close at 1.3×. Stay down
+    // and it misses — the trick is that a ground obstacle is usually right behind.
+    function spawnBat() {
+      var d = difficulty();
+      obstacles.push({ type: 'bat', x: W + 30, y: GROUND - 128 - rand(0, 10), w: sprites.batA.width, h: sprites.batA.height, rot: 0, vx: 1.3 });
+      nextBatAt = runTime + Math.max(2.2, rand(3.5, 7) - 3 * d);
     }
 
     function spawnPickups() {
@@ -639,12 +663,14 @@
       player.anim += dt * (speed / 40);
 
       if (distance >= nextObstacleAt) spawnObstacle();
+      if (runTime > BAT_AFTER && runTime >= nextBatAt) spawnBat();   // Deploy 237.092 — extra layer
       if (distance >= nextCoinAt) spawnPickups();
 
       var i;
       for (i = obstacles.length - 1; i >= 0; i--) {
         var o = obstacles[i];
         o.x -= speed * dt * (o.vx || 1);
+        if (o.type === 'slam' && o.y < o.landY) o.y = Math.min(o.landY, o.y + 1100 * dt);   // the drop (Deploy 237.092)
         if (o.x + o.w < -60) { obstacles.splice(i, 1); continue; }
       }
       for (i = pickups.length - 1; i >= 0; i--) {
@@ -687,6 +713,8 @@
       if (by.type === 'dragon') lines = [CRASH_LINES[1], 'Roasted. The dragon prefers its lenders well done.', 'Dragon 1, Knight 0. Try a shorter amortization.'];
       else if (by.type === 'taxman') lines = [CRASH_LINES[2], 'Audited at full gallop.', 'The tax man always collects.'];
       else if (by.type === 'bat') lines = ['A bat. Of course a bat.', 'The bat says the appraisal came in high. Too high.', 'Should have stayed on the ground. Rate locked.', 'Bats fly at jump height. Underwriting knows this.'];
+      else if (by.type === 'charger') lines = ['The tax collector runs faster than you think.', 'Audited at a sprint.', 'He had a head start. He always does.'];
+      else if (by.type === 'slam') lines = ['DENIED from above. Underwriting works remotely.', 'A stamp fell out of the sky. No appeal.', 'Conditions dropped in at the last second. Literally.'];
       crashLine = lines[Math.floor(Math.random() * lines.length)];
       finishRun();
     }
@@ -820,8 +848,18 @@
       for (var i = 0; i < obstacles.length; i++) {
         var o = obstacles[i];
         if (o.type === 'stamp') drawStamp(o.x, o.y, o.w, o.h, o.rot);
-        else if (o.type === 'stamp2') { drawStamp(o.x, o.y, 54, o.h, o.rot); drawStamp(o.x + 60, o.y, 54, o.h, -o.rot); }
+        else if (o.type === 'slam') {
+          // Landing-spot shadow grows as it falls, then the stamp sits like any other.
+          var fall = Math.max(0, Math.min(1, 1 - (o.landY - o.y) / (o.landY + 60)));
+          ctx.fillStyle = 'rgba(0,0,0,' + (0.08 + 0.2 * fall) + ')'; ctx.beginPath(); ctx.ellipse(o.x + o.w / 2, GROUND + 3, o.w * (0.3 + 0.3 * fall), 5, 0, 0, Math.PI * 2); ctx.fill();
+          drawStamp(o.x, o.y, o.w, o.h, o.rot * (1 - fall));
+        }
         else if (o.type === 'taxman') ctx.drawImage(sprites.taxman, o.x, o.y);
+        else if (o.type === 'charger') {
+          // Running: lean forward + dust puffs.
+          ctx.save(); ctx.translate(o.x + o.w / 2, o.y + o.h); ctx.rotate(-0.12); ctx.drawImage(sprites.taxman, -o.w / 2, -o.h); ctx.restore();
+          ctx.fillStyle = 'rgba(120,90,50,0.35)'; ctx.beginPath(); ctx.arc(o.x + o.w + 6 + (fireTick * 60 % 10), GROUND - 4, 4 + (fireTick * 30 % 3), 0, Math.PI * 2); ctx.fill();
+        }
         else if (o.type === 'bat') ctx.drawImage(Math.floor(fireTick * 10) % 2 === 0 ? sprites.batA : sprites.batB, o.x, o.y);
         else {
           ctx.drawImage(sprites.dragon, o.x, o.y);
