@@ -873,6 +873,20 @@
   status = 200
   force = true
 
+# Deploy 237.085 (Mike): Hall of Deeds (tiered achievements, everyone sees
+# everyone's) + the Armory pulse (nav link blinks until you visit).
+[[redirects]]
+  from = "/api/armory-achievements"
+  to = "/.netlify/functions/armory-achievements"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/armory-pulse"
+  to = "/.netlify/functions/armory-pulse"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/notifications-dismiss"
   to = "/.netlify/functions/notifications-dismiss"
@@ -2413,4 +2427,12 @@
 [functions.esign-doc-assign]
   timeout = 26
 [functions.esign-sign-submit]
+  timeout = 26
+# Deploy 237.085 — the Hall of Deeds walks every closed loan in Postgres; the
+# first (lazy) build and the daily recompute need the full on-demand budget.
+[functions.armory-achievements]
+  timeout = 26
+[functions.achievements-cron]
+  timeout = 26
+[functions.armory-admin]
   timeout = 26

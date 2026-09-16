@@ -342,7 +342,11 @@
       /* Deploy 236.117 — task-count badge on the Processing trigger. */
       '.nav-task-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#7c1f1f;color:#fff;font-size:10px;font-weight:700;font-family:DM Mono,monospace;line-height:1}' +
       '.nav-task-badge.due-soon{background:#7a5218}' +
-      '.nav-task-badge[hidden]{display:none}';
+      '.nav-task-badge[hidden]{display:none}' +
+      /* Deploy 237.085 — Armory pulse: a slow gold blink until the page is visited. */
+      '@keyframes slaArmoryPulse{0%,100%{background:transparent;border-color:rgba(200,129,58,0.35);color:#7a7488}50%{background:rgba(200,129,58,0.45);border-color:#C8813A;color:#7c1f1f;box-shadow:0 0 10px rgba(200,129,58,0.55)}}' +
+      '.nav-tool-link.nav-pulse{animation:slaArmoryPulse 2.6s ease-in-out infinite}' +
+      '.nav-tool-link.nav-pulse.current{animation:none}';
     document.head.appendChild(s);
   }
 
@@ -426,6 +430,46 @@
     // Deploy 236.117 — kick off the task-count fetch after every
     // render so the badge updates on identity init / login / logout.
     refreshTaskBadge();
+    // Deploy 237.085 — Armory pulse: the link blinks until you visit.
+    refreshArmoryPulse(host);
+  }
+
+  // ── Deploy 237.085 — Armory pulse ─────────────────────────────────
+  // /api/armory-pulse is one blob read: { at, kind, text } for the newest
+  // notable thing in the Armory (a Closing Bell, a new event, a Town Crier,
+  // a Legend seat, the monthly champion, new deeds). If it is newer than the
+  // last time this browser visited armory.html (localStorage), the Armory
+  // link slowly blinks gold. Visiting the page marks it seen.
+  var PULSE_SEEN_KEY = 'sla_armory_seen_at';
+  function refreshArmoryPulse(host) {
+    try {
+      var link = host && host.querySelector('a.nav-tool-link[href="/armory.html"]');
+      if (!link) return;                             // not staff, or no Armory link
+      if (!(window.SLA && SLA.api)) return;
+      var here = currentFile();
+      var cached = null;
+      try {
+        var raw = sessionStorage.getItem('sla_armory_pulse');
+        if (raw) { var obj = JSON.parse(raw); if (obj && (Date.now() - obj.ts) < 5 * 60 * 1000) cached = obj; }
+      } catch (_) {}
+      function apply(at, text) {
+        if (here === '/armory.html') {
+          try { if (at) localStorage.setItem(PULSE_SEEN_KEY, at); } catch (_) {}
+          link.classList.remove('nav-pulse');
+          return;
+        }
+        var seen = '';
+        try { seen = localStorage.getItem(PULSE_SEEN_KEY) || ''; } catch (_) {}
+        if (at && at > seen) { link.classList.add('nav-pulse'); link.title = 'New in the Armory: ' + (text || 'something happened'); }
+        else link.classList.remove('nav-pulse');
+      }
+      if (cached && here !== '/armory.html') { apply(cached.at, cached.text); return; }
+      SLA.api('GET', '/api/armory-pulse').then(function (r) {
+        var p = (r && r.pulse) || {};
+        try { sessionStorage.setItem('sla_armory_pulse', JSON.stringify({ ts: Date.now(), at: p.at || '', text: p.text || '' })); } catch (_) {}
+        apply(p.at || '', p.text || '');
+      }).catch(function () { /* quiet */ });
+    } catch (_) { /* never break the nav */ }
   }
 
   // ── Deploy 236.117 — task-due badge on the Processing dropdown ──

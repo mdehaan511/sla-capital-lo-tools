@@ -14,7 +14,7 @@
 import { getStore } from '@netlify/blobs';
 import { postSlack } from './_shared/slack.mjs';
 import { loadTeamProfiles, celebrationsOn, todayPacific, addDays, ordinal, prettyYmd } from './_shared/team-events.mjs';
-import { listAllMonths, monthLabel, questForMonth } from './_shared/armory.mjs';
+import { listAllMonths, monthLabel, questForMonth, touchPulse } from './_shared/armory.mjs';
 
 export const config = { schedule: '0 15 * * *' };
 
@@ -53,11 +53,14 @@ export default async () => {
       const byMonth = await listAllMonths(prevQuest.id);
       const champ = (byMonth[prev] || [])[0];
       if (champ) {
-        const text = '👑 *' + monthLabel(prev) + ' champion of the Round Table (' + prevQuest.name + '):* ' + champ.name + ' with *' + String(champ.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🎉' +
+        // Deploy 237.085 (Mike): no scores in Slack — leadership just needs to
+        // know WHO won so the swag / bonus goes out. Company channel sees it
+        // on the Armory (Hall of Champions) and in the Town Crier.
+        const text = '👑 *' + monthLabel(prev) + ' champion of the Round Table (' + prevQuest.name + '):* ' + champ.name + ' 🎉' +
           '\nTime for the swag. <' + PORTAL + '/armory.html|Hall of Champions>';
         await postSlack({ text }, { channel: 'leadership' });
-        await postSlack({ text }, { channel: 'armory' });
-        posted += 2;
+        await touchPulse('champion', champ.name + ' is the ' + monthLabel(prev) + ' champion');
+        posted += 1;
       }
     }
 

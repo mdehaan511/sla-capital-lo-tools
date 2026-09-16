@@ -22,6 +22,8 @@ import { postSlack } from './slack.mjs';
 import { listAllMonths, legendsFrom, getEvents, monthKey, monthLabel, daysLeftInMonth, questForMonth } from './armory.mjs';
 import { listBells, fmtMoney } from './closing-bell.mjs';
 import { loadTeamProfiles, upcomingCelebrations, todayPacific, prettyYmd, ordinal, addDays } from './team-events.mjs';
+import { getAchievementsIndex, DEEDS, RANKS } from './achievements.mjs'; // Deploy 237.085
+import { touchPulse } from './armory.mjs';
 
 const PORTAL = 'https://portal.slacapital.ai';
 const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -50,18 +52,19 @@ export async function buildTownCrier(now) {
   // ── Sections (html + text + slack in one pass) ──
   const H = [], T = [], S = [];
   const section = (title) => { H.push('<h2 style="font-family:Georgia,serif;font-size:16px;color:#3a2313;margin:22px 0 8px;border-bottom:2px solid #c9a14a;padding-bottom:4px">' + escH(title) + '</h2>'); T.push('', title.toUpperCase(), ''); S.push('*' + title + '*'); };
-  const line = (html, text, slack) => { H.push('<p style="margin:4px 0;font-size:14px;line-height:1.55">' + html + '</p>'); T.push(text); S.push(slack != null ? slack : text); };
+  // slack === false → email/text only (Deploy 237.085, Mike: no high scores in Slack).
+  const line = (html, text, slack) => { H.push('<p style="margin:4px 0;font-size:14px;line-height:1.55">' + html + '</p>'); T.push(text); if (slack !== false) S.push(slack != null ? slack : text); };
 
   section('⚔ This month\'s quest: ' + quest.name);
   if (board.length) {
     const medals = ['👑', '🥈', '🥉'];
-    board.slice(0, 3).forEach((r, i) => line(medals[i] + ' <b>' + escH(shortName(r.name)) + '</b> — ' + fmt(r.best), medals[i] + ' ' + shortName(r.name) + ' — ' + fmt(r.best)));
+    board.slice(0, 3).forEach((r, i) => line(medals[i] + ' <b>' + escH(shortName(r.name)) + '</b> — ' + fmt(r.best), medals[i] + ' ' + shortName(r.name) + ' — ' + fmt(r.best), false));
     line(escH(board.length + ' knight' + (board.length === 1 ? '' : 's') + ' have ridden. ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left to unseat the leader.'),
-      board.length + ' knights have ridden. ' + daysLeft + ' days left to unseat the leader.');
+      board.length + ' knights have ridden. ' + daysLeft + ' days left to unseat the leader.', false);
   } else {
-    line('Nobody has ridden yet this month. The whole Round Table is up for grabs.', 'Nobody has ridden yet this month. The whole Round Table is up for grabs.');
+    line('Nobody has ridden yet this month. The whole Round Table is up for grabs.', 'Nobody has ridden yet this month. The whole Round Table is up for grabs.', false);
   }
-  line('<a href="' + PORTAL + quest.href + '" style="color:#7c1f1f;font-weight:700">Ride now →</a>', 'Ride now: ' + PORTAL + quest.href, '<' + PORTAL + quest.href + '|Ride now →>');
+  line('<a href="' + PORTAL + quest.href + '" style="color:#7c1f1f;font-weight:700">Ride now →</a>', 'Ride now: ' + PORTAL + quest.href, 'The Round Table stands on the Armory — <' + PORTAL + quest.href + '|ride now →>');
 
   section('🔔 The Closing Bell — last 7 days');
   if (closed.length) {
@@ -92,9 +95,20 @@ export async function buildTownCrier(now) {
     });
   }
 
+  // Deploy 237.085 — deeds earned this week (Hall of Deeds).
+  const deedsIdx = await getAchievementsIndex().catch(() => null);
+  const weekDeeds = ((deedsIdx && deedsIdx.recent) || []).filter((d) => String(d.at) >= weekAgo).slice(0, 15);
+  if (weekDeeds.length) {
+    section('📜 Deeds of the week');
+    weekDeeds.forEach((d) => {
+      const def = DEEDS.find((x) => x.key === d.key) || { icon: '📜', name: d.key };
+      line(escH(def.icon) + ' <b>' + escH(d.name) + '</b> — ' + escH(def.name) + ' Rank ' + RANKS[d.tier - 1], def.icon + ' ' + d.name + ' — ' + def.name + ' Rank ' + RANKS[d.tier - 1]);
+    });
+  }
+
   if (legends.length) {
     section('⚜ Legends of the Realm');
-    legends.forEach((r, i) => line(['I', 'II', 'III'][i] + '. <b>' + escH(shortName(r.name)) + '</b> — ' + fmt(r.best) + ' <span style="color:#8a7350">(' + escH(r.monthLabel) + ')</span>', ['I', 'II', 'III'][i] + '. ' + shortName(r.name) + ' — ' + fmt(r.best) + ' (' + r.monthLabel + ')'));
+    legends.forEach((r, i) => line(['I', 'II', 'III'][i] + '. <b>' + escH(shortName(r.name)) + '</b> — ' + fmt(r.best) + ' <span style="color:#8a7350">(' + escH(r.monthLabel) + ')</span>', ['I', 'II', 'III'][i] + '. ' + shortName(r.name) + ' — ' + fmt(r.best) + ' (' + r.monthLabel + ')', false));
   }
 
   const subject = '📯 The Town Crier — week of ' + prettyYmd(ymd).replace(/^\w+ /, '') + (closed.length ? ' · ' + closed.length + ' closed' : '');
@@ -152,6 +166,7 @@ export async function sendTownCrier(opts) {
   const sentTo = results.filter(Boolean);
   await postSlack({ text: issue.slack }, { channel: 'armory' });
   await store.setJSON(key, { ymd: issue.ymd, subject: issue.subject, html: issue.html, sentTo, at: new Date().toISOString(), stats: issue.stats });
+  await touchPulse('crier', 'A new Town Crier is out'); // Deploy 237.085
   console.log('[town-crier] sent', { ymd: issue.ymd, sentTo: sentTo.length, of: profiles.length });
   return { ok: true, sentTo, stats: issue.stats };
 }

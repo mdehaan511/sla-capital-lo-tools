@@ -295,6 +295,20 @@ export async function voidScore(month, email, game) {
   return true;
 }
 
+// ── Pulse (Deploy 237.085) ────────────────────────────────────────
+// One tiny doc that says "something new happened in the Armory" — the nav
+// link blinks until the user visits armory.html (sla-nav.js compares
+// pulse.at to localStorage). Touched by: Closing Bell, events save, Town
+// Crier send, a Legend seat, the monthly champion, new deeds.
+export async function touchPulse(kind, text) {
+  try {
+    await _store().setJSON('pulse', { at: new Date().toISOString(), kind: String(kind || ''), text: String(text || '').slice(0, 160) });
+  } catch (e) { console.warn('[armory] touchPulse failed:', e && e.message); }
+}
+export async function getPulse() {
+  return _store().get('pulse', { type: 'json' }).catch(() => null);
+}
+
 // ── Events board ──────────────────────────────────────────────────
 function _cleanEvent(e) {
   const x = e || {};
@@ -324,5 +338,6 @@ export async function getEvents() {
 export async function saveEvents(items, byEmail) {
   const cleaned = (Array.isArray(items) ? items : []).map(_cleanEvent).filter((e) => e.title).slice(0, MAX_EVENTS);
   await _store().setJSON('events', { items: cleaned, updatedAt: new Date().toISOString(), updatedBy: normalizeEmail(byEmail) });
+  await touchPulse('event', 'The Herald posted to the board');
   return cleaned;
 }

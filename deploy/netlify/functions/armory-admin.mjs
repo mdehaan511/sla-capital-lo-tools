@@ -12,6 +12,7 @@
 import { handleOptions, json, requireAuth, isAdmin, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
 import { saveEvents, voidScore, isMonthKey, isGameId, questForMonth } from './_shared/armory.mjs';
 import { sendTownCrier, latestTownCrier } from './_shared/town-crier.mjs'; // Deploy 237.082
+import { computeAchievements } from './_shared/achievements.mjs';        // Deploy 237.085
 
 export default async (req, context) => {
   try {
@@ -43,6 +44,12 @@ export default async (req, context) => {
     if (action === 'crier-send-test') {
       const r = await sendTownCrier({ onlyTo: normalizeEmail(user.email) });
       return json(200, { ok: !!r.ok, sentTo: r.sentTo, stats: r.stats });
+    }
+    // Deploy 237.085 — rebuild the Hall of Deeds now (the daily cron does it
+    // at 8:10am PT; this is for "I just entered the start dates").
+    if (action === 'achievements-recompute') {
+      const r = await computeAchievements({ announce: true });
+      return json(200, { ok: true, members: r.index.members.length, announced: r.announced });
     }
     if (action === 'crier-latest') {
       const c = await latestTownCrier();

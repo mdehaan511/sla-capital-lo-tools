@@ -13,8 +13,7 @@
  *   say "you're #3 at the Round Table" without a second call.
  */
 import { handleOptions, json, requireAuth, readJsonBody, normalizeEmail } from './_shared/auth.mjs';
-import { isTeamMember, verifyRunToken, recordRun, listMonth, listAllMonths, legendsFrom, monthKey, questForMonth, GAMES, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
-import { postSlack } from './_shared/slack.mjs'; // Deploy 237.082
+import { isTeamMember, verifyRunToken, recordRun, listMonth, listAllMonths, legendsFrom, monthKey, questForMonth, touchPulse, GAMES, RUN_TOKEN_TTL_MS } from './_shared/armory.mjs';
 
 export default async (req, context) => {
   try {
@@ -51,10 +50,12 @@ export default async (req, context) => {
       const legends = legendsFrom(await listAllMonths(game), 3);
       const li = legends.findIndex((r) => r.email === email && r.month === month && r.best === result.best);
       if (li >= 0) legendRank = li + 1;
-      // Deploy 237.082 — a new Legend seat is a milestone: tell leadership.
+      // Deploy 237.085 (Mike): NO high scores in Slack — a Legend seat only
+      // lights the Armory pulse; the "Legend of the Realm" deed announces the
+      // person via the Hall of Deeds like every other achievement.
       if (legendRank) {
         const who = legends[li].name || email;
-        await postSlack({ text: '⚜ *Legend of the Realm!* ' + who + ' just took the #' + legendRank + ' all-time seat in ' + GAMES[game].name + ' with *' + String(result.best).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '* 🏆\n<https://portal.slacapital.ai/armory.html|The Armory>' }, { channel: 'leadership' });
+        await touchPulse('legend', who + ' took Legend seat #' + legendRank + ' in ' + GAMES[game].name);
       }
     }
     return json(200, {

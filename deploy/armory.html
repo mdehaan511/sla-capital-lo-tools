@@ -74,6 +74,48 @@
     .plaque .nm { font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; margin-top: 4px; color: #f7f0dc; }
     .plaque .mo { font-size: 11px; color: rgba(247,240,220,0.65); margin-top: 2px; }
     .plaque.empty { border-style: dashed; opacity: 0.6; }
+    /* Deploy 237.085 — animated warriors behind the Legend plaques. */
+    .plaque { min-height: 136px; overflow: hidden; }
+    .plaque > .rk, .plaque > .sc, .plaque > .nm, .plaque > .mo { position: relative; z-index: 1; }
+    .warrior { position: absolute; left: 10px; bottom: 4px; width: 60px; height: 96px; z-index: 0; opacity: 0.92; pointer-events: none; }
+    .warrior img { position: absolute; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .warrior .body { left: 12px; bottom: 0; animation: wBob 1.6s ease-in-out infinite; }
+    .warrior .weapon { left: 34px; bottom: 30px; transform-origin: 20% 92%; animation: wSwing 1.2s ease-in-out infinite; }
+    .warrior .weapon2 { left: -2px; bottom: 30px; transform-origin: 80% 92%; animation: wSwing2 1.2s ease-in-out infinite; }
+    .warrior .wing { left: -8px; bottom: 34px; transform-origin: 50% 100%; animation: wFlap 0.9s ease-in-out infinite; }
+    .warrior.w1 .body { filter: drop-shadow(0 0 6px rgba(243,217,138,0.9)); animation: wBob 1.6s ease-in-out infinite, wGlow 2.2s ease-in-out infinite; }
+    .warrior.w1 .weapon { filter: drop-shadow(0 0 5px rgba(255,140,40,0.95)); }
+    .warrior.w3 .body { animation: wStomp 0.8s steps(2) infinite; }
+    .plaque.empty .warrior { opacity: 0.35; filter: grayscale(1); }
+    @keyframes wBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+    @keyframes wGlow { 0%, 100% { filter: drop-shadow(0 0 4px rgba(243,217,138,0.6)); } 50% { filter: drop-shadow(0 0 12px rgba(255,220,120,1)); } }
+    @keyframes wSwing { 0%, 100% { transform: rotate(18deg); } 50% { transform: rotate(62deg); } }
+    @keyframes wSwing2 { 0%, 100% { transform: rotate(-62deg); } 50% { transform: rotate(-18deg); } }
+    @keyframes wFlap { 0%, 100% { transform: scaleY(1) scaleX(1); } 50% { transform: scaleY(0.55) scaleX(1.12); } }
+    @keyframes wStomp { 0% { transform: translateY(0) rotate(-3deg); } 100% { transform: translateY(-3px) rotate(3deg); } }
+
+    /* ── Hall of Deeds (Deploy 237.085) ── */
+    .deed-recent { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .deed-recent span { font-size: 12px; background: rgba(201,161,74,0.16); border: 1px solid rgba(201,161,74,0.45); border-radius: 20px; padding: 3px 10px; }
+    table.deeds { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.deeds td { padding: 8px 8px; border-bottom: 1px dashed rgba(90,58,30,0.2); vertical-align: middle; }
+    table.deeds tr { cursor: pointer; }
+    table.deeds tr:hover td { background: rgba(201,161,74,0.10); }
+    table.deeds tr.me td { background: rgba(124,31,31,0.06); }
+    table.deeds td.nm { font-weight: 700; white-space: nowrap; width: 160px; }
+    .badge { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; background: #fffaf0; border: 1px solid rgba(90,58,30,0.3); border-radius: 8px; padding: 2px 7px; margin: 2px 3px 2px 0; }
+    .badge .rk { font-family: 'Cinzel', serif; font-weight: 900; font-size: 11px; color: #7a5218; }
+    .badge.r5 { border-color: #f3d98a; background: linear-gradient(#fff6d6, #f3d98a); }
+    .badge.r4 { border-color: #c9a14a; background: #fff1cc; }
+    .deed-row { display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px dashed rgba(90,58,30,0.2); }
+    .deed-row .ic { font-size: 24px; text-align: center; }
+    .deed-row .t { font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; color: var(--wood); }
+    .deed-row .d { font-size: 12px; color: #6b5636; }
+    .deed-row .bar { height: 6px; background: rgba(0,0,0,0.08); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+    .deed-row .bar i { display: block; height: 100%; background: var(--royal); }
+    .deed-row .r { font-family: 'Cinzel', serif; font-weight: 900; color: #7a5218; font-size: 14px; white-space: nowrap; text-align: right; }
+    .deed-row.locked { opacity: 0.6; }
+    .deed-row.locked .ic { filter: grayscale(1); }
     .plaque.empty .sc { font-size: 16px; font-family: 'DM Sans', sans-serif; font-style: italic; color: rgba(247,240,220,0.7); }
 
     .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; }
@@ -234,6 +276,15 @@
             <div id="bellList"><div class="empty">Listening for the bell…</div></div>
           </div>
 
+          <!-- Deploy 237.085 — Hall of Deeds: tiered achievements, everyone sees everyone's. -->
+          <div class="card">
+            <h2>📜 Hall of Deeds <span class="sub">achievements · ranks I–V · click a knight</span></h2>
+            <div class="lede">Closed loans, volume, hat tricks, big game, repeat borrowers, states conquered, Round Table wins, years of service. Ranks get harder as you go.</div>
+            <div id="deedRecent" class="deed-recent"></div>
+            <div id="deedTable"><div class="empty">Reading the chronicles…</div></div>
+            <div id="deedAdmin" style="display:none;margin-top:10px"></div>
+          </div>
+
           <div class="card">
             <h2>Hall of Champions <span class="sub">every month's winner, forever</span></h2>
             <div class="split">
@@ -315,6 +366,13 @@
   </div>
   <div class="toast" id="toast"></div>
   <div class="crier-modal" id="crierModal" onclick="if(event.target===this)Armory.closeCrier()"><iframe id="crierFrame" title="The Town Crier"></iframe></div>
+  <div class="modal-bg" id="deedModal" onclick="if(event.target===this)Armory.closeDeeds()">
+    <div class="modal" style="max-width:560px">
+      <h3 id="deedModalTitle">Deeds</h3>
+      <div id="deedModalBody"></div>
+      <div class="acts"><span style="flex:1"></span><button type="button" class="btn ghost sm" onclick="Armory.closeDeeds()">Close</button></div>
+    </div>
+  </div>
 
 <script>
 (function () {
@@ -392,6 +450,7 @@
       _events = Array.isArray(_state.events) ? _state.events : [];
       renderLegends(); renderRoundTable(); renderChampions(); renderEvents();
       renderQuest(); renderBell(); renderCelebrations(); renderCrier();   // Deploy 237.082
+      loadDeeds();                                                        // Deploy 237.085
       document.getElementById('evAdmin').style.display = _state.isAdmin ? 'block' : 'none';
     }).catch(function (err) {
       document.getElementById('rtTable').innerHTML = '<div class="empty">The scroll could not be read: ' + escH(err && err.message || 'unknown') + '</div>';
@@ -547,6 +606,118 @@
     }).join('');
     document.getElementById('legends').innerHTML = html + (others ? '<div style="grid-column:1/-1;border-top:1px solid rgba(201,161,74,0.35);padding-top:6px;margin-top:4px">' +
       '<div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#f3d98a">Plaques above: ' + escH(q.name || 'the quest') + ' · other quests</div>' + others + '</div>' : '');
+    mountWarriors();
+  }
+
+  // ── Deploy 237.085 — animated warriors behind the Legend plaques ──
+  // Pixel maps → canvas → <img>; CSS does the bobbing, swinging and flapping.
+  var WPAL = { G: '#e3b341', g: '#b8860b', S: '#cfd6dd', s: '#7d8790', R: '#b3261e', Y: '#ffd866', E: '#1a1a1a', F: '#f1c27d', M: '#3b2414', D: '#3f8a3f', d: '#7cc36a', T: '#b87333', t: '#7a4a1e', P: '#3b2a55', O: '#e8752a' };
+  var WARRIORS = {
+    paladin: { body: [
+      '.....YYYY.....', '....Y.YY.Y....', '....GGGGGG....', '...GGGGGGGG...', '...GGEEEEGG...', '...GGGGGGGG...', '....GGGGGG....',
+      '..RRGGGGGGRR..', '.RRGGGGGGGGRR.', '.RR.GGGGGG.RR.', '.RR.GGGGGG.RR.', '.RR.GGGGGG.RR.', '.RR.GGGGGG.RR.', '.RR..GGGG..RR.',
+      '.RR..GGGG..RR.', '.RR.GGGGGG.RR.', '....GGGGGG....', '....GG..GG....', '....GG..GG....', '....GG..GG....', '...ggg..ggg...', '...ggg..ggg...' ],
+      weapon: [ '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '.SSSS.', 'GGGGGG', '..gg..', '..gg..', '..gg..', '..YY..' ] },
+    dragon: { body: [
+      '..s........s..', '..s........s..', '...sSSSSSSs...', '...SSSSSSSS...', '...SSEEEESS...', '...SSSSSSSS...', '....SSSSSS....',
+      '..PPSSSSSSPP..', '.PPSSSSSSSSPP.', '.P..SSSSSS..P.', '....SSSSSS....', '....SDDDDS....', '....SSSSSS....', '....SSSSSS....',
+      '.....SSSS.....', '.....SSSS.....', '....SSSSSS....', '....SS..SS....', '....SS..SS....', '....SS..SS....', '...sss..sss...', '...sss..sss...' ],
+      wing: [ 'DD....................DD', 'DDD..................DDD', 'DDDD................DDDD', 'DDDDD..............DDDDD', 'DDDDDD............DDDDDD', 'DDDdDDD..........DDDdDDD',
+        'DDDdDDDD........DDDDdDDD', '.DDdDDDDD......DDDDDdDD.', '..DDDDDDDD....DDDDDDDD..', '...DDDDDDD....DDDDDDD...', '....DDDDD......DDDDD....', '.....DDD........DDD.....' ],
+      weapon: [ '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '..SS..', '.SSSS.', 'PPPPPP', '..gg..', '..gg..', '..OO..' ] },
+    berserker: { body: [
+      '....RRRRRR....', '...RRRRRRRR...', '...RFFFFFFR...', '...RFEFFEFR...', '...RFFFFFFR...', '...MMMMMMMM...', '....MMMMMM....', '.....MMMM.....',
+      '..FFTTTTTTFF..', '.FFFTTTTTTFFF.', '.FF.TTTTTT.FF.', '.FF.TtTTtT.FF.', '.FF.TTTTTT.FF.', '....TTTTTT....', '....TTTTTT....', '....tttttt....',
+      '....TT..TT....', '....TT..TT....', '....TT..TT....', '....TT..TT....', '...ttt..ttt...', '...ttt..ttt...' ],
+      weapon: [ '.SSS....', 'SSSSS...', 'SSSSSS..', 'SSSSSSS.', '.SSSSgg.', '..SSSgg.', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..', '....gg..' ],
+      weapon2: [ '....SSS.', '...SSSSS', '..SSSSSS', '.SSSSSSS', '.ggSSSS.', '.ggSSS..', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....', '..gg....' ] }
+  };
+  function wSprite(rows, scale) {
+    var h = rows.length, w = rows[0].length;
+    var c = document.createElement('canvas'); c.width = w * scale; c.height = h * scale;
+    var x = c.getContext('2d');
+    for (var r = 0; r < h; r++) for (var i = 0; i < w; i++) { var ch = rows[r].charAt(i); if (ch === '.' || !WPAL[ch]) continue; x.fillStyle = WPAL[ch]; x.fillRect(i * scale, r * scale, scale, scale); }
+    var img = document.createElement('img'); img.src = c.toDataURL(); img.width = c.width; img.height = c.height; img.alt = '';
+    return img;
+  }
+  function mountWarriors() {
+    var plaques = document.querySelectorAll('#legends .plaque');
+    var kinds = ['paladin', 'dragon', 'berserker'];
+    for (var i = 0; i < plaques.length && i < 3; i++) {
+      var def = WARRIORS[kinds[i]], wrap = document.createElement('div');
+      wrap.className = 'warrior w' + (i + 1);
+      if (def.wing) { var wg = wSprite(def.wing, 2); wg.className = 'wing'; wrap.appendChild(wg); }
+      var body = wSprite(def.body, 2.5); body.className = 'body'; wrap.appendChild(body);
+      var wp = wSprite(def.weapon, 2.5); wp.className = 'weapon'; wrap.appendChild(wp);
+      if (def.weapon2) { var wp2 = wSprite(def.weapon2, 2.5); wp2.className = 'weapon2'; wrap.appendChild(wp2); }
+      plaques[i].appendChild(wrap);
+    }
+  }
+
+  // ── Deploy 237.085 — Hall of Deeds ──────────────────────────────
+  var _deeds = null;
+  function loadDeeds() {
+    SLA.api('GET', '/api/armory-achievements').then(function (r) {
+      _deeds = r || {};
+      renderDeeds();
+    }).catch(function (err) {
+      document.getElementById('deedTable').innerHTML = '<div class="empty">The chronicles could not be read: ' + escH(err && err.message || 'unknown') + '</div>';
+    });
+  }
+  function deedDef(key) { var ds = (_deeds && _deeds.deeds) || []; for (var i = 0; i < ds.length; i++) if (ds[i].key === key) return ds[i]; return null; }
+  function rankName(t) { var R = (_deeds && _deeds.ranks) || ['I', 'II', 'III', 'IV', 'V']; return R[t - 1] || String(t); }
+  function fmtDeedVal(def, v) { return def && def.money ? '$' + fmt(v) : fmt(v); }
+  function renderDeeds() {
+    var d = _deeds || {}, members = (d.members || []).slice();
+    var me = String((_user && _user.email) || '').toLowerCase();
+    // Sort: most earned rank-points first, then name.
+    function pts(m) { var s = 0; Object.keys(m.earned || {}).forEach(function (k) { s += m.earned[k].tier; }); return s; }
+    members.sort(function (a, b) { return pts(b) - pts(a) || String(a.name).localeCompare(String(b.name)); });
+    var recent = (d.recent || []).slice(0, 6);
+    document.getElementById('deedRecent').innerHTML = recent.length
+      ? recent.map(function (r) { var def = deedDef(r.key) || { icon: '📜', name: r.key }; return '<span>' + escH(def.icon) + ' <b>' + escH(shortName(r.name)) + '</b> — ' + escH(def.name) + ' ' + rankName(r.tier) + ' <span style="color:#8a7350">· ' + escH(ago(r.at)) + '</span></span>'; }).join('')
+      : '';
+    if (!members.length) { document.getElementById('deedTable').innerHTML = '<div class="empty">No deeds recorded yet.</div>'; return; }
+    var rows = members.map(function (m) {
+      var badges = Object.keys(m.earned || {}).map(function (k) { return { k: k, t: m.earned[k].tier, def: deedDef(k) }; }).filter(function (b) { return b.def; })
+        .sort(function (a, b) { return b.t - a.t; })
+        .map(function (b) { return '<span class="badge r' + b.t + '" title="' + escAttr(b.def.name + ' — Rank ' + rankName(b.t)) + '">' + escH(b.def.icon) + '<span class="rk">' + rankName(b.t) + '</span></span>'; }).join('');
+      return '<tr class="' + (m.email === me ? 'me' : '') + '" onclick="Armory.showDeeds(\'' + escAttr(m.email) + '\')"><td class="nm">' + escH(m.name || m.email) + '</td><td>' + (badges || '<span style="color:#8a7350;font-style:italic;font-size:12px">no deeds yet — the chronicles await</span>') + '</td></tr>';
+    }).join('');
+    document.getElementById('deedTable').innerHTML = '<table class="deeds"><tbody>' + rows + '</tbody></table>' +
+      '<div style="font-size:11px;color:#8a7350;margin-top:8px">Updated ' + escH(ago(d.computedAt)) + ' · recomputed every morning.</div>';
+    var adm = document.getElementById('deedAdmin');
+    if (_state && _state.isAdmin) { adm.style.display = 'block'; adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.recomputeDeeds(this)">⟳ Recompute deeds now</button> <span style="font-size:11px;color:#8a7350">after entering start dates, or to check a fresh closing</span>'; }
+  }
+  function showDeeds(email) {
+    var d = _deeds || {}, m = null;
+    (d.members || []).forEach(function (x) { if (x.email === email) m = x; });
+    if (!m) return;
+    var defs = d.deeds || [];
+    var html = defs.map(function (def) {
+      var e = (m.earned || {})[def.key], tier = e ? e.tier : 0;
+      var val = Number((m.metrics || {})[def.metric]) || 0;
+      var next = def.tiers[tier] != null ? def.tiers[tier] : null;
+      var prevT = tier ? def.tiers[tier - 1] : 0;
+      var frac = next != null ? Math.max(0, Math.min(1, (val - prevT) / (next - prevT))) : 1;
+      return '<div class="deed-row' + (tier ? '' : ' locked') + '"><div class="ic">' + escH(def.icon) + '</div><div>' +
+        '<div class="t">' + escH(def.name) + '</div><div class="d">' + escH(def.desc) + ' <b>' + escH(fmtDeedVal(def, val)) + '</b> ' + escH(def.unit) +
+        (next != null ? ' · next rank at ' + escH(fmtDeedVal(def, next)) : ' · maxed out') + '</div>' +
+        '<div class="bar"><i style="width:' + Math.round(frac * 100) + '%"></i></div></div>' +
+        '<div class="r">' + (tier ? 'Rank ' + rankName(tier) : '—') + '</div></div>';
+    }).join('');
+    document.getElementById('deedModalTitle').textContent = '📜 ' + (m.name || m.email);
+    document.getElementById('deedModalBody').innerHTML = html;
+    document.getElementById('deedModal').className = 'modal-bg open';
+  }
+  function closeDeeds() { document.getElementById('deedModal').className = 'modal-bg'; }
+  function recomputeDeeds(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Reading every closed loan…'; }
+    SLA.api('POST', '/api/armory-admin', { action: 'achievements-recompute' }).then(function (r) {
+      showToast('Deeds recomputed for ' + (r && r.members) + ' knights' + (r && r.announced ? ' · ' + r.announced + ' new rank' + (r.announced === 1 ? '' : 's') : '') + '.');
+      loadDeeds();
+    }).catch(function (err) { showToast('⚠ ' + (err && err.message || 'unknown')); })
+      .then(function () { if (btn) { btn.disabled = false; btn.textContent = '⟳ Recompute deeds now'; } });
   }
 
   function renderChampions() {
@@ -675,11 +846,12 @@
     }).catch(function (err) { showToast('⚠ ' + (err && err.message || 'unknown')); });
   }
 
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeModal(); closeDeeds(); closeCrier(); } });
   document.getElementById('evModal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 
   window.Armory = { editEvent: editEvent, closeModal: closeModal, saveEvent: saveEvent, deleteEvent: deleteEvent, voidScore: voidScore,
-    readCrier: readCrier, closeCrier: closeCrier, crierTest: crierTest };
+    readCrier: readCrier, closeCrier: closeCrier, crierTest: crierTest,
+    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds };
 })();
 </script>
 </body>

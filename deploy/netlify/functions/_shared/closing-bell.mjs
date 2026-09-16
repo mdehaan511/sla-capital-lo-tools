@@ -19,6 +19,7 @@
 import { getStore } from '@netlify/blobs';
 import { postSlack } from './slack.mjs';
 import { resolveOwnerEmail } from './email.mjs';
+import { touchPulse } from './armory.mjs'; // Deploy 237.085
 
 const PORTAL = 'https://portal.slacapital.ai';
 
@@ -84,6 +85,7 @@ export async function ringClosingBell({ ownerKey, loan, client }) {
       (borrower ? '\n_' + borrower + '_' : '') +
       '\n<' + PORTAL + '/loan-details/' + encodeURIComponent(loan.id) + '|Open the loan>  ·  <' + PORTAL + '/armory.html|The Armory>';
     await postSlack({ text }, { channel: 'armory' });
+    await touchPulse('bell', loName + ' just closed ' + (amt ? amt + ' ' : '') + entry.program); // Deploy 237.085
     return entry;
   } catch (e) {
     console.warn('[closing-bell] failed:', e && e.message);
