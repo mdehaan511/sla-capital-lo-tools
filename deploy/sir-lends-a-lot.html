@@ -23,9 +23,9 @@
 
        SCORING (the server's plausibility cap depends on this — keep in sync
        with MAX_POINTS_PER_SEC in _shared/armory.mjs):
-         distance: 1 pt per 30px  → 11 pts/s at BASE_SPEED, 25 pts/s at MAX_SPEED
+         distance: 1 pt per 30px  → 11 pts/s at BASE_SPEED, 33 pts/s at MAX_SPEED2 (1000, Deploy 237.087)
          coin +25, money bag +100; a cluster of ≤6 coins every ≥2.4s → ≤ ~50 pts/s
-         theoretical ceiling ≈ 75 pts/s; server cap is 90 pts/s + 300 slack. -->
+         theoretical ceiling ≈ 83 pts/s; server cap (GAMES.gallop.maxPps) is 100 pts/s + 300 slack. -->
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -338,6 +338,23 @@
     'oOOOOo',
     '.oOOo.'
   ];
+  // Deploy 237.087 — the bat (flies at jump height; two wing frames).
+  var BAT_A = [
+    'PP......PP',
+    'PPP....PPP',
+    'PPPPEEPPPP',
+    '.PPPPPPPP.',
+    '...PPPP...',
+    '....PP....'
+  ];
+  var BAT_B = [
+    '..........',
+    '....EE....',
+    '.PPPPPPPP.',
+    'PPPPPPPPPP',
+    'PP..PP..PP',
+    'P...PP...P'
+  ];
   var BAG = [
     '...TTTT...',
     '....TT....',
@@ -406,7 +423,16 @@
   var Game = (function () {
     var W = 900, H = 320, GROUND = 270, SCALE = 3;
     var GRAV = 2400, JUMP_V = -720;
-    var BASE_SPEED = 340, MAX_SPEED = 760, ACCEL = 6;   // px/s, px/s, px/s per s (→ max after ~70s)
+    var BASE_SPEED = 340, MAX_SPEED = 760, ACCEL = 6;   // px/s, px/s, px/s per s (→ 760 after ~70s)
+    // Deploy 237.087 (Mike): "after ~3000 points it gets easier — stuff is too
+    // spread out; you can go forever if you never try for coins." The old curve
+    // capped speed at 70s and kept a FIXED 0.95–1.75s gap, so faster = easier
+    // (the jump covers more ground). Now: speed keeps creeping to 1000 over the
+    // next 150s, the gap between obstacles shrinks over DIFF_SECONDS, late
+    // obstacles come in PAIRS you must clear in one hop or with a quick re-jump,
+    // and a BAT flies at jump height so a reflex jump is sometimes the wrong move.
+    var MAX_SPEED2 = 1000, ACCEL2 = 1.6, DIFF_SECONDS = 240;
+    var BAT_AFTER = 45, PAIR_AFTER = 60;
     var COIN_PTS = 25, BAG_PTS = 100;
     var DUSK_SECONDS = 150;
 
@@ -457,6 +483,8 @@
       sprites.taxman = makeSprite(TAXMAN, SCALE);
       sprites.dragon = makeSprite(DRAGON, SCALE, null, true);     // flipped so the head faces the knight
       sprites.fire = makeSprite(FIRE, SCALE);
+      sprites.batA = makeSprite(BAT_A, SCALE);   // Deploy 237.087 — wings up / down
+      sprites.batB = makeSprite(BAT_B, SCALE);
       sprites.bag = makeSprite(BAG, SCALE);
       var roofs = [{ t: '#5c3a1a' }, { t: '#8e2a22' }, { t: '#3b2a55' }, { t: '#2f5a6e' }, { t: '#6b4f2a' }];
       sprites.houses = [];
@@ -533,21 +561,43 @@
     }
 
     // ── Update ─────────────────────────────────────────────────────
+    function difficulty() { return Math.min(1, runTime / DIFF_SECONDS); }
     function spawnObstacle() {
+      var d = difficulty();
       var r = Math.random();
       var type;
-      if (runTime > 20 && r < 0.12) type = 'stamp2';
-      else if (runTime > 9 && r < 0.34) type = 'dragon';
-      else if (r < 0.64) type = 'taxman';
+      var batP = runTime > BAT_AFTER ? 0.08 + 0.17 * d : 0;
+      if (r < batP) type = 'bat';
+      else if (runTime > 20 && r < batP + 0.12) type = 'stamp2';
+      else if (runTime > 9 && r < batP + 0.34) type = 'dragon';
+      else if (r < batP + 0.64) type = 'taxman';
       else type = 'stamp';
-      var w, h;
+      var w, h, y;
       if (type === 'stamp') { w = 54; h = 36; }
       else if (type === 'stamp2') { w = 114; h = 36; }
       else if (type === 'taxman') { w = sprites.taxman.width; h = sprites.taxman.height; }
+      else if (type === 'bat') { w = sprites.batA.width; h = sprites.batA.height; }
       else { w = sprites.dragon.width; h = sprites.dragon.height; }
-      obstacles.push({ type: type, x: W + 30, y: GROUND - h, w: w, h: h, rot: rand(-0.16, 0.16) });
-      // Gap in TIME (so it scales with speed): ≥ 0.95s between obstacles.
-      nextObstacleAt = distance + speed * rand(0.95, 1.75) + w;
+      // The bat flies where a JUMPING knight's body is (hitbox top reaches
+      // ~GROUND-150 at the apex; a grounded knight's hitbox starts at GROUND-42),
+      // and comes in faster than the ground scrolls. Stay down and it misses.
+      y = type === 'bat' ? GROUND - 128 - rand(0, 10) : GROUND - h;
+      var first = { type: type, x: W + 30, y: y, w: w, h: h, rot: rand(-0.16, 0.16), vx: type === 'bat' ? 1.25 : 1 };
+      obstacles.push(first);
+      var lastRight = first.x + w;
+      // Late game: a second ground obstacle right behind the first — clear both
+      // in one hop, or land and re-jump instantly (air time is 0.6s).
+      if (runTime > PAIR_AFTER && type !== 'bat' && type !== 'stamp2' && type !== 'dragon' && Math.random() < 0.10 + 0.18 * d) {
+        var t2 = Math.random() < 0.5 ? 'stamp' : 'taxman';
+        var w2 = t2 === 'stamp' ? 54 : sprites.taxman.width, h2 = t2 === 'stamp' ? 36 : sprites.taxman.height;
+        var x2 = lastRight + speed * rand(0.72, 0.88);
+        obstacles.push({ type: t2, x: x2, y: GROUND - h2, w: w2, h: h2, rot: rand(-0.16, 0.16), vx: 1 });
+        lastRight = x2 + w2;
+      }
+      // Gap in TIME (so it scales with speed) that SHRINKS with difficulty:
+      // 1.0–1.7s early → 0.62–1.06s by DIFF_SECONDS. Never below 0.62s.
+      var gapT = Math.max(0.62, (1.35 - 0.5 * d) * rand(0.75, 1.25));
+      nextObstacleAt = distance + (lastRight - (W + 30)) + speed * gapT;
     }
 
     function spawnPickups() {
@@ -569,6 +619,7 @@
 
     function hitbox(o) {
       if (o.kind) return { x: o.x + 2, y: o.y + 2, w: o.w - 4, h: o.h - 4 };
+      if (o.type === 'bat') return { x: o.x + 3, y: o.y + 3, w: o.w - 6, h: o.h - 6 };
       return { x: o.x + 7, y: o.y + 6, w: o.w - 14, h: o.h - 6 };
     }
     function overlaps(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
@@ -576,7 +627,7 @@
     function update(dt) {
       if (state !== 'running') return;
       runTime += dt;
-      speed = Math.min(MAX_SPEED, BASE_SPEED + ACCEL * runTime);
+      speed = Math.min(MAX_SPEED2, BASE_SPEED + ACCEL * Math.min(runTime, (MAX_SPEED - BASE_SPEED) / ACCEL) + ACCEL2 * Math.max(0, runTime - (MAX_SPEED - BASE_SPEED) / ACCEL));
       distance += speed * dt;
       score = Math.floor(distance / 30) + coinPts;
 
@@ -593,7 +644,7 @@
       var i;
       for (i = obstacles.length - 1; i >= 0; i--) {
         var o = obstacles[i];
-        o.x -= speed * dt;
+        o.x -= speed * dt * (o.vx || 1);
         if (o.x + o.w < -60) { obstacles.splice(i, 1); continue; }
       }
       for (i = pickups.length - 1; i >= 0; i--) {
@@ -635,6 +686,7 @@
       var lines = CRASH_LINES;
       if (by.type === 'dragon') lines = [CRASH_LINES[1], 'Roasted. The dragon prefers its lenders well done.', 'Dragon 1, Knight 0. Try a shorter amortization.'];
       else if (by.type === 'taxman') lines = [CRASH_LINES[2], 'Audited at full gallop.', 'The tax man always collects.'];
+      else if (by.type === 'bat') lines = ['A bat. Of course a bat.', 'The bat says the appraisal came in high. Too high.', 'Should have stayed on the ground. Rate locked.', 'Bats fly at jump height. Underwriting knows this.'];
       crashLine = lines[Math.floor(Math.random() * lines.length)];
       finishRun();
     }
@@ -770,6 +822,7 @@
         if (o.type === 'stamp') drawStamp(o.x, o.y, o.w, o.h, o.rot);
         else if (o.type === 'stamp2') { drawStamp(o.x, o.y, 54, o.h, o.rot); drawStamp(o.x + 60, o.y, 54, o.h, -o.rot); }
         else if (o.type === 'taxman') ctx.drawImage(sprites.taxman, o.x, o.y);
+        else if (o.type === 'bat') ctx.drawImage(Math.floor(fireTick * 10) % 2 === 0 ? sprites.batA : sprites.batB, o.x, o.y);
         else {
           ctx.drawImage(sprites.dragon, o.x, o.y);
           if (Math.floor(fireTick * 8) % 2 === 0) ctx.drawImage(sprites.fire, o.x - sprites.fire.width + 2, o.y + 12);

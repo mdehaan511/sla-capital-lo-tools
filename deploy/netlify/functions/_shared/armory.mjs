@@ -56,7 +56,7 @@ export const GAME_ID = 'gallop';
 // ride time) — keep each ABOVE the game's real ceiling (see the SCORING
 // comment at the top of each game page) or honest runs bounce.
 export const GAMES = {
-  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors and one very hungry dragon.', icon: '🏇', maxPps: 90 },
+  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors, bats and one very hungry dragon.', icon: '🏇', maxPps: 100 }, // 237.087: speed now reaches 1000 px/s
   'coin-catch': { id: 'coin-catch', name: 'Coin Catch', href: '/coin-catch.html', blurb: 'Catch the falling gold, dodge the falling DENIED stamps. Two arrows, three lives, no mercy.', icon: '💰', maxPps: 140 },
   'fund-the-house': { id: 'fund-the-house', name: 'Fund the House', href: '/fund-the-house.html', blurb: 'Houses pop up for a heartbeat. Fund them before a competitor does — but never the one with the dragon in the window. Sixty seconds.', icon: '🏠', maxPps: 700 },
 };
