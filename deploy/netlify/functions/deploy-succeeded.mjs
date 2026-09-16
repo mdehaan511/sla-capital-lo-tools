@@ -18,6 +18,10 @@ import { getStore } from '@netlify/blobs';
 // with the internal HMAC header; it returns 202 and runs up to 15 min).
 const ONE_SHOT_JOBS = [
   { key: 'guarantor-trays-backfill-v1', fn: 'guarantor-trays-backfill-background', sig: 'guarantor-trays' },
+  // Deploy 237.118 (Mike, "run a blanks only backfill") -- DIYA / TPO 1 onto pipeline
+  // DSCR loans that predate the 237.084 save-time rule (blanks only; report in
+  // settings/dscr_defaults_backfill_last).
+  { key: 'dscr-defaults-backfill-v1', fn: 'dscr-defaults-backfill-background', sig: 'dscr-defaults' },
 ];
 async function runOneShotJobs() {
   const out = [];
