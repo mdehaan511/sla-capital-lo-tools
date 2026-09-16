@@ -115,7 +115,8 @@ export async function announcePricingChanges(opts) {
     basis = 'pricing-history';
   }
   const text = buildMessage(cur, prev);
-  const result = { ok: true, basis, current: cur, previous: prev, text, posted: false, source: o.source || '' };
+  const result = { ok: true, basis, current: cur, previous: prev, text, posted: false, source: o.source || '',
+    last: last ? { at: last.at, posted: !!last.posted, source: last.source || '', text: last.text || '' } : null }; // Deploy 237.090 -- admin dry-run shows what the deploy hook did
   if (!text && !o.force) { result.reason = 'no-change'; return result; }
   if (o.dryRun) { result.reason = 'dry-run'; return result; }
   const body = text || buildMessage(cur, {}) || `<!channel> DSCR pricing re-announced: ${PRODUCTS.map((p) => p.label + ' ' + fmtRate(cur[p.key].fixed) + ' / ' + fmtRate(cur[p.key].arm)).join('; ')}.`;
