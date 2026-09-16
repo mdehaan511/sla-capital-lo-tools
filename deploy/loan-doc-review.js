@@ -226,6 +226,11 @@
 
       // .section here would collide with the host page; use .dr-section.
       '.dr-root .dr-section { margin-bottom:1.5rem; }',
+      // Deploy 237.110 (Mike) -- stacked per-guarantor groups inside the Guarantor section.
+      '.dr-root .dr-gsec { margin:10px 0 18px; padding:10px 12px 4px; border:1px solid var(--border); border-radius:10px; background:rgba(200,129,58,0.04); }',
+      '.dr-root .dr-gsec-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 8px; }',
+      '.dr-root .dr-gsec-title { font-size:13px; font-weight:700; color:var(--text); }',
+      '.dr-root .dr-gsec-meta { font-size:11px; color:var(--muted); margin-left:auto; }',
       '.dr-root .section-title { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; padding-left:4px; }',
       // Deploy 236.161 — section header row (title + Show/Hide N hidden toggle).
       '.dr-root .section-title-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }',
@@ -1313,12 +1318,44 @@
           return (pi == null) || pi === _ap; // untagged collateral (shared) always shows
         });
       }
-      // Deploy 237.106 (Raissa) — 2+ guarantors: the Guarantor section gets a
-      // Guarantor 1 / 2 / … tab strip; each person has their OWN ID / credit /
-      // background / OFAC / citizenship / LOE / PFS trays ("<base>__g<i>",
-      // tagged guarantorIndex). Untagged guarantor trays (Credit Authorization,
-      // custom, a borrower-portal inbox) show under every tab.
+      // Deploy 237.106 (Raissa) — 2+ guarantors: each person has their OWN ID / credit /
+      // background / OFAC / citizenship / LOE / PFS trays ("<base>__g<i>", tagged
+      // guarantorIndex); untagged guarantor trays are shared. The Guarantor 1/2 tab strip
+      // was replaced by stacked groups in 237.110 (Mike) -- the old block is kept below
+      // behind `false` for reference only.
       if (sec.key === 'guarantor' && Array.isArray(_review.guarantors) && _review.guarantors.length > 1) {
+        // Deploy 237.110 (Mike) -- STACKED per-guarantor groups instead of the Guarantor 1/2
+        // tab strip: every guarantor's own trays under their own header (name, n/N
+        // collected, approved count, a "+ Add" that files a custom tray under them), then
+        // the shared trays (Credit Authorization, inbox, custom) under "All guarantors".
+        // Groups with nothing on the current tab are skipped.
+        var _shared = [], _byG = {};
+        standardInSec.forEach(function(s) {
+          var gi = (_review.docs[s] || {}).guarantorIndex;
+          if (gi == null) _shared.push(s); else (_byG[gi] = _byG[gi] || []).push(s);
+        });
+        _propTabsHtml = _review.guarantors.map(function(g, i) {
+          var list = _byG[i] || [];
+          if (!list.length) return '';
+          var have = list.filter(function(s) { var dd = _review.docs[s] || {}; return _trayHasDoc(dd) || dd.verdict === 'na'; }).length;
+          var ok = list.filter(function(s) { return _stageOf(s) === 'reviewed'; }).length;
+          var title = (g.label || ('Guarantor ' + (i + 1))) + (g.name ? ' \u2014 ' + g.name : '');
+          return '<div class="dr-gsec">' +
+            '<div class="dr-gsec-head">' +
+              '<span class="dr-gsec-title">' + escHtml(title) + '</span>' +
+              '<span class="dr-gsec-meta">' + have + '/' + list.length + ' collected' + (ok ? ' \u00b7 ' + ok + ' approved' : '') + '</span>' +
+              (_activeTab === 'pending' ? '<button type="button" class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'guarantor\',\'\',' + i + ')" title="Add a document tray for this guarantor">+ Add</button>' : '') +
+            '</div>' +
+            list.map(renderTray).join('') +
+          '</div>';
+        }).join('') +
+        (_shared.length
+          ? '<div class="dr-gsec"><div class="dr-gsec-head"><span class="dr-gsec-title">All guarantors \u2014 shared</span>' +
+            '<span class="dr-gsec-meta">' + _shared.length + ' tray' + (_shared.length === 1 ? '' : 's') + '</span></div>' + _shared.map(renderTray).join('') + '</div>'
+          : '');
+        _stdToRender = []; // rendered above, grouped
+      }
+      if (false && sec.key === 'guarantor' && Array.isArray(_review.guarantors) && _review.guarantors.length > 1) {
         var _ag = _activeGuarantor || 0;
         if (_ag >= _review.guarantors.length) _ag = 0;
         _propTabsHtml = '<div class="dr-prop-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">' +
@@ -1696,9 +1733,12 @@
     var pct = Math.round(st.have / st.required * 100);
     var bySec = {};
     st.missing.forEach(function(s) {
-      var m = DOC_META[s] || {}; var dd = _review.docs[s] || {};
+      var dd = _review.docs[s] || {};
+      var m = DOC_META[s] || DOC_META[String(s).replace(/__[pg]\d+$/, '')] || {}; // Deploy 237.110 -- per-guarantor / per-property trays resolve by base
       var sec = m.section || dd.section || 'loan';
-      (bySec[sec] = bySec[sec] || []).push(m.label || dd.label || s);
+      var _gl = m.label || dd.label || s;
+      if (dd.guarantorIndex != null && Array.isArray(_review.guarantors) && _review.guarantors[dd.guarantorIndex] && _review.guarantors[dd.guarantorIndex].name) _gl += ' (' + _review.guarantors[dd.guarantorIndex].name + ')'; // Deploy 237.110
+      (bySec[sec] = bySec[sec] || []).push(_gl);
     });
     var missingHtml = st.missing.length
       ? SECTIONS.map(function(sec) {
@@ -2993,8 +3033,14 @@
   // expect. The upload endpoint doesn't validate against the
   // checklist — it just checks the slug exists in review.docs —
   // so uploads to custom slugs work without backend changes.
-  global.dr_openAddDocModal = function(sectionKey, sectionLabel) {
-    _pendingAddDoc = { sectionKey: sectionKey, sectionLabel: sectionLabel };
+  global.dr_openAddDocModal = function(sectionKey, sectionLabel, guarantorIndex) {
+    // Deploy 237.110 -- a guarantor's "+ Add" passes only the index (names never ride
+    // inside inline JS); the label is derived here and the new tray is filed under them.
+    if (guarantorIndex != null && Array.isArray(_review.guarantors) && _review.guarantors[guarantorIndex]) {
+      var _g = _review.guarantors[guarantorIndex];
+      sectionLabel = (_g.label || ('Guarantor ' + (guarantorIndex + 1))) + (_g.name ? ' \u2014 ' + _g.name : '');
+    }
+    _pendingAddDoc = { sectionKey: sectionKey, sectionLabel: sectionLabel, guarantorIndex: (guarantorIndex == null ? null : guarantorIndex) };
     var lbl = document.getElementById('dr-addDocSection');
     if (lbl) lbl.textContent = sectionLabel;
     var inp = document.getElementById('dr-addDocName');
@@ -3061,6 +3107,7 @@
     var slug = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     var patch = { docs: {} };
     patch.docs[slug] = _blankCustomDoc(slug, name, section);
+    if (_pendingAddDoc.guarantorIndex != null) patch.docs[slug].guarantorIndex = _pendingAddDoc.guarantorIndex; // Deploy 237.110
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
       global.dr_closeAddDocModal();
