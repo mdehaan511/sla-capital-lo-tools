@@ -693,6 +693,13 @@
 
 # Deploy 236.107 — minimal user directory for in-app pickers
 # (task assignee, @-mention, contacts). Any authenticated user.
+# Deploy 237.089 -- admin dry-run / manual post of the DSCR pricing-change Slack notice
+[[redirects]]
+  from = "/api/pricing-announce"
+  to = "/.netlify/functions/pricing-announce"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/users-directory"
   to = "/.netlify/functions/users-directory"
@@ -873,7 +880,7 @@
   status = 200
   force = true
 
-# Deploy 237.085 (Mike): Hall of Deeds (tiered achievements, everyone sees
+# Deploy 237.089 (Mike): Hall of Deeds (tiered achievements, everyone sees
 # everyone's) + the Armory pulse (nav link blinks until you visit).
 [[redirects]]
   from = "/api/armory-achievements"
@@ -2428,7 +2435,7 @@
   timeout = 26
 [functions.esign-sign-submit]
   timeout = 26
-# Deploy 237.085 — the Hall of Deeds walks every closed loan in Postgres; the
+# Deploy 237.089 — the Hall of Deeds walks every closed loan in Postgres; the
 # first (lazy) build and the daily recompute need the full on-demand budget.
 [functions.armory-achievements]
   timeout = 26

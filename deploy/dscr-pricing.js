@@ -75,7 +75,11 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "September 15, 2026",
+  effectiveDate: "September 16, 2026",
+  // Deploy 237.089 — 9.16.26 sheet ("rate-sheet-2026-09-16.xlsx"): base rates
+  //   +0.100 across the board (30Y/10-6 6.875 -> 6.975; 7/6 & 5/6 6.775 -> 6.875).
+  //   Every other cell byte-identical to the 9.15.26 sheet (diffed cell-by-cell:
+  //   4 differing cells = the two dates + the two base rates).
   // Deploy 237.047 — 9.15.26 sheet ("rate-sheet-2026-09-15.xlsx"): base rates
   //   +0.050 across the board (30Y/10-6 6.825 -> 6.875; 7/6 & 5/6 6.725 -> 6.775).
   //   Every other table byte-identical to the 9.12.26 sheet (FICO, IO, Cash-Out,
@@ -102,7 +106,7 @@ const DIYA = {
   //
   // Deploy 236.842 — 9.2.26 sheet: base rates +0.050 across all four products;
   // everything else unchanged.
-  baseRate: { "30Y Fixed": 6.875, "10/6 ARM": 6.875, "7/6 ARM": 6.775, "5/6 ARM": 6.775 }, // 237.047: +0.050 (9.15.26 sheet)
+  baseRate: { "30Y Fixed": 6.975, "10/6 ARM": 6.975, "7/6 ARM": 6.875, "5/6 ARM": 6.875 }, // 237.089: +0.100 (9.16.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.075,-0.050,-0.025, 0.100],
@@ -633,7 +637,10 @@ function priceDSCR(raw) {
 // of PRICING_HISTORY whose overrides hold the PREVIOUS sheet's values for
 // every key the new sheet changed.
 var PRICING_HISTORY = [
-  { effective: '2026-09-15', label: 'September 15, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-16', label: 'September 16, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-15', label: 'September 15, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.875, "10/6 ARM": 6.875, "7/6 ARM": 6.775, "5/6 ARM": 6.775 },
+  } },
   { effective: '2026-09-12', label: 'September 12, 2026', overrides: {
     baseRate: { "30Y Fixed": 6.825, "10/6 ARM": 6.825, "7/6 ARM": 6.725, "5/6 ARM": 6.725 },
   } },
