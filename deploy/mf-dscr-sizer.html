@@ -1747,6 +1747,19 @@ function autoEnableAdminModeFrom(source) {
 // investor it's priced off of. _dscrAdminTpoSeed = "the current or saved TPO"
 // (from the loaded loan, else 1.00) = the reference for "modified".
 var _dscrInvestorBook = null;
+// Deploy 237.116 (Mike, 808 E Dalton) -- the DSCR sizer prices off DIYA, so a save
+// outside Admin Mode files Investor = DIYA + TPO = the engine premium onto the
+// Closing tab when the loan has none yet. The id is DIYA's investor-book record;
+// refreshed from the book whenever it loads.
+var _dscrDefaultInvestor = { id: 'inv_1785363675766_1nl4', name: 'DIYA' };
+function _dscrPrefetchDefaultInvestor() {
+  if (_dscrDefaultInvestor._fromBook || !(window.SLA && SLA.Investors && typeof SLA.Investors.list === 'function')) return;
+  SLA.Investors.list().then(function (r) {
+    var list = (r && r.investors) || [];
+    var d = list.filter(function (i) { return i && /diya/i.test(String(i.name || '')); })[0];
+    if (d && d.id) _dscrDefaultInvestor = { id: String(d.id), name: String(d.name || 'DIYA'), _fromBook: true };
+  }).catch(function () {});
+}
 // Deploy %s (Mike) — Desktop Analysis is $200 on DIYA loans only; any other
 // investor is $120. The investor comes from the loaded loan (Closing tab →
 // _dscrRememberLoadedTpo) or the Admin Mode "Pricing off investor" select. No
@@ -1801,6 +1814,7 @@ function _dscrRememberLoadedTpo(fd) {
   // investor clears one left over from a previous load (it drives the fee now).
   window._dscrAdminInvestor = id ? { id: String(id), name: String(nm || '') } : null;
   _dscrSyncDesktopFeeDefault(); // Deploy 237.065
+  _dscrPrefetchDefaultInvestor(); // Deploy 237.116
 }
 function _dscrAdminTpoInit(source) {
   var el = document.getElementById('adminTpoInput');
@@ -4013,6 +4027,15 @@ function saveCurrentQuote() {
         loanRecord._sizerFormData._adminInvestorId = loanRecord._adminInvestorId;
         loanRecord._sizerFormData._adminInvestorName = loanRecord._adminInvestorName;
       }
+    }
+    // Deploy 237.116 (Mike, 808 E Dalton) -- outside Admin Mode this loan is priced off
+    // DIYA, so the Closing tab's Funding Plan gets Investor = DIYA and TPO = the engine's
+    // premium (1.00) automatically. BLANKS ONLY: a TPO / investor already on the loan
+    // (the seed remembered at load) is never touched.
+    if (!(window._dscrAdminMode && window._dscrAdminTpo != null)) {
+      var _calcTpo = (window._dscrLastCalc && typeof window._dscrLastCalc.netHiddenTpoPct === 'number' && window._dscrLastCalc.netHiddenTpoPct > 0) ? window._dscrLastCalc.netHiddenTpoPct : 1;
+      if (window._dscrAdminTpoSeed == null) loanRecord.tpo = Math.round(_calcTpo * 100) / 100;
+      if (!(window._dscrAdminInvestor && window._dscrAdminInvestor.id)) { loanRecord.investorId = _dscrDefaultInvestor.id; loanRecord.investorName = _dscrDefaultInvestor.name; }
     }
     var nameParts = (formData.borrower || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {

@@ -1924,7 +1924,9 @@ function render() {
   // Funding Plan's own field is loan.tpo. Fall back to tpoPremium so migrated DSCRs
   // show their TPO (saving here rewrites it to the canonical loan.tpo).
   var _fpTpo        = (l.tpo != null && l.tpo !== '') ? l.tpo : (l.tpoPremium != null ? l.tpoPremium : '');
-  var _fpPriceVal   = isDscr ? _fpTpo : (l.buyRate != null ? l.buyRate : '');
+  // Deploy 237.116 (Mike) -- a DSCR loan with no TPO yet shows the DIYA default (1.00)
+  // so one Save persists it; the sizer now writes the same default on save.
+  var _fpPriceVal   = isDscr ? (_fpTpo !== '' ? _fpTpo : '1') : (l.buyRate != null ? l.buyRate : '');
   var _fpPriceHint  = isDscr
     ? 'Third-party origination premium. 1 TPO = 1 point.'
     : 'Yield spread — the rate this loan is bought at.';
@@ -1955,7 +1957,7 @@ function render() {
           '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
         '</div>' +
         '<div class="field"><label>Investor</label>' +
-          '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '">' +
+          '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '"' + ((isDscr && !l.investorId) ? ' data-default-diya="1"' : '') + '>' + // Deploy 237.116
             '<option value="">— None —</option>' +
             // Seed the current selection so it shows before the async book
             // loads; populateFundingPlanInvestors() replaces these options.
@@ -8306,6 +8308,11 @@ function populateFundingPlanInvestors() {
   var current = sel.getAttribute('data-current') || '';
   SLA.Investors.list().then(function(r) {
     var list = (r && r.investors) || [];
+    // Deploy 237.116 -- DSCR loan with no investor yet: pre-select DIYA (persisted on Save).
+    if (!current && sel.getAttribute('data-default-diya') === '1') {
+      var _dy = list.filter(function(i) { return i && /diya/i.test(String(i.name || '')); })[0];
+      if (_dy && _dy.id) current = String(_dy.id);
+    }
     var html = '<option value="">— None —</option>';
     var found = false;
     for (var i = 0; i < list.length; i++) {
