@@ -56,6 +56,8 @@
   timeout = 26
 [functions."ai-usage-digest"]
   timeout = 26
+[functions."ai-usage-report"]
+  timeout = 26
 [functions."borrower-intake-upload"]
   timeout = 26
 [functions."loan-review-ai-retry"]
@@ -907,6 +909,14 @@
 [[redirects]]
   from = "/api/ai-usage-digest"
   to = "/.netlify/functions/ai-usage-digest"
+  status = 200
+  force = true
+
+# Deploy 237.094: on-demand twin of the digest (Netlify 403s direct calls to
+# scheduled functions). Admin only.
+[[redirects]]
+  from = "/api/ai-usage-report"
+  to = "/.netlify/functions/ai-usage-report"
   status = 200
   force = true
 

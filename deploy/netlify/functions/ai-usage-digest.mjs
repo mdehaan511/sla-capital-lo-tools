@@ -5,12 +5,13 @@
  * Weekly (Monday 15:00 UTC = 8am PT) rollup of the per-call records that
  * _shared/ai-usage.mjs writes: spend by feature and by day, cache hit ratio,
  * the loans / reviews that cost the most, and rule-based suggestions. Emailed
- * to Mike. Also callable on demand by an admin:
- *   GET /api/ai-usage-digest?days=7          -> JSON only
- *   GET /api/ai-usage-digest?days=7&send=1   -> JSON + the email
+ * to Mike. Netlify refuses direct HTTP calls to a scheduled function (plain 403
+ * before the handler runs), so the on-demand admin pull lives in
+ * ai-usage-report.mjs (GET /api/ai-usage-report?days=7[&send=1]), which imports
+ * buildDigest / sendDigest from here. Deploy 237.094.
  *
  * Netlify invokes scheduled functions with a POST whose body carries next_run;
- * that path needs no JWT. Anything else must be an admin.
+ * that path needs no JWT. Anything else must be an admin (kept for local dev).
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin } from './_shared/auth.mjs';
@@ -103,7 +104,7 @@ function _html(d) {
       '</div></div></body></html>';
 }
 
-async function _send(d) {
+export async function sendDigest(d) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey || !DIGEST_TO.length) return false;
   const resp = await fetch('https://api.resend.com/emails', {
@@ -141,7 +142,7 @@ export default async (req, context) => {
     }
     const d = await buildDigest(days);
     let emailed = false;
-    if (send) { try { emailed = await _send(d); } catch (e) { console.warn('[ai-usage-digest] email failed:', e && e.message); } }
+    if (send) { try { emailed = await sendDigest(d); } catch (e) { console.warn('[ai-usage-digest] email failed:', e && e.message); } }
     console.log('[ai-usage-digest] ' + d.from + '..' + d.to + ' calls=' + d.totals.calls + ' cents=' + Math.round(d.totals.cents) + ' hit=' + _pct(d.hitRatio) + ' emailed=' + emailed);
     return json(200, Object.assign({ ok: true, emailed }, d));
   } catch (e) {
