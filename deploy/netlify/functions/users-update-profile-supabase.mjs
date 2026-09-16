@@ -40,8 +40,13 @@ export default async (req, context) => {
   const hasPhone = typeof body.phone === 'string';
   // Deploy 237.082 — team calendar: startDate (work anniversary) + birthday,
   // profile-blob only (see _shared/team-events.mjs). '' clears.
-  const hasStart = typeof body.startDate === 'string';
-  const hasBday  = typeof body.birthday === 'string';
+  // Deploy 237.113 (Mike: "Eric's birthday disappeared") — the Users Admin
+  // editor always posts both calendar fields, and its prefill reads the profiles
+  // store with EVENTUAL consistency, so a stale blank + Save wiped a birthday
+  // the LO had entered. An EMPTY string is now "no change"; clearing takes an
+  // explicit clearStartDate / clearBirthday flag.
+  const hasStart = typeof body.startDate === 'string' && (body.startDate.trim() !== '' || body.clearStartDate === true);
+  const hasBday  = typeof body.birthday === 'string' && (body.birthday.trim() !== '' || body.clearBirthday === true);
   if (!hasName && !hasPhone && !hasStart && !hasBday) return json(400, { error: 'Provide fullName and/or phone' });
   const fullName = hasName  ? body.fullName.trim().slice(0, 120) : undefined;
   const phone    = hasPhone ? body.phone.trim().slice(0, 40)     : undefined;

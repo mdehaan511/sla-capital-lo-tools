@@ -383,7 +383,7 @@
           <div>
             <!-- Deploy 237.082 — birthdays + work anniversaries (profiles: birthday / startDate). -->
             <div class="card">
-              <h2>🎂 Celebrations <span class="sub">birthdays, work anniversaries &amp; Founders Day (Aug 6)</span></h2>
+              <h2>🎂 Celebrations</h2>
               <div id="celeList"><div class="empty">Consulting the calendar…</div></div>
               <div class="lede" style="margin:10px 0 0;font-size:12px" id="celeMine"></div>
             </div>
@@ -394,6 +394,12 @@
               <div id="evList"><div class="empty">Reading the notices…</div></div>
               <div id="evAdmin" style="display:none;margin-top:8px"><button type="button" class="btn sm" onclick="Armory.editEvent()">＋ Post an event</button></div>
               <div id="evPast"></div>
+              <!-- Deploy 237.113 (Mike) — upcoming US bank holidays; SLA is closed on every one. -->
+              <div style="margin-top:14px;border-top:1px dashed rgba(90,58,30,0.3);padding-top:10px">
+                <h3 style="font-family:'Cinzel',serif;font-size:13px;color:var(--wood);margin-bottom:4px;letter-spacing:0.04em">🏦 Upcoming Holidays</h3>
+                <div class="lede" style="font-size:12px;margin-bottom:6px">SLA Capital is closed on every US banking (Federal Reserve) holiday.</div>
+                <div id="holidayList"><div class="empty">—</div></div>
+              </div>
             </div>
           </div>
         </div>
@@ -544,6 +550,7 @@
       _events = Array.isArray(_state.events) ? _state.events : [];
       renderLegends(); renderRoundTable(); renderChampions(); renderEvents();
       renderQuest(); renderBell(); renderCelebrations(); renderCrier();   // Deploy 237.082
+      renderHolidays();                                                   // Deploy 237.113
       loadDeeds();                                                        // Deploy 237.085
       document.getElementById('evAdmin').style.display = _state.isAdmin ? 'block' : 'none';
     }).catch(function (err) {
@@ -1011,14 +1018,53 @@
     ended.sort(function (a, b) { return String(b.endsAt).localeCompare(String(a.endsAt)); });
     var html = live.map(function (e) { return evCard(e, 'live'); }).join('') + soon.map(function (e) { return evCard(e, 'soon'); }).join('');
     if (!html) {
-      html = '<div class="empty">The herald has no announcements yet' + (_state.isAdmin ? ' — post the first one below.' : '. Check back soon.') + '</div>' +
-        '<div class="ev ghost"><div class="top"><div class="emoji">🏀</div><div><div class="title">March Madness</div></div></div></div>' +
-        '<div class="ev ghost"><div class="top"><div class="emoji">🎅</div><div><div class="title">Secret Santa</div></div></div></div>';
+      html = '<div class="empty">The herald has no announcements yet' + (_state.isAdmin ? ' — post the first one below.' : '. Check back soon.') + '</div>';   // 237.113 — placeholder "ideas" removed (Mike)
     }
     document.getElementById('evList').innerHTML = html;
     document.getElementById('evPast').innerHTML = ended.length
       ? '<details class="past"><summary>Past quests (' + ended.length + ')</summary>' + ended.map(function (e) { return evCard(e, 'ended'); }).join('') + '</details>'
       : '';
+  }
+
+  // ── Deploy 237.113 (Mike) — US banking (Federal Reserve) holidays ──
+  // Rule: a holiday on a Sunday is observed the following Monday; one on a
+  // Saturday is NOT observed (the Fed is open the Friday before). Computed
+  // client-side for this year and next; the next six are shown.
+  function _ymd(y, m, d) { return y + '-' + (m < 9 ? '0' : '') + (m + 1) + '-' + (d < 10 ? '0' : '') + d; }
+  function _nthWeekday(y, m, weekday, n) { var d = new Date(Date.UTC(y, m, 1)); var first = d.getUTCDay(); var day = 1 + ((weekday - first + 7) % 7) + (n - 1) * 7; return _ymd(y, m, day); }
+  function _lastWeekday(y, m, weekday) { var d = new Date(Date.UTC(y, m + 1, 0)); var last = d.getUTCDate(); var wd = d.getUTCDay(); return _ymd(y, m, last - ((wd - weekday + 7) % 7)); }
+  function _fixed(y, m, d) { return _ymd(y, m, d); }
+  function fedHolidays(y) {
+    var list = [
+      { name: "New Year's Day", date: _fixed(y, 0, 1), emoji: '🎆' },
+      { name: 'Martin Luther King Jr. Day', date: _nthWeekday(y, 0, 1, 3), emoji: '✊' },
+      { name: "Presidents' Day", date: _nthWeekday(y, 1, 1, 3), emoji: '🎩' },
+      { name: 'Memorial Day', date: _lastWeekday(y, 4, 1), emoji: '🇺🇸' },
+      { name: 'Juneteenth', date: _fixed(y, 5, 19), emoji: '🕊️' },
+      { name: 'Independence Day', date: _fixed(y, 6, 4), emoji: '🎇' },
+      { name: 'Labor Day', date: _nthWeekday(y, 8, 1, 1), emoji: '🔨' },
+      { name: 'Columbus Day', date: _nthWeekday(y, 9, 1, 2), emoji: '⛵' },
+      { name: 'Veterans Day', date: _fixed(y, 10, 11), emoji: '🎖️' },
+      { name: 'Thanksgiving Day', date: _nthWeekday(y, 10, 4, 4), emoji: '🦃' },
+      { name: 'Christmas Day', date: _fixed(y, 11, 25), emoji: '🎄' }
+    ];
+    return list.map(function (h) {
+      var d = new Date(h.date + 'T12:00:00Z'), wd = d.getUTCDay();
+      if (wd === 0) { var nx = new Date(d.getTime() + 86400000); h.observed = nx.toISOString().slice(0, 10); h.note = 'falls on Sunday — observed Monday'; }
+      else if (wd === 6) { h.observed = ''; h.note = 'falls on Saturday — banks open the Friday before, no day off'; }
+      else h.observed = h.date;
+      return h;
+    });
+  }
+  function renderHolidays() {
+    var box = document.getElementById('holidayList'); if (!box) return;
+    var today = todayYMD(), y = +today.slice(0, 4);
+    var all = fedHolidays(y).concat(fedHolidays(y + 1)).filter(function (h) { return h.observed && h.observed >= today; }).slice(0, 6);
+    box.innerHTML = all.map(function (h) {
+      var days = Math.round((new Date(h.observed + 'T12:00:00Z') - new Date(today + 'T12:00:00Z')) / 86400000);
+      return '<div class="cele"' + (days === 0 ? ' style="font-weight:700"' : '') + '>' + escH(h.emoji) + ' <span>' + escH(h.name) + (h.note ? ' <span style="color:#8a7350;font-size:11px">(' + escH(h.note) + ')</span>' : '') + '</span>' +
+        '<span class="when">' + escH(fmtDay(h.observed)) + ' · ' + (days === 0 ? 'today' : 'in ' + days + 'd') + '</span></div>';
+    }).join('') || '<div class="empty">—</div>';
   }
 
   var _editing = null;

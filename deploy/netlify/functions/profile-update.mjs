@@ -49,13 +49,16 @@ export default async (req, context) => {
   // these), startDate 'YYYY-MM-DD' (admin only — Mike enters the real dates
   // from Dan on Users Admin). '' clears. See _shared/team-events.mjs.
   const calendar = {};
-  if (typeof body.birthday === 'string') {
+  // Deploy 237.113 — an EMPTY birthday / start date is "no change" (the Profile
+  // page's Save can fire before the calendar fields have loaded); clearing takes
+  // an explicit clearBirthday / clearStartDate flag.
+  if (typeof body.birthday === 'string' && (body.birthday.trim() !== '' || body.clearBirthday === true)) {
     const bd = normalizeBirthday(body.birthday);
     if (body.birthday.trim() && !bd.md) return json(400, { error: 'Birthday should be a month and day, like 3/14' });
     calendar.birthday = bd.md;
     calendar.birthYear = bd.year || (typeof body.birthYear === 'string' && /^\d{4}$/.test(body.birthYear.trim()) ? body.birthYear.trim() : '');
   }
-  if (typeof body.startDate === 'string') {
+  if (typeof body.startDate === 'string' && (body.startDate.trim() !== '' || body.clearStartDate === true)) {
     if (!isAdmin(user)) return json(403, { error: 'Start dates are set by an admin' });
     const sd = normalizeDate(body.startDate);
     if (body.startDate.trim() && !sd) return json(400, { error: 'Start date should look like 2021-09-15' });

@@ -56,7 +56,12 @@ export const GAME_ID = 'gallop';
 // ride time) — keep each ABOVE the game's real ceiling (see the SCORING
 // comment at the top of each game page) or honest runs bounce.
 export const GAMES = {
-  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors, bats and one very hungry dragon.', icon: '🏇', maxPps: 100 }, // 237.087: speed now reaches 1000 px/s
+  // season (Deploy 237.113, Mike): bump it to RESET a game's scores — docs stamped
+  // with an older season are ignored by every reader and start fresh on the
+  // next run. Gallop went to season 2 when the difficulty curve changed (the
+  // two scores on the board were set on the easier version and are no longer
+  // reachable). Legends / champions history for old seasons is dropped too.
+  gallop: { id: 'gallop', name: "Sir Lends-A-Lot's Gallop", href: '/sir-lends-a-lot.html', blurb: 'An endless ride past houses, DENIED stamps, tax collectors, bats and one very hungry dragon.', icon: '🏇', maxPps: 100, season: 2 }, // 237.087: speed now reaches 1000 px/s
   'coin-catch': { id: 'coin-catch', name: 'Coin Catch', href: '/coin-catch.html', blurb: 'Catch the falling gold, dodge the falling DENIED stamps. Two arrows, three lives, no mercy.', icon: '💰', maxPps: 140 },
   'fund-the-house': { id: 'fund-the-house', name: 'Fund the House', href: '/fund-the-house.html', blurb: 'Houses pop up for a heartbeat. Fund them before a competitor does — but never the one with the dragon in the window. Sixty seconds.', icon: '🏠', maxPps: 700 },
 };
@@ -177,8 +182,10 @@ function _publicRow(doc) {
     bestCoins: Number(doc.bestCoins) || 0, bestDurationMs: Number(doc.bestDurationMs) || 0,
     runs: Number(doc.runs) || 0, lastRunAt: doc.lastRunAt || '', month: doc.month || '',
     game: isGameId(doc.game) ? doc.game : GAME_ID,
+    season: Number(doc.season) || 1,
   };
 }
+export function seasonOf(game) { return Number((GAMES[isGameId(game) ? game : GAME_ID] || {}).season) || 1; }
 
 async function _readPrefix(prefix) {
   const store = _store();
@@ -212,6 +219,7 @@ export async function listAllScores() {
   docs.forEach((d) => {
     const row = _publicRow(d);
     if (!(row.best > 0)) return;
+    if (row.season !== seasonOf(row.game)) return;        // 237.113 — an older season's score is retired
     const m = row.month || (String(d.month || '')) || '';
     if (!m) return;
     const g = out[row.game] = out[row.game] || {};
@@ -252,10 +260,15 @@ export async function recordRun(user, run) {
   const game = isGameId(run.game) ? run.game : GAME_ID;
   const store = _store();
   const key = _scoreKey(month, email, game);
-  const doc = (await store.get(key, { type: 'json' }).catch(() => null)) || {
-    email, name: displayNameFor(user), month, game, best: 0, bestAt: '', bestCoins: 0, bestDurationMs: 0, runs: 0, lastRunAt: '', recentRuns: [],
-  };
+  let doc = (await store.get(key, { type: 'json' }).catch(() => null)) || null;
+  // 237.113 — a doc from a retired season starts over (its recentRuns still
+  // guard token replay; everything else resets).
+  if (doc && (Number(doc.season) || 1) !== seasonOf(game)) {
+    doc = { email, name: displayNameFor(user), month, game, best: 0, bestAt: '', bestCoins: 0, bestDurationMs: 0, runs: 0, lastRunAt: '', recentRuns: Array.isArray(doc.recentRuns) ? doc.recentRuns : [], retiredSeason: Number(doc.season) || 1, retiredBest: Number(doc.best) || 0 };
+  }
+  if (!doc) doc = { email, name: displayNameFor(user), month, game, best: 0, bestAt: '', bestCoins: 0, bestDurationMs: 0, runs: 0, lastRunAt: '', recentRuns: [] };
   doc.game = game;
+  doc.season = seasonOf(game);
   const recent = (Array.isArray(doc.recentRuns) ? doc.recentRuns : []).filter((r) => r && r.id && now - Number(r.at || 0) < RECENT_RUNS_KEEP_MS);
   if (recent.some((r) => r.id === run.runId)) {
     return { accepted: false, reason: 'That run was already scored.', best: Number(doc.best) || 0, isNewBest: false, row: _publicRow(doc) };
