@@ -237,7 +237,8 @@ async function handle(req, context) {
       const r = await fetch(base + '/.netlify/functions/loan-review-ai-background', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(review.id, slug) },
-        body: JSON.stringify({ reviewId: review.id, slug }),
+        // Deploy 237.098 (spend) -- stagger so the first re-review warms the 1h cache.
+        body: JSON.stringify({ reviewId: review.id, slug, delayMs: (rerunSlugs.indexOf(slug) === 0 ? 0 : Math.min(120000, 25000 + rerunSlugs.indexOf(slug) * 3000)) }),
       });
       if (r.status === 202 || r.ok) fired++;
       else console.warn('truth-refresh: bg fire for ' + slug + ' got ' + r.status);

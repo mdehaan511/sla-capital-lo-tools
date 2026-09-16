@@ -60,6 +60,12 @@ async function handle(req, context) {
     if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
   }
 
+  // Deploy 237.098 (spend) -- queued re-grades arrive staggered (delayMs) so the
+  // first warms the 1-hour guidelines cache and the rest READ it instead of all
+  // paying the 2x cache write at once. Background functions have 15 minutes.
+  const _delay = Math.min(120000, Math.max(0, Number((body && body.delayMs) || 0)));
+  if (_delay) await new Promise((r) => setTimeout(r, _delay));
+
   const reviewStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
   const review = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });
   if (!review) return json(404, { error: 'Review not found' });

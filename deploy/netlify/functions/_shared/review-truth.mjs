@@ -196,6 +196,14 @@ async function _queueDependents(reviewId, o) {
       if (!ds.aiReviewedAt) continue;
       if (ds.aiReviewedAt >= art.aiReviewedAt) continue;
       if (!nameChanged && prevAt && ds.aiReviewedAt >= prevAt) continue;
+      // Deploy 237.098 (spend) -- same name as last time: only re-grade trays whose
+      // last review actually left a name / entity condition unresolved. A tray that
+      // already passed every name check stays put (each re-grade is a paid call).
+      if (!nameChanged) {
+        const _fs = Array.isArray(ds.aiFindings) ? ds.aiFindings : [];
+        const _open = _fs.some((f) => f && f.status !== 'met' && /articles|entity|llc|name/i.test(String(f.condition || '') + ' ' + String(f.detail || '')));
+        if (_fs.length && !_open) continue;
+      }
       ds.aiReviewing = true;
       queued.push(slug);
     }
@@ -210,7 +218,10 @@ async function _queueDependents(reviewId, o) {
         const r = await fetch(base + '/.netlify/functions/loan-review-ai-background', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(review.id, slug) },
-          body: JSON.stringify({ reviewId: review.id, slug }),
+          // Deploy 237.098 (spend) -- stagger: the first re-grade warms the 1-hour
+          // guidelines cache; the rest start ~25s later and READ it instead of all
+          // paying the 2x cache write at the same instant.
+          body: JSON.stringify({ reviewId: review.id, slug, delayMs: (queued.indexOf(slug) === 0 ? 0 : Math.min(120000, 25000 + queued.indexOf(slug) * 3000)) }),
         });
         ok = r.status === 202 || r.ok;
         if (!ok) console.warn('[review-truth] entity-name requeue kickoff HTTP', r.status, slug);
