@@ -231,6 +231,7 @@
       '.dr-root .dr-gsec-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 8px; }',
       '.dr-root .dr-gsec-title { font-size:13px; font-weight:700; color:var(--text); }',
       '.dr-root .dr-gsec-meta { font-size:11px; color:var(--muted); margin-left:auto; }',
+      '.dr-root .dr-gsec-empty { font-size:12px; color:var(--muted); padding:2px 0 10px; }',
       '.dr-root .section-title { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; padding-left:4px; }',
       // Deploy 236.161 — section header row (title + Show/Hide N hidden toggle).
       '.dr-root .section-title-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }',
@@ -1232,7 +1233,10 @@
     return SECTIONS.map(function(sec) {
       var slugsInSec = bySection[sec.key] || [];
       var hiddenInSec = hiddenBySection[sec.key] || [];
-      if (!slugsInSec.length && !hiddenInSec.length) return '';
+      // Deploy 237.111 (Mike) -- a 2+ guarantor review always shows the Guarantor section
+      // (and every guarantor's group) on every tab, even when nothing is on the tab.
+      var _multiG = Array.isArray(_review.guarantors) && _review.guarantors.length > 1;
+      if (!slugsInSec.length && !hiddenInSec.length && !(sec.key === 'guarantor' && _multiG)) return '';
       var showHidden = _showHidden[sec.key] === true;
       var hiddenToggle = hiddenInSec.length
         ? '<button class="dr-section-toggle" onclick="dr_toggleHiddenInSection(\'' + escAttr(sec.key) + '\')">' +
@@ -1335,18 +1339,17 @@
           if (gi == null) _shared.push(s); else (_byG[gi] = _byG[gi] || []).push(s);
         });
         _propTabsHtml = _review.guarantors.map(function(g, i) {
-          var list = _byG[i] || [];
-          if (!list.length) return '';
+          var list = _byG[i] || [];   // Deploy 237.111 -- empty groups still render (Mike)
           var have = list.filter(function(s) { var dd = _review.docs[s] || {}; return _trayHasDoc(dd) || dd.verdict === 'na'; }).length;
           var ok = list.filter(function(s) { return _stageOf(s) === 'reviewed'; }).length;
           var title = (g.label || ('Guarantor ' + (i + 1))) + (g.name ? ' \u2014 ' + g.name : '');
           return '<div class="dr-gsec">' +
             '<div class="dr-gsec-head">' +
               '<span class="dr-gsec-title">' + escHtml(title) + '</span>' +
-              '<span class="dr-gsec-meta">' + have + '/' + list.length + ' collected' + (ok ? ' \u00b7 ' + ok + ' approved' : '') + '</span>' +
+              '<span class="dr-gsec-meta">' + (list.length ? have + '/' + list.length + ' collected' + (ok ? ' \u00b7 ' + ok + ' approved' : '') : 'nothing on this tab') + '</span>' +
               (_activeTab === 'pending' ? '<button type="button" class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'guarantor\',\'\',' + i + ')" title="Add a document tray for this guarantor">+ Add</button>' : '') +
             '</div>' +
-            list.map(renderTray).join('') +
+            (list.length ? list.map(renderTray).join('') : '<div class="dr-gsec-empty">No documents for this guarantor on this tab.</div>') +
           '</div>';
         }).join('') +
         (_shared.length
