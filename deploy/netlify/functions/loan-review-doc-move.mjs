@@ -31,6 +31,7 @@
  * review path (label-match rubric recovery, integrity check, etc.).
  */
 import { getStore } from '@netlify/blobs';
+import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
@@ -206,6 +207,7 @@ async function handle(req, context) {
   const now = new Date().toISOString();
   review.updatedAt = now;
   await reviewStore.setJSON(keySafe(review.id), review);
+  await syncReviewCountsToLoan(review); // Deploy 237.102
 
   return json(200, { ok: true, review, movedTo: body.toSlug, movedCount: moving.length });
 }

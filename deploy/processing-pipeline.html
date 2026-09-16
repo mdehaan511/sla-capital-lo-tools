@@ -1146,6 +1146,25 @@ function renderCard(it) {
   var condBadge = _openC > 0
     ? '<span title="' + _openC + ' condition(s) pending from underwriting" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#b45309;color:#fff;font-size:11px;font-weight:800;padding:3px 9px;letter-spacing:.01em">⚑ ' + _openC + ' condition' + (_openC === 1 ? '' : 's') + ' pending</span>'
     : (_totC > 0 ? '<span title="All conditions cleared" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(37,105,64,0.10);color:#166534">✓ cond</span>' : '');
+  // Deploy 237.102 (Mike) -- three document-status items per tile, from the counts the review
+  // writers mirror onto the loan (_shared/review-loan-counts.mjs; active trays only --
+  // hidden / N/A never count). Collected + Approved go green when fewer than 5 remain;
+  // Conditions pending is caution-yellow while any condition is open.
+  var docsHtml = '';
+  if (loan.docsActive != null) {
+    var _dA = Number(loan.docsActive) || 0, _dC = Number(loan.docsCollected) || 0, _dAp = Number(loan.docsApproved) || 0;
+    var _pill = function(label, txt, tone, title) {
+      var bg = tone === 'green' ? 'rgba(37,105,64,0.10)' : tone === 'yellow' ? 'rgba(181,113,45,0.16)' : 'rgba(0,0,0,0.05)';
+      var fg = tone === 'green' ? '#166534' : tone === 'yellow' ? '#8a5a1a' : 'var(--muted, #7a7488)';
+      return '<span title="' + escAttr(title) + '" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:' + bg + ';color:' + fg + ';white-space:nowrap">' + label + ' ' + txt + '</span>';
+    };
+    docsHtml = '<div class="card-docs" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
+      _pill('Docs Collected', _dC + '/' + _dA, (_dA - _dC) < 5 ? 'green' : 'neutral', (_dA - _dC) + ' document' + ((_dA - _dC) === 1 ? '' : 's') + ' still to collect') +
+      _pill('Conditions pending', String(_openC), _openC > 0 ? 'yellow' : 'green', _openC > 0 ? _openC + ' open condition' + (_openC === 1 ? '' : 's') : 'No open conditions') +
+      _pill('Docs Approved', _dAp + '/' + _dA, (_dA - _dAp) < 5 ? 'green' : 'neutral', (_dA - _dAp) + ' document' + ((_dA - _dAp) === 1 ? '' : 's') + ' awaiting UW approval') +
+    '</div>';
+    condBadge = ''; // the pills replace the old single "N cond" badge
+  }
 
   // Deploy 236.764 — DSCR rate-lock badge (45 days from application
   // signing; rateLockStart stamped at sign, legacy loans fall back to
@@ -1197,6 +1216,7 @@ function renderCard(it) {
       '<div class="card-borrower">' + escH(name) + '</div>' +
       _fundingInvestorHtml(loan) +
       _assigneeHtml(it, _canEdit) +
+      docsHtml + // Deploy 237.102
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         condBadge +

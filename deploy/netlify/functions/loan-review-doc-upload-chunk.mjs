@@ -26,6 +26,7 @@
  * Auth: requireAuth + isProcessor (same gate as the normal upload).
  */
 import { getStore } from '@netlify/blobs';
+import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
@@ -175,6 +176,7 @@ async function handle(req, context) {
   review.lastEditedBy = normalizeEmail(user.email);
   review.lastEditedAt = now;
   await reviewStore.setJSON(keySafe(body.reviewId), review);
+  await syncReviewCountsToLoan(review); // Deploy 237.102
 
   // Best-effort chunk cleanup (the doc is already safely stored).
   for (let i = 0; i < total; i++) {

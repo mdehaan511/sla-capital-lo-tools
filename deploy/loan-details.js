@@ -1077,10 +1077,13 @@ function render() {
       // from id + fundingDate for legacy loans so the display stays stable.
       (function() {
         var displayId = (l.slaDisplayId && String(l.slaDisplayId).trim()) || _deriveSlaLoanIdClient(l);
+        // Deploy 237.102 (Mike) -- staff can hand-edit the loan number (pencil next to the chip).
+        var _canEditId = !!(_isAdminUser || (window.SLA && typeof SLA.isProcessor === 'function' && SLA.isProcessor(_user)));
         return '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(displayId) + '\')" title="Click to copy SLA loan ID (storage id: ' + escAttr(l.id || '') + ')">' +
           '<span class="ld-loan-id-label">Loan ID</span>' +
-          '<span>' + escH(displayId || '(none)') + '</span>' +
-        '</span>';
+          '<span id="ldLoanIdText">' + escH(displayId || '(none)') + '</span>' +
+        '</span>' +
+        (_canEditId ? '<button type="button" onclick="editLoanDisplayId()" title="Edit the loan number" style="border:none;background:none;cursor:pointer;font-size:12px;color:var(--muted);padding:0 2px">✎</button>' : '');
       })() +
       // Deploy 236.330 (Tier 4) — freshness chip; refreshes every 30s via
       // _startFreshnessRefresh().
@@ -5069,6 +5072,23 @@ function _deriveSlaLoanIdClient(loan) {
   return 'SLA-' + stamp + '-' + String(num).padStart(4, '0');
 }
 
+// Deploy 237.102 (Mike) -- hand-edit the SLA loan number. Saved as loan.slaDisplayId via
+// loan-fields-save (whitelisted there); the chip and the audit log pick it up.
+function editLoanDisplayId() {
+  if (!_loan) return;
+  var cur = (_loan.slaDisplayId && String(_loan.slaDisplayId).trim()) || _deriveSlaLoanIdClient(_loan) || '';
+  var v = prompt('Loan number (shown as the Loan ID on this loan):', cur);
+  if (v == null) return;
+  v = String(v).trim().slice(0, 40);
+  if (!v) { showToast('Loan number cannot be blank.', 'error'); return; }
+  if (v === cur) return;
+  var owner = (typeof _ldOwnerOverride === 'function' && _ldOwnerOverride()) || undefined;
+  SLA.Loans.saveFields(_client.id, _loan.id, { slaDisplayId: v }, owner).then(function () {
+    _loan.slaDisplayId = v;
+    var el = document.getElementById('ldLoanIdText'); if (el) el.textContent = v;
+    showToast('Loan number updated to ' + v, 'success');
+  }).catch(function (e) { showToast('Could not save the loan number: ' + ((e && e.message) || 'unknown'), 'error'); });
+}
 function copyLoanId(el, id) {
   if (!id) return;
   function flash() {

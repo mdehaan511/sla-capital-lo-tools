@@ -285,6 +285,7 @@ const LOAN_SUMMARY_FIELDS = [
   // the open-conditions badge count.
   'assignedProcessor', 'assignedProcessors', 'fundingSource', 'fundingSourceOther', 'investorName',
   'openConditions', 'totalConditions',
+  'docsActive', 'docsCollected', 'docsApproved', 'docsConditions', // Deploy 237.102 -- Processing tile doc status
 ];
 function projectLoan(l) {
   if (!l || typeof l !== 'object') return l;

@@ -43,6 +43,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { writeFieldProposals, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
 // are < 5MB; appraisals can run larger. If this becomes a problem we'll
@@ -548,6 +549,8 @@ async function handle(req, context) {
 
   await reviewStore.setJSON(keySafe(body.reviewId), review);
 
+  await syncReviewCountsToLoan(review); // Deploy 237.102
+
   // Deploy 236.500 — write the AI's field extractions onto the loan as
   // UNVERIFIED proposals. Done AFTER the review save + wrapped so any
   // failure is logged but never fails the upload (the review is the
@@ -594,6 +597,7 @@ async function handle(req, context) {
         docState.aiNotes = 'This document was too long for the instant review and the background reviewer could not be started. Use ↻ Retry or review manually.';
         review.updatedAt = new Date().toISOString();
         await reviewStore.setJSON(keySafe(body.reviewId), review);
+        await syncReviewCountsToLoan(review); // Deploy 237.102
       } catch (e2) { console.error('loan-review-doc-upload: kickoff-failure cleanup failed:', e2 && e2.message); }
     }
   }

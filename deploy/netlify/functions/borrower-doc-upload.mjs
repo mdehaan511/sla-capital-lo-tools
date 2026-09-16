@@ -31,6 +31,7 @@
  *      uploads (they haven't got a rubric).
  */
 import { getStore } from '@netlify/blobs';
+import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import { reviewTypeForLoan } from './_shared/loan-review-checklists.mjs'; // Deploy 236.934
 import {
   handleOptions, json, requireAuth, readJsonBody,
@@ -190,6 +191,7 @@ async function handle(req, context) {
 
   try { await reviewsStore.setJSON(keySafe(review.id), review); }
   catch (e) { return json(500, { error: 'Failed to save review: ' + (e && e.message || 'unknown') }); }
+  await syncReviewCountsToLoan(review); // Deploy 237.102
   // Deploy 237.072 (Mike, item 8) -- a borrower upload can complete the file too.
   try { await checkFullFile(review.id); } catch (_) {}
 

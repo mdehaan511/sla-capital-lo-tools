@@ -105,6 +105,7 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // count was dropped from the summary projection).
   'assignedProcessor', 'assignedProcessors', 'fundingSource', 'fundingSourceOther', 'investorName',
   'openConditions', 'totalConditions',
+  'docsActive', 'docsCollected', 'docsApproved', 'docsConditions', // Deploy 237.102 -- Processing tile doc status
   // Deploy 236.925 — Processing Pipeline substatus pill (see clients-list.mjs);
   // both ride in extra JSONB (processing_substatus is not a promoted column).
   'processingSubstatus', 'baselineSubstatus',

@@ -51,6 +51,8 @@ const FIELDS = {
   // hand-entered fallback). Deliberately separate from buyRate: investor buy
   // rate never affects LO comp.
   compBaseRate: 1,
+  // Deploy 237.102 (Mike) -- the SLA loan number (Loan ID chip) is hand-editable by staff.
+  slaDisplayId: 1,
   // Valuation
   purchasePrice: 1, propValue: 1, aivBpo: 1, arv: 1, arvBpo: 1, currentLoanAmt: 1, rehabBudget: 1,
   // Property

@@ -30,6 +30,7 @@ import { getChecklist, getDefaultInvestor, findCategory, portfolioCollateralEntr
 // pipeline badge). PG-first strict writer.
 import { writeClient } from './_shared/client-write.mjs';
 import { resolveGuarantorNames } from './_shared/review-truth.mjs'; // Deploy 237.081
+import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 // Deploy 236.746 — flagged issues land in the loan's Notes & Activity stream.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
@@ -154,7 +155,7 @@ async function handle(req, context) {
     await store.setJSON(keySafe(updated.id), updated);
     // Deploy 236.564 — keep the loan's open-conditions count fresh for the
     // pipeline badge. Only when a docs patch landed (conditions live under docs).
-    if (patch.docs) { try { await _syncConditionsCountToLoan(updated); } catch (e) { console.warn('conditions count sync failed:', e && e.message); } }
+    if (patch.docs) { await syncReviewCountsToLoan(updated); } // Deploy 237.102 -- conditions + docs collected/approved/pending-conditions
     // Deploy 236.746 — flagged issues → loan Notes & Activity (best-effort).
     if (patch.docs) { try { await _logFlaggedIssuesToLoan(updated, patch.docs, selfEmail); } catch (e) { console.warn('flag note append failed:', e && e.message); } }
     return json(200, { ok: true, review: updated });

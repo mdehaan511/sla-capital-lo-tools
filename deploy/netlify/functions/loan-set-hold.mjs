@@ -101,7 +101,10 @@ async function handle(req, context) {
     meta: { from: priorStatus, to: loan.status, via: 'processing_hold' },
   });
 
-  try { await writeClient(ownerKey, client, { clientsStore }); }
+  // Deploy 237.102 (Mike) -- approved -> on_hold is a deliberate move by a processor/admin, but the
+  // PG RPC's loans_no_demotion guard blocked it ("terminal status. Intentional moves must
+  // pass allowDemotion"). Same escape hatch loan-advance-status / reinstate already use.
+  try { await writeClient(ownerKey, client, { clientsStore, allowDemotion: true }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
 
   // Deploy 236.773 — audit log (best-effort; must never fail the save).
