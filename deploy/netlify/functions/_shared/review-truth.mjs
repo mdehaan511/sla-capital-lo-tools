@@ -82,7 +82,14 @@ export const TRUTH_MATERIAL_FIELDS = [
 ];
 export function truthMaterialChanges(before, after) {
   const b = before || {}, a = after || {};
-  const norm = (v) => (v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v))).trim(); // Deploy 237.080
+  // Deploy 237.105 -- empty == empty, entity lists by name, numeric strings as numbers (mirror of the page).
+  const norm = (v) => {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.map((x) => (x && typeof x === 'object' ? String(x.name || '') : String(x == null ? '' : x)).trim().toLowerCase()).filter(Boolean).join('|');
+    if (typeof v === 'object') { const ks = Object.keys(v).sort(); return ks.length ? JSON.stringify(ks.map((k) => [k, v[k]])) : ''; }
+    const t = String(v).trim();
+    return (t !== '' && isFinite(Number(t))) ? String(Number(t)) : t;
+  };
   return TRUTH_MATERIAL_FIELDS.filter((k) => norm(b[k]) !== norm(a[k]));
 }
 export async function queueTruthRefreshIfMaterial(opts) {

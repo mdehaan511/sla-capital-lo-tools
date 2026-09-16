@@ -136,7 +136,7 @@
   var _docSearch = '';
   var _sourceOpen = false;
   var _uploadingSlug = null;
-  var _uploadQueue = [];      // Deploy 237.104 -- picks made while an upload is running (one at a time)
+  var _uploadQueue = [];      // Deploy 237.105 -- picks made while an upload is running (one at a time)
   var _uploadStatusMsg = ''; // Deploy 236.839 — live in-tray upload status line
   var _stylesInjected = false;
   // Deploy 236.161 — per-section "Show N hidden" toggle state.
@@ -661,7 +661,7 @@
     _docSearch = '';
     _sourceOpen = false;
     _uploadingSlug = null;
-    _uploadQueue = []; // Deploy 237.104
+    _uploadQueue = []; // Deploy 237.105
 
     rootEl.classList.add('dr-root');
     rootEl.innerHTML = '<div class="loading-page">Loading review…</div>';
@@ -1362,7 +1362,16 @@
   function _termsDrift(review) {
     var live = _liveFor(review); if (!live) return [];
     var snap = review.sourceLoanSnapshot || review.snapshotLoan || {};
-    function norm(v) { return v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v)).trim(); }
+    // Deploy 237.105 -- the review snapshot (blob) carries no vestingLLCs while Postgres returns [],
+    // so every page load saw 'terms changed' and re-ran AI on every tray. Empty == empty;
+    // entity lists compare by name; numeric strings compare as numbers.
+    function norm(v) {
+      if (v == null) return '';
+      if (Array.isArray(v)) return v.map(function(x) { return x && typeof x === 'object' ? String(x.name || '').trim().toLowerCase() : String(x == null ? '' : x).trim().toLowerCase(); }).filter(Boolean).join('|');
+      if (typeof v === 'object') { var ks = Object.keys(v).sort(); return ks.length ? JSON.stringify(ks.map(function(k) { return [k, v[k]]; })) : ''; }
+      var t = String(v).trim();
+      return (t !== '' && isFinite(Number(t))) ? String(Number(t)) : t;
+    }
     return _TRUTH_FIELDS.filter(function(k) { return norm(snap[k]) !== norm(live[k]); });
   }
   function _autoSyncIfStale() {
@@ -2186,7 +2195,7 @@
     // The "AI is reviewing…" spinner for the in-flight upload. Deploy 236.778 —
     // same dead-guard flaw: on a RE-upload the tray already has a currentDocId, so
     // this never fired either. Match the tray's current doc instead.
-    // Deploy 237.104 -- waiting its turn behind the current upload.
+    // Deploy 237.105 -- waiting its turn behind the current upload.
     var _qPos = -1;
     for (var _qi = 0; _qi < _uploadQueue.length; _qi++) { if (_uploadQueue[_qi].slug === slug) { _qPos = _qi; break; } }
     if (_qPos >= 0 && _uploadingSlug !== slug) {
@@ -2320,7 +2329,7 @@
     if (f) doUpload(slug, f);
   };
 
-  // Deploy 237.104 (Jessy) -- start the next queued upload once the current one settles.
+  // Deploy 237.105 (Jessy) -- start the next queued upload once the current one settles.
   function _startNextUpload() {
     if (_uploadingSlug || !_uploadQueue.length) return;
     var next = _uploadQueue.shift();
@@ -2341,7 +2350,7 @@
       }
     }
 
-    // Deploy 237.104 (Jessy: "starting a second upload cancels the one in progress")
+    // Deploy 237.105 (Jessy: "starting a second upload cancels the one in progress")
     // -- ONE upload at a time per page. A second pick used to overwrite the in-flight
     // state (the first looked cancelled; server-side the two saves clobbered each
     // other -- fixed there too). Extra picks wait their turn; each review then reuses
@@ -2379,7 +2388,7 @@
       _uploadingSlug = null;
       _uploadStatusMsg = '';
       _disarmDocUploadGuard();
-      _startNextUpload(); // Deploy 237.104
+      _startNextUpload(); // Deploy 237.105
       var dd = r.review.docs[slug] || {};
       // Deploy 236.502 — surface that the stored copy was auto-compressed
       // so the processor knows to verify legibility against the original.
@@ -2401,7 +2410,7 @@
       _uploadingSlug = null;
       _uploadStatusMsg = '';
       _disarmDocUploadGuard();
-      _startNextUpload(); // Deploy 237.104
+      _startNextUpload(); // Deploy 237.105
       showToast('Upload failed: ' + (err.message || 'Unknown'), 'error');
       render();
     });
