@@ -110,12 +110,18 @@ export async function loadTeamProfiles() {
   const out = await Promise.all(emails.map(async (email) => {
     const p = await store.get(keySafe(normalizeEmail(email)), { type: 'json' }).catch(() => null) || {};
     const um = p.user_metadata || {};
+    // Deploy 237.088 (Mike): "going forward everyone can just have their
+    // anniversary be when they were added to the SLA app" — no admin-entered
+    // start date → the profile's created_at day (profile-ping stamps it on
+    // the first sign-in after this deploy).
+    const auto = !p.startDate && p.created_at ? String(p.created_at).slice(0, 10) : '';
     return {
       email,
       name: String(p.fullName || um.full_name || um.name || '').trim() || email.split('@')[0],
       birthday: String(p.birthday || ''),
       birthYear: String(p.birthYear || ''),
-      startDate: String(p.startDate || ''),
+      startDate: String(p.startDate || auto),
+      startDateAuto: !p.startDate && !!auto,
       avatar: String(p.avatar || ''),                         // Deploy 237.086 — chosen pixel character
       roles: table.get(email) || [],
     };
@@ -123,7 +129,7 @@ export async function loadTeamProfiles() {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Map email → { birthday, birthYear, startDate } read by key (Users Admin roster). */
+/** Map email → { birthday, birthYear, startDate, startDateAuto } read by key (Users Admin roster). */
 export async function profileCalendarFor(emails) {
   const out = new Map();
   const list = Array.from(new Set((emails || []).map(normalizeEmail).filter(Boolean)));
@@ -131,9 +137,82 @@ export async function profileCalendarFor(emails) {
   const store = getStore({ name: 'profiles', consistency: 'eventual' });
   await Promise.all(list.map((e) =>
     store.get(keySafe(e), { type: 'json' })
-      .then((p) => { if (p) out.set(e, { birthday: String(p.birthday || ''), birthYear: String(p.birthYear || ''), startDate: String(p.startDate || '') }); })
+      .then((p) => {
+        if (!p) return;
+        const auto = !p.startDate && p.created_at ? String(p.created_at).slice(0, 10) : '';
+        out.set(e, { birthday: String(p.birthday || ''), birthYear: String(p.birthYear || ''), startDate: String(p.startDate || auto), startDateAuto: !p.startDate && !!auto });
+      })
       .catch(() => {})));
   return out;
+}
+
+// ── Deploy 237.088 — one-time seed of the dates Mike collected from Dan ────
+// Matched by NAME against the staff roster (profile fullName first, then the
+// email's local part); only EMPTY fields are filled, never overwritten, so an
+// LO who already typed their own birthday keeps it. Applied by the daily
+// team-calendar cron (first run after deploy) and by the admin button on the
+// Armory; a marker at armory store calendar-seed/<SEED_VERSION> stops it
+// running twice. Bump SEED_VERSION when the list changes.
+export const SEED_VERSION = 1;
+export const CALENDAR_SEED = [
+  { name: 'Diana',      startDate: '2026-09-14' },
+  { name: 'Beth',       startDate: '2026-06-17', birthday: '08-06' },
+  { name: 'Jessy',      startDate: '2023-04-24', birthday: '08-16' },
+  { name: 'Keith',      startDate: '2026-04-13' },
+  { name: 'Jeremy',     startDate: '2026-01-05', birthday: '08-16' },
+  { name: 'Chance',     startDate: '2025-06-02', birthday: '03-08' },
+  { name: 'Carl',       startDate: '2026-04-27' },
+  { name: 'Elle',       startDate: '2025-12-12' },
+  { name: 'Eric Clunn', startDate: '2026-05-03' },
+  { name: 'Raissa',     startDate: '2026-06-01' },
+  { name: 'Randy',      startDate: '2026-05-03' },
+  { name: 'Sara S',     startDate: '2026-04-27' },
+];
+
+function _matchSeed(profiles, seedName) {
+  const want = String(seedName || '').trim().toLowerCase();
+  const first = want.split(/\s+/)[0];
+  // 1. full name starts with the seed name ("Eric Clunn", "Sara S…")
+  let hits = profiles.filter((p) => String(p.name || '').trim().toLowerCase().indexOf(want) === 0);
+  if (hits.length === 1) return hits[0];
+  // 2. first name of the profile equals the seed's first name
+  if (!hits.length) hits = profiles.filter((p) => String(p.name || '').trim().toLowerCase().split(/\s+/)[0] === first);
+  if (hits.length === 1) return hits[0];
+  // 3. email local part equals the seed's first name
+  if (!hits.length || hits.length > 1) {
+    const byMail = profiles.filter((p) => String(p.email || '').split('@')[0].toLowerCase() === first);
+    if (byMail.length === 1) return byMail[0];
+  }
+  return hits.length > 1 ? { ambiguous: hits.map((h) => h.email) } : null;
+}
+
+/** Apply the seed. opts.force ignores the marker. Returns a report. */
+export async function applyCalendarSeed(opts) {
+  const o = opts || {};
+  const armory = getStore({ name: 'armory', consistency: 'strong' });
+  const marker = 'calendar-seed/' + SEED_VERSION;
+  if (!o.force) {
+    const done = await armory.get(marker, { type: 'json' }).catch(() => null);
+    if (done) return { ok: true, skipped: 'already applied', report: done.report || [] };
+  }
+  const profiles = await loadTeamProfiles();
+  const store = getStore({ name: 'profiles', consistency: 'strong' });
+  const report = [];
+  for (const s of CALENDAR_SEED) {
+    const m = _matchSeed(profiles, s.name);
+    if (!m) { report.push({ name: s.name, status: 'no match' }); continue; }
+    if (m.ambiguous) { report.push({ name: s.name, status: 'ambiguous', candidates: m.ambiguous }); continue; }
+    const key = keySafe(m.email);
+    const p = await store.get(key, { type: 'json' }).catch(() => null) || { email: m.email };
+    const set = [];
+    if (s.startDate && !p.startDate) { p.startDate = s.startDate; set.push('startDate'); }
+    if (s.birthday && !p.birthday) { p.birthday = s.birthday; p.birthYear = p.birthYear || ''; set.push('birthday'); }
+    if (set.length) await store.setJSON(key, p);
+    report.push({ name: s.name, email: m.email, status: set.length ? 'set ' + set.join('+') : 'already had it' });
+  }
+  await armory.setJSON(marker, { at: new Date().toISOString(), report });
+  console.log('[calendar-seed]', JSON.stringify(report));
+  return { ok: true, report };
 }
 
 // ── Celebrations ──────────────────────────────────────────────────

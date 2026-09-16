@@ -13,7 +13,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import { postSlack } from './_shared/slack.mjs';
-import { loadTeamProfiles, celebrationsOn, todayPacific, addDays, ordinal, prettyYmd } from './_shared/team-events.mjs';
+import { loadTeamProfiles, celebrationsOn, todayPacific, addDays, ordinal, prettyYmd, applyCalendarSeed } from './_shared/team-events.mjs';
 import { listAllMonths, monthLabel, questForMonth, touchPulse } from './_shared/armory.mjs';
 
 export const config = { schedule: '0 15 * * *' };
@@ -27,6 +27,8 @@ export default async () => {
     const key = 'calendar/' + ymd;
     if (await store.get(key, { type: 'json' }).catch(() => null)) { console.log('[team-calendar] already ran', ymd); return new Response('ok'); }
 
+    // Deploy 237.088 — one-time seed of Dan's dates (no-op once applied).
+    try { await applyCalendarSeed(); } catch (e) { console.warn('[team-calendar] seed failed:', e && e.message); }
     const profiles = await loadTeamProfiles();
     const today = celebrationsOn(profiles, ymd);
     const soon = celebrationsOn(profiles, addDays(ymd, 3));

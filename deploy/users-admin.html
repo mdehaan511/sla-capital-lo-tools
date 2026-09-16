@@ -324,7 +324,7 @@ async function loadUsers() {
         ' data-email="' + escAttr(u.email) + '"' +
         ' data-name="' + escAttr(u.fullName || '') + '"' +
         ' data-phone="' + escAttr(u.phone || '') + '"' +
-        ' data-start="' + escAttr(u.startDate || '') + '"' +       // Deploy 237.082 — team calendar
+        ' data-start="' + escAttr(u.startDateAuto ? '' : (u.startDate || '')) + '"' +       // Deploy 237.082 — team calendar (auto dates stay blank in the editor)
         ' data-bday="' + escAttr(u.birthday || '') + '"' +
         ' title="Edit name / phone / start date / birthday">Edit</button>';
 
@@ -334,7 +334,7 @@ async function loadUsers() {
           (u.phone ? '<div class="mono">' + escH(u.phone) + '</div>' : '') +
           // Deploy 237.082 — team calendar at a glance (anniversary + birthday feed the Armory / Slack).
           '<div class="mono" style="color:#7a7488;font-size:11px">' +
-            (u.startDate ? '🏅 since ' + escH(u.startDate) : '<span style="color:#b3261e">🏅 no start date</span>') + ' · ' +
+            (u.startDate ? '🏅 since ' + escH(u.startDate) + (u.startDateAuto ? ' <span title="No start date entered — using the day they joined the SLA app">(app join date)</span>' : '') : '<span style="color:#b3261e">🏅 no start date</span>') + ' · ' +
             (u.birthday ? '🎂 ' + escH(u.birthday.replace(/^(\d\d)-(\d\d)$/, function (_, mm, dd) { return (+mm) + '/' + (+dd); })) : '<span style="color:#b3261e">🎂 no birthday</span>') +
           '</div>' +
           '<div class="row-msg" id="rowmsg_' + escAttr(u.id) + '"></div>' +

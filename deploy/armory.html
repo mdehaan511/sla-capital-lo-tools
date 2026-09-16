@@ -555,6 +555,10 @@
     else if (mine && !mine.birthday) el.innerHTML = '🎂 Your birthday is not on file — <a href="/profile.html" style="color:var(--crimson);font-weight:700">add it on your Profile</a>.';
     else if (mine && !mine.startDate) el.innerHTML = 'Your start date has not been entered yet (an admin sets it).';
     else el.innerHTML = '';
+    // Deploy 237.088 — admin: apply the start dates / birthdays from Dan's list.
+    if (_state && _state.isAdmin) {
+      el.innerHTML += (el.innerHTML ? '<br>' : '') + '<button type="button" class="btn ghost sm" onclick="Armory.seedCalendar(this)">📋 Apply Dan\'s dates</button> <span style="font-size:11px;color:#8a7350">fills only blank start dates / birthdays and shows who matched; the 8am cron also does this once</span>';
+    }
   }
   function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
   function renderCrier() {
@@ -571,6 +575,16 @@
       adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.crierTest(this)">✉ Email me a test issue now</button>' +
         '<span style="font-size:11px;color:#8a7350;align-self:center">Builds this week\'s issue from live data and sends it only to you.</span>';
     }
+  }
+  function seedCalendar(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Matching names…'; }
+    SLA.api('POST', '/api/armory-admin', { action: 'calendar-seed', force: true }).then(function (r) {
+      var rep = (r && r.report) || [];
+      var lines = rep.map(function (x) { return x.name + ': ' + x.status + (x.email ? ' (' + x.email + ')' : '') + (x.candidates ? ' — ' + x.candidates.join(', ') : ''); });
+      window.alert('Calendar seed report\n\n' + (lines.join('\n') || 'nothing to do') + '\n\nAnything marked "no match" or "ambiguous" can be entered on Users Admin.');
+      load();
+    }).catch(function (err) { showToast('⚠ ' + (err && err.message || 'unknown')); })
+      .then(function () { if (btn) { btn.disabled = false; btn.textContent = '📋 Apply Dan\'s dates'; } });
   }
   function readCrier() {
     SLA.api('POST', '/api/armory-admin', { action: 'crier-latest' }).then(function (r) {
@@ -835,7 +849,7 @@
 
   window.Armory = { editEvent: editEvent, closeModal: closeModal, saveEvent: saveEvent, deleteEvent: deleteEvent, voidScore: voidScore,
     readCrier: readCrier, closeCrier: closeCrier, crierTest: crierTest,
-    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds };
+    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds, seedCalendar: seedCalendar };
 })();
 </script>
 </body>

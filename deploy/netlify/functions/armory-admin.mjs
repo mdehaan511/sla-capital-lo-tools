@@ -13,6 +13,7 @@ import { handleOptions, json, requireAuth, isAdmin, readJsonBody, normalizeEmail
 import { saveEvents, voidScore, isMonthKey, isGameId, questForMonth } from './_shared/armory.mjs';
 import { sendTownCrier, latestTownCrier } from './_shared/town-crier.mjs'; // Deploy 237.082
 import { computeAchievements } from './_shared/achievements.mjs';        // Deploy 237.085
+import { applyCalendarSeed } from './_shared/team-events.mjs';           // Deploy 237.088
 
 export default async (req, context) => {
   try {
@@ -50,6 +51,12 @@ export default async (req, context) => {
     if (action === 'achievements-recompute') {
       const r = await computeAchievements({ announce: true });
       return json(200, { ok: true, members: r.index.members.length, announced: r.announced });
+    }
+    // Deploy 237.088 — apply Dan's start dates / birthdays now (idempotent;
+    // force re-runs the match after a roster fix). Returns the match report.
+    if (action === 'calendar-seed') {
+      const r = await applyCalendarSeed({ force: !!body.force });
+      return json(200, { ok: true, skipped: r.skipped || '', report: r.report });
     }
     if (action === 'crier-latest') {
       const c = await latestTownCrier();

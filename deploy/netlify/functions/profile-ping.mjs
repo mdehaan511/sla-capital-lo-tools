@@ -47,6 +47,10 @@ export default async (req, context) => {
     try { existing = await store.get(keySafe(profile.email), { type: 'json' }); } catch (_) {}
     const merged = Object.assign({}, existing || {}, profile);
     if (existing && existing.created_at) merged.created_at = existing.created_at;
+    // Deploy 237.088 — first sign-in stamps created_at; with no admin-entered
+    // start date that day IS the work anniversary (Mike: "when they were added
+    // to the SLA app"). Existing members without it get today on their next ping.
+    if (!merged.created_at) merged.created_at = new Date().toISOString();
     await store.setJSON(keySafe(profile.email), merged);
     // Deploy 237.082 — hand back the calendar fields so the client can decide
     // whether to prompt for a birthday (they live on the blob, not the token).

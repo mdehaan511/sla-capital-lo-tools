@@ -96,6 +96,7 @@ export default async (req, context) => {
         fullName:             um.full_name || um.name || '',
         phone:                um.phone || '', // Deploy 236.579 — for the admin profile editor
         startDate:            (cal.get(email) || {}).startDate || '', // Deploy 237.082 — team calendar
+        startDateAuto:        !!(cal.get(email) || {}).startDateAuto,  // Deploy 237.088 — derived from the app join date
         birthday:             (cal.get(email) || {}).birthday || '',
         provider:             am.provider || (Array.isArray(am.providers) ? am.providers.join(',') : ''),
         appMetadata:          am,
