@@ -663,12 +663,28 @@ function _ldIsClosedForPipeline(l) {
   var bl = _ldNormDisp(l.baselineStatus);
   return bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off' || bl === 'closed';
 }
+// Deploy 237.123 (Mike) -- mirror of closed-loans.html: Post Close is a review HOLD, not a status.
+// A loan with no status gets one by type (RTL/GUC -> Pending Sale; DSCR sold to DIYA ->
+// Sold; other DSCR -> Pending Sale) and the badge adds "Post Close Review" until Elle
+// clears it (postCloseReviewedAt).
+var _LD_POST_CLOSE_SINCE = '2026-09-17';
+function _ldIsRtl(l) { var t = String(l.toolType || '').toLowerCase(); return t === 'rtl' || t === 'guc'; }
+function _ldIsDiya(l) { return /diya/i.test(String(l.investorName || '')); }
+function _ldAutoDisp(l) { return _ldIsRtl(l) ? 'pending_sale' : (_ldIsDiya(l) ? 'sold' : 'pending_sale'); }
+function _ldInPostClose(l, key) {
+  if (String(l.postCloseReviewedAt || '').trim() || key === 'paid_off') return false;
+  var raw = _ldNormDisp(l.disposition);
+  if (!raw || raw === 'post close') {
+    var bl = _ldNormDisp(l.baselineStatus), st = String(l.status || '').toLowerCase().trim();
+    return !(bl === 'sold' || bl === 'paid off' || bl === 'liquidated' || bl === 'in servicing' || bl === 'servicing' || st === 'sold' || st === 'liquidated');
+  }
+  return String(l.fundingDate || l.closedAt || '').slice(0, 10) >= _LD_POST_CLOSE_SINCE;
+}
 function _ldClosedStatus(l) {
   if (!_ldIsClosedForPipeline(l)) return null;
   var d = _ldNormDisp(l.disposition), key = '';
-  if (d === 'post close') key = 'post_close';
-  else if (d === 'servicing') key = 'servicing';
-  else if (d === 'pending sale') key = 'pending_sale';
+  if (d === 'servicing') key = 'servicing';
+  else if (d === 'pending sale') key = (!_ldIsRtl(l) && _ldIsDiya(l)) ? 'sold' : 'pending_sale';
   else if (d === 'sold') key = 'sold';
   else if (d === 'paid off' || d === 'payoff') key = 'paid_off';
   else {
@@ -678,10 +694,12 @@ function _ldClosedStatus(l) {
     else if (bl === 'in servicing' || bl === 'servicing') key = 'servicing';
     else if (st === 'sold') key = 'sold';
     else if (st === 'liquidated') key = 'paid_off';
-    else key = 'post_close'; // freshly closed → Post Close until staff clicks Close Out
+    else key = _ldAutoDisp(l); // Deploy 237.123 -- no status yet -> by loan type
   }
-  if (key === 'sold') key = String(l.toolType || '').toLowerCase() === 'rtl' ? 'sold_rtl' : 'sold_dscr';
-  return { key: key, label: _LD_DISP_LABEL[key] || key };
+  if (key === 'sold') key = _ldIsRtl(l) ? 'sold_rtl' : 'sold_dscr';
+  var label = _LD_DISP_LABEL[key] || key;
+  if (_ldInPostClose(l, key)) label += ' \u00b7 Post Close Review';
+  return { key: key, label: label };
 }
 function _pipelineBadgeContent(loan, pipelineColFallback) {
   var stage = String(loan && loan.processingStage || '').toLowerCase().trim();

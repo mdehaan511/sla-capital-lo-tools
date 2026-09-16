@@ -184,6 +184,8 @@
         <p>Funded loans in servicing — trade status, draws, sales, and payoffs.</p>
       </div>
       <div class="ctrl-row">
+        <!-- Deploy 237.123 (Mike) -- straight to the loans awaiting Elle's post-close review. -->
+        <button type="button" class="cl-act primary" id="pcrBtn" onclick="setTab('post_close')" style="padding:8px 16px;font-size:13px">Post Close Review</button>
         <input type="text" class="search-box" id="searchBox" placeholder="Search address, borrower…" oninput="render()" />
         <select class="lo-filter" id="loFilter" style="display:none" onchange="render()">
           <option value="">All Loan Officers</option>
@@ -201,7 +203,7 @@
       <button type="button" class="cl-tab"        data-tab="draws"        onclick="setTab('draws')">Draws</button>
       <!-- Deploy 237.009 (Mike) — Collateral moved to the Mail Room (mail.html?view=collateral),
            where filed Stable pieces fill it in automatically. -->
-      <a class="cl-tab" href="/mail.html?view=collateral" style="text-decoration:none" title="Collateral tracking moved to the Mail Room">Collateral ↗</a>
+      <!-- Deploy 237.123 (Mike) -- the Collateral link is hidden; it lives on the Mail page now. -->
       <!-- Deploy 236.824 — the Follow-ups tab (236.823) moved to its own page:
            /followups.html, linked from the Processing menu. -->
     </div>
@@ -255,7 +257,8 @@ function pct(v){ var n=parseFloat(v); return isFinite(n) ? (n.toFixed(3).replace
 function rateOf(v){ var n=num(v); return (n>0 && n<1) ? n*100 : n; }
 function loDisplay(ownerKey){ if(!ownerKey) return '—'; return String(ownerKey).replace(/_at_/g,'@').replace(/_dot_/g,'.').replace(/_/g,' '); }
 function toolLabel(l){ var t=String(l.toolType||'dscr').toLowerCase(); return t==='rtl'?'RTL':(t==='guc'?'GUC':'DSCR'); }
-function isRtl(l){ return String(l.toolType||'').toLowerCase()==='rtl'; }
+// Deploy 237.123 -- ground-up (GUC) loans are serviced and sold like RTLs.
+function isRtl(l){ var t=String(l.toolType||'').toLowerCase(); return t==='rtl' || t==='guc'; }
 function clientName(c){ return ((c.firstName||'')+' '+(c.lastName||'')).trim() || c.email || '(unknown)'; }
 function loanHref(it){ return SLA.urls.loanDetails(it.loan.id, { owner: it.ownerKey }); }
 function loanKey(it){ return it.ownerKey + '|' + (it.loan.id||''); }
@@ -283,11 +286,41 @@ function isClosedLoan(l){
 // exactly ONE primary disposition; the RTL/DSCR sold split + the Servicing view
 // are DERIVED (see displayBucket / the Servicing tab), so no loan is tagged two
 // things. 'sold' is the primary value; sold_rtl/sold_dscr are display buckets.
+// Deploy 237.123 (Mike) -- POST CLOSE IS NOT A STATUS ANY MORE. Every loan sits in Post Close
+// until Elle clears the post-close review (loan.postCloseReviewedAt), and it moves through
+// the real statuses at the same time. The status a freshly closed loan gets is decided by
+// its type: RTL / GUC -> Pending Sale (+ Pending Boarding until the servicer has it);
+// DSCR sold to DIYA -> Sold – DSCR; any other DSCR -> Pending Sale.
+// POST_CLOSE_SINCE: loans closed before this feature shipped were already worked through
+// the old Close Out flow, so only ones still without a status count as unreviewed.
+var POST_CLOSE_SINCE = '2026-09-17';
+function isDiyaLoan(l){ return /diya/i.test(String((l && l.investorName) || '')); }
+function autoDisposition(l){
+  if (isRtl(l)) return 'pending_sale';
+  return isDiyaLoan(l) ? 'sold' : 'pending_sale';
+}
+function closeDateOf(l){ return String(l.fundingDate || l.closedAt || '').slice(0, 10); }
+function closeTsOf(l){
+  var t = Date.parse(l.closedAt || ''); if (isFinite(t)) return t;
+  var d = parseLocalDate(l.fundingDate); return d ? d.getTime() : null;
+}
+function inPostClose(l){
+  if (String(l.postCloseReviewedAt || '').trim()) return false;
+  if (dispositionOf(l) === 'paid_off') return false;
+  var raw = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  if (!raw || raw === 'post close') return !_legacyDisposition(l);
+  return closeDateOf(l) >= POST_CLOSE_SINCE;
+}
+function _legacyDisposition(l){
+  var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  var st = String(l.status||'').toLowerCase().trim();
+  return bl==='sold' || bl==='paid off' || bl==='liquidated' || bl==='in servicing' || bl==='servicing' || st==='sold' || st==='liquidated';
+}
+function hoursInPostClose(l){ var t = closeTsOf(l); return t == null ? null : Math.max(0, (Date.now() - t) / 3600000); }
 function dispositionOf(l){
   var d = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
-  if (d==='post close') return 'post_close';
   if (d==='servicing') return 'servicing';
-  if (d==='pending sale') return 'pending_sale';
+  if (d==='pending sale') return (!isRtl(l) && isDiyaLoan(l)) ? 'sold' : 'pending_sale'; // Deploy 237.123 -- DIYA DSCRs are sold at close
   if (d==='sold') return 'sold';
   if (d==='paid off'||d==='payoff') return 'paid_off';
   var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
@@ -298,7 +331,7 @@ function dispositionOf(l){
   var st = String(l.status||'').toLowerCase().trim();
   if (st==='sold') return 'sold';
   if (st==='liquidated') return 'paid_off';
-  return 'post_close'; // freshly closed → Post Close until staff clicks Close Out
+  return autoDisposition(l); // Deploy 237.123 -- no status yet (or the retired 'post_close') -> by loan type
 }
 // Display bucket = primary disposition, with sold split by loan type.
 function displayBucket(l){
@@ -306,7 +339,7 @@ function displayBucket(l){
   if (d==='sold') return isRtl(l) ? 'sold_rtl' : 'sold_dscr';
   return d;
 }
-var DISP_LABEL = { post_close:'Post Close', servicing:'Servicing', pending_sale:'Pending Sale',
+var DISP_LABEL = { post_close:'Post Close Review', servicing:'Servicing', pending_sale:'Pending Sale',
   sold:'Sold', sold_rtl:'Sold – RTL', sold_dscr:'Sold – DSCR', paid_off:'Paid Off',
   pending_boarding:'⏳ Pending Boarding' };
 
@@ -324,7 +357,7 @@ function needsBoarding(l){
   // out of the Pending Boarding spotlight — they live in Sold – DSCR only.
   if (!isRtl(l)) return false;
   var b = displayBucket(l);
-  if (b!=='sold_rtl' && b!=='servicing') return false;
+  if (b!=='sold_rtl' && b!=='servicing' && b!=='pending_sale') return false; // Deploy 237.123 -- RTLs pending sale need boarding too
   if (String(l.boardingStatus||'')==='boarded') return false;
   return !String(l.servicerLoanNumber||'').trim();
 }
@@ -604,15 +637,27 @@ function visibleItems(){
 
 // ── Render ─────────────────────────────────────────────────────────
 function setTab(t){ _tab = t; Array.prototype.forEach.call(document.querySelectorAll('.cl-tab'), function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===t); }); render(); }
+// Deploy 237.123 -- header button shows how many loans wait on review (red when any is past 48h).
+function _paintPcrButton(){
+  var b = document.getElementById('pcrBtn'); if (!b) return;
+  var pc = _closed.filter(function(it){ return inPostClose(it.loan); });
+  var late = pc.filter(function(it){ var h = hoursInPostClose(it.loan); return h != null && h > 48; }).length;
+  b.textContent = 'Post Close Review (' + pc.length + ')' + (late ? ' · ⚠ ' + late + ' over 48h' : '');
+  b.style.background = late ? 'var(--danger, #7c1f1f)' : '';
+  b.style.borderColor = late ? 'var(--danger, #7c1f1f)' : '';
+  b.style.outline = _tab === 'post_close' ? '2px solid var(--gold, #c8813a)' : '';
+}
 
 function render(){
   var items = visibleItems();
   document.getElementById('totBar').textContent =
     items.length + ' closed loan' + (items.length===1?'':'s') + ' · ' +
-    countBucket(items,'post_close') + ' post close · ' + countBucket(items,'pending_sale') + ' pending sale · ' +
+    items.filter(function(it){ return inPostClose(it.loan); }).length + ' in post close review · ' + countBucket(items,'pending_sale') + ' pending sale · ' +
     (countBucket(items,'sold_rtl')+countBucket(items,'sold_dscr')) + ' sold · ' + countBucket(items,'paid_off') + ' paid off';
   var wrap = document.getElementById('paneWrap');
-  if (_tab==='all')              wrap.innerHTML = renderAll(items);
+  _paintPcrButton();
+  if (_tab==='post_close')       wrap.innerHTML = renderPostCloseReview(items); // Deploy 237.123
+  else if (_tab==='all')         wrap.innerHTML = renderAll(items);
   else if (_tab==='servicing')   wrap.innerHTML = renderServicing(items);
   else if (_tab==='pending_sale')wrap.innerHTML = renderPendingSale(items);
   else if (_tab==='sold_rtl')    wrap.innerHTML = renderBucketTab(items,'sold_rtl');
@@ -633,7 +678,7 @@ function sortItems(items, tab, valFn){
   return items;
 }
 function th(tab, k, label){ var s=_sort[tab]; var ar = s.k===k ? '<span class="ar">'+(s.d<0?'▼':'▲')+'</span>' : ''; return '<th onclick="sortBy(\''+tab+'\',\''+k+'\')">'+escH(label)+ar+'</th>'; }
-function sortBy(tab, k){ var s=_sort[tab]; if (s.k===k) s.d=-s.d; else { s.k=k; s.d=(k==='funded'||k==='soldDate'||k==='payoffDate'||k==='lastDraw'||k==='amount'||k==='firstpay'||k==='spread'||k==='profit'||k==='trading')?-1:1; } render(); }
+function sortBy(tab, k){ var s=_sort[tab]; if (s.k===k) s.d=-s.d; else { s.k=k; s.d=(k==='funded'||k==='soldDate'||k==='payoffDate'||k==='lastDraw'||k==='amount'||k==='firstpay'||k==='spread'||k==='profit'||k==='trading'||k==='age'||k==='held'||k==='ret'||k==='tpo')?-1:1; } render(); }
 
 // Common row value getter for the servicing-style tables.
 function svcVal(it, k){
@@ -808,11 +853,37 @@ function _svcCellsFull(it){ var l=it.loan;
     '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>';
 }
 // ── Post Close ── Property · Borrower · Type · Loan Amt · Rate · Points · Close · First Pay · [Close Out]
+// Deploy 237.123 (Mike) -- Post Close Review row: when it closed, how long it has waited (flagged past
+// 48 hours), the status it is moving through meanwhile, and the review action.
+function _pcAge(l){
+  var h = hoursInPostClose(l);
+  if (h == null) return '<span class="cl-ph">—</span>';
+  var txt = h < 48 ? Math.floor(h) + 'h' : Math.floor(h / 24) + 'd ' + Math.floor(h % 24) + 'h';
+  return h > 48
+    ? '<span title="In Post Close more than 48 hours" style="font-weight:700;color:#7c1f1f;background:rgba(124,31,31,.08);border:1px solid rgba(124,31,31,.28);border-radius:12px;padding:2px 8px;white-space:nowrap">⚠ ' + escH(txt) + '</span>'
+    : '<span style="white-space:nowrap">' + escH(txt) + '</span>';
+}
+function _pcClosed(l){
+  var t = Date.parse(l.closedAt || '');
+  var d = closeDateOf(l);
+  if (!d) return '<span class="cl-ph">—</span>';
+  var tm = isFinite(t) ? ' <span class="cl-ph">' + escH(new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</span>' : '';
+  return escH(fmtDate(d)) + tm;
+}
 function _postCells(it){ var l=it.loan;
-  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdDate(l.fundingDate) +
-    '<td class="cl-num">'+(firstPaymentStr(l)?escH(firstPaymentStr(l)):'<span class="cl-ph">—</span>')+'</td>' +
-    // Deploy 236.693 — write action staff-only; LOs get a read-only view.
-    _actTd(_isStaff ? '<button type="button" class="cl-act primary" onclick="event.stopPropagation();openCloseOut(\''+_pbt(it)+'\')">Close Out</button>' : '<span class="cl-ph">—</span>');
+  var b = displayBucket(l);
+  var statusTxt = (DISP_LABEL[b] || b) + (needsBoarding(l) ? ' · Pending Boarding' : '');
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) +
+    '<td class="cl-num">' + _pcClosed(l) + '</td>' +
+    '<td class="cl-num">' + _pcAge(l) + '</td>' +
+    '<td>' + escH(statusTxt) + '</td>' +
+    '<td>' + escH(l.investorName || '—') + '</td>' +
+    '<td>' + escH(loDisplay(it.ownerKey)) + '</td>' +
+    // Deploy 236.693 — write actions staff-only; LOs get a read-only view.
+    _actTd(_isStaff
+      ? '<button type="button" class="cl-act" onclick="event.stopPropagation();openCloseOut(\''+_pbt(it)+'\')">Details</button> ' +
+        '<button type="button" class="cl-act primary" onclick="event.stopPropagation();markPostCloseReviewed(\''+_pbt(it)+'\')">✓ Review Done</button>'
+      : '<span class="cl-ph">—</span>');
 }
 // ── Pending Sale ── ... Investor · Actively Trading? (toggle) · [Mark Sold]
 function _pendCells(it){ var l=it.loan;
@@ -826,45 +897,117 @@ function _pendCells(it){ var l=it.loan;
     _actTd(_isStaff ? '<button type="button" class="cl-act" onclick="event.stopPropagation();openMarkSold(\''+_pbt(it)+'\')">Mark Sold</button>' : '');
 }
 // ── Sold – RTL ── ... Investor · Monthly Yield Spread
+// Deploy 237.123 (Mike) -- a Sold-RTL loan counts as "in servicing" when the servicer has it on its
+// book (servicer loan # / boarded) and it hasn't paid off there.
+function atServicer(l){ return !!(String(l.servicerLoanNumber||'').trim() || String(l.boardingStatus||'')==='boarded') && !_isPaidOff(l); }
 function _soldRtlCells(it){ var l=it.loan; var s=monthlyYieldSpread(l);
+  var svc = atServicer(l)
+    ? '<span style="font-size:10px;font-weight:700;color:#166534;background:rgba(21,128,61,.09);border:1px solid rgba(21,128,61,.25);border-radius:12px;padding:2px 8px;white-space:nowrap">✓ '+escH((l.servicerName||'Servicer')+(l.servicerLoanNumber?' #'+l.servicerLoanNumber:''))+'</span>'
+    : '<span style="font-size:10px;font-weight:700;color:#7c1f1f;background:rgba(124,31,31,.08);border:1px solid rgba(124,31,31,.28);border-radius:12px;padding:2px 8px;white-space:nowrap">'+(_isPaidOff(l)?'Paid off at servicer':'Not at a servicer')+'</span>';
   return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdText(l.investorName) +
+    '<td>'+svc+'</td>' +
     '<td class="cl-num">'+(s!=null?escH(moneySigned(s)+'/mo'):'<span class="cl-ph">—</span>')+'</td>';
 }
 // ── Sold – DSCR ── ... Investor · Profitability
-function _soldDscrCells(it){ var l=it.loan; var p=dscrProfitability(l);
+// Deploy 237.123 (Mike) -- TPO premium column (the same value Profitability uses).
+function tpoOf(l){
+  var _t = _closingTabTpo({ tpoSpread: l.tpoSpread, tpo: l.tpo, tpoPremium: l.tpoPremium });
+  if (l.tpoSpread != null && l.tpoSpread !== '') return { v: num(l.tpoSpread), assumed: false };
+  if (_t !== '') return { v: num(_t), assumed: false };
+  return { v: _defaultTpo(), assumed: true };
+}
+function _soldDscrCells(it){ var l=it.loan; var p=dscrProfitability(l); var t=tpoOf(l);
   return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdText(l.investorName) +
+    '<td class="cl-num"'+(t.assumed?' title="Not set on the loan — default TPO assumed"':'')+'>'+escH(t.v.toFixed(2))+(t.assumed?' <span class="cl-ph">default</span>':'')+'</td>' +
     '<td class="cl-num">'+(p!=null?escH(moneySigned(p)):'<span class="cl-ph">—</span>')+'</td>';
 }
-function _payoffCells(it){ var l=it.loan;
+// Deploy 237.123 (Mike) -- lifetime profitability of a paid-off loan.
+//   RTL:  points + closing fees + FULL note-rate interest from close until the servicer
+//         boarded it + the yield SPREAD (note rate - sold rate) from boarding to payoff.
+//         Boarding date = FCI's own boarding date, else the sold date, else our boarded
+//         stamp when it predates the payoff. No sold rate -> held the whole time.
+//   DSCR: sold at close -> the Sold-DSCR profitability (TPO + points + fees).
+//   Interest is estimated on the full loan amount (actual/365). Return % = (points +
+//   interest earned) / loan amount; annualized over the time the loan was open.
+var RTL_FLAT_FEES_TOTAL = 600 + 900 + 500 + 150; // mirror of loan-details.js LD_RTL_FLAT_FEES
+function _daysBetween(a, b){ var da = parseLocalDate(a), db = parseLocalDate(b); if (!da || !db) return null; return Math.max(0, Math.round((db - da) / 86400000)); }
+function payoffProfit(l){
+  var amt = num(l.finalLoanAmount) || num(l.loanAmt); if (!(amt > 0)) return null;
+  var held = _daysBetween(l.fundingDate, l.payoffDate);
+  if (!isRtl(l)) {
+    var p = dscrProfitability(l);
+    return p == null ? null : { total: p, pointsD: num(l.points)/100*amt, fees: null, full: 0, spread: 0, held: held, dscr: true,
+      ret: (tpoOf(l).v + num(l.points)) / 100, note: 'DSCR sold at close — TPO + points + fees' };
+  }
+  var pointsD = num(l.points) / 100 * amt;
+  var fees = (l.closingFees != null && String(l.closingFees).trim() !== '') ? num(l.closingFees) : RTL_FLAT_FEES_TOTAL;
+  var rate = rateOf(l.rate), sold = rateOf(l.soldRate);
+  var out = { pointsD: pointsD, fees: fees, full: 0, spread: 0, held: held, dscr: false, note: '' };
+  if (held == null || !(rate > 0)) {
+    out.note = !l.payoffDate ? 'no payoff date — interest not counted' : 'no note rate — interest not counted';
+    out.total = pointsD + fees; out.ret = pointsD / amt; out.partial = true; return out;
+  }
+  var board = '';
+  [l.fciBoardingDate, l.soldDate, l.boardedDate].some(function(d){
+    if (d && String(d).slice(0,10) > String(l.fundingDate||'').slice(0,10) && String(d).slice(0,10) < String(l.payoffDate).slice(0,10)) { board = String(d).slice(0,10); return true; }
+    return false;
+  });
+  var fullDays = held, spreadDays = 0;
+  if (sold > 0 && board) { fullDays = _daysBetween(l.fundingDate, board); spreadDays = _daysBetween(board, l.payoffDate); }
+  out.full = rate / 100 * amt * fullDays / 365;
+  out.spread = sold > 0 ? Math.max(0, rate - sold) / 100 * amt * spreadDays / 365 : 0;
+  out.fullDays = fullDays; out.spreadDays = spreadDays; out.board = board;
+  out.note = !(sold > 0) ? 'no sold rate — full yield assumed until payoff'
+    : (!board ? 'no boarding date — full yield assumed until payoff' : 'full yield ' + fullDays + 'd, then spread ' + (rate - sold).toFixed(3) + '% for ' + spreadDays + 'd');
+  out.total = pointsD + fees + out.full + out.spread;
+  out.ret = (pointsD + out.full + out.spread) / amt;
+  return out;
+}
+function _heldTxt(d){ if (d == null) return '—'; if (d < 60) return d + ' days'; var m = Math.floor(d / 30.4); return m + ' mo' + (d - Math.round(m * 30.4) > 3 ? ' ' + (d - Math.round(m * 30.4)) + 'd' : ''); }
+function _payoffCells(it){ var l=it.loan; var pr = payoffProfit(l);
+  var tip = pr ? ('Points ' + moneySigned(pr.pointsD) + (pr.fees != null ? ' · Fees ' + moneySigned(pr.fees) : '') +
+    (pr.dscr ? '' : ' · Full yield ' + moneySigned(pr.full) + ' · Spread ' + moneySigned(pr.spread)) + ' — ' + pr.note + (pr.dscr ? '' : ' (interest estimated on the full loan amount)')) : '';
+  var ann = (pr && pr.held) ? pr.ret * 365 / pr.held : null;
   return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
     '<td>'+escH(clientName(it.client))+'</td>' +
-    _tdMoney(l.payoffAmount) + _tdDate(l.payoffDate);
+    '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>' +
+    _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) +
+    _tdMoney(l.payoffAmount) + _tdDate(l.payoffDate) +
+    '<td class="cl-num">'+escH(pr ? _heldTxt(pr.held) : '—')+'</td>' +
+    '<td class="cl-num" title="'+escAttr(tip)+'">'+(pr ? escH(moneySigned(pr.total)) + (pr.partial ? ' <span class="cl-ph">partial</span>' : '') : '<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num" title="'+escAttr(ann != null ? (ann * 100).toFixed(1) + '% annualized' : '')+'">'+(pr ? escH((pr.ret * 100).toFixed(2) + '%') + (ann != null ? ' <span class="cl-ph">' + escH((ann * 100).toFixed(1)) + '%/yr</span>' : '') : '<span class="cl-ph">—</span>')+'</td>';
 }
 // ── Sort value getters for the sale-lifecycle buckets ──
 function _saleValCommon(it,k){ var l=it.loan;
   if (k==='address') return l.address||''; if (k==='borrower') return clientName(it.client); if (k==='type') return toolLabel(l);
   if (k==='amount') return num(l.finalLoanAmount||l.loanAmt); if (k==='funded') return l.fundingDate||'';
-  if (k==='rate') return rateOf(l.rate); if (k==='points') return num(l.points); if (k==='investor') return l.investorName||''; return '';
+  if (k==='rate') return rateOf(l.rate); if (k==='points') return num(l.points); if (k==='investor') return l.investorName||'';
+  if (k==='soldDate') return l.soldDate||''; // Deploy 237.123
+  return '';
 }
 function postVal(it,k){ var l=it.loan;
   if (k==='firstpay'){ var d=firstPaymentDate(l); return d?d.getTime():0; }
+  if (k==='funded') return closeTsOf(l) || 0;                                        // Deploy 237.123
+  if (k==='age'){ var h=hoursInPostClose(l); return h==null?-1:h; }
+  if (k==='status') return DISP_LABEL[displayBucket(l)] || '';
+  if (k==='lo') return loDisplay(it.ownerKey);
   return _saleValCommon(it,k);
 }
 function pendVal(it,k){ if (k==='trading') return String(it.loan.activelyTrading||'').toLowerCase()==='yes'?1:0; return _saleValCommon(it,k); }
-function soldRtlVal(it,k){ if (k==='spread'){ var s=monthlyYieldSpread(it.loan); return s==null?-1e15:s; } return _saleValCommon(it,k); }
-function soldDscrVal(it,k){ if (k==='profit'){ var p=dscrProfitability(it.loan); return p==null?-1e15:p; } return _saleValCommon(it,k); }
+function soldRtlVal(it,k){ if (k==='spread'){ var s=monthlyYieldSpread(it.loan); return s==null?-1e15:s; } if (k==='svc') return atServicer(it.loan)?1:0; return _saleValCommon(it,k); }
+function soldDscrVal(it,k){ if (k==='profit'){ var p=dscrProfitability(it.loan); return p==null?-1e15:p; } if (k==='tpo') return tpoOf(it.loan).v; return _saleValCommon(it,k); }
 function _colDesc(b){
   var tab=_homeTab(b);
-  if (b==='post_close') return { tab:tab, sort:postVal, cells:_postCells,
-    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'rate','Rate')+th(tab,'points','Points')+th(tab,'funded','Close Date')+th(tab,'firstpay','First Payment')+'<th>Close Out</th>' };
+  if (b==='post_close') return { tab:tab, sort:postVal, cells:_postCells, // Deploy 237.123
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'rate','Rate')+th(tab,'points','Points')+th(tab,'funded','Closed')+th(tab,'age','In Post Close')+th(tab,'status','Current Status')+th(tab,'investor','Investor')+th(tab,'lo','Loan Officer')+'<th></th>' };
   if (b==='pending_sale') return { tab:tab, sort:pendVal, cells:_pendCells,
     head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'trading','Actively Trading?')+'<th></th>' };
   if (b==='sold_rtl') return { tab:tab, sort:soldRtlVal, cells:_soldRtlCells,
-    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'spread','Monthly Yield Spread') };
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'svc','Servicing')+th(tab,'spread','Monthly Yield Spread') };
   if (b==='sold_dscr') return { tab:tab, sort:soldDscrVal, cells:_soldDscrCells,
-    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'profit','Profitability') };
-  if (b==='paid_off') return { tab:tab, sort:payoffVal, cells:_payoffCells,
-    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'payoffAmount','Payoff Amount')+th(tab,'payoffDate','Payoff Date') };
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'tpo','TPO')+th(tab,'profit','Profitability') };
+  if (b==='paid_off') return { tab:tab, sort:payoffVal, cells:_payoffCells, // Deploy 237.123
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'payoffAmount','Payoff Amount')+th(tab,'payoffDate','Payoff Date')+th(tab,'held','Loan Life')+th(tab,'profit','Total Profit')+th(tab,'ret','Return') };
   return { tab:'servicing', sort:svcVal, cells:_svcCellsFull,
     head: svcHeadCols('servicing','<th>Servicer</th><th>Servicer Loan #</th>',true) };
 }
@@ -922,13 +1065,16 @@ function renderAll(items){
   // out automatically when the FCI sync confirms them.
   var pb = items.filter(function(it){ return needsBoarding(it.loan); });
   var pbAcc = accordion('pending_boarding', pb, '', _pbBody(pb));
-  return bucketAcc('post_close') + pbAcc + order.map(bucketAcc).join('');
+  // Deploy 237.123 -- Post Close is an overlay: these loans ALSO appear in their status below.
+  var pcGroup = sortItems(items.filter(function(it){ return inPostClose(it.loan); }), 'post_close', postVal);
+  var pcAcc = accordion('post_close', pcGroup, '', pcGroup.length ? _dispBody(pcGroup, 'post_close', false) : '<div class="cl-empty">No loans waiting on post-close review.</div>');
+  return pcAcc + pbAcc + order.map(bucketAcc).join('');
 }
 // Manual disposition picker (All tab). 'sold' is the primary value staff pick;
 // the RTL/DSCR split is derived. Legacy 'servicing' is offered only if the loan
 // is already tagged that way (so the select shows the right current value).
 function dispOptions(cur){
-  var base = ['post_close','pending_sale','sold','paid_off'];
+  var base = ['pending_sale','sold','paid_off']; // Deploy 237.123 -- Post Close is a review hold, not a status
   if (cur==='servicing') base.splice(1,0,'servicing');
   return base.map(function(d){
     return '<option value="'+d+'"'+(d===cur?' selected':'')+'>'+escH(DISP_LABEL[d]||d)+'</option>';
@@ -1676,11 +1822,11 @@ function openCloseOut(clientId, loanId, ownerKey){
   var it=_find(clientId, loanId, ownerKey); if (!it) return;
   _svcTarget=it; _svcMode='closeout'; _dispPending=null;
   var l=it.loan;
-  document.getElementById('svcTitle').textContent = 'Close Out — ' + (l.address||'');
-  document.getElementById('svcSub').textContent = 'Choose the loan type, investor, and servicing details — then move to Pending Sale.';
+  document.getElementById('svcTitle').textContent = 'Loan details — ' + (l.address||''); // Deploy 237.123
+  document.getElementById('svcSub').textContent = 'Confirm the loan type, investor, and servicing details. RTLs go to Pending Sale; DSCRs sold to DIYA go to Sold – DSCR; other DSCRs go to Pending Sale.';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   document.getElementById('svcGrid').innerHTML = _closeOutHtml(it, null, null);
-  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Close Out';
+  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save';
   document.getElementById('svcBg').classList.add('show');
 }
 function confirmCloseOut(){
@@ -1704,10 +1850,12 @@ function confirmCloseOut(){
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
   // Deploy 236.784 — one atomic call (disposition + fields); see confirmDisposition.
-  SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'pending_sale', fields:fields }).then(function(){
-    l.disposition='pending_sale'; Object.keys(fields).forEach(function(k){ l[k]=fields[k]; });
-    _openAcc.pending_sale=true;
-    st.className='svc-status ok'; st.textContent='Closed out';
+  // Deploy 237.123 -- the status follows the type rules (DSCR sold to DIYA -> Sold; else Pending Sale).
+  var _coDisp = autoDisposition({ toolType: type, investorName: fields.investorName });
+  SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:_coDisp, fields:fields }).then(function(){
+    l.disposition=_coDisp; Object.keys(fields).forEach(function(k){ l[k]=fields[k]; });
+    _openAcc[_coDisp==='sold' ? (rtl?'sold_rtl':'sold_dscr') : 'pending_sale']=true;
+    st.className='svc-status ok'; st.textContent='Saved';
     render(); setTimeout(closeServicingEditor, 600);
   }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
 }
@@ -1789,12 +1937,73 @@ function renderServicing(items){
   setTimeout(function(){ _pmtPrefetch(group); }, 0); // Deploy 237.054
   return pbAcc + note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', true) + '</div>';
 }
+// Deploy 237.123 (Mike) -- Post Close Review: every closed loan waits here until Elle confirms SLA
+// and the loan documents agree. Loans keep moving through Pending Sale / Pending Boarding /
+// Sold while they wait; anything here longer than 48 hours is flagged.
+function renderPostCloseReview(items){
+  var group = sortItems(items.filter(function(it){ return inPostClose(it.loan); }), 'post_close', postVal);
+  var late = group.filter(function(it){ var h = hoursInPostClose(it.loan); return h != null && h > 48; }).length;
+  var note = '<div class="cl-note">Loans stay here until the post-close review is done — confirm every field in SLA matches the executed loan documents, then click <strong>✓ Review Done</strong>. ' +
+    'They keep moving through their status (RTL → Pending Sale + Pending Boarding; DSCR sold to DIYA → Sold – DSCR; other DSCR → Pending Sale) while they wait.' +
+    (late ? ' <strong style="color:#7c1f1f">' + late + ' loan' + (late === 1 ? ' has' : 's have') + ' been waiting more than 48 hours.</strong>' : '') +
+    ' <a href="#" onclick="setTab(\'all\');return false">Back to all closed loans</a></div>';
+  if (!group.length) return note + '<div class="cl-empty">Nothing waiting on post-close review. 🎉</div>';
+  return note + '<div class="acc" style="padding:0">' + _dispBody(group, 'post_close', false) + '</div>';
+}
+function markPostCloseReviewed(clientId, loanId, ownerKey){
+  var it=_find(clientId, loanId, ownerKey); if (!it) return;
+  var l=it.loan;
+  if (!confirm('Mark the post-close review done for ' + (l.address || 'this loan') + '?\n\nIt leaves Post Close Review and stays in ' + (DISP_LABEL[displayBucket(l)] || 'its status') + '.')) return;
+  var raw = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  var body = { clientId: clientId, loanId: loanId, owner: ownerKey, postCloseReview: true };
+  // A loan still riding the automatic status gets that status written down now, so it
+  // can't change underneath the team later.
+  if (!raw || raw === 'post close') body.disposition = autoDisposition(l);
+  var prev = { at: l.postCloseReviewedAt, by: l.postCloseReviewedBy, disp: l.disposition };
+  l.postCloseReviewedAt = new Date().toISOString(); l.postCloseReviewedBy = (_user && _user.email) || '';
+  if (body.disposition) l.disposition = body.disposition;
+  render();
+  SLA.api('POST','/api/loan-servicing-update', body).catch(function(e){
+    l.postCloseReviewedAt = prev.at; l.postCloseReviewedBy = prev.by; l.disposition = prev.disp; render();
+    alert('Could not save the review: ' + ((e && e.message) || 'unknown'));
+  });
+}
+
 // Generic single-bucket tab (Sold-RTL / Sold-DSCR). Pending Sale wraps this with a note.
 function renderBucketTab(items, b){
   var desc = _colDesc(b);
   var group = sortItems(items.filter(function(it){ return displayBucket(it.loan)===b; }), desc.tab, desc.sort);
   if (!group.length) return '<div class="cl-empty">No '+escH((DISP_LABEL[b]||b).toLowerCase())+' loans.</div>';
-  return '<div class="acc" style="padding:0">' + _dispBody(group, b, false) + '</div>';
+  var strip = b === 'sold_rtl' ? _soldRtlSummary(group) : '';
+  return strip + '<div class="acc" style="padding:0">' + _dispBody(group, b, false) + '</div>';
+}
+// Deploy 237.123 (Mike) -- Sold-RTL vs the servicing book: how many are live at a servicer, the
+// payments collected on them (servicer payment history, nightly cache), and the monthly
+// yield spread they earn. Payment histories load in the background and repaint the strip.
+function _soldRtlSummary(group){
+  var live = group.filter(function(it){ return atServicer(it.loan); });
+  setTimeout(function(){ _pmtPrefetch(live); }, 0);
+  var collected = 0, loaded = 0;
+  live.forEach(function(it){
+    var h = _pmtHist[loanKey(it)];
+    var rows = h && h.data && Array.isArray(h.data.rows) ? h.data.rows : null;
+    if (!rows) return;
+    loaded++;
+    rows.forEach(function(p){ if (_isGoodPayment(p) && !_isReversed(p, rows)) collected += num(p.amount); });
+  });
+  var spread = 0, noRate = 0;
+  live.forEach(function(it){ var v = monthlyYieldSpread(it.loan); if (v == null) noRate++; else spread += v; });
+  var box = function(label, val, sub){
+    return '<div style="flex:1;min-width:170px;background:var(--surface,#fff);border:1px solid var(--border,#e4dfd4);border-radius:10px;padding:10px 14px">' +
+      '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">'+escH(label)+'</div>' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:20px;font-weight:700;margin-top:2px">'+val+'</div>' +
+      (sub ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+sub+'</div>' : '') + '</div>';
+  };
+  return '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
+    box('In servicing', escH(live.length + ' of ' + group.length), escH((group.length - live.length) + ' sold RTL not at a servicer')) +
+    box('Payments collected', escH(moneySigned(collected)), escH(loaded < live.length ? 'loading ' + loaded + ' of ' + live.length + ' payment histories…' : 'all ' + live.length + ' servicing loans')) +
+    box('Monthly yield spread', escH(moneySigned(spread) + '/mo'), noRate ? escH(noRate + ' loan' + (noRate === 1 ? '' : 's') + ' missing a sold rate') : 'across the servicing loans') +
+  '</div>';
 }
 function renderPendingSale(items){
   // Deploy 236.885 (Mike) — the promised trade-tape export. Staff pick a
@@ -2229,7 +2438,7 @@ function _pmtPrefetch(group){
 var _pmtRenderTimer = null;
 function _pmtScheduleRender(){
   if (_pmtRenderTimer) clearTimeout(_pmtRenderTimer);
-  _pmtRenderTimer = setTimeout(function(){ _pmtRenderTimer = null; if (_tab === 'servicing' || _tab === 'all') render(); }, 400);
+  _pmtRenderTimer = setTimeout(function(){ _pmtRenderTimer = null; if (_tab === 'servicing' || _tab === 'all' || _tab === 'sold_rtl') render(); }, 400); // Deploy 237.123
 }
 function _pmtPrefetchNext(){
   while (_pmtPrefetchBusy < 4 && _pmtPrefetchQueue.length) {
@@ -2363,6 +2572,13 @@ function payoffVal(it, k){
   if (k==='borrower') return clientName(it.client);
   if (k==='payoffAmount') return num(l.payoffAmount);
   if (k==='payoffDate') return l.payoffDate||'';
+  if (k==='type') return toolLabel(l);                                              // Deploy 237.123
+  if (k==='amount') return num(l.finalLoanAmount||l.loanAmt);
+  if (k==='funded') return l.fundingDate||'';
+  var pr = (k==='held'||k==='profit'||k==='ret') ? payoffProfit(l) : null;
+  if (k==='held') return pr && pr.held != null ? pr.held : -1;
+  if (k==='profit') return pr ? pr.total : -1e15;
+  if (k==='ret') return pr ? pr.ret : -1e15;
   return '';
 }
 function renderPayoff(items){

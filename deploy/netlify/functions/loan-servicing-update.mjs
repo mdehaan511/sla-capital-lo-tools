@@ -96,10 +96,13 @@ async function handle(req, context) {
   const fields = (body.fields && typeof body.fields === 'object') ? body.fields : {};
   const drawMeta = (body.drawMeta && typeof body.drawMeta === 'object') ? body.drawMeta : null;
   const disposition = body.disposition != null ? String(body.disposition).toLowerCase().trim() : '';
+  // Deploy 237.123 (Mike) -- Post Close Review. true = Elle confirmed SLA + the loan docs agree
+  // (stamps who/when server-side); false = put the loan back in Post Close.
+  const postCloseReview = typeof body.postCloseReview === 'boolean' ? body.postCloseReview : null;
   if (!clientId) return json(400, { error: 'clientId required' });
   if (!loanId)   return json(400, { error: 'loanId required' });
   if (disposition && !VALID_DISPOSITION[disposition]) return json(400, { error: 'Invalid disposition' });
-  if (!Object.keys(fields).length && !drawMeta && !disposition) return json(400, { error: 'fields, drawMeta, or disposition required' });
+  if (!Object.keys(fields).length && !drawMeta && !disposition && postCloseReview === null) return json(400, { error: 'fields, drawMeta, disposition, or postCloseReview required' });
 
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);
@@ -160,9 +163,16 @@ async function handle(req, context) {
     });
   }
 
-  if (!Object.keys(applied).length && !drawMetaApplied && !disposition) return json(400, { error: 'No recognized servicing fields' });
+  if (!Object.keys(applied).length && !drawMetaApplied && !disposition && postCloseReview === null) return json(400, { error: 'No recognized servicing fields' });
 
   const now = new Date().toISOString();
+  if (postCloseReview === true) {          // Deploy 237.123
+    loan.postCloseReviewedAt = now;
+    loan.postCloseReviewedBy = selfEmail;
+  } else if (postCloseReview === false) {
+    loan.postCloseReviewedAt = '';
+    loan.postCloseReviewedBy = '';
+  }
   // Deploy 236.784 — disposition change in the same atomic write (audit stamps
   // match loan-set-disposition's).
   if (disposition) {
@@ -187,5 +197,6 @@ async function handle(req, context) {
     });
   } catch (e) { console.warn('loan-servicing-update: change log failed (non-fatal):', e && e.message); }
 
-  return json(200, { ok: true, fields: applied, disposition: disposition || undefined, drawMeta: drawMetaApplied ? loan.drawMeta : undefined });
+  return json(200, { ok: true, fields: applied, disposition: disposition || undefined, drawMeta: drawMetaApplied ? loan.drawMeta : undefined,
+    postCloseReviewedAt: postCloseReview === null ? undefined : loan.postCloseReviewedAt, postCloseReviewedBy: postCloseReview === null ? undefined : loan.postCloseReviewedBy });
 }
