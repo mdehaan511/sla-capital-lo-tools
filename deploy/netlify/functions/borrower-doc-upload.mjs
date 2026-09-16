@@ -41,6 +41,7 @@ import { canReadLoan } from './_shared/access.mjs';
 // Deploy 236.895 — admin "view as a borrower" (read-only).
 import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
 import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
+import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -189,7 +190,11 @@ async function handle(req, context) {
   };
   review.updatedAt = now;
 
-  try { await reviewsStore.setJSON(keySafe(review.id), review); }
+  try {
+    // Deploy 237.104 -- fresh-merge this tray so a processor upload landing meanwhile isn't clobbered.
+    const _m = await saveTrayFresh(reviewsStore, review.id, slug, review.docs[slug], { updatedAt: now });
+    if (!_m) await reviewsStore.setJSON(keySafe(review.id), review);
+  }
   catch (e) { return json(500, { error: 'Failed to save review: ' + (e && e.message || 'unknown') }); }
   await syncReviewCountsToLoan(review); // Deploy 237.102
   // Deploy 237.072 (Mike, item 8) -- a borrower upload can complete the file too.

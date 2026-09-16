@@ -31,6 +31,7 @@ import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 // uploaded by staff filled it.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { writeFieldProposals } from './_shared/uw-field-write.mjs';
+import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -316,7 +317,11 @@ async function handle(req, context) {
   review.lastEditedBy = normalizeEmail(user.email);
   review.lastEditedAt = now;
 
-  try { await reviewsStore.setJSON(keySafe(review.id), review); }
+  // Deploy 237.104 -- fresh-merge this tray (see loan-review-doc-upload) instead of a whole-record write.
+  try {
+    const _m = await saveTrayFresh(reviewsStore, review.id, slug, docState, { updatedAt: now, lastEditedBy: normalizeEmail(user.email), lastEditedAt: now });
+    if (!_m) await reviewsStore.setJSON(keySafe(review.id), review);
+  }
   catch (e) { return json(500, { error: 'Failed to save review: ' + (e && e.message || 'unknown') }); }
 
   return json(200, {

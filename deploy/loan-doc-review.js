@@ -136,6 +136,7 @@
   var _docSearch = '';
   var _sourceOpen = false;
   var _uploadingSlug = null;
+  var _uploadQueue = [];      // Deploy 237.104 -- picks made while an upload is running (one at a time)
   var _uploadStatusMsg = ''; // Deploy 236.839 — live in-tray upload status line
   var _stylesInjected = false;
   // Deploy 236.161 — per-section "Show N hidden" toggle state.
@@ -660,6 +661,7 @@
     _docSearch = '';
     _sourceOpen = false;
     _uploadingSlug = null;
+    _uploadQueue = []; // Deploy 237.104
 
     rootEl.classList.add('dr-root');
     rootEl.innerHTML = '<div class="loading-page">Loading review…</div>';
@@ -2184,6 +2186,12 @@
     // The "AI is reviewing…" spinner for the in-flight upload. Deploy 236.778 —
     // same dead-guard flaw: on a RE-upload the tray already has a currentDocId, so
     // this never fired either. Match the tray's current doc instead.
+    // Deploy 237.104 -- waiting its turn behind the current upload.
+    var _qPos = -1;
+    for (var _qi = 0; _qi < _uploadQueue.length; _qi++) { if (_uploadQueue[_qi].slug === slug) { _qPos = _qi; break; } }
+    if (_qPos >= 0 && _uploadingSlug !== slug) {
+      return '<div class="ai-block pending"><div class="ai-head"><span class="ai-label pending">\u23f3 Queued \u2014 uploads run one at a time (position ' + (_qPos + 1) + ')</span></div></div>';
+    }
     if (_uploadingSlug === slug && (!docId || docId === _trayState.currentDocId)) {
       // Deploy 236.839 — live IN-TRAY upload status (Mike: the compressing/
       // uploading toasts in the corner were easy to miss). doUpload's
@@ -2312,6 +2320,12 @@
     if (f) doUpload(slug, f);
   };
 
+  // Deploy 237.104 (Jessy) -- start the next queued upload once the current one settles.
+  function _startNextUpload() {
+    if (_uploadingSlug || !_uploadQueue.length) return;
+    var next = _uploadQueue.shift();
+    setTimeout(function() { doUpload(next.slug, next.file, next.opts); }, 50);
+  }
   function doUpload(slug, file, opts) {
     opts = opts || {};
     // Deploy 236.163 — when the tray already has 1+ LIVE (non-hidden)
@@ -2327,6 +2341,18 @@
       }
     }
 
+    // Deploy 237.104 (Jessy: "starting a second upload cancels the one in progress")
+    // -- ONE upload at a time per page. A second pick used to overwrite the in-flight
+    // state (the first looked cancelled; server-side the two saves clobbered each
+    // other -- fixed there too). Extra picks wait their turn; each review then reuses
+    // the loan's cached context instead of all missing the cache at the same instant.
+    if (_uploadingSlug) {
+      _uploadQueue.push({ slug: slug, file: file, opts: opts });
+      _expanded[slug] = true;
+      showToast('Queued: ' + (file.name || 'file') + ' uploads when the current one finishes.', 'info');
+      render();
+      return;
+    }
     _uploadingSlug = slug;
     _expanded[slug] = true;
     // Deploy 236.839 — the tray shows a LIVE status line through every phase
@@ -2353,6 +2379,7 @@
       _uploadingSlug = null;
       _uploadStatusMsg = '';
       _disarmDocUploadGuard();
+      _startNextUpload(); // Deploy 237.104
       var dd = r.review.docs[slug] || {};
       // Deploy 236.502 — surface that the stored copy was auto-compressed
       // so the processor knows to verify legibility against the original.
@@ -2374,6 +2401,7 @@
       _uploadingSlug = null;
       _uploadStatusMsg = '';
       _disarmDocUploadGuard();
+      _startNextUpload(); // Deploy 237.104
       showToast('Upload failed: ' + (err.message || 'Unknown'), 'error');
       render();
     });

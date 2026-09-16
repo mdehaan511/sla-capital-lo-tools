@@ -33,6 +33,7 @@ import { getChecklist, staleAfterFor, expectedMortgagee } from './_shared/loan-r
 import { queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs'; // Deploy 237.049
 import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
 import { guidelinesTextFor } from './_shared/guidelines-text.mjs'; // Deploy 237.096
+import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
@@ -76,6 +77,7 @@ async function handle(req, context) {
   // Validate review exists + slug is part of its checklist.
   const reviewStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
   const review = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });
+  const _costBefore = Number((review && review.aiCostCents) || 0); // Deploy 237.104 -- delta applied at the fresh-merge save
   if (!review) return json(404, { error: 'Review not found' });
   if (!review.docs || !review.docs[body.slug]) {
     return json(400, { error: 'slug not in checklist for this review' });
@@ -547,7 +549,21 @@ async function handle(req, context) {
   review.lastEditedBy = normalizeEmail(user.email);
   review.lastEditedAt = now;
 
-  await reviewStore.setJSON(keySafe(body.reviewId), review);
+  // Deploy 237.104 (Jessy: "starting a second upload cancels the one in progress") --
+  // this function holds the review across a 10-20s AI call; writing the whole stale
+  // copy back clobbered any tray another upload saved meanwhile, so the earlier
+  // document simply vanished. Re-read fresh and merge ONLY this tray (document
+  // entries unioned by docId) + the counters -- same idea as the background reviewer.
+  {
+    const _merged = await saveTrayFresh(reviewStore, body.reviewId, body.slug, docState, function (fresh) {
+      fresh.aiCostCents = Number(fresh.aiCostCents || 0) + (Number(review.aiCostCents || 0) - _costBefore);
+      fresh.updatedAt = now;
+      fresh.lastEditedBy = normalizeEmail(user.email);
+      fresh.lastEditedAt = now;
+    });
+    if (_merged) { for (const k of Object.keys(review)) delete review[k]; Object.assign(review, _merged); }
+    else await reviewStore.setJSON(keySafe(body.reviewId), review); // review gone meanwhile -- old behaviour
+  }
 
   await syncReviewCountsToLoan(review); // Deploy 237.102
 
@@ -595,8 +611,7 @@ async function handle(req, context) {
         docState.aiReviewing = false;
         docState.aiVerdict = 'needs_manual_review';
         docState.aiNotes = 'This document was too long for the instant review and the background reviewer could not be started. Use ↻ Retry or review manually.';
-        review.updatedAt = new Date().toISOString();
-        await reviewStore.setJSON(keySafe(body.reviewId), review);
+        await saveTrayFresh(reviewStore, body.reviewId, body.slug, docState, { updatedAt: new Date().toISOString() }); // Deploy 237.104
         await syncReviewCountsToLoan(review); // Deploy 237.102
       } catch (e2) { console.error('loan-review-doc-upload: kickoff-failure cleanup failed:', e2 && e2.message); }
     }
