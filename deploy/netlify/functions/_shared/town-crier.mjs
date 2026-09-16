@@ -80,6 +80,7 @@ export async function buildTownCrier(now) {
     cele.forEach((c) => {
       const when = c.daysAway === 0 ? 'today' : prettyYmd(c.date);
       if (c.type === 'birthday') line('🎂 <b>' + escH(c.name) + '</b> — birthday ' + escH(when), '🎂 ' + c.name + ' — birthday ' + when);
+      else if (c.type === 'company') line(escH(c.icon) + ' <b>' + escH(c.name) + '</b> — SLA Capital turns ' + c.years + ' ' + escH(when) + '. ' + escH(c.blurb || ''), c.icon + ' ' + c.name + ' — SLA Capital turns ' + c.years + ' ' + when);   // Deploy 237.095
       else line('🏅 <b>' + escH(c.name) + '</b> — ' + ordinal(c.years) + ' work anniversary ' + escH(when), '🏅 ' + c.name + ' — ' + ordinal(c.years) + ' work anniversary ' + when);
     });
   } else {

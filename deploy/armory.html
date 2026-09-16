@@ -314,7 +314,7 @@
 
           <!-- Deploy 237.082 — birthdays + work anniversaries (profiles: birthday / startDate). -->
           <div class="card">
-            <h2>🎂 Celebrations <span class="sub">birthdays &amp; work anniversaries</span></h2>
+            <h2>🎂 Celebrations <span class="sub">birthdays, work anniversaries &amp; Founders Day (Aug 6)</span></h2>
             <div id="celeList"><div class="empty">Consulting the calendar…</div></div>
             <div class="lede" style="margin:10px 0 0;font-size:12px" id="celeMine"></div>
           </div>
@@ -544,8 +544,11 @@
     var out = '';
     (c.today.birthdays || []).forEach(function (b) { out += '<div class="cele today">🎂 <span>Happy birthday, ' + escH(b.name) + '!</span><span class="when">today</span></div>'; });
     (c.today.anniversaries || []).forEach(function (a) { out += '<div class="cele today">🏅 <span>' + escH(a.name) + ' — ' + ordinal(a.years) + ' work anniversary</span><span class="when">today</span></div>'; });
+    // Deploy 237.095 — company days (Founders Day, 8/6/2022).
+    (c.today.company || []).forEach(function (k) { out += '<div class="cele today">' + escH(k.icon || '🏰') + ' <span>' + escH(k.name) + ' — SLA Capital turns ' + k.years + '!</span><span class="when">today</span></div>'; });
     (c.upcoming || []).forEach(function (u) {
-      out += '<div class="cele">' + (u.type === 'birthday' ? '🎂' : '🏅') + ' <span>' + escH(u.name) + (u.type === 'anniversary' ? ' — ' + ordinal(u.years) + ' anniversary' : "'s birthday") + '</span>' +
+      var label = u.type === 'company' ? escH(u.name) + ' — SLA turns ' + u.years : escH(u.name) + (u.type === 'anniversary' ? ' — ' + ordinal(u.years) + ' anniversary' : "'s birthday");
+      out += '<div class="cele">' + (u.type === 'birthday' ? '🎂' : u.type === 'company' ? escH(u.icon || '🏰') : '🏅') + ' <span>' + label + '</span>' +
         '<span class="when">' + escH(fmtDay(u.date)) + ' · in ' + u.daysAway + 'd</span></div>';
     });
     document.getElementById('celeList').innerHTML = out || '<div class="empty">Nothing in the next 30 days. Add your birthday on the Profile page so yours shows up.</div>';

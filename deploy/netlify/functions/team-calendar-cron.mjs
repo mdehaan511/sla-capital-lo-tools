@@ -35,9 +35,11 @@ export default async () => {
     const lines = [];
     today.birthdays.forEach((b) => lines.push('🎂 *' + b.name + '* has a birthday today!'));
     today.anniversaries.forEach((a) => lines.push('🏅 *' + a.name + '* — ' + ordinal(a.years) + ' work anniversary today (with SLA since ' + a.startDate + ')'));
+    (today.company || []).forEach((c) => lines.push(c.icon + ' *' + c.name + '!* SLA Capital turns ' + c.years + ' today. ' + c.blurb));   // Deploy 237.095
     const heads = [];
     soon.birthdays.forEach((b) => heads.push('🎂 ' + b.name + ' — birthday ' + prettyYmd(addDays(ymd, 3))));
     soon.anniversaries.forEach((a) => heads.push('🏅 ' + a.name + ' — ' + ordinal(a.years) + ' anniversary ' + prettyYmd(addDays(ymd, 3))));
+    (soon.company || []).forEach((c) => heads.push(c.icon + ' ' + c.name + ' — SLA turns ' + c.years + ' on ' + prettyYmd(addDays(ymd, 3))));
 
     let posted = 0;
     if (lines.length || heads.length) {
@@ -45,6 +47,12 @@ export default async () => {
         (heads.length ? (lines.length ? '\n\n' : '') + '_Heads-up, 3 days out:_\n' + heads.join('\n') : '') +
         '\n<' + PORTAL + '/armory.html|🏰 The Armory>';
       await postSlack({ text }, { channel: 'leadership' });
+      posted++;
+    }
+    // Deploy 237.095 — Founders Day is for everyone: the company channel too.
+    if ((today.company || []).length) {
+      const c = today.company[0];
+      await postSlack({ text: c.icon + ' *Happy ' + c.name + '!* SLA Capital turns ' + c.years + ' today — ' + c.blurb + '\n<' + PORTAL + '/armory.html|🏰 The Armory>' }, { channel: 'armory' });
       posted++;
     }
 

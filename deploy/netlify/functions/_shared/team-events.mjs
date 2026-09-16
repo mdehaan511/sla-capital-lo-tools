@@ -153,8 +153,10 @@ export async function profileCalendarFor(emails) {
 // team-calendar cron (first run after deploy) and by the admin button on the
 // Armory; a marker at armory store calendar-seed/<SEED_VERSION> stops it
 // running twice. Bump SEED_VERSION when the list changes.
-export const SEED_VERSION = 1;
+export const SEED_VERSION = 2;   // v2 (Deploy 237.095): + Mike and Dan, 8/6/2022 = Founders Day
 export const CALENDAR_SEED = [
+  { name: 'Mike',       startDate: '2022-08-06' },
+  { name: 'Dan',        startDate: '2022-08-06' },
   { name: 'Diana',      startDate: '2026-09-14' },
   { name: 'Beth',       startDate: '2026-06-17', birthday: '08-06' },
   { name: 'Jessy',      startDate: '2023-04-24', birthday: '08-16' },
@@ -216,6 +218,12 @@ export async function applyCalendarSeed(opts) {
 }
 
 // ── Celebrations ──────────────────────────────────────────────────
+// Deploy 237.095 (Mike) — company days, celebrated every year like a
+// birthday: Founders Day = 8/6/2022, the day SLA Capital started.
+export const COMPANY_DAYS = [
+  { key: 'founders', name: 'Founders Day', md: '08-06', since: '2022', icon: '🏰', blurb: 'SLA Capital was founded on August 6, 2022.' },
+];
+
 function _mdMatches(md, ymd) {
   const y = +ymd.slice(0, 4);
   const today = ymd.slice(5);
@@ -223,9 +231,12 @@ function _mdMatches(md, ymd) {
   return md === '02-29' && today === '02-28' && !_isLeap(y);
 }
 
-/** { birthdays: [{email,name}], anniversaries: [{email,name,years,startDate}] } for one Pacific day. */
+/**
+ * { birthdays: [{email,name}], anniversaries: [{email,name,years,startDate}],
+ *   company: [{key,name,years,icon,blurb}] } for one Pacific day.
+ */
 export function celebrationsOn(profiles, ymd) {
-  const birthdays = [], anniversaries = [];
+  const birthdays = [], anniversaries = [], company = [];
   (profiles || []).forEach((p) => {
     if (p.birthday && _mdMatches(p.birthday, ymd)) birthdays.push({ email: p.email, name: p.name });
     if (p.startDate && _mdMatches(p.startDate.slice(5), ymd)) {
@@ -233,7 +244,10 @@ export function celebrationsOn(profiles, ymd) {
       if (years >= 1) anniversaries.push({ email: p.email, name: p.name, years, startDate: p.startDate });
     }
   });
-  return { birthdays, anniversaries };
+  COMPANY_DAYS.forEach((c) => {
+    if (_mdMatches(c.md, ymd)) company.push({ key: c.key, name: c.name, years: +ymd.slice(0, 4) - +c.since, icon: c.icon, blurb: c.blurb });
+  });
+  return { birthdays, anniversaries, company };
 }
 
 /**
@@ -247,6 +261,7 @@ export function upcomingCelebrations(profiles, fromYmd, days) {
     const c = celebrationsOn(profiles, ymd);
     c.birthdays.forEach((b) => out.push({ type: 'birthday', date: ymd, daysAway: i, email: b.email, name: b.name }));
     c.anniversaries.forEach((a) => out.push({ type: 'anniversary', date: ymd, daysAway: i, email: a.email, name: a.name, years: a.years }));
+    c.company.forEach((k) => out.push({ type: 'company', date: ymd, daysAway: i, name: k.name, years: k.years, icon: k.icon, blurb: k.blurb }));
   }
   return out;
 }
