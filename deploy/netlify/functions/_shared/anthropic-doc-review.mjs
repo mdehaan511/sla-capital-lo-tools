@@ -261,7 +261,7 @@ export async function reviewDocument(opts) {
   // Deploy 237.093 -- priced by _shared/ai-usage.mjs (a 1h cache write is 2x, not
   // 1.25x) and logged there so the weekly spend digest sees every review.
   const costCents = aiCostCents(MODEL, usage);
-  await logAiUsage({ feature: 'doc-review', model: MODEL, usage, meta: { reviewId: opts.reviewId || '', slug: opts.slug || '', address: opts.address || '', docLabel: opts.docLabel || '' } });
+  await logAiUsage({ feature: 'doc-review', model: MODEL, usage, meta: { reviewId: opts.reviewId || '', slug: opts.slug || '', address: opts.address || '', docLabel: opts.docLabel || '', origin: opts.origin || '' } });
 
   // Parse the model's JSON. The system prompt asks for clean JSON
   // but defensively strip markdown fences and pull the first

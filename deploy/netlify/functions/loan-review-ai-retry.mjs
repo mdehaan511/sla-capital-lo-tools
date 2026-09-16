@@ -194,7 +194,7 @@ async function handle(req, context) {
   let aiResult;
   try {
     aiResult = await reviewDocument({
-      reviewId: body.reviewId, slug: body.slug, address: review.address || '', // Deploy 237.093 -- usage log meta
+      reviewId: body.reviewId, slug: body.slug, address: review.address || '', origin: 'retry', // Deploy 237.093 / 237.107 -- usage log meta
       bytes,
       mimeType,
       docLabel,

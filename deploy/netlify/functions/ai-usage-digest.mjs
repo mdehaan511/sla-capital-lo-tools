@@ -42,7 +42,7 @@ export async function buildDigest(days) {
     }
     if (truncated) break;
   }
-  const byFeature = {}, byDay = {}, byReview = {};
+  const byFeature = {}, byDay = {}, byReview = {}, byOrigin = {}; // Deploy 237.107 -- origin = upload / retry / truth-refresh / requeue:*
   let tot = { calls: 0, cents: 0, in: 0, cw5: 0, cw1h: 0, cr: 0, out: 0 };
   for (const r of recs) {
     const f = r.feature || 'other';
@@ -51,6 +51,7 @@ export async function buildDigest(days) {
     add(byFeature[f] = byFeature[f] || { calls: 0, cents: 0, in: 0, cw5: 0, cw1h: 0, cr: 0, out: 0 });
     const d = String(r.t).slice(0, 10);
     add(byDay[d] = byDay[d] || { calls: 0, cents: 0, in: 0, cw5: 0, cw1h: 0, cr: 0, out: 0 });
+    if (r.feature === 'doc-review') { const o = r.origin || 'unknown'; byOrigin[o] = byOrigin[o] || { calls: 0, cents: 0 }; byOrigin[o].calls++; byOrigin[o].cents += Number(r.cents || 0); }
     if (r.reviewId) {
       const k = r.reviewId;
       byReview[k] = byReview[k] || { calls: 0, cents: 0, address: r.address || '', reviewId: k };
@@ -75,9 +76,11 @@ export async function buildDigest(days) {
   const busy = topReviews.filter((r) => r.calls >= 40);
   if (busy.length) tips.push('Loans with 40+ AI calls this week: ' + busy.map((r) => (r.address || r.reviewId) + ' (' + r.calls + ' calls, ' + _money(r.cents) + ')').join('; ') + '. Repeated retries on the same trays add up — the compact AI block and Ready-for-UW panel should reduce the need.');
   if (tot.out && tot.out / Math.max(1, tot.calls) > 1500) tips.push('Average reply is ' + Math.round(tot.out / tot.calls) + ' output tokens — shorter rubric answers would trim the (small) output line.');
+  const _auto = Object.entries(byOrigin).filter(([o]) => /^(truth-refresh|requeue)/.test(o)).reduce((s, [, v]) => s + v.calls, 0);
+  if (docReview.calls && _auto / docReview.calls > 0.4) tips.push('Automatic re-reviews (point-of-truth refresh + Articles / ID requeues) were ' + _pct(_auto / docReview.calls) + ' of document reviews. If loans are being edited repeatedly, each material edit re-grades the still-open trays; consider batching edits.');
   if (truncated) tips.push('Note: the rollup hit its time budget and may be incomplete for the last day(s).');
 
-  return { days, from: dayKeys[0], to: dayKeys[dayKeys.length - 1], records: recs.length, truncated, totals: tot, hitRatio, byFeature, byDay, topReviews, avgReviewCents: avgReview, tips };
+  return { days, from: dayKeys[0], to: dayKeys[dayKeys.length - 1], records: recs.length, truncated, totals: tot, hitRatio, byFeature, byDay, byOrigin, topReviews, avgReviewCents: avgReview, tips };
 }
 
 function _html(d) {
@@ -97,6 +100,9 @@ function _html(d) {
         '<h3 style="font-size:14px;margin:18px 0 6px">Suggestions</h3><ul>' + tips + '</ul>' +
         '<h3 style="font-size:14px;margin:18px 0 6px">By feature</h3>' +
         '<table cellpadding="4" style="border-collapse:collapse;font-size:13px"><tr><th align="left">Feature</th><th>Calls</th><th>Cost</th><th>Avg/call</th></tr>' + rows + '</table>' +
+        (Object.keys(d.byOrigin || {}).length ? '<h3 style="font-size:14px;margin:18px 0 6px">Document reviews by origin</h3>' +
+          '<table cellpadding="4" style="border-collapse:collapse;font-size:13px"><tr><th align="left">Origin</th><th>Calls</th><th>Cost</th></tr>' +
+          Object.entries(d.byOrigin).sort((a, b) => b[1].calls - a[1].calls).map(([o, v]) => '<tr><td>' + esc(o) + '</td><td align="right">' + v.calls + '</td><td align="right">' + _money(v.cents) + '</td></tr>').join('') + '</table>' : '') +
         '<h3 style="font-size:14px;margin:18px 0 6px">By day</h3>' +
         '<table cellpadding="4" style="border-collapse:collapse;font-size:13px"><tr><th align="left">Day</th><th>Calls</th><th>Cost</th><th>Cache hits</th></tr>' + dayRows + '</table>' +
         (top ? '<h3 style="font-size:14px;margin:18px 0 6px">Most expensive loans</h3><ul>' + top + '</ul>' : '') +

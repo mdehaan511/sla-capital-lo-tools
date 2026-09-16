@@ -228,7 +228,7 @@ async function _queueDependents(reviewId, o) {
           // Deploy 237.098 (spend) -- stagger: the first re-grade warms the 1-hour
           // guidelines cache; the rest start ~25s later and READ it instead of all
           // paying the 2x cache write at the same instant.
-          body: JSON.stringify({ reviewId: review.id, slug, delayMs: (queued.indexOf(slug) === 0 ? 0 : Math.min(120000, 25000 + queued.indexOf(slug) * 3000)) }),
+          body: JSON.stringify({ reviewId: review.id, slug, origin: 'requeue:' + o.tag, delayMs: (queued.indexOf(slug) === 0 ? 0 : Math.min(120000, 25000 + queued.indexOf(slug) * 3000)) }), // Deploy 237.107 -- origin
         });
         ok = r.status === 202 || r.ok;
         if (!ok) console.warn('[review-truth] entity-name requeue kickoff HTTP', r.status, slug);

@@ -203,7 +203,7 @@ async function handle(req, context) {
   let aiResult;
   try {
     aiResult = await reviewDocument({
-      reviewId: body.reviewId, slug: body.slug, address: review.address || '', // Deploy 237.093 -- usage log meta
+      reviewId: body.reviewId, slug: body.slug, address: review.address || '', origin: String(body.origin || 'background'), // Deploy 237.093 / 237.107 -- usage log meta
       bytes, mimeType, docLabel, docConditions,
       loanContext: ctx, investor: review.investor || '',
       guidelinesBytes, guidelinesText, guidelinesKey: _gKey, loanAppBytes, // Deploy 237.096
@@ -251,9 +251,9 @@ async function handle(req, context) {
   const saved = await _saveTrayPatch(_ok, _integrity, aiResult.costCents || 0);
   // Deploy 237.049 -- Articles reviewed in the background: re-grade the entity-name-dependent trays.
   if (saved && body.slug === 'articles_of_organization' && isCurrentTarget) {
-    try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {}
+    if (!body.noRequeue) { try { await queueEntityNameDependents(body.reviewId, _prevArticles); } catch (_) {} } // Deploy 237.107
   }
-  if (saved && body.slug === 'guarantor_id' && isCurrentTarget) { try { await queueIdNameDependents(body.reviewId, _prevIds); } catch (_) {} } // Deploy 237.075
+  if (!body.noRequeue && saved && body.slug === 'guarantor_id' && isCurrentTarget) { /* Deploy 237.107 */ try { await queueIdNameDependents(body.reviewId, _prevIds); } catch (_) {} } // Deploy 237.075
 
   // Write the loan fields AFTER the review is saved, so a proposal-write failure
   // can never lose the review itself (same ordering as the upload path).

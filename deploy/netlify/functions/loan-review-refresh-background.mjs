@@ -191,7 +191,14 @@ async function handle(req, context) {
   // event, double-click) still refreshes the snapshot above but doesn't pay
   // for a second round of AI re-reviews.
   const _prevAt = new Date(review._truthPrevRefreshAt || 0).getTime();
-  const _coalesce = review._truthPrevRefreshReason === reason && isFinite(_prevAt) && (Date.now() - _prevAt) < 10 * 60 * 1000;
+  // Deploy 237.107 (Mike: spend) -- coalesce ANY refresh within 10 minutes of the last
+  // (a rate-sheet reprice, a terms edit and an LO app edit used to be three full
+  // rounds), except a guarantor change, which must re-grade. And a hard cap: at most
+  // 3 re-review rounds per loan per 24h -- the snapshot still refreshes every time.
+  const _recent = (Array.isArray(review._truthRerunLog) ? review._truthRerunLog : []).filter((t) => (Date.now() - new Date(t).getTime()) < 24 * 60 * 60 * 1000);
+  const _capped = _recent.length >= 3 && !guarantorsChanged;
+  const _coalesce = (isFinite(_prevAt) && (Date.now() - _prevAt) < 10 * 60 * 1000 && !guarantorsChanged) || _capped;
+  if (_capped) console.warn('truth-refresh: re-review cap reached for review ' + review.id + ' (' + _recent.length + ' rounds in 24h) -- snapshot refreshed, docs NOT re-run');
   review._truthPrevRefreshAt = now;
   review._truthPrevRefreshReason = reason;
   const rerunSlugs = [];
@@ -207,6 +214,13 @@ async function handle(req, context) {
     // surgically, and a genuinely in-flight duplicate just costs one
     // redundant call against the same fresh truth).
     if (!ds.aiReviewing && (!v || v === 'stored')) continue;
+    // Deploy 237.107 (Mike: spend) -- a human already approved / N/A'd this tray: a
+    // re-grade only repaints the AI badge and costs a full call. The guarantor-change
+    // flags on the signed app / rate sheet (236.850) still apply above.
+    if (ds.verdict === 'approved' || ds.verdict === 'na') continue;
+    // ...and one that is genuinely in flight (flag set < 20 min ago) is left alone.
+    if (ds.aiReviewing && ds.aiReviewingAt && (Date.now() - new Date(ds.aiReviewingAt).getTime()) < 20 * 60 * 1000) continue;
+    ds.aiReviewingAt = now;
     ds.aiReviewing = true;
     ds.aiVerdict = '';
     ds.aiNotes = 'Re-review queued — point of truth updated (' + reason + ').';
@@ -214,6 +228,7 @@ async function handle(req, context) {
     rerunSlugs.push(slug);
   }
 
+  if (rerunSlugs.length) review._truthRerunLog = _recent.concat([now]).slice(-10); // Deploy 237.107 -- cap bookkeeping
   review.updatedAt = now;
   review.lastEditedBy = actorEmail || 'auto:truth-refresh';
   review.lastEditedAt = now;
@@ -238,7 +253,9 @@ async function handle(req, context) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(review.id, slug) },
         // Deploy 237.098 (spend) -- stagger so the first re-review warms the 1h cache.
-        body: JSON.stringify({ reviewId: review.id, slug, delayMs: (rerunSlugs.indexOf(slug) === 0 ? 0 : Math.min(120000, 25000 + rerunSlugs.indexOf(slug) * 3000)) }),
+        // Deploy 237.107 -- origin for the spend digest; noRequeue stops the Articles / ID
+        // re-reviews fired here from queueing their dependents a second time.
+        body: JSON.stringify({ reviewId: review.id, slug, origin: 'truth-refresh', noRequeue: true, delayMs: (rerunSlugs.indexOf(slug) === 0 ? 0 : Math.min(120000, 25000 + rerunSlugs.indexOf(slug) * 3000)) }),
       });
       if (r.status === 202 || r.ok) fired++;
       else console.warn('truth-refresh: bg fire for ' + slug + ' got ' + r.status);

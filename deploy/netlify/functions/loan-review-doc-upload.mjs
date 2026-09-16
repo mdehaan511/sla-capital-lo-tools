@@ -400,7 +400,7 @@ async function handle(req, context) {
     }
 
     const aiResult = await reviewDocument({
-      reviewId: body.reviewId, slug: body.slug, address: review.address || '', // Deploy 237.093 -- usage log meta
+      reviewId: body.reviewId, slug: body.slug, address: review.address || '', origin: 'upload', // Deploy 237.093 / 237.107 -- usage log meta
       bytes,
       mimeType: docState.currentMimeType,
       docLabel: docMeta.label,
