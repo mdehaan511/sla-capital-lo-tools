@@ -653,6 +653,8 @@ function adaptLoan(client, l, ownerKey) {
     _slaStatusRaw: String(l.status || ''),
     _dispositionRaw: String(l.disposition || ''),
     _stageRaw: String(l.processingStage || ''),
+    _loanTypeRaw: String(l.loanType || ''), // Deploy 237.115 -- product fallback for import copies with no toolType
+    _mfProgram: String(l.mfProgram || ''),
     _ppCol: ppColumnFor(l), // Deploy 237.109 -- which Processing Pipeline column the loan sits in (null = not on the board)
     // Baseline linkage for the reconciliation: imported loans carry the
     // Baseline record id in their loan id (l_baseline_<Id>) and/or the
@@ -694,6 +696,22 @@ function adaptLoan(client, l, ownerKey) {
 // Deploy 237.109 -- mirror of processing-pipeline.html columnFor(): the column a loan
 // occupies on the Processing Pipeline board, or null when it isn't on that board
 // (sales pipeline, on hold, dead, offloaded). Keep the two in sync.
+// Deploy 237.115 (Mike) -- the Upcoming Closings list is only ever DSCR or RTL: Multifamily 5+
+// counts as DSCR, GUC (ground-up) as RTL. Reads the loan's product first (toolType ->
+// Substatus, then loanType / mfProgram -- Baseline import copies such as 5909 Cates Ave carry
+// loanType 'dscr' but no toolType), then the shared inference; anything still undecided is
+// treated as RTL, which is where the chart already summed it.
+function closingProductType(l) {
+  var sub = String(l.Substatus || '').toUpperCase();
+  if (sub === 'DSCR' || sub === 'RTL') return sub;
+  if (String(l._mfProgram || '').trim()) return 'DSCR';
+  var lt = String(l._loanTypeRaw || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (/^(dscr|mf|mf5|multifamily|multifamily5|rental|longtermrental)/.test(lt)) return 'DSCR';
+  if (/^(rtl|bridge|light|heavy|lightrehab|heavyrehab|construction|guc|groundup|fixandflip|fixflip|transactional)/.test(lt)) return 'RTL';
+  var t = inferLoanType(l);
+  return t === 'DSCR' ? 'DSCR' : 'RTL';
+}
+
 function ppColumnFor(loan) {
   var st0 = String(loan.status || '').toLowerCase().trim();
   if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
@@ -1497,7 +1515,7 @@ function renderUpcomingClosings() {
     var mon = mondayOf(ms);
     if (!byWeek[mon]) byWeek[mon] = { mondayMs: mon, dscrCount: 0, dscrTotal: 0, rtlCount: 0, rtlTotal: 0, loans: [] };
     var amt = numAmt(l.Loan_Amount);
-    var type = inferLoanType(l);
+    var type = closingProductType(l); // Deploy 237.115 -- MF 5+ = DSCR, GUC = RTL, never Unknown
     if (type === 'DSCR') { byWeek[mon].dscrCount += 1; byWeek[mon].dscrTotal += amt; }
     else                 { byWeek[mon].rtlCount  += 1; byWeek[mon].rtlTotal  += amt; }
     byWeek[mon].loans.push({ name: l.Name, amt: amt, type: type, date: l.Origination, id: l._slaLoanId, owner: l._ownerKey });
