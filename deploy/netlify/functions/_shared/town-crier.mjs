@@ -68,8 +68,12 @@ export async function buildTownCrier(now) {
 
   section('🔔 The Closing Bell — last 7 days');
   if (closed.length) {
-    closed.forEach((b) => line('<b>' + escH(b.loName) + '</b> closed ' + escH((fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program) + (b.place ? ' in ' + escH(b.place) : ''),
-      b.loName + ' closed ' + (fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program + (b.place ? ' in ' + b.place : '')));
+    closed.forEach((b) => {
+      // Deploy 237.117 — processors credited alongside the LO.
+      const crew = (Array.isArray(b.processors) && b.processors.length) ? ' with ' + b.processors.map((p) => p.name + ' (' + p.role + ')').join(', ') : '';
+      line('<b>' + escH(b.loName) + '</b>' + escH(crew) + ' closed ' + escH((fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program) + (b.place ? ' in ' + escH(b.place) : ''),
+        b.loName + crew + ' closed ' + (fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program + (b.place ? ' in ' + b.place : ''));
+    });
     line('<b>' + closed.length + ' loan' + (closed.length === 1 ? '' : 's') + (closedTotal ? ' · ' + fmtMoney(closedTotal) : '') + '</b> 🎉', closed.length + ' loans' + (closedTotal ? ' · ' + fmtMoney(closedTotal) : ''));
   } else {
     line('The bell was quiet this week. Let\'s change that.', 'The bell was quiet this week. Let\'s change that.');

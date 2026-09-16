@@ -70,9 +70,22 @@ export async function ringClosingBell({ ownerKey, loan, client }) {
     const loEmail = await resolveOwnerEmail({ ownerKey }).catch(() => '') || '';
     const loName = await _loName(ownerKey, loEmail);
     const borrower = String((client && (client.name || ((client.firstName || '') + ' ' + (client.lastName || '')))) || loan.borrowerName || '').trim();
+    // Deploy 237.117 (Mike): "credit the processors as well as the LO — they are
+    // the ones who push it across the finish line." Every role-tagged team
+    // member on the loan (processor / closer / manager), legacy single
+    // assignee as the fallback.
+    const team = (Array.isArray(loan.assignedProcessors) && loan.assignedProcessors.length)
+      ? loan.assignedProcessors
+      : (loan.assignedProcessor && loan.assignedProcessor.email ? [Object.assign({ role: 'processor' }, loan.assignedProcessor)] : []);
+    const seen = new Set();
+    const processors = team.map((p) => ({
+      email: String((p && p.email) || '').toLowerCase(),
+      name: String((p && p.name) || '').trim() || String((p && p.email) || '').split('@')[0],
+      role: String((p && p.role) || 'processor'),
+    })).filter((p) => p.email && !seen.has(p.email) && seen.add(p.email));
     const entry = {
       loanId: loan.id, clientId: (client && client.id) || loan.clientId || '', owner: ownerKey,
-      loName, loEmail, borrower,
+      loName, loEmail, borrower, processors,
       address: String(loan.address || '').trim(), place: placeOf(loan.address),
       amount: Math.round(Number(loan.finalLoanAmount || loan.loanAmt) || 0),
       program: programLabel(loan),
@@ -80,8 +93,12 @@ export async function ringClosingBell({ ownerKey, loan, client }) {
     };
     await store.setJSON(key, entry);
     const amt = fmtMoney(entry.amount);
-    const text = '🔔 *CLOSING BELL* 🔔\n*' + loName + '* just closed ' + (amt ? 'a *' + amt + ' ' + entry.program + '*' : 'a *' + entry.program + '*') +
+    const credit = processors.length
+      ? ' with *' + processors.map((p) => p.name + ' (' + p.role + ')').join('*, *') + '*'
+      : '';
+    const text = '🔔 *CLOSING BELL* 🔔\n*' + loName + '*' + credit + ' just closed ' + (amt ? 'a *' + amt + ' ' + entry.program + '*' : 'a *' + entry.program + '*') +
       ' loan' + (entry.place ? ' in ' + entry.place : '') + ' 🎉' +
+      (processors.length ? '\n_Processing pushed it across the finish line: ' + processors.map((p) => p.name).join(', ') + '_' : '') +
       (borrower ? '\n_' + borrower + '_' : '') +
       '\n<' + PORTAL + '/loan-details/' + encodeURIComponent(loan.id) + '|Open the loan>  ·  <' + PORTAL + '/armory.html|The Armory>';
     await postSlack({ text }, { channel: 'armory' });
