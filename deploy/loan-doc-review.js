@@ -742,7 +742,8 @@
     var dd = (_review && _review.docs && _review.docs[slug]) || {};
     if (dd.hidden) return dd.hiddenConfirmedAt ? 'reviewed' : 'uw';
     var v = dd.verdict || 'pending';
-    if (v === 'approved' || v === 'na') return dd.uwVerdict === 'approved' ? 'reviewed' : 'uw';
+    // Deploy 237.100 (Mike) -- uwVerdict 'conditions' = the underwriter parked it on conditions.
+    if (v === 'approved' || v === 'na') return dd.uwVerdict === 'approved' ? 'reviewed' : (dd.uwVerdict === 'conditions' ? 'conditions' : 'uw');
     if (!_trayHasDoc(dd)) return 'pending';
     if (dd.aiReviewing) return 'pending';
     if (dd.aiVerdict) return 'ai'; // includes 'stored' (storage-only tray, filed) and needs_manual_review
@@ -753,7 +754,8 @@
     pending:  'Nothing waiting on an upload or the AI. \uD83C\uDF89',
     ai:       'No AI-reviewed documents waiting on a processor.',
     uw:       'Nothing waiting on underwriting.',
-    reviewed: 'No documents reviewed yet.',
+    conditions: 'No documents waiting on conditions.',
+    reviewed: 'No documents approved yet.',
   };
   function _tabHtml(key, label, n) {
     return '<div class="tab ' + (_activeTab === key ? 'active' : '') + '" onclick="dr_switchTab(\'' + key + '\')">' +
@@ -784,7 +786,7 @@
     var hidden = allSlugs.filter(function(s) { return docs[s] && docs[s].hidden; });
     // Deploy 237.071 -- four stages (see _stageOf). Hidden trays awaiting the
     // underwriter's confirmation ride along in Ready for UW.
-    var stageSlugs = { pending: [], ai: [], uw: [], reviewed: [] };
+    var stageSlugs = { pending: [], ai: [], uw: [], conditions: [], reviewed: [] }; // Deploy 237.100 -- + conditions
     slugs.forEach(function(s) { stageSlugs[_stageOf(s)].push(s); });
     hidden.forEach(function(s) { if (_stageOf(s) === 'uw') stageSlugs.uw.push(s); });
     var pendingSlugs  = stageSlugs.pending;
@@ -838,7 +840,8 @@
         _tabHtml('pending',  'Pending Docs',  stageSlugs.pending.length) +
         _tabHtml('ai',       'AI Reviewed',   stageSlugs.ai.length) +
         _tabHtml('uw',       'Ready for UW',  stageSlugs.uw.length) +
-        _tabHtml('reviewed', 'Reviewed Docs', stageSlugs.reviewed.length) +
+        _tabHtml('conditions', 'Pending Conditions', stageSlugs.conditions.length) + // Deploy 237.100
+        _tabHtml('reviewed', 'Approved Docs', stageSlugs.reviewed.length) +
       '</div>';
 
     var toolbar =
@@ -1748,14 +1751,18 @@
       verdictLabel = verdict === 'na' ? '\u2713 N/A — UW approved' : '\u2713 UW APPROVED';
     }
     var _aiChip = '';
-    if ((_stage === 'uw' || _stage === 'reviewed') && !d.hidden && hasDoc && _trayAi && _trayAi !== 'stored') {
+    if ((_stage === 'uw' || _stage === 'conditions' || _stage === 'reviewed') && !d.hidden && hasDoc && _trayAi && _trayAi !== 'stored') {
       _aiChip = _trayAi === 'approved' ? '<span class="tray-verdict ai-ok" title="AI verdict: looks good">AI \u2713</span>'
               : _trayAi === 'issues'   ? '<span class="tray-verdict ai-bad" title="AI verdict: issues found">AI \u2717</span>'
               : '<span class="tray-verdict ai-unclear" title="AI could not fully verify this document">AI ?</span>';
     }
     var _openConds = (Array.isArray(d.conditions) ? d.conditions : [])
       .filter(function(c) { return c && c.status !== 'cleared'; }).length;
-    if (_openConds > 0) {
+    if (_stage === 'conditions') {
+      // Deploy 237.100 -- the underwriter parked this tray on conditions.
+      effectiveVerdict = 'conditions';
+      verdictLabel = _openConds > 0 ? '⚑ Conditions pending (' + _openConds + ' open)' : '\u2713 Conditions cleared — awaiting UW';
+    } else if (_openConds > 0) {
       effectiveVerdict = 'conditions';
       verdictLabel = '⚑ Conditions (' + _openConds + ')';
     }
@@ -1822,7 +1829,7 @@
     }
     // Deploy 237.071 (item 5) -- on Ready for UW the AI review folds up so the
     // underwriter clicks through trays quickly; the summary line carries the verdict.
-    if (_stage === 'uw' && aiHtml && hasDoc && !d.hidden) {
+    if ((_stage === 'uw' || _stage === 'conditions') && aiHtml && hasDoc && !d.hidden) {
       var _aiSum = _trayAi === 'approved' ? '\u2713 AI: looks good' : _trayAi === 'issues' ? '\u26a0 AI: issues found' : _trayAi === 'needs_manual_review' ? '\u26a0 AI: needs manual review' : 'AI review';
       aiHtml = '<details class="dr-ai-collapse"><summary>' + escHtml(_aiSum) + ' — expand</summary>' + aiHtml + '</details>';
     }
@@ -1858,7 +1865,7 @@
     var conds = _renderDocConditions(d, slug);
 
     // Deploy 237.072 (item 3) -- what the underwriter should be checking, up top.
-    var verifyHtml = (_stage === 'uw' && !d.hidden) ? _renderVerifyPanel(slug, d, meta) : '';
+    var verifyHtml = ((_stage === 'uw' || _stage === 'conditions') && !d.hidden) ? _renderVerifyPanel(slug, d, meta) : '';
     var verdictBtns;
     if (d.hidden) {
       // Deploy 237.071 (item 6) -- a hidden tray waits for the underwriter to confirm (or unhide, below).
@@ -1868,9 +1875,14 @@
       verdictBtns =
         '<button class="v-btn unapprove" onclick="dr_uwSet(\'' + escAttr(slug) + '\',\'back\')" title="Take this back to the Ready for UW queue">↶ Back to Ready for UW</button>';
     } else if (verdict === 'approved' || verdict === 'na') {
-      // Deploy 237.071 -- Ready for UW: the underwriter's call.
+      // Deploy 237.071 -- Ready for UW: the underwriter's call. Deploy 237.100 (Mike) --
+      // or park it under Pending Conditions once conditions are listed on the tray.
+      var _condOpenN = (Array.isArray(d.conditions) ? d.conditions : []).filter(function(c) { return c && c.status !== 'cleared'; }).length;
       verdictBtns =
         '<button class="v-btn approve" onclick="dr_uwSet(\'' + escAttr(slug) + '\',\'approve\')">\u2713 UW Approve</button>' +
+        (_stage === 'conditions'
+          ? '<button class="v-btn unapprove" onclick="dr_uwSet(\'' + escAttr(slug) + '\',\'back\')" title="Back to the Ready for UW queue">↶ Back to Ready for UW</button>'
+          : '<button class="v-btn na" onclick="dr_uwSet(\'' + escAttr(slug) + '\',\'conditions\')" title="Park this document under Pending Conditions until the conditions listed on the tray are met">⚑ Conditions Pending' + (_condOpenN ? ' (' + _condOpenN + ')' : '') + '</button>') +
         '<button class="v-btn unapprove" onclick="dr_setVerdict(\'' + escAttr(slug) + '\',\'pending\')" title="Send this document back to the processor">↶ Send back to processor</button>';
     } else {
       var approveOnclick = (d.aiVerdict === 'issues')
@@ -2768,11 +2780,17 @@
   global.dr_uwSet = function(slug, action) {
     var now = new Date().toISOString();
     var patch = { docs: {} };
-    if (action === 'approve') patch.docs[slug] = { uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: (_user && _user.email) || '' };
+    if (action === 'conditions') {
+      // Deploy 237.100 (Mike) -- needs at least one open condition on the tray.
+      var _dd = (_review.docs && _review.docs[slug]) || {};
+      var _open = (Array.isArray(_dd.conditions) ? _dd.conditions : []).filter(function(c) { return c && c.status !== 'cleared'; }).length;
+      if (!_open) { showToast('Add at least one condition to this document first (the Conditions box on the tray).', 'error'); return; }
+      patch.docs[slug] = { uwVerdict: 'conditions', uwConditionsAt: now, uwConditionsBy: (_user && _user.email) || '', uwApprovedAt: '', uwApprovedBy: '' };
+    } else if (action === 'approve') patch.docs[slug] = { uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: (_user && _user.email) || '' };
     else patch.docs[slug] = { uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
-      showToast(action === 'approve' ? 'UW approved.' : 'Back in Ready for UW.', 'success');
+      showToast(action === 'approve' ? 'UW approved.' : action === 'conditions' ? 'Moved to Pending Conditions.' : 'Back in Ready for UW.', 'success');
       render();
     }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
   };
