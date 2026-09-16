@@ -275,6 +275,16 @@
           <button class="invite-btn" id="saveSlackLeadershipBtn">Save</button>
         </div>
         <div class="status-msg" id="slackLeadershipStatus"></div>
+        <!-- Deploy 237.091 (Mike) -- DSCR pricing-change notices go to the MAIN company channel, not the prospects channel the Default webhook points at. -->
+        <div class="invite-row" style="max-width:620px;margin-top:14px">
+          <div class="field">
+            <label for="slackPricingInput">Pricing changes (main Sir Lends A Lot channel) &mdash; "@channel DSCR rates have increased/decreased by…", posted automatically when a new rate sheet deploys</label>
+            <input type="url" id="slackPricingInput" placeholder="Webhook for the main channel — blank falls back to Default" style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackPricingBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackPricingStatus"></div>
+        <div style="max-width:620px;margin-top:6px"><button class="invite-btn" id="reannouncePricingBtn" style="background:#fff;color:var(--text)">Re-post current pricing now</button> <span class="status-msg" id="reannouncePricingStatus" style="display:inline"></span></div>
 
         <p style="font-size:12px;color:var(--muted);margin-top:10px">
           To create a webhook: In Slack, go to <strong>Apps &rarr; Incoming WebHooks &rarr; Add to Slack</strong>, choose a channel, and copy the Webhook URL here. Repeat per channel (e.g. a #platform-errors channel for Platform Errors).
@@ -719,6 +729,7 @@ netlifyIdentity.on('init', function(user) {
       document.getElementById('slackSubmittedInput').value = (s.slack_webhook_submitted && s.slack_webhook_submitted.value) || '';
       document.getElementById('slackArmoryInput').value     = (s.slack_webhook_armory     && s.slack_webhook_armory.value)     || ''; // Deploy 237.082
       document.getElementById('slackLeadershipInput').value = (s.slack_webhook_leadership && s.slack_webhook_leadership.value) || '';
+      document.getElementById('slackPricingInput').value = (s.slack_webhook_pricing && s.slack_webhook_pricing.value) || ''; // Deploy 237.091
       // Submit email
       var emailVal = (s.submit_email && s.submit_email.value) || '';
       document.getElementById('submitEmailInput').value = emailVal;
@@ -763,6 +774,14 @@ netlifyIdentity.on('init', function(user) {
     wireSlackSave('slackSubmittedInput', 'slackSubmittedStatus', 'saveSlackSubmittedBtn', 'slack_webhook_submitted', 'Cleared — submission alerts use the Default webhook.');
     wireSlackSave('slackArmoryInput',     'slackArmoryStatus',     'saveSlackArmoryBtn',     'slack_webhook_armory',     'Cleared — Armory posts use the Default webhook.');          // Deploy 237.082
     wireSlackSave('slackLeadershipInput', 'slackLeadershipStatus', 'saveSlackLeadershipBtn', 'slack_webhook_leadership', 'Cleared — leadership posts fall back to the Default webhook (not private).');
+    wireSlackSave('slackPricingInput',    'slackPricingStatus',    'saveSlackPricingBtn',    'slack_webhook_pricing',    'Cleared — pricing notices use the Default webhook.'); // Deploy 237.091
+    // Deploy 237.091 -- re-post the current DSCR pricing to the pricing channel (e.g. right after pointing it at the main channel).
+    document.getElementById('reannouncePricingBtn').addEventListener('click', function() {
+      var st = document.getElementById('reannouncePricingStatus'); st.textContent = 'Posting…';
+      if (!confirm('Post the current DSCR pricing to Slack now (@channel)?')) { st.textContent = ''; return; }
+      SLA.api('POST', '/api/pricing-announce?force=1', {}).then(function(r) { st.textContent = r && r.posted ? '✓ Posted to Slack' : ('Not posted: ' + ((r && (r.reason || (r.slack && r.slack.error))) || 'unknown')); })
+        .catch(function(e) { st.textContent = 'Failed: ' + (e && e.message || 'unknown'); });
+    });
 
     // Submit email save
     document.getElementById('saveSubmitEmailBtn').addEventListener('click', function() {

@@ -355,6 +355,17 @@
         </div>
         <div class="save-status" id="slackLeadershipStatus"></div>
       </div>
+      <!-- Deploy 237.091 (Mike) -- pricing notices go to the MAIN company channel. -->
+      <div class="setting-row">
+        <label>Slack webhook — Pricing changes (main Sir Lends A Lot channel)</label>
+        <div class="hint">Posted automatically when a new DSCR rate sheet deploys: "@channel DSCR rates have increased/decreased by … Floor rate is now …". Blank falls back to the Default webhook (the prospects channel).</div>
+        <div class="input-row">
+          <input type="text" id="slackPricingInput" placeholder="https://hooks.slack.com/services/…" />
+          <button class="small-btn primary" onclick="saveSlackChannel('pricing')">Save</button>
+          <button class="small-btn" onclick="reannouncePricing()">Re-post current pricing</button>
+        </div>
+        <div class="save-status" id="slackPricingStatus"></div>
+      </div>
 
       <div class="setting-row">
         <label>Submission notification email</label>
@@ -1049,6 +1060,7 @@ function loadSettings() {
     // Deploy 237.082 — Armory channels
     document.getElementById('slackArmoryInput').value     = (s.slack_webhook_armory     && s.slack_webhook_armory.value)     || '';
     document.getElementById('slackLeadershipInput').value = (s.slack_webhook_leadership && s.slack_webhook_leadership.value) || '';
+    document.getElementById('slackPricingInput').value = (s.slack_webhook_pricing && s.slack_webhook_pricing.value) || ''; // Deploy 237.091
 
     var b = s.banner;
     if (b && b.text) {
@@ -1135,6 +1147,17 @@ function saveSlackChannel(channel) {
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown');
   });
+}
+
+// Deploy 237.091 -- re-post the current DSCR pricing (@channel) to the pricing channel.
+function reannouncePricing() {
+  var status = document.getElementById('slackPricingStatus');
+  if (!confirm('Post the current DSCR pricing to Slack now (@channel)?')) return;
+  status.className = 'save-status'; status.textContent = 'Posting…';
+  SLA.api('POST', '/api/pricing-announce?force=1', {}).then(function(r) {
+    status.className = 'save-status ' + (r && r.posted ? 'ok' : 'err');
+    status.textContent = r && r.posted ? '✓ Posted to Slack' : ('Not posted: ' + ((r && (r.reason || (r.slack && r.slack.error))) || 'unknown'));
+  }).catch(function(err) { status.className = 'save-status err'; status.textContent = 'Failed: ' + (err.message || 'unknown'); });
 }
 
 function saveSubmitEmail() {

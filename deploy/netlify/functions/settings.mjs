@@ -44,6 +44,9 @@ const ALLOWED_KEYS = new Set([
   // Crier, monthly champion); 'leadership' = PRIVATE Mike/Dan/Chance channel
   // (birthdays, anniversaries, game milestones). Both fall back to slack_webhook.
   'slack_webhook_armory', 'slack_webhook_leadership',
+  // Deploy 237.091 -- 'pricing' = the main Sir Lends A Lot channel: DSCR rate-change notices
+  // (deploy-succeeded -> _shared/pricing-announce.mjs). Falls back to slack_webhook.
+  'slack_webhook_pricing',
   'lo_comp_plans',
 ]);
 
