@@ -71,8 +71,9 @@ export async function buildTownCrier(now) {
     closed.forEach((b) => {
       // Deploy 237.117 — processors credited alongside the LO.
       const crew = (Array.isArray(b.processors) && b.processors.length) ? ' with ' + b.processors.map((p) => p.name + ' (' + p.role + ')').join(', ') : '';
-      line('<b>' + escH(b.loName) + '</b>' + escH(crew) + ' closed ' + escH((fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program) + (b.place ? ' in ' + escH(b.place) : ''),
-        b.loName + crew + ' closed ' + (fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program + (b.place ? ' in ' + b.place : ''));
+      const where = b.address ? ' at ' + b.address : (b.place ? ' in ' + b.place : '');   // Deploy 237.119 -- full address (Mike)
+      line('<b>' + escH(b.loName) + '</b>' + escH(crew) + ' closed ' + escH((fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program) + escH(where),
+        b.loName + crew + ' closed ' + (fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program + where);
     });
     line('<b>' + closed.length + ' loan' + (closed.length === 1 ? '' : 's') + (closedTotal ? ' · ' + fmtMoney(closedTotal) : '') + '</b> 🎉', closed.length + ' loans' + (closedTotal ? ' · ' + fmtMoney(closedTotal) : ''));
   } else {

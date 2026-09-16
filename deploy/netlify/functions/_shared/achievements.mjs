@@ -97,6 +97,8 @@ function _ymd(s) {
   return isFinite(t) ? new Date(t).toISOString().slice(0, 10) : '';
 }
 
+// Returns { email: [closedLoan...] } -- a loan appears under its LO AND under
+// every processor / closer / manager assigned to it (Deploy 237.119).
 async function _closedLoansByOwner() {
   const SELECT = 'id,client_id,owner_email,address,status,processing_stage,tool_type,loan_type,loan_amt,funding_date,extra';
   const PAGE = 1000;
@@ -113,11 +115,22 @@ async function _closedLoansByOwner() {
       const funded = _ymd(r.funding_date || ex.fundingDate || '');
       if (!funded || funded < ACH_START) continue;          // forward-only (see ACH_START)
       const submitted = _ymd(ex.submittedAt || ex.submitDate || '');
-      (byOwner[owner] = byOwner[owner] || []).push({
+      const loan = {
         id: r.id, clientId: r.client_id || '', amount, funded, submitted,
         program: programLabel({ toolType: r.tool_type, loanType: r.loan_type, mfProgram: ex.mfProgram }),
         state: _stateOf(r.address),
-      });
+      };
+      // Deploy 237.119 (Mike): "make sure the processors and closers are
+      // getting credit for those closings in their Hall of Deeds." Every
+      // role-tagged team member on the loan (extra.assignedProcessors, legacy
+      // assignedProcessor) gets the closing on their own production metrics,
+      // the same as the LO. One credit per person per loan.
+      const credited = new Set([owner]);
+      const team = Array.isArray(ex.assignedProcessors) && ex.assignedProcessors.length
+        ? ex.assignedProcessors
+        : (ex.assignedProcessor && ex.assignedProcessor.email ? [ex.assignedProcessor] : []);
+      team.forEach((p) => { const e = normalizeEmail(p && p.email); if (e && e.indexOf('@') > 0) credited.add(e); });
+      credited.forEach((e) => (byOwner[e] = byOwner[e] || []).push(loan));
     }
     if (!rows || rows.length < PAGE) break;
     offset += PAGE;

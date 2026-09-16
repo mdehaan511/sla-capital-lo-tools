@@ -96,10 +96,12 @@ export async function ringClosingBell({ ownerKey, loan, client }) {
     const credit = processors.length
       ? ' with *' + processors.map((p) => p.name + ' (' + p.role + ')').join('*, *') + '*'
       : '';
+    // Deploy 237.119 (Mike): "list the address, not the borrower -- we talk in
+    // terms of address." Full street address leads; borrower stays on the
+    // stored entry for search but is not posted.
     const text = '🔔 *CLOSING BELL* 🔔\n*' + loName + '*' + credit + ' just closed ' + (amt ? 'a *' + amt + ' ' + entry.program + '*' : 'a *' + entry.program + '*') +
-      ' loan' + (entry.place ? ' in ' + entry.place : '') + ' 🎉' +
+      ' loan' + (entry.address ? ' at *' + entry.address + '*' : (entry.place ? ' in ' + entry.place : '')) + ' 🎉' +
       (processors.length ? '\n_Processing pushed it across the finish line: ' + processors.map((p) => p.name).join(', ') + '_' : '') +
-      (borrower ? '\n_' + borrower + '_' : '') +
       '\n<' + PORTAL + '/loan-details/' + encodeURIComponent(loan.id) + '|Open the loan>  ·  <' + PORTAL + '/armory.html|The Armory>';
     await postSlack({ text }, { channel: 'armory' });
     await touchPulse('bell', loName + ' just closed ' + (amt ? amt + ' ' : '') + entry.program); // Deploy 237.085

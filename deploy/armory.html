@@ -722,7 +722,7 @@
     box.innerHTML = bells.map(function (b) {
       return '<div class="bell"><div class="ic">🔔</div><div>' +
         '<div class="who">' + escH(b.loName || b.loEmail) + ' <span style="font-weight:500;color:#5a4a36">closed</span> <span class="amt">' + escH(fmtMoney(b.amount) || 'a') + '</span> ' + escH(b.program || 'loan') + '</div>' +
-        '<div class="what">' + escH(b.place || b.address || '') + (b.borrower ? ' · ' + escH(b.borrower) : '') + '</div>' +
+        '<div class="what">' + escH(b.address || b.place || '') + '</div>' +   // Deploy 237.119 -- address, not borrower (Mike)
         // Deploy 237.117 — processors get the credit line (they push it over the line).
         ((b.processors || []).length ? '<div class="what" style="color:#256940">⚙ with ' + b.processors.map(function (p) { return '<b>' + escH(p.name) + '</b> <span style="color:#8a7350">(' + escH(p.role) + ')</span>'; }).join(', ') + '</div>' : '') +
       '</div><div class="when" title="' + escAttr(b.closedAt) + '">' + escH(ago(b.closedAt)) + '</div></div>';
