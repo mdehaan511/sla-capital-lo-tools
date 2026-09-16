@@ -56,6 +56,12 @@
     .lo-filter { padding: 7px 28px 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; }
     .lo-filter:focus { outline: none; border-color: var(--gold); }
     .lo-filter.has-value { border-color: var(--gold); background-color: rgba(200,129,58,0.06); color: var(--gold); font-weight: 600; }
+    /* Deploy 237.101 — All / RTL / DSCR segmented toggle */
+    .prog-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
+    .prog-toggle button { border: 0; background: transparent; padding: 7px 14px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-right: 1px solid var(--border); }
+    .prog-toggle button:last-child { border-right: 0; }
+    .prog-toggle button:hover { color: var(--gold); }
+    .prog-toggle button.active { background: var(--dark); color: #fff; }
 
     .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; min-height: 60vh; }
     .board.cols-4 { grid-template-columns: repeat(4, 1fr); }
@@ -214,6 +220,13 @@
         </select>
         <!-- Deploy 236.559 — filter to loans assigned to me. -->
         <button type="button" class="lo-filter" id="myLoansToggle" style="display:none" onclick="toggleMyLoans()" title="Show only loans assigned to me">My Loans</button>
+        <!-- Deploy 237.101 (Mike) — program toggle: All / RTL / DSCR. RTL folds in
+             Ground-Up, Bridge and Transactional; DSCR folds in Multifamily 5+. -->
+        <div class="prog-toggle" id="programToggle" role="group" aria-label="Loan program">
+          <button type="button" class="active" data-prog="all" onclick="setProgramFilter('all')">All</button>
+          <button type="button" data-prog="rtl" onclick="setProgramFilter('rtl')" title="Fix &amp; Flip, Bridge, Ground-Up, Transactional">RTL</button>
+          <button type="button" data-prog="dscr" onclick="setProgramFilter('dscr')" title="DSCR and Multifamily 5+">DSCR</button>
+        </div>
         <!-- Deploy 236.638 — add a new loan to Processing (SLA-native since 236.687). -->
         <button type="button" class="gear-btn" id="newLoanBtn" style="display:none" onclick="openNewLoanModal()" title="Create a new loan on the processing pipeline">+ New Loan</button>
         <!-- Deploy 236.888 (Mike) — Stride pre-funding submission tapes. -->
@@ -343,6 +356,31 @@ var _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], 
 var _loDisplayMap = {}; // ownerKey -> display name
 var _loFilterValue = '';
 var _myLoansOnly = false; // Deploy 236.559 — "My Loans" assignment filter
+// Deploy 237.101 (Mike) — program filter: 'all' | 'rtl' | 'dscr'. Remembered per browser.
+var _programFilter = 'all';
+try { _programFilter = ['all', 'rtl', 'dscr'].indexOf(localStorage.getItem('sla_pp_program')) >= 0 ? localStorage.getItem('sla_pp_program') : 'all'; } catch (_) {}
+// Bucket a loan: DSCR = toolType dscr (incl. Multifamily 5+, which is dscr + mfProgram);
+// RTL = everything else (rtl, guc/ground-up, bridge, transactional). Unknown → dscr,
+// matching the page's long-standing `toolType || 'dscr'` default.
+function programBucket(loan) {
+  var t = String((loan && (loan.toolType || loan.loanType)) || 'dscr').toLowerCase();
+  if (loan && loan.mfProgram) return 'dscr';
+  if (t.indexOf('dscr') >= 0) return 'dscr';
+  if (t.indexOf('rtl') >= 0 || t.indexOf('guc') >= 0 || t.indexOf('ground') >= 0 || t.indexOf('bridge') >= 0 || t.indexOf('flip') >= 0 || t.indexOf('trans') >= 0) return 'rtl';
+  return 'dscr';
+}
+function setProgramFilter(v) {
+  _programFilter = ['all', 'rtl', 'dscr'].indexOf(v) >= 0 ? v : 'all';
+  try { localStorage.setItem('sla_pp_program', _programFilter); } catch (_) {}
+  var btns = document.querySelectorAll('#programToggle button');
+  for (var i = 0; i < btns.length; i++) btns[i].className = btns[i].getAttribute('data-prog') === _programFilter ? 'active' : '';
+  if (typeof render === 'function') render();
+}
+// Reflect the remembered choice on the buttons at load (the board renders once data arrives).
+(function () {
+  var btns = document.querySelectorAll('#programToggle button');
+  for (var i = 0; i < btns.length; i++) btns[i].className = btns[i].getAttribute('data-prog') === _programFilter ? 'active' : '';
+})();
 var _processors = [];     // Deploy 236.563 — [{email,name}] for the assign picker
 var _los = [];            // Deploy 236.638 — [{email,name}] all staff, for the New Loan owner picker
 // Deploy 236.97 (Phase F) — admin-configurable substatuses per column.
@@ -732,6 +770,9 @@ function render() {
   var procFilter = (_loFilterValue || '').toLowerCase();
 
   function visible(it) {
+    // Deploy 237.101 — All / RTL / DSCR toggle (applies to the board, the
+    // overview and the closed list alike).
+    if (_programFilter !== 'all' && programBucket(it.loan) !== _programFilter) return false;
     if (procFilter) {
       // Match any role-tagged team member (processor/closer/manager), falling
       // back to the legacy single assignee.

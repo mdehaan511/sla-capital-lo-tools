@@ -667,10 +667,9 @@
     else if (mine && !mine.birthday) el.innerHTML = '🎂 Your birthday is not on file — <a href="/profile.html" style="color:var(--crimson);font-weight:700">add it on your Profile</a>.';
     else if (mine && !mine.startDate) el.innerHTML = 'Your start date has not been entered yet (an admin sets it).';
     else el.innerHTML = '';
-    // Deploy 237.088 — admin: apply the start dates / birthdays from Dan's list.
-    if (_state && _state.isAdmin) {
-      el.innerHTML += (el.innerHTML ? '<br>' : '') + '<button type="button" class="btn ghost sm" onclick="Armory.seedCalendar(this)">📋 Apply Dan\'s dates</button> <span style="font-size:11px;color:#8a7350">fills only blank start dates / birthdays and shows who matched; the 8am cron also does this once</span>';
-    }
+    // Deploy 237.101 (Mike) — the "Apply Dan's dates" button is gone; the seed
+    // still runs once from the 8am cron (armory-admin 'calendar-seed' remains
+    // for a console call if it is ever needed).
   }
   function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
   function renderCrier() {
@@ -681,12 +680,8 @@
       box.innerHTML = '<div style="font-size:13px">Latest issue: <b>' + escH(c.subject || c.ymd) + '</b> <span style="color:#8a7350">(' + escH(c.ymd) + ')</span></div>' +
         '<button type="button" class="btn sm" style="margin-top:8px" onclick="Armory.readCrier()">📜 Read the latest Town Crier</button>';
     }
-    var adm = document.getElementById('crierAdmin');
-    if (_state && _state.isAdmin) {
-      adm.style.display = 'flex';
-      adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.crierTest(this)">✉ Email me a test issue now</button>' +
-        '<span style="font-size:11px;color:#8a7350;align-self:center">Builds this week\'s issue from live data and sends it only to you.</span>';
-    }
+    // Deploy 237.101 (Mike) — the "Email me a test issue" button is gone
+    // (armory-admin 'crier-send-test' remains for a console call).
   }
   function seedCalendar(btn) {
     if (btn) { btn.disabled = true; btn.textContent = 'Matching names…'; }
