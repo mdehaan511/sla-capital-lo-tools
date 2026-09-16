@@ -129,6 +129,7 @@
   var _autoSynced = {}; // Deploy 237.078 -- reviewId|fingerprint -> true once the auto truth-refresh fired
   var _activeTab = 'pending';
   var _activeCollateralProperty = 0; // Deploy 236.690 — portfolio collateral tab
+  var _activeGuarantor = 0;          // Deploy 237.106 — per-guarantor tab (Guarantor section)
   var _expanded = {};
   var _aiDetailsOpen = {}; // Deploy 237.070 -- AI block "Details" open per doc (slug|docId)
   var _pendingOverride = null;
@@ -1312,6 +1313,28 @@
           return (pi == null) || pi === _ap; // untagged collateral (shared) always shows
         });
       }
+      // Deploy 237.106 (Raissa) — 2+ guarantors: the Guarantor section gets a
+      // Guarantor 1 / 2 / … tab strip; each person has their OWN ID / credit /
+      // background / OFAC / citizenship / LOE / PFS trays ("<base>__g<i>",
+      // tagged guarantorIndex). Untagged guarantor trays (Credit Authorization,
+      // custom, a borrower-portal inbox) show under every tab.
+      if (sec.key === 'guarantor' && Array.isArray(_review.guarantors) && _review.guarantors.length > 1) {
+        var _ag = _activeGuarantor || 0;
+        if (_ag >= _review.guarantors.length) _ag = 0;
+        _propTabsHtml = '<div class="dr-prop-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">' +
+          _review.guarantors.map(function(g, i) {
+            var on = (i === _ag);
+            var lbl = (g.label || ('Guarantor ' + (i + 1))) + (g.name ? ' · ' + g.name : '');
+            return '<button type="button" onclick="dr_setGuarantor(' + i + ')" title="' + escAttr(g.name || lbl) + '" ' +
+              'style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid ' + (on ? '#C8813A' : '#ddd8d0') + ';background:' + (on ? '#C8813A' : '#fff') + ';color:' + (on ? '#fff' : '#1a1520') + ';border-radius:8px;cursor:pointer">' + escHtml(lbl) + '</button>';
+          }).join('') + '</div>';
+        var _agName = (_review.guarantors[_ag] && _review.guarantors[_ag].name) || '';
+        if (_agName) _propTabsHtml += '<div style="font-size:12px;color:#7a7488;margin:0 0 10px">Documents for <strong>' + escHtml(_agName) + '</strong> — shared items (Credit Authorization, anything unassigned) show under every guarantor.</div>';
+        _stdToRender = standardInSec.filter(function(s) {
+          var gi = (_review.docs[s] || {}).guarantorIndex;
+          return (gi == null) || gi === _ag;
+        });
+      }
 
       return '<div class="dr-section">' +
         '<div class="section-title-row">' +
@@ -1429,10 +1452,15 @@
   // _shared/loan-review-checklists.mjs expectedMortgagee), per-guarantor coverage,
   // and valuation minimums (RTL caps from window.SLA_RTL, loaded on Loan Details).
   function _idNamesOf() {
-    var tray = (_review.docs || {}).guarantor_id || {}; var out = [];
+    var docs = _review.docs || {}; var out = [];
     function push(n) { n = String(n || '').replace(/\s+/g, ' ').trim(); if (!n || /^(null|n\/?a|none|unknown)$/i.test(n)) return; for (var i = 0; i < out.length; i++) if (out[i].toLowerCase() === n.toLowerCase()) return; out.push(n); }
-    (tray.documents || []).forEach(function(d) { if (d && !d.hidden && d.aiReviewedAt && d.aiExtractedEntities) push(d.aiExtractedEntities.borrowerName); });
-    if (tray.aiReviewedAt && tray.aiExtractedEntities) push(tray.aiExtractedEntities.borrowerName);
+    // Deploy 237.106 — the ID lives in guarantor_id OR the per-guarantor guarantor_id__g<i> trays.
+    Object.keys(docs).forEach(function(s) {
+      if (!/^guarantor_id(__g\d+)?$/.test(s)) return;
+      var tray = docs[s] || {};
+      (tray.documents || []).forEach(function(d) { if (d && !d.hidden && d.aiReviewedAt && d.aiExtractedEntities) push(d.aiExtractedEntities.borrowerName); });
+      if (tray.aiReviewedAt && tray.aiExtractedEntities) push(tray.aiExtractedEntities.borrowerName);
+    });
     return out;
   }
   function _expectedMortgagee(L) {
@@ -1576,10 +1604,13 @@
     [/^(title_commitment|cpl|title_eo_insurance|title_escrow_contact|prelim_settlement|final_hud|tax_certificate|wire_instructions|emd_receipt|borrower_closing_funds_receipt|payoff_demand|mortgage_statements_payoffs|closing_w9|executed_closing_documents|executed_deed|original_doc_tracking|invoice)$/, ['entity', 'address', 'loanAmt', 'title', 'close']],
   ];
   function _expectedFor(slug, meta) {
-    var base = String(slug || '').replace(/__p\d+$/, '');
+    var base = String(slug || '').replace(/__[pg]\d+$/, ''); // 237.106: __g<i> too
     var keys = ['borrower', 'entity', 'address', 'loanAmt'];
     for (var i = 0; i < _EXPECT_RULES.length; i++) { if (_EXPECT_RULES[i][0].test(base)) { keys = _EXPECT_RULES[i][1]; break; } }
     var f = _loanFacts();
+    // Deploy 237.106 — a per-guarantor tray is verified against THAT guarantor only.
+    var _gi = ((_review.docs || {})[slug] || {}).guarantorIndex;
+    if (_gi != null && f.guarantors && f.guarantors[_gi]) { f = Object.assign({}, f, { guarantors: [f.guarantors[_gi]] }); }
     var out = [];
     if (f.drift && f.drift.length) out.push(['⚠ Terms changed', 'the loan changed since the AI last reviewed (' + f.drift.slice(0, 5).join(', ') + ') — figures below are the CURRENT loan; the AI re-review is queued automatically']); // Deploy 237.078
     var ficoM = /(\d{3})/.exec(String((meta && meta.conditions) || ''));
@@ -1702,7 +1733,7 @@
     // paragraph under every tray where a single-property review shows the
     // DOC_META one-liner. Show the base slug's one-liner instead; the rubric
     // stays on the tray and still drives the AI review server-side.
-    var _pBase = /__p\d+$/.test(slug) ? slug.replace(/__p\d+$/, '') : '';
+    var _pBase = /__[pg]\d+$/.test(slug) ? slug.replace(/__[pg]\d+$/, '') : ''; // 237.106: per-guarantor trays too
     if (_pBase && DOC_META[_pBase]) {
       meta = {
         label:      meta.label   || DOC_META[_pBase].label,
@@ -1950,6 +1981,14 @@
     // rename pencil on currentFilename below). Standard checklist
     // trays don't show the pencil — their labels are spec'd.
     var trayNameHtml = '<span class="tray-name-text">' + escHtml(meta.label) + '</span>';
+    // Deploy 237.106 — per-guarantor trays say whose they are; a shared per-person
+    // tray on a multi-guarantor review (a borrower-portal upload landed there) says
+    // it needs filing to a guarantor.
+    if (d.guarantorIndex != null) {
+      trayNameHtml += ' <span style="font-size:11px;font-weight:600;color:#7a5218;background:rgba(200,129,58,0.12);border:1px solid rgba(200,129,58,0.35);border-radius:10px;padding:1px 8px;vertical-align:middle">' + escHtml((d.guarantorLabel || ('Guarantor ' + (d.guarantorIndex + 1))) + (d.guarantorName ? ' · ' + d.guarantorName : '')) + '</span>';
+    } else if (Array.isArray(_review.guarantors) && _review.guarantors.length > 1 && /^(guarantor_id|proof_of_citizenship|credit_report|guarantor_background_check|ofac_personal|guarantor_loe|pfs)$/.test(slug)) {
+      trayNameHtml += ' <span style="font-size:11px;font-weight:600;color:#7c1f1f;background:rgba(124,31,31,0.08);border:1px solid rgba(124,31,31,0.3);border-radius:10px;padding:1px 8px;vertical-align:middle" title="Uploaded without a guarantor (borrower portal). Use Move to file it under the right guarantor.">shared — file to a guarantor</span>';
+    }
     if (d.isCustom) {
       trayNameHtml +=
         '<button class="dr-tray-rename-btn" title="Rename tray" onclick="event.stopPropagation();dr_renameTrayLabel(\'' + escAttr(slug) + '\')">&#x270e;</button>';
@@ -2643,6 +2682,11 @@
     _activeCollateralProperty = i || 0;
     render();
   };
+  // Deploy 237.106 — switch the active Guarantor tab (2+ guarantors).
+  global.dr_setGuarantor = function(i) {
+    _activeGuarantor = i || 0;
+    render();
+  };
 
   global.dr_unhideDoc = function(slug, docId) {
     var docState = _review.docs[slug] || {};
@@ -3060,7 +3104,17 @@
     Object.keys(_review.docs).forEach(function(s) {
       if (s === fromSlug || DOC_META[s]) return;
       var dd = _review.docs[s] || {};
-      if (dd.hidden || !_isOtherSlug(s)) return;
+      if (dd.hidden) return;
+      // Deploy 237.106 — tagged trays (per-guarantor "__g<i>", per-property "__p<i>")
+      // are real destinations too, labelled with whose / which they are.
+      if (dd.guarantorIndex != null || dd.propertyIndex != null) {
+        var tag = dd.guarantorIndex != null ? ((dd.guarantorLabel || ('Guarantor ' + (dd.guarantorIndex + 1))) + (dd.guarantorName ? ' · ' + dd.guarantorName : ''))
+                                            : ((dd.propertyLabel || ('Property ' + (dd.propertyIndex + 1))) + (dd.propertyAddress ? ' · ' + dd.propertyAddress : ''));
+        var secKey = dd.section || (dd.guarantorIndex != null ? 'guarantor' : 'collateral');
+        (stdBySec[secKey] = stdBySec[secKey] || []).push({ slug: s, label: (dd.label || s) + ' — ' + tag });
+        return;
+      }
+      if (!_isOtherSlug(s)) return;
       cust.push({ slug: s, label: dd.label || s });
     });
     Object.keys(stdBySec).forEach(function(k) { stdBySec[k].sort(function(a, b) { return a.label.localeCompare(b.label); }); });
@@ -3144,7 +3198,7 @@
     commitment_letter: 'Loan Commitment Letter',
   };
   function _borrowerFormFor(slug) {
-    var base = String(slug || '').replace(/__p\d+$/, '');
+    var base = String(slug || '').replace(/__[pg]\d+$/, ''); // 237.106: __g<i> too
     return BORROWER_FORMS[base] ? { label: BORROWER_FORMS[base] } : null;
   }
   function _drModal(title, bodyHtml, submitLabel, onSubmit) {

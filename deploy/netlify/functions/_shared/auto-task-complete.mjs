@@ -42,7 +42,7 @@ export function autoCompleteReason(loan, review) {
   if (loan.creditPulledAt || loan.creditReportId || loan.creditMidScore) return 'credit pulled';
   const docs = (review && review.docs) || {};
   for (const slug of Object.keys(docs)) {
-    if (/^credit_report(__p\d+)?$/.test(slug) && _hasDoc(docs[slug])) return 'credit report on file';
+    if (/^credit_report(__[pg]\d+)?$/.test(slug) && _hasDoc(docs[slug])) return 'credit report on file';
   }
   const stage = String(loan.processingStage || '').toLowerCase();
   if (PAST_PROCESSING.includes(stage)) return 'loan moved to ' + stage;

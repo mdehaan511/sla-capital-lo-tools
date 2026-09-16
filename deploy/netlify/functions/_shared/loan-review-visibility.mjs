@@ -84,7 +84,7 @@ const _VISIBLE = new Set(LO_VISIBLE_SLUGS);
  * silently failing the check and hiding a document the LO is entitled to.
  */
 export function baseSlug(slug) {
-  return String(slug || '').replace(/__p\d+$/, '');
+  return String(slug || '').replace(/__[pg]\d+$/, '');
 }
 
 /**

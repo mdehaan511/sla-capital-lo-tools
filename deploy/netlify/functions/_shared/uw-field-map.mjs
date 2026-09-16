@@ -179,7 +179,7 @@ const NEVER_AI_WRITE = {
 // mean the last property reviewed wins a given field — an unverified
 // proposal either way, the underwriter confirms.)
 export function fieldsForSlug(slug) {
-  const spec = SLUG_FIELD_MAP[String(slug || '').replace(/__p\d+$/, '')];
+  const spec = SLUG_FIELD_MAP[String(slug || '').replace(/__[pg]\d+$/, '')];
   if (!spec) return null;
   const safe = spec.filter(function (f) { return !NEVER_AI_WRITE[f.key]; });
   return safe.length ? safe : null;

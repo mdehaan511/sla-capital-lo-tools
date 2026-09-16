@@ -619,7 +619,7 @@ async function handle(req, context) {
 
   // Deploy 236.930 — a Credit Report landing on the review means credit was
   // run: close the LO's auto-created "Run credit + submit loan" task. Best-effort.
-  if (/^credit_report(__p\d+)?$/.test(String(body.slug || '')) && review.source && review.source.kind === 'existing' && review.source.ownerKey && review.source.loanId) {
+  if (/^credit_report(__[pg]\d+)?$/.test(String(body.slug || '')) && review.source && review.source.kind === 'existing' && review.source.ownerKey && review.source.loanId) {
     await completeAutoTasks({ ownerKey: keySafe(review.source.ownerKey), loanId: review.source.loanId, reason: 'Credit report uploaded to the Doc Review' });
   }
 

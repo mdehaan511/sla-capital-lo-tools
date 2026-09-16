@@ -31,6 +31,7 @@ import { getChecklist, getDefaultInvestor, findCategory, portfolioCollateralEntr
 import { writeClient } from './_shared/client-write.mjs';
 import { resolveGuarantorNames } from './_shared/review-truth.mjs'; // Deploy 237.081
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
+import { adoptGuarantorsFromLoan, expandGuarantorTrays } from './_shared/guarantor-trays.mjs'; // Deploy 237.106
 // Deploy 236.746 — flagged issues land in the loan's Notes & Activity stream.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
@@ -343,6 +344,15 @@ async function handle(req, context) {
       });
     }
   }
+
+  // Deploy 237.106 (Raissa) — 2+ guarantors: ID / credit / background / OFAC /
+  // citizenship / LOE / PFS are collected PER GUARANTOR ("<slug>__g<i>").
+  try {
+    if (Array.isArray(review.guarantorNames) && review.guarantorNames.length > 1) {
+      adoptGuarantorsFromLoan(review, review.guarantorNames);
+      expandGuarantorTrays(review);
+    }
+  } catch (e) { console.warn('loan-reviews-save: guarantor trays skipped:', e && e.message); }
 
   // Deploy 236.849 — fire queued AI reviews only after the review is stored
   // (each background reviewer re-reads it fresh). The stash key never persists.

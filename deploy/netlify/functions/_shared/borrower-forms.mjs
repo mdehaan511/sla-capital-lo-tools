@@ -140,7 +140,7 @@ export const FORMS = {
 };
 
 export function formForSlug(slug) {
-  const base = String(slug || '').replace(/__p\d+$/, '');
+  const base = String(slug || '').replace(/__[pg]\d+$/, '');
   for (const id of Object.keys(FORMS)) if (FORMS[id].slug === base) return FORMS[id];
   return null;
 }

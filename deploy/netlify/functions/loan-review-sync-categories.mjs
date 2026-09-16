@@ -36,6 +36,12 @@ import { getChecklist, portfolioCollateralEntries } from './_shared/loan-review-
 // Deploy 236.921 — the review re-derives its portfolio properties from the
 // LOAN on page open; the loan is found by loan id (client ids go stale).
 import { locateLoan } from './_shared/loan-locate.mjs';
+// Deploy 237.106 — per-guarantor trays (Raissa): the roster is re-resolved on
+// every page open and each guarantor gets their own ID / credit / background /
+// OFAC / citizenship / LOE / PFS trays. Re-exported for the gate script.
+import { adoptGuarantorsFromLoan, expandGuarantorTrays, isMultiGuarantorReview, isPerPersonSlug } from './_shared/guarantor-trays.mjs';
+import { resolveGuarantorNames } from './_shared/review-truth.mjs';
+export { adoptGuarantorsFromLoan, expandGuarantorTrays };
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -201,11 +207,20 @@ export function syncMissingCategories(review) {
     }
   }
 
+  // Deploy 237.106 — 2+ guarantors: per-person guarantor docs expand as
+  // "<slug>__g<i>" (adoptGuarantorsFromLoan ran first in the handler).
+  const _isMultiGuarantor = isMultiGuarantorReview(review);
+  if (_isMultiGuarantor) expandGuarantorTrays(review).forEach((s) => added.push(s));
+
   for (const item of checklist) {
     if (!item || !item.slug) continue;
     // Deploy 236.690/236.782 — portfolio collateral is handled per property
     // above; never (re-)add a base single collateral tray on a portfolio review.
     if (_isPortfolioReview && item.section === 'collateral') continue;
+    // Deploy 237.106 — likewise never (re-)add a shared per-person guarantor tray
+    // on a multi-guarantor review (a borrower-portal upload may still create one
+    // as an inbox; the processor files it to the right guarantor).
+    if (_isMultiGuarantor && isPerPersonSlug(item.slug)) continue;
     if (review.docs[item.slug]) continue;   // already present (incl. hidden) — leave it
     review.docs[item.slug] = _blankStandardTray(item);
     added.push(item.slug);
@@ -223,7 +238,7 @@ export function syncMissingCategories(review) {
     if (!tray || tray.isCustom) continue;
     // Per-property trays carry "<slug>__p<i>"; their metadata comes from the
     // base checklist entry.
-    const base = byId[slug] || byId[String(slug).replace(/__p\d+$/, '')];
+    const base = byId[slug] || byId[String(slug).replace(/__[pg]\d+$/, '')];   // 237.106: __g<i> too
     if (!base) continue;
     if (!tray.label)      { tray.label = base.label || slug; relabeled++; }
     if (!tray.conditions) { tray.conditions = base.conditions || ''; }
@@ -256,6 +271,7 @@ async function handle(req, context) {
   // portfolio after the review existed. Best-effort: a loan we can't find
   // simply means no adoption this time.
   let portfolio = { adopted: false, from: 0, to: 0, migrated: [] };
+  let guarantors = { adopted: false, from: 0, to: 0, migrated: [], renamed: 0 };   // Deploy 237.106
   let loanTypeMismatch = '';
   try {
     const src = review.source || {};
@@ -267,6 +283,14 @@ async function handle(req, context) {
         portfolio = adoptPortfolioFromLoan(review, found.loan);
         const lt = String(found.loan.toolType || '').toLowerCase();
         if (lt && review.loanType && lt !== String(review.loanType).toLowerCase()) loanTypeMismatch = review.loanType + ' → loan is ' + lt;
+        // Deploy 237.106 — re-resolve the guarantor roster (primary + linked
+        // co-guarantors + long-app co-borrowers) and split the guarantor docs
+        // per person when there are two or more.
+        try {
+          const names = await resolveGuarantorNames({ ownerKey: found.ownerKey, client: found.client, loan: found.loan });
+          if (names.length) review.guarantorNames = names;
+          guarantors = adoptGuarantorsFromLoan(review, names);
+        } catch (e) { console.warn('loan-review-sync-categories: guarantor adopt skipped:', e && e.message); }
       }
     }
   } catch (e) { console.warn('loan-review-sync-categories: portfolio adopt skipped:', e && e.message); }
@@ -371,7 +395,7 @@ async function handle(req, context) {
     console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
   }
 
-  if (added.length || relabeled || healed || healQueue.length || portfolio.adopted) {
+  if (added.length || relabeled || healed || healQueue.length || portfolio.adopted || guarantors.adopted || guarantors.migrated.length || guarantors.renamed) {
     review.updatedAt = new Date().toISOString();
     await reviewStore.setJSON(keySafe(review.id), review);
   }
@@ -383,5 +407,5 @@ async function handle(req, context) {
   }
 
   return json(200, {
-    portfolio, loanTypeMismatch: loanTypeMismatch || undefined, ok: true, review, added, relabeled, healed, aiQueued: healQueue });
+    portfolio, guarantors, loanTypeMismatch: loanTypeMismatch || undefined, ok: true, review, added, relabeled, healed, aiQueued: healQueue });
 }

@@ -79,7 +79,7 @@ export function retypeReview(review, toType, opts = {}) {
   for (const key of Object.keys(review.docs)) {
     const tray = review.docs[key];
     if (!tray || typeof tray !== 'object' || tray.isCustom) continue;
-    const base = String(key).replace(/__p\d+$/, '');
+    const base = String(key).replace(/__[pg]\d+$/, '');
     if (!oldSet.has(base) || newSet.has(base)) continue;   // not an old-checklist-only standard tray
     if (_isPristine(tray)) { delete review.docs[key]; out.removed.push(key); }
     else out.kept.push(key);

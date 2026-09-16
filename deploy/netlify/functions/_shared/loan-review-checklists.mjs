@@ -448,6 +448,30 @@ export function portfolioCollateralEntries(loanType) {
   return entries;
 }
 
+// ── Per-guarantor trays (Deploy 237.106, Raissa via Mike) ──────────
+// "A separate tray for each guarantor when there are two, like Baseline."
+// On a review with 2+ guarantors these guarantor-section documents are
+// collected PER PERSON as "<slug>__g<i>" (i = index into review.guarantors,
+// 0 = the primary borrower). Credit Authorization stays a single tray — it
+// is one form signed by everyone. See _shared/guarantor-trays.mjs.
+export const GUARANTOR_PER_PERSON = [
+  'guarantor_id', 'proof_of_citizenship', 'credit_report', 'guarantor_background_check',
+  'ofac_personal', 'guarantor_loe', 'pfs',
+];
+export function guarantorPersonEntries(loanType) {
+  const own = getChecklist(loanType || '');
+  const out = [];
+  for (const slug of GUARANTOR_PER_PERSON) {
+    const def = own.find((it) => it && it.slug === slug) || findCategory(slug);
+    if (def) out.push(def);
+  }
+  return out;
+}
+/** "<slug>__p<i>" / "<slug>__g<i>" → "<slug>". */
+export function stripTraySuffix(slug) {
+  return String(slug || '').replace(/__[pg]\d+$/, '');
+}
+
 // ── Document freshness (staleness) windows ─────────────────────────
 // Days after a doc's issue/print date (documentDate) that it goes "stale" for
 // closing. An explicit expirationDate printed on the doc always wins. KEEP each
@@ -477,7 +501,7 @@ export function staleAfterFor(slug, documentDate, expirationDate) {
   // Deploy 236.762 — portfolio reviews use per-property slugs
   // (appraisal__p0, …); strip the suffix so they hit the STALE_DAYS
   // table like their single-property counterparts.
-  const days = STALE_DAYS[String(slug || '').toLowerCase().replace(/__p\d+$/, '')];
+  const days = STALE_DAYS[String(slug || '').toLowerCase().replace(/__[pg]\d+$/, '')]; // 237.106: __g<i> too
   if (!days) return '';
   const parts = documentDate.split('-');
   const dt = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
