@@ -585,10 +585,13 @@
       var dim = groundDims(type);
       var first;
       if (type === 'slam') {
-        // Drops out of the sky CLOSE in front (~0.4s of warning at speed), then
-        // scrolls like any stamp. Falling or landed, it hurts.
-        var sx = player.x + 300 + rand(0, 140);
-        first = { type: 'slam', x: sx, y: -60, landY: GROUND - dim.h, w: dim.w, h: dim.h, rot: rand(-0.3, 0.3), vx: 1 };
+        // Drops out of the sky in front, then scrolls like any stamp.
+        // Deploy 237.099 (Mike: "it's falling on top of the player"): the spawn
+        // point moves out WITH speed so that after the ~0.3s drop it still lands
+        // 400–650px ahead (≈0.55–0.9s to react), and it is harmless until it
+        // has landed — you can never be hit by the falling stamp itself.
+        var sx = player.x + 260 + speed * 0.6 + rand(0, 100);
+        first = { type: 'slam', x: sx, y: -80, landY: GROUND - dim.h, w: dim.w, h: dim.h, rot: rand(-0.3, 0.3), vx: 1 };
       } else {
         // The charger is the tax collector at a run: 1.45× closing speed, so the
         // jump has to come ~30% sooner than the eye expects.
@@ -644,6 +647,7 @@
     function hitbox(o) {
       if (o.kind) return { x: o.x + 2, y: o.y + 2, w: o.w - 4, h: o.h - 4 };
       if (o.type === 'bat') return { x: o.x + 3, y: o.y + 3, w: o.w - 6, h: o.h - 6 };
+      if (o.type === 'slam' && o.y < o.landY) return { x: -9999, y: -9999, w: 0, h: 0 };   // still falling: no hitbox
       return { x: o.x + 7, y: o.y + 6, w: o.w - 14, h: o.h - 6 };
     }
     function overlaps(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
