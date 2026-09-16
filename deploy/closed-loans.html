@@ -1983,6 +1983,7 @@ function renderBucketTab(items, b){
 function _soldRtlSummary(group){
   var live = group.filter(function(it){ return atServicer(it.loan); });
   setTimeout(function(){ _pmtPrefetch(live); }, 0);
+  var withNum = live.filter(function(it){ return String(it.loan.servicerLoanNumber||'').trim(); }); // Deploy 237.124
   var collected = 0, loaded = 0;
   live.forEach(function(it){
     var h = _pmtHist[loanKey(it)];
@@ -2001,7 +2002,8 @@ function _soldRtlSummary(group){
   };
   return '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
     box('In servicing', escH(live.length + ' of ' + group.length), escH((group.length - live.length) + ' sold RTL not at a servicer')) +
-    box('Payments collected', escH(moneySigned(collected)), escH(loaded < live.length ? 'loading ' + loaded + ' of ' + live.length + ' payment histories…' : 'all ' + live.length + ' servicing loans')) +
+    box('Payments collected', escH(moneySigned(collected)), escH((loaded < withNum.length ? 'loading ' + loaded + ' of ' + withNum.length + ' payment histories…' : 'across ' + loaded + ' servicing loans') +
+      (live.length > withNum.length ? ' · ' + (live.length - withNum.length) + ' with no servicer loan # yet' : ''))) +
     box('Monthly yield spread', escH(moneySigned(spread) + '/mo'), noRate ? escH(noRate + ' loan' + (noRate === 1 ? '' : 's') + ' missing a sold rate') : 'across the servicing loans') +
   '</div>';
 }
@@ -2428,9 +2430,15 @@ function _pmtPaint(key){
 // time, without re-rendering (only an already-open row re-renders on arrival).
 var _pmtPrefetchQueue = [], _pmtPrefetchBusy = 0, _pmtPrefetchStarted = false;
 function _pmtPrefetch(group){
-  if (_pmtPrefetchStarted) return;
+  // Deploy 237.124 -- each tab queues its own loans (Servicing and Sold – RTL cover different
+  // sets); a loan already loaded or queued is skipped, so repeated renders are cheap.
   _pmtPrefetchStarted = true;
-  group.forEach(function(it){ var l = it.loan; if (l.servicerLoanNumber && !_pmtHist[loanKey(it)]) _pmtPrefetchQueue.push(it); });
+  group.forEach(function(it){
+    var l = it.loan, k = loanKey(it);
+    if (!l.servicerLoanNumber || _pmtHist[k]) return;
+    if (_pmtPrefetchQueue.some(function(q){ return loanKey(q) === k; })) return;
+    _pmtPrefetchQueue.push(it);
+  });
   _pmtPrefetchNext();
 }
 // Deploy 237.056 — statuses/sort come from the history, so re-render once the
