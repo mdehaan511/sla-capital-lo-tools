@@ -321,14 +321,6 @@
               <div id="rtTable"><div class="empty">Unrolling the scroll…</div></div>
               <div id="standing"></div>
             </div>
-
-            <div class="card">
-              <h2>Hall of Champions <span class="sub">every month's winner, forever</span></h2>
-              <div class="split">
-                <div><h3>Monthly champions</h3><ul class="champs" id="champList"><li class="empty">—</li></ul></div>
-                <div><h3>All-time best rides</h3><ul class="champs" id="allTimeList"><li class="empty">—</li></ul></div>
-              </div>
-            </div>
           </div>
 
           <div>
@@ -348,6 +340,15 @@
               <div class="prize" id="prizeNote">🏆 Prize for the month's champion: swag or a bonus — announced on the Herald's Board.</div>
               <div class="lede" style="margin:10px 0 0;font-size:12px" id="questNext"></div>
               <div class="lede" style="margin:10px 0 0;font-size:12px" id="questOthers"></div>
+            </div>
+
+            <!-- Deploy 237.108 (Mike) — Hall of Champions sits under the quest, right column. -->
+            <div class="card">
+              <h2>Hall of Champions <span class="sub">every month's winner, forever</span></h2>
+              <div class="split" style="grid-template-columns:1fr">
+                <div><h3>Monthly champions</h3><ul class="champs" id="champList"><li class="empty">—</li></ul></div>
+                <div><h3>All-time best rides</h3><ul class="champs" id="allTimeList"><li class="empty">—</li></ul></div>
+              </div>
             </div>
           </div>
         </div>
@@ -837,8 +838,8 @@
         '<div class="tiers">' + def.tiers.map(function (t, i) { return rankName(i + 1) + ' ' + fmtDeedVal(def, t); }).join(' · ') + ' ' + escH(def.unit) + '</div></div></div></div>';
     }).join('');
 
-    var adm = document.getElementById('deedAdmin');
-    if (_state && _state.isAdmin) { adm.style.display = 'block'; adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.recomputeDeeds(this)">⟳ Recompute deeds now</button> <span style="font-size:11px;color:#8a7350">after entering start dates, or to check a fresh closing</span>'; }
+    // Deploy 237.108 (Mike) — the "Recompute deeds now" button is gone; the
+    // daily cron (8:10am PT) and armory-admin 'achievements-recompute' remain.
   }
   function renderDeedsLegacy() {
     var d = _deeds || {}, members = (d.members || []).slice();
@@ -859,8 +860,8 @@
     }).join('');
     document.getElementById('deedTable').innerHTML = '<table class="deeds"><tbody>' + rows + '</tbody></table>' +
       '<div style="font-size:11px;color:#8a7350;margin-top:8px">Updated ' + escH(ago(d.computedAt)) + ' · recomputed every morning' + (d.since ? ' · counting from ' + escH(fmtDay(d.since)) + ' onward' : '') + '.</div>';
-    var adm = document.getElementById('deedAdmin');
-    if (_state && _state.isAdmin) { adm.style.display = 'block'; adm.innerHTML = '<button type="button" class="btn ghost sm" onclick="Armory.recomputeDeeds(this)">⟳ Recompute deeds now</button> <span style="font-size:11px;color:#8a7350">after entering start dates, or to check a fresh closing</span>'; }
+    // Deploy 237.108 (Mike) — the "Recompute deeds now" button is gone; the
+    // daily cron (8:10am PT) and armory-admin 'achievements-recompute' remain.
   }
   function showDeeds(email) {
     var d = _deeds || {}, m = null;

@@ -43,8 +43,10 @@ const DAY_MS = 86400000;
 // Slack), which is how the earlier history was wiped without a delete pass.
 // Loyal Knight (years of service) is tenure, not production, and still
 // reads the real start date.
-export const ACH_START = '2026-09-15';
-export const ACH_VERSION = 2;
+// Deploy 237.108 (Mike): count from September 1, 2026 (was the 15th). Version
+// bumped so every doc re-backfills silently against the new start.
+export const ACH_START = '2026-09-01';
+export const ACH_VERSION = 3;
 
 // ── Definitions ───────────────────────────────────────────────────
 // tiers = thresholds for Rank I, II, III… ; metric = key into member metrics.
