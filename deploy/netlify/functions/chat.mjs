@@ -21,7 +21,8 @@
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, requireAuth, readJsonBody, normalizeEmail, keySafe } from './_shared/auth.mjs';
-import { buildSystemPrompt } from './_chat_prompt.mjs';
+import { buildSystemBlocks } from './_chat_prompt.mjs'; // Deploy 237.093 -- cached static block
+import { logAiUsage } from './_shared/ai-usage.mjs';    // Deploy 237.093 -- spend log
 
 const MODEL    = process.env.CHAT_MODEL || 'claude-sonnet-4-6'; // Deploy 237.004: env override
 const MAX_TOK  = 1024;
@@ -98,7 +99,7 @@ export default async (req, context) => {
   }
 
   const pageContext = body.pageContext || {};
-  const systemPrompt = buildSystemPrompt(pageContext);
+  let systemPrompt = buildSystemBlocks(pageContext); // Deploy 237.093 -- [static 1h-cached block, page blurb]
 
   // The current user question is the last user-role message in the array
   let lastUserQ = '';
@@ -130,6 +131,23 @@ export default async (req, context) => {
     });
   }
 
+  // Deploy 237.093 -- if this API version rejects the 1h TTL, retry once with the 5m cache.
+  if (upstream.status === 400) {
+    const _t = await upstream.clone().text().catch(() => '');
+    if (/ttl/i.test(_t)) {
+      console.warn('chat: 1h cache TTL rejected by the API -- retrying with the 5m cache');
+      systemPrompt = buildSystemBlocks(pageContext, false);
+      try {
+        upstream = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: MODEL, max_tokens: MAX_TOK, system: systemPrompt, messages, stream: true }),
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: 'Upstream fetch failed: ' + (e.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+  }
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '');
     console.error('Anthropic API error', upstream.status, errText.slice(0, 300));
@@ -148,6 +166,7 @@ export default async (req, context) => {
       const reader  = upstream.body.getReader();
       let buffer = '';
       let assistantText = '';
+      let _usage = null; // Deploy 237.093 -- token usage from message_start / message_delta
       try {
         while (true) {
           const { value, done } = await reader.read();
@@ -167,6 +186,10 @@ export default async (req, context) => {
               assistantText += evt.delta.text;
               const out = JSON.stringify({ delta: evt.delta.text });
               controller.enqueue(encoder.encode('data: ' + out + '\n\n'));
+            } else if (evt.type === 'message_start') {
+              _usage = Object.assign({}, (evt.message && evt.message.usage) || {}); // Deploy 237.093
+            } else if (evt.type === 'message_delta') {
+              if (evt.usage) _usage = Object.assign(_usage || {}, evt.usage);
             } else if (evt.type === 'message_stop') {
               controller.enqueue(encoder.encode('data: ' + JSON.stringify({ done: true }) + '\n\n'));
             } else if (evt.type === 'error') {
@@ -193,6 +216,8 @@ export default async (req, context) => {
         // stayed warm long enough for setJSON to finish. Subsequent
         // turns, especially when the user was typing quickly, hit a
         // colder/faster termination and the writes never landed.
+        // Deploy 237.093 -- spend log (awaited for the same reason as the chat log below).
+        if (_usage) { try { await logAiUsage({ feature: 'chat', model: MODEL, usage: _usage, meta: { user: normalizeEmail(user.email) } }); } catch (_) {} }
         if (assistantText.trim()) {
           try {
             await logChatTurn(user, lastUserQ, assistantText, pageContext);

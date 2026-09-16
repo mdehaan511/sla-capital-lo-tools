@@ -28,6 +28,24 @@ export function buildSystemPrompt(pageContext) {
   return BASE_PROMPT + pageBlurb + '\n\n' + GUARDRAILS;
 }
 
+// Deploy 237.093 (Mike: spend) -- the static prompt (BASE + GUARDRAILS, ~13k tokens)
+// as its own 1-hour-cached system block, with the per-page blurb AFTER it. Every
+// chat turn used to resend the whole thing at full input price. `longTtl` false
+// drops to the 5-minute cache (chat.mjs retries that way if the API rejects 1h).
+export function buildSystemBlocks(pageContext, longTtl) {
+  const ctx = pageContext || {};
+  let pageBlurb = '';
+  if (ctx.url) {
+    pageBlurb = `## Current page context\n\nThe user is on **${ctx.url}**.`;
+    if (ctx.loan)    pageBlurb += `\n\nThey are looking at this loan:\n\`\`\`json\n${JSON.stringify(ctx.loan, null, 2)}\n\`\`\``;
+    if (ctx.client)  pageBlurb += `\n\nThe client (borrower) for this loan:\n\`\`\`json\n${JSON.stringify(ctx.client, null, 2)}\n\`\`\``;
+    if (ctx.summary) pageBlurb += `\n\nPage summary: ${ctx.summary}`;
+  }
+  const blocks = [{ type: 'text', text: BASE_PROMPT + '\n\n' + GUARDRAILS, cache_control: (longTtl === false ? { type: 'ephemeral' } : { type: 'ephemeral', ttl: '1h' }) }];
+  if (pageBlurb) blocks.push({ type: 'text', text: pageBlurb });
+  return blocks;
+}
+
 const BASE_PROMPT = `You are the SLA Capital Loan Officer Assistant — an in-app chatbot helping SLA's Loan Officers (LOs) work efficiently and learn the platform. You answer questions about how SLA Capital's lending products work, how to use this internal tool, and how to handle common borrower scenarios.
 
 Tone: friendly, direct, professional. Same voice an experienced LO would use coaching a new teammate. Concise — most answers should be 2-4 short paragraphs or a short list. No corporate filler. If the user asks a yes/no question, lead with the yes/no.

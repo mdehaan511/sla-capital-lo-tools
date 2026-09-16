@@ -54,6 +54,8 @@
 # Deploy 237.004 -- heavy upload / AI / zip / PDF endpoints were on the 10s default.
 [functions."loan-review-doc-upload"]
   timeout = 26
+[functions."ai-usage-digest"]
+  timeout = 26
 [functions."borrower-intake-upload"]
   timeout = 26
 [functions."loan-review-ai-retry"]
@@ -897,6 +899,14 @@
 [[redirects]]
   from = "/api/notifications-dismiss"
   to = "/.netlify/functions/notifications-dismiss"
+  status = 200
+  force = true
+
+# Deploy 237.093: weekly Claude spend digest (scheduled Mon 15:00 UTC; admins
+# can pull it on demand with ?days=7&send=1).
+[[redirects]]
+  from = "/api/ai-usage-digest"
+  to = "/.netlify/functions/ai-usage-digest"
   status = 200
   force = true
 

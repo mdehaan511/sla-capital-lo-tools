@@ -13,6 +13,7 @@
  *   $3 / 1M input tokens   = $0.000003 / token = 0.0003 cents/token
  *   $15 / 1M output tokens = $0.000015 / token = 0.0015 cents/token
  */
+import { aiCostCents, logAiUsage } from './ai-usage.mjs'; // Deploy 237.093 -- spend: price + log every call
 const MODEL = process.env.DOC_REVIEW_MODEL || 'claude-sonnet-4-6'; // Deploy 237.004: env override
 const MAX_OUTPUT_TOKENS = 2048;
 const INPUT_CENTS_PER_TOKEN          = 0.0003;
@@ -106,16 +107,21 @@ export async function reviewDocument(opts) {
   // last cacheable block (the loan app, or the guidelines if no
   // loan app).
   const content = [];
+  let _gBlock = null; // Deploy 237.093 -- kept so the 1h-TTL fallback below can downgrade it
   if (opts.guidelinesBytes && opts.guidelinesBytes.length) {
     const block = {
       type: 'document',
       source: { type: 'base64', media_type: 'application/pdf', data: opts.guidelinesBytes.toString('base64') },
     };
-    // Only mark this as the cache breakpoint if there's no loan app
-    // to take that role.
-    if (!opts.loanAppBytes || !opts.loanAppBytes.length) {
-      block.cache_control = { type: 'ephemeral' };
-    }
+    // Deploy 237.093 (Mike: spend) -- the guidelines PDF is the SAME bytes for every
+    // loan on the investor, so it gets its OWN breakpoint with a 1-HOUR TTL. Since
+    // Sep 1, 96% of reviews came within an hour of the previous one (82% within 5
+    // minutes), yet the old single breakpoint (on the per-loan application) meant
+    // every new loan and every >5-minute gap re-WROTE this whole PDF at 1.25x --
+    // the orange bars on the Console chart. A 1h entry must precede any 5m entry;
+    // the loan application below stays 5m (reused only within one loan's burst).
+    block.cache_control = { type: 'ephemeral', ttl: '1h' };
+    _gBlock = block;
     content.push(block);
   }
   if (opts.loanAppBytes && opts.loanAppBytes.length) {
@@ -159,21 +165,34 @@ export async function reviewDocument(opts) {
 
   let resp;
   try {
-    resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':       'application/json',
-        'x-api-key':          apiKey,
-        'anthropic-version':  '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        system: buildSystemPrompt(opts),
-        messages: [{ role: 'user', content }],
-      }),
-      signal: controller.signal,
-    });
+    // Deploy 237.093 -- the request is a function so the TTL fallback can re-send it.
+    const _doFetch = function () {
+      return fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type':       'application/json',
+          'x-api-key':          apiKey,
+          'anthropic-version':  '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: MAX_OUTPUT_TOKENS,
+          system: buildSystemPrompt(opts),
+          messages: [{ role: 'user', content }],
+        }),
+        signal: controller.signal,
+      });
+    };
+    resp = await _doFetch();
+    // If this API version rejects the 1h TTL, drop the guidelines block to 5m once and retry.
+    if (resp.status === 400 && _gBlock && _gBlock.cache_control && _gBlock.cache_control.ttl) {
+      const _t = await resp.clone().text().catch(function () { return ''; });
+      if (/ttl/i.test(_t)) {
+        console.warn('reviewDocument: 1h cache TTL rejected by the API -- retrying with the 5m cache');
+        delete _gBlock.cache_control.ttl;
+        resp = await _doFetch();
+      }
+    }
   } catch (e) {
     clearTimeout(timeoutId);
     const _isAbort = e.name === 'AbortError';
@@ -227,11 +246,10 @@ export async function reviewDocument(opts) {
   // Deploy 236.77 — cache-aware cost. Anthropic reports input_tokens
   // for the uncached portion; cache_creation_input_tokens for cache
   // writes (1.25x); cache_read_input_tokens for cache hits (0.10x).
-  const costCents =
-      inputTokens      * INPUT_CENTS_PER_TOKEN
-    + cacheWriteTokens * CACHE_WRITE_CENTS_PER_TOKEN
-    + cacheReadTokens  * CACHE_READ_CENTS_PER_TOKEN
-    + outputTokens     * OUTPUT_CENTS_PER_TOKEN;
+  // Deploy 237.093 -- priced by _shared/ai-usage.mjs (a 1h cache write is 2x, not
+  // 1.25x) and logged there so the weekly spend digest sees every review.
+  const costCents = aiCostCents(MODEL, usage);
+  await logAiUsage({ feature: 'doc-review', model: MODEL, usage, meta: { reviewId: opts.reviewId || '', slug: opts.slug || '', address: opts.address || '', docLabel: opts.docLabel || '' } });
 
   // Parse the model's JSON. The system prompt asks for clean JSON
   // but defensively strip markdown fences and pull the first
@@ -260,7 +278,7 @@ export async function reviewDocument(opts) {
     // Deploy 236.669 — AI document-integrity assessment (present only when
     // opts.integrityCheck was set). Shape: { risk, findings:[{level,detail}] }.
     integrity: _normalizeIntegrity(parsed.integrity),
-    inputTokens, outputTokens, costCents,
+    inputTokens, outputTokens, costCents, cacheWriteTokens, cacheReadTokens,
   };
 }
 
