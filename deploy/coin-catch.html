@@ -20,7 +20,14 @@
        SCORING (server cap: GAMES['coin-catch'].maxPps in _shared/armory.mjs):
          coin +10 · money bag +50 · tax bill −25 · stamp = a life
          spawn interval 0.9s → 0.38s over 90s, ≤ 2.6 items/s, max value 50
-         theoretical ceiling ≈ 130 pts/s; server cap is 140 pts/s + 300 slack. -->
+         theoretical ceiling ≈ 130 pts/s; server cap is 140 pts/s + 300 slack.
+       Deploy 237.121 (Mike: "pretty easy to keep going"):
+         · uncaught gold COSTS you: coin −5, money bag −20 when it hits the ground
+         · idle hands bleed: no catch for 2.5s → −6 pts/s ("carrying costs") until the next catch
+         · from 30s AUDIT CARTS roll across the ground (left or right, faster over
+           time, closer together). Jump them: Space / ↑ / W, or tap the sky on
+           touch. A cart that hits the knight costs a life, same as a stamp.
+         Nothing here raises the ceiling, so the server cap is unchanged. -->
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -99,7 +106,7 @@
       </div>
       <div id="result"></div>
       <div id="practiceNote" class="hint" style="display:none;background:rgba(201,161,74,0.18);border:1px solid rgba(201,161,74,0.5);border-radius:10px;padding:8px 12px;color:var(--ink);font-size:13px"></div>
-      <div class="hint"><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> to move · drag on touch · <kbd>Space</kbd> to start &nbsp;·&nbsp; the Round Table resets on the 1st</div>
+      <div class="hint"><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> to move · <kbd>Space</kbd> / <kbd>↑</kbd> to jump the audit carts · touch: drag to move, tap the sky to jump &nbsp;·&nbsp; the Round Table resets on the 1st</div>
       <div class="board">
         <h2>This month's Round Table <span id="boardMonth"></span></h2>
         <ol id="boardList"><li class="empty">Loading the scrolls…</li></ol>
@@ -118,13 +125,19 @@
   var W = 900, H = 460, GROUND = 418, SCALE = 4;
   var COIN = 10, BAG = 50, TAX = -25, LIVES = 3;
   var MOVE = 540;                      // px/s
+  // Deploy 237.121 (Mike): the run has to be EARNED, not survived.
+  var MISS_COIN = -5, MISS_BAG = -20;          // uncaught gold that hits the ground
+  var DRAIN_AFTER = 2.5, DRAIN_PPS = 6;        // no catch for 2.5s → score bleeds 6/s
+  var CART_AFTER = 30, CART_RAMP = 90;         // audit carts start at 30s, ramp over the next 90s
+  var JUMP_V = 560, GRAVITY = 1500;            // apex ≈ 104px, airtime ≈ 0.75s (cart is 40px tall)
   var MILESTONES = [[250, 'Pre-approved!'], [500, 'Loan funded!'], [1000, 'Portfolio lender!'], [2000, 'Sir Lends-A-LOT!'], [3500, 'Knight of the Round Table'], [5000, 'Legendary Lender'], [8000, 'The Lending Lion']];
   var DEATH_LINES = ['Three DENIED stamps. Underwriting has spoken.', 'The sack is full of stamps. Nobody wants a sack of stamps.', 'Even Sir Lends-A-Lot has limits.', 'Conditions not cleared: catching.', 'That last stamp was for “insufficient reflexes.”'];
 
   var canvas, ctx, sprites = {};
   var state = 'ready', lastT = 0, runTime = 0, startedAt = 0, deadAt = 0;
   var score, coins, lives, items, floats, banner, nextSpawn, milestoneIdx, deathLine, tick = 0;
-  var player = { x: W / 2, dir: 0, target: null, w: 92 };
+  var carts, nextCart, lastCatch, drainAcc, draining;             // 237.121
+  var player = { x: W / 2, dir: 0, target: null, w: 92, y: 0, vy: 0 };   // y = height above the ground (237.121)
   var keys = {};
   var tokenPromise = null;
   var clouds = [];
@@ -162,6 +175,13 @@
     score = 0; coins = 0; lives = LIVES; items = []; floats = []; banner = null; runTime = 0;
     nextSpawn = 0.6; milestoneIdx = 0; deathLine = '';
     player.x = W / 2; player.dir = 0; player.target = null;
+    carts = []; nextCart = CART_AFTER + rand(0, 4); lastCatch = 0; drainAcc = 0; draining = false;   // 237.121
+    player.y = 0; player.vy = 0;
+  }
+  // Deploy 237.121 — jump (only from the ground; no double jumps).
+  function jump() {
+    if (state !== 'running' || player.y > 0) return;
+    player.vy = JUMP_V; Snd.pop();
   }
   function startRun() {
     resetRun(); state = 'running'; startedAt = performance.now();
@@ -179,7 +199,9 @@
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') { keys.left = true; e.preventDefault(); if (state !== 'running') action(); }
       if (e.code === 'ArrowRight' || e.code === 'KeyD') { keys.right = true; e.preventDefault(); if (state !== 'running') action(); }
-      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) action(); }
+      // 237.121: Space / ↑ / W jump while running; Space / Enter still start or restart.
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); if (state === 'running') { if (!e.repeat) jump(); } else action(); }
+      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (e.repeat) return; if (state === 'running') { if (e.code === 'Space') jump(); } else action(); }
     });
     document.addEventListener('keyup', function (e) {
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
@@ -190,7 +212,9 @@
       e.preventDefault(); down = true;
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
       if (state !== 'running') { action(); return; }
-      player.target = AG.pointerPos(canvas, e, W, H).x;
+      var pp = AG.pointerPos(canvas, e, W, H);
+      if (pp.y < H * 0.42) { jump(); down = false; return; }   // 237.121: tap the sky to jump
+      player.target = pp.x;
     });
     canvas.addEventListener('pointermove', function (e) { if (down && state === 'running') player.target = AG.pointerPos(canvas, e, W, H).x; });
     canvas.addEventListener('pointerup', function () { down = false; player.target = null; });
@@ -210,7 +234,15 @@
     items.push({ kind: kind, x: rand(30, W - 30 - w), y: -h - 10, w: w, h: h, vy: rand(180, 230) + 200 * d, rot: rand(-0.3, 0.3), spin: rand(-1.5, 1.5) });
     nextSpawn = runTime + (0.9 - 0.52 * d) * rand(0.75, 1.25);
   }
-  function catchZone() { return { x: player.x - 38, y: GROUND - 118, w: 76, h: 44 }; }
+  function catchZone() { return { x: player.x - 38, y: GROUND - 118 - player.y, w: 76, h: 44 }; }
+  // Deploy 237.121 — audit carts roll along the ground; the knight's feet box is what they hit.
+  function spawnCart() {
+    var d = Math.min(1, (runTime - CART_AFTER) / CART_RAMP);
+    var dir = Math.random() < 0.5 ? 1 : -1;
+    carts.push({ dir: dir, x: dir > 0 ? -90 : W + 90, vx: dir * (250 + 170 * d), w: 66, h: 40, hit: false, wheel: 0 });
+    nextCart = runTime + (7.5 - 4 * d) * rand(0.8, 1.25);
+  }
+  function feetBox() { return { x: player.x - 20, y: GROUND - 56 - player.y, w: 40, h: 56 }; }
   function overlaps(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
   function update(dt) {
@@ -226,20 +258,53 @@
     }
     player.dir = dir;
     player.x = Math.max(46, Math.min(W - 46, player.x + dir * MOVE * dt));
+    // 237.121: jump physics
+    if (player.y > 0 || player.vy > 0) {
+      player.vy -= GRAVITY * dt; player.y += player.vy * dt;
+      if (player.y <= 0) { player.y = 0; player.vy = 0; }
+    }
     if (runTime >= nextSpawn) spawn();
+    // 237.121: audit carts
+    if (runTime >= nextCart) spawnCart();
+    var feet = feetBox();
+    for (var k = carts.length - 1; k >= 0; k--) {
+      var ct = carts[k];
+      ct.x += ct.vx * dt; ct.wheel += ct.vx * dt / 14;
+      if (!ct.hit && overlaps(feet, { x: ct.x + 4, y: GROUND - ct.h + 10, w: ct.w - 8, h: ct.h - 10 })) {   // body only (30px tall); the placard is not solid
+        ct.hit = true; lives--; Snd.stamp();
+        floats.push({ x: ct.x + ct.w / 2 - 11, y: GROUND - 70, text: 'AUDITED!', ttl: 1.1, bad: true, big: true });
+        if (lives <= 0) { die(); return; }
+      }
+      if (ct.x < -140 || ct.x > W + 140) carts.splice(k, 1);
+    }
+    // 237.121: carrying costs — idle hands bleed points until the next catch
+    draining = score > 0 && runTime - lastCatch > DRAIN_AFTER;
+    if (draining) {
+      drainAcc += DRAIN_PPS * dt;
+      var bleed = Math.floor(drainAcc);
+      if (bleed > 0) { drainAcc -= bleed; score = Math.max(0, score - bleed); }
+    } else drainAcc = 0;
     var zone = catchZone();
     for (var i = items.length - 1; i >= 0; i--) {
       var it = items[i];
       it.y += it.vy * dt; it.rot += it.spin * dt;
       if (overlaps(zone, { x: it.x, y: it.y, w: it.w, h: it.h })) {
         items.splice(i, 1);
-        if (it.kind === 'coin') { score += COIN; coins++; Snd.coin(); floats.push({ x: it.x, y: it.y, text: '+' + COIN, ttl: 0.7 }); }
-        else if (it.kind === 'bag') { score += BAG; coins++; Snd.bag(); floats.push({ x: it.x, y: it.y, text: '+' + BAG + ' cha-ching', ttl: 1, big: true }); }
+        if (it.kind === 'coin') { score += COIN; coins++; lastCatch = runTime; Snd.coin(); floats.push({ x: it.x, y: it.y, text: '+' + COIN, ttl: 0.7 }); }
+        else if (it.kind === 'bag') { score += BAG; coins++; lastCatch = runTime; Snd.bag(); floats.push({ x: it.x, y: it.y, text: '+' + BAG + ' cha-ching', ttl: 1, big: true }); }
         else if (it.kind === 'tax') { score = Math.max(0, score + TAX); Snd.miss(); floats.push({ x: it.x, y: it.y, text: TAX + ' taxes', ttl: 1, bad: true }); }
         else { lives--; Snd.stamp(); floats.push({ x: it.x, y: it.y, text: 'DENIED', ttl: 1.1, bad: true, big: true }); if (lives <= 0) { die(); return; } }
         continue;
       }
-      if (it.y > H + 20) items.splice(i, 1);
+      // 237.121: gold that reaches the ground is gold you dropped
+      if (it.y + it.h >= GROUND) {
+        items.splice(i, 1);
+        if (it.kind === 'coin' || it.kind === 'bag') {
+          var pen = it.kind === 'bag' ? MISS_BAG : MISS_COIN;
+          score = Math.max(0, score + pen); Snd.miss();
+          floats.push({ x: it.x, y: GROUND - 30, text: pen + ' dropped', ttl: 0.8, bad: true, big: it.kind === 'bag' });
+        }
+      }
     }
     for (i = floats.length - 1; i >= 0; i--) { floats[i].y -= 40 * dt; floats[i].ttl -= dt; if (floats[i].ttl <= 0) floats.splice(i, 1); }
     if (banner) { banner.ttl -= dt; if (banner.ttl <= 0) banner = null; }
@@ -276,11 +341,31 @@
         ctx.restore();
       } else AG.drawStamp(ctx, it.x, it.y, it.w, it.h, it.rot);
     }
-    // player: knight + sack
-    var kx = player.x - 20, ky = GROUND - sprites.knight.height;
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(player.x, GROUND + 4, 40, 6, 0, 0, Math.PI * 2); ctx.fill();
+    // 237.121: audit carts — wooden cart, two wheels, a clerk, and an AUDIT placard
+    for (i = 0; i < carts.length; i++) {
+      var ct = carts[i], cy = GROUND - ct.h;
+      ctx.fillStyle = '#5a3a1e'; ctx.fillRect(ct.x, cy + 10, ct.w, 22);
+      ctx.fillStyle = '#8b5a2b'; ctx.fillRect(ct.x + 3, cy + 13, ct.w - 6, 16);
+      ctx.fillStyle = '#3a2313'; for (var pl = 0; pl < 3; pl++) ctx.fillRect(ct.x + 8 + pl * 18, cy + 13, 2, 16);
+      for (var wh = 0; wh < 2; wh++) {
+        var wx = ct.x + 14 + wh * (ct.w - 28), wy = GROUND - 8;
+        ctx.fillStyle = '#2a1d12'; ctx.beginPath(); ctx.arc(wx, wy, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#c9a14a'; ctx.lineWidth = 2; ctx.beginPath();
+        ctx.moveTo(wx - 8 * Math.cos(ct.wheel), wy - 8 * Math.sin(ct.wheel)); ctx.lineTo(wx + 8 * Math.cos(ct.wheel), wy + 8 * Math.sin(ct.wheel));
+        ctx.moveTo(wx - 8 * Math.sin(ct.wheel), wy + 8 * Math.cos(ct.wheel)); ctx.lineTo(wx + 8 * Math.sin(ct.wheel), wy - 8 * Math.cos(ct.wheel)); ctx.stroke();
+      }
+      var fx = ct.x + (ct.dir > 0 ? 8 : ct.w - 22);
+      ctx.fillStyle = '#3b2a55'; ctx.fillRect(fx, cy - 6, 14, 18);                       // clerk's robe
+      ctx.fillStyle = '#f1c9a2'; ctx.fillRect(fx + 3, cy - 16, 8, 10);                    // face
+      ctx.fillStyle = '#1a1520'; ctx.fillRect(fx + 1, cy - 20, 12, 4); ctx.fillRect(fx + 3, cy - 26, 8, 6);   // hat
+      AG.drawStamp(ctx, ct.x + (ct.dir > 0 ? ct.w - 46 : 4), cy - 22, 42, 22, ct.dir * 0.08, 'AUDIT');
+    }
+    // player: knight + sack (237.121: lifted by player.y while jumping; shadow shrinks with height)
+    var kx = player.x - 20, ky = GROUND - sprites.knight.height - player.y;
+    var sh = Math.max(0.35, 1 - player.y / 160);
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.18 * sh) + ')'; ctx.beginPath(); ctx.ellipse(player.x, GROUND + 4, 40 * sh, 6 * sh, 0, 0, Math.PI * 2); ctx.fill();
     ctx.drawImage(sprites.knight, kx, ky);
-    ctx.drawImage(sprites.sack, player.x - sprites.sack.width / 2, GROUND - 120);
+    ctx.drawImage(sprites.sack, player.x - sprites.sack.width / 2, GROUND - 120 - player.y);
     if (state === 'running' && player.dir) { ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(player.x - player.dir * 30, GROUND - 6, 14, 3); }
     // floats
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -305,6 +390,7 @@
     ctx.fillStyle = '#fff'; ctx.fillText(AG.fmt(score), W - 20, 14);
     ctx.font = '600 11px Cinzel, serif'; ctx.fillStyle = 'rgba(58,35,19,0.85)';
     ctx.fillText('CATCHES ' + coins, W - 20, 42);
+    if (draining && state === 'running') { ctx.fillStyle = Math.floor(tick * 4) % 2 === 0 ? '#ff5a4a' : '#7c1f1f'; ctx.fillText('CARRYING COSTS  −' + DRAIN_PPS + '/s', W - 20, 58); }   // 237.121
     ctx.textAlign = 'left';
     var G = AG.get();
     ctx.fillText('BEST ' + AG.fmt(G.myBest), 20, 16);
@@ -317,9 +403,10 @@
     if (state === 'ready') {
       AG.drawPanel(ctx, W, H, [
         { text: 'COIN CATCH', font: '900 34px Cinzel Decorative, Cinzel, serif', y: 130, color: '#ffd866' },
-        { text: 'Catch coins (+10) and money bags (+50). Dodge DENIED stamps — three and you are out. Tax bills cost 25.', font: '500 14px DM Sans, sans-serif', y: 180 },
-        { text: 'Press SPACE, an arrow key, or tap to start', font: '700 18px Cinzel, serif', y: 240, color: '#fff' },
-        { text: '← → or A D to move · drag on touch', font: '500 12px DM Mono, monospace', y: 276, color: 'rgba(247,240,220,0.75)' }
+        { text: 'Catch coins (+10) and money bags (+50). Dodge DENIED stamps — three and you are out. Tax bills cost 25.', font: '500 14px DM Sans, sans-serif', y: 176 },
+        { text: 'Gold that hits the ground costs you (−5 / −20). Stop catching and the score bleeds. From 30s, jump the AUDIT carts.', font: '500 13px DM Sans, sans-serif', y: 200, color: '#ffb3a7' },
+        { text: 'Press SPACE, an arrow key, or tap to start', font: '700 18px Cinzel, serif', y: 244, color: '#fff' },
+        { text: '← → or A D to move · Space / ↑ to jump · touch: drag to move, tap the sky to jump', font: '500 12px DM Mono, monospace', y: 278, color: 'rgba(247,240,220,0.75)' }
       ]);
     } else if (state === 'dead') {
       ctx.fillStyle = 'rgba(42,29,18,0.58)'; ctx.fillRect(0, 0, W, H);

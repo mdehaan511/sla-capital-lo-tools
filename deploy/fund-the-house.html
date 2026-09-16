@@ -21,7 +21,9 @@
        SCORING (server cap: GAMES['fund-the-house'].maxPps in _shared/armory.mjs):
          house +100 · golden +250 · streak bonus +10 per streak level (max +50)
          dragon −150 · pops every 0.9s → 0.45s, ≤ 3 on screen, 60s round
-         theoretical ceiling ≈ 660 pts/s; server cap is 700 pts/s + 300 slack. -->
+         theoretical ceiling ≈ 660 pts/s; server cap is 700 pts/s + 300 slack.
+       Deploy 237.121 (Mike): funding the dragon ALSO burns 5 seconds off the
+         clock (runTime jumps forward; the round still ends at 60 of game time). -->
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -118,6 +120,8 @@
   var AG = window.ArmoryGame, Snd = AG.Snd;
   var W = 900, H = 480, SCALE = 4;
   var ROUND = 60, HOUSE = 100, GOLD = 250, DRAGON = -150, STREAK_STEP = 10, STREAK_MAX = 50, MAX_UP = 3;
+  var DRAGON_SECS = 5;                 // 237.121 (Mike): a dragon also costs 5 seconds of the round
+  var timeFlash = 0;                   // seconds left of the red clock flash after a dragon
   var COLS = 4, ROWS = 3, LOT_W = 190, LOT_H = 118, OX = 70, OY = 90, GX = 20, GY = 14;
   var FUND_LINES = ['FUNDED', 'FUNDED', 'CLEAR TO CLOSE', 'WIRED', 'FUNDED'];
   var END_LINES = ['Sixty seconds. The lots are quiet again.', 'The title company would like a word about your pace.', 'Somewhere a competitor is crying.', 'Ye Olde Closing Department salutes you.'];
@@ -160,7 +164,7 @@
     requestAnimationFrame(frame);
   }
   function resetRun() {
-    score = 0; funded = 0; streak = 0; best = 0; floats = []; banner = null; runTime = 0; nextPop = 0.4; endLine = '';
+    score = 0; funded = 0; streak = 0; best = 0; floats = []; banner = null; runTime = 0; nextPop = 0.4; endLine = ''; timeFlash = 0;
     for (var i = 0; i < lots.length; i++) { lots[i].house = null; lots[i].fx = null; }
   }
   function startRun() { resetRun(); state = 'running'; startedAt = performance.now(); tokenPromise = AG.startRun(); }
@@ -208,8 +212,9 @@
       if (!h || h.state !== 'up') { streak = 0; Snd.miss(); floats.push({ x: x, y: y, text: 'empty lot', ttl: 0.6, small: true }); return; }
       if (h.kind === 'dragon') {
         score = Math.max(0, score + DRAGON); streak = 0; Snd.roar();
+        runTime = Math.min(ROUND, runTime + DRAGON_SECS); timeFlash = 1.0;   // 237.121: −5s off the clock
         l.fx = { kind: 'roar', t: 0 }; h.state = 'done'; h.t = 0;
-        floats.push({ x: l.x + l.w / 2, y: l.y + 20, text: DRAGON + ' DRAGON!', ttl: 1.2, bad: true, big: true });
+        floats.push({ x: l.x + l.w / 2, y: l.y + 20, text: DRAGON + ' & −' + DRAGON_SECS + 's DRAGON!', ttl: 1.2, bad: true, big: true });
         return;
       }
       var bonus = Math.min(STREAK_MAX, streak * STREAK_STEP);
@@ -243,6 +248,7 @@
     }
     for (i = floats.length - 1; i >= 0; i--) { floats[i].y -= 36 * dt; floats[i].ttl -= dt; if (floats[i].ttl <= 0) floats.splice(i, 1); }
     if (banner) { banner.ttl -= dt; if (banner.ttl <= 0) banner = null; }
+    if (timeFlash > 0) timeFlash -= dt;   // 237.121
   }
   function finish() {
     state = 'done'; doneAt = performance.now(); Snd.win();
@@ -322,14 +328,15 @@
     if (G.topBest) ctx.fillText('⚔ TOP ' + AG.fmt(G.topBest) + (G.topName ? ' · ' + G.topName.toUpperCase() : ''), 20, 32);
     var left = Math.max(0, ROUND - runTime);
     ctx.textAlign = 'center'; ctx.font = '700 22px DM Mono, monospace';
-    ctx.fillStyle = left < 10 && state === 'running' && Math.floor(tick * 4) % 2 === 0 ? '#ff5a4a' : '#fff';
+    ctx.fillStyle = ((left < 10 || timeFlash > 0) && state === 'running' && Math.floor(tick * 6) % 2 === 0) ? '#ff5a4a' : '#fff';   // 237.121: flashes red after a dragon
     ctx.fillText(state === 'running' ? (Math.ceil(left) + 's') : '60s', W / 2, 14);
+    if (timeFlash > 0 && state === 'running') { ctx.font = '700 13px DM Mono, monospace'; ctx.fillStyle = '#ff5a4a'; ctx.fillText('−' + DRAGON_SECS + 's', W / 2, 40); }
     if (Snd.muted()) { ctx.font = '600 11px Cinzel, serif'; ctx.fillStyle = 'rgba(58,35,19,0.85)'; ctx.fillText('🔇', W / 2, 44); }
     if (state === 'ready') {
       AG.drawPanel(ctx, W, H, [
         { text: 'FUND THE HOUSE', font: '900 34px Cinzel Decorative, Cinzel, serif', y: 140, color: '#ffd866' },
         { text: 'Click a house to fund it (+100). Golden houses +250. Streaks add up to +50 a pop.', font: '500 14px DM Sans, sans-serif', y: 190 },
-        { text: 'Never fund the house with the dragon in the window (−150).', font: '500 14px DM Sans, sans-serif', y: 214, color: '#ffb3a7' },
+        { text: 'Never fund the house with the dragon in the window (−150 and 5 seconds off the clock).', font: '500 14px DM Sans, sans-serif', y: 214, color: '#ffb3a7' },
         { text: 'Press SPACE or tap to start the 60-second round', font: '700 18px Cinzel, serif', y: 270, color: '#fff' }
       ]);
     } else if (state === 'done') {
