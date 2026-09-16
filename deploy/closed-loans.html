@@ -420,12 +420,30 @@ function firstPaymentDate(l){
 function firstPaymentStr(l){ var d = firstPaymentDate(l); return d ? ((d.getMonth()+1)+'/'+d.getDate()+'/'+String(d.getFullYear()).slice(-2)) : ''; }
 // Monthly yield spread (Sold-RTL) = (originated rate − sold rate)% × balance / 12.
 // Balance = current UPB if we have it, else the funded loan amount.
+// Deploy 237.125 (Mike) -- the investor decides the spread basis:
+//   King Arthur Fund  -> the fund's rate is 9.5%, so spread = note rate - 9.5%.
+//   Sir Lends A Lot   -> no outside investor: the WHOLE payment is ours (the
+//                        servicer's monthly payment, else full note-rate interest).
+//   anyone else       -> note rate - the sold rate recorded on the loan.
+var KAF_BASE_RATE = 9.5;
+function spreadInvestor(l){
+  var n = String((l && l.investorName) || '').toLowerCase();
+  if (/king\s*arthur|\bkaf\b/.test(n)) return 'kaf';
+  if (/sir\s*lends|\bsla\b/.test(n)) return 'sla';
+  return '';
+}
+function soldRateFor(l){ return spreadInvestor(l) === 'kaf' ? KAF_BASE_RATE : rateOf(l.soldRate); }
 function monthlyYieldSpread(l){
   // Deploy 236.715 — normalize both through rateOf so a Baseline fraction-rate
   // (0.069) can't produce a wildly wrong spread against a percent sold rate.
-  var orig = rateOf(l.rate), sold = rateOf(l.soldRate);
-  if (!(orig > 0) || !(sold > 0)) return null;
+  var orig = rateOf(l.rate);
   var bal = num(l.upb) || num(l.finalLoanAmount) || num(l.loanAmt);
+  if (spreadInvestor(l) === 'sla') {
+    if (num(l.paymentAmount) > 0) return num(l.paymentAmount);
+    return (orig > 0 && bal > 0) ? orig / 100 * bal / 12 : null;
+  }
+  var sold = soldRateFor(l);
+  if (!(orig > 0) || !(sold > 0)) return null;
   if (!(bal > 0)) return null;
   return (orig - sold) / 100 * bal / 12;
 }
@@ -941,7 +959,8 @@ function payoffProfit(l){
   }
   var pointsD = num(l.points) / 100 * amt;
   var fees = (l.closingFees != null && String(l.closingFees).trim() !== '') ? num(l.closingFees) : RTL_FLAT_FEES_TOTAL;
-  var rate = rateOf(l.rate), sold = rateOf(l.soldRate);
+  var rate = rateOf(l.rate), sold = soldRateFor(l); // Deploy 237.125 -- KAF = 9.5%
+  if (spreadInvestor(l) === 'sla') sold = 0;          // held by SLA: full yield the whole time
   var out = { pointsD: pointsD, fees: fees, full: 0, spread: 0, held: held, dscr: false, note: '' };
   if (held == null || !(rate > 0)) {
     out.note = !l.payoffDate ? 'no payoff date — interest not counted' : 'no note rate — interest not counted';
@@ -957,7 +976,8 @@ function payoffProfit(l){
   out.full = rate / 100 * amt * fullDays / 365;
   out.spread = sold > 0 ? Math.max(0, rate - sold) / 100 * amt * spreadDays / 365 : 0;
   out.fullDays = fullDays; out.spreadDays = spreadDays; out.board = board;
-  out.note = !(sold > 0) ? 'no sold rate — full yield assumed until payoff'
+  out.note = spreadInvestor(l) === 'sla' ? 'held by Sir Lends A Lot — full yield until payoff'
+    : !(sold > 0) ? 'no sold rate — full yield assumed until payoff'
     : (!board ? 'no boarding date — full yield assumed until payoff' : 'full yield ' + fullDays + 'd, then spread ' + (rate - sold).toFixed(3) + '% for ' + spreadDays + 'd');
   out.total = pointsD + fees + out.full + out.spread;
   out.ret = (pointsD + out.full + out.spread) / amt;
