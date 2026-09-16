@@ -920,17 +920,105 @@
   // Values are grouped by a normalized form so trivial formatting diffs
   // ("123 Main St" vs "123 Main Street") don't false-flag; the RAW value
   // each doc reported is shown so the underwriter sees exactly what differs.
-  function _ccNormName(s) {
-    return String(s == null ? '' : s).toUpperCase().replace(/[.,'"]/g, '').replace(/\s+/g, ' ').trim();
+  // Deploy 237.122 (Mike) — smarter matching. Values are CLUSTERED with
+  // field-aware rules instead of grouped by an exact normalized string:
+  //   Entity   — case, punctuation, word order and the legal suffix (LLC,
+  //              L.L.C., Inc, Corp, Co, LP…) are ignored. A different WORD is
+  //              still a different name ("Park Dr" ≠ "Park Drive").
+  //   People   — "Waggoner, Timothy Blaise" = "TIMOTHY WAGGONER" = "Timothy
+  //              B. Waggoner" (first + last must agree; middle names and
+  //              initials don't split a group). Joint values ("Timothy
+  //              Waggoner / Hannah Waggoner") count toward each person. Every
+  //              guarantor on the loan is an EXPECTED name; only a name that
+  //              isn't a guarantor (nickname, stranger) is a mismatch.
+  //   Address  — dashes, commas, periods, case, Street/St, state names, ZIP+4,
+  //              county notes and "USA" are ignored; two addresses agree when
+  //              house number + street agree and ZIP / unit agree when both
+  //              have one. Guarantor residences and other-property documents
+  //              (a tray named for a different address) are shown as
+  //              "other property", not as a mismatch.
+  //   Amount   — payoff / mortgage-statement / VOM documents report OTHER
+  //              debts, so they are not compared to the loan amount.
+  var _CC_ENTITY_SUFFIX = { LLC: 1, LC: 1, INC: 1, INCORPORATED: 1, CORP: 1, CORPORATION: 1, CO: 1, COMPANY: 1,
+    LP: 1, LLP: 1, LLLP: 1, LTD: 1, LIMITED: 1, PLLC: 1, PC: 1, PA: 1, THE: 1, SERIES: 1 };
+  function _ccEntityKey(s) {
+    var t = String(s == null ? '' : s).toUpperCase()
+      .replace(/&/g, ' AND ')
+      .replace(/\bL\.?\s?L\.?\s?C\.?/g, ' LLC ')
+      .replace(/[^A-Z0-9]+/g, ' ').trim();
+    var toks = t.split(/\s+/).filter(function(w) { return w && !_CC_ENTITY_SUFFIX[w]; });
+    return toks.sort().join(' ');
   }
-  function _ccNormAddr(s) {
-    var t = String(s == null ? '' : s).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim();
-    t = t.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave').replace(/\broad\b/g, 'rd')
-         .replace(/\bdrive\b/g, 'dr').replace(/\blane\b/g, 'ln').replace(/\bboulevard\b/g, 'blvd')
-         .replace(/\bcourt\b/g, 'ct').replace(/\bplace\b/g, 'pl').replace(/\bhighway\b/g, 'hwy')
-         .replace(/\bapartment\b/g, 'unit').replace(/\bapt\b/g, 'unit').replace(/\bsuite\b/g, 'unit').replace(/\bste\b/g, 'unit')
-         .replace(/\bnorth\b/g, 'n').replace(/\bsouth\b/g, 's').replace(/\beast\b/g, 'e').replace(/\bwest\b/g, 'w');
-    return t.replace(/\s+/g, ' ').trim();
+  var _CC_NAME_SUFFIX = { JR: 1, SR: 1, II: 1, III: 1, IV: 1, MR: 1, MRS: 1, MS: 1, DR: 1 };
+  function _ccPeople(s) {
+    // one value may name several people ("A / B", "A & B", "A and B", "A; B")
+    return String(s == null ? '' : s).split(/\s*(?:\/|&|;|\band\b)\s*/i).map(function(one) {
+      var raw = one.trim();
+      if (!raw) return null;
+      var last, rest;
+      if (raw.indexOf(',') > 0) { last = raw.slice(0, raw.indexOf(',')); rest = raw.slice(raw.indexOf(',') + 1); }
+      var clean = function(x) { return String(x || '').toUpperCase().replace(/[^A-Z ]+/g, ' ').split(/\s+/).filter(function(w) { return w && !_CC_NAME_SUFFIX[w]; }); };
+      var toks;
+      if (last != null) { var l = clean(last), r = clean(rest); if (!l.length || !r.length) return null; toks = r.concat(l); }
+      else toks = clean(raw);
+      if (toks.length < 2) return null;
+      return { raw: raw, first: toks[0], last: toks[toks.length - 1], middle: toks.slice(1, -1) };
+    }).filter(Boolean);
+  }
+  function _ccSamePerson(a, b) {
+    if (a.last !== b.last) return false;
+    if (a.first === b.first) return true;
+    // an initial matches the name it abbreviates
+    return (a.first.length === 1 && b.first.charAt(0) === a.first) || (b.first.length === 1 && a.first.charAt(0) === b.first);
+  }
+  var _CC_STATES = { alabama:'al', alaska:'ak', arizona:'az', arkansas:'ar', california:'ca', colorado:'co', connecticut:'ct',
+    delaware:'de', florida:'fl', georgia:'ga', hawaii:'hi', idaho:'id', illinois:'il', indiana:'in', iowa:'ia', kansas:'ks',
+    kentucky:'ky', louisiana:'la', maine:'me', maryland:'md', massachusetts:'ma', michigan:'mi', minnesota:'mn',
+    mississippi:'ms', missouri:'mo', montana:'mt', nebraska:'ne', nevada:'nv', ohio:'oh', oklahoma:'ok', oregon:'or',
+    pennsylvania:'pa', tennessee:'tn', texas:'tx', utah:'ut', vermont:'vt', virginia:'va', washington:'wa',
+    wisconsin:'wi', wyoming:'wy' };
+  var _CC_STREET = { street:'st', str:'st', st:'st', avenue:'ave', av:'ave', ave:'ave', road:'rd', rd:'rd', drive:'dr', dr:'dr',
+    lane:'ln', ln:'ln', boulevard:'blvd', blvd:'blvd', court:'ct', ct:'ct', place:'pl', pl:'pl', highway:'hwy', hwy:'hwy',
+    way:'way', wy:'way', circle:'cir', cir:'cir', terrace:'ter', ter:'ter', parkway:'pkwy', pkwy:'pkwy', trail:'trl', trl:'trl',
+    loop:'loop', square:'sq', sq:'sq', railroad:'rr', rr:'rr', pike:'pike', run:'run', row:'row', path:'path', alley:'aly', aly:'aly' };
+  var _CC_DIR = { north:'n', south:'s', east:'e', west:'w', northeast:'ne', northwest:'nw', southeast:'se', southwest:'sw' };
+  var _CC_UNIT = { unit: 1, apt: 1, apartment: 1, ste: 1, suite: 1, lot: 1, bldg: 1, building: 1, fl: 1, floor: 1, rm: 1, room: 1 };
+  function _ccAddrParts(s) {
+    var t = String(s == null ? '' : s).toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')                  // "(ADAMS)" county notes
+      .replace(/\b(\d{5})-\d{4}\b/g, '$1')          // ZIP+4 -> ZIP
+      .replace(/#\s*/g, ' unit ')
+      .replace(/([a-z0-9])-([a-z0-9])/g, '$1$2')     // "C-204" -> "c204"
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .replace(/\b(united states|usa|us)\s*$/, ' ')
+      .replace(/\b[a-z]+ county\b/g, ' ');
+    var toks = t.split(/\s+/).filter(Boolean).map(function(w) { return _CC_STATES[w] || _CC_DIR[w] || w; });
+    if (!toks.length || !/^\d+[a-z]?$/.test(toks[0])) return null;
+    var num = toks[0], street = [], unit = '', zip = '';
+    var i = 1;
+    for (; i < toks.length; i++) {
+      var w = toks[i];
+      if (_CC_UNIT[w]) break;
+      street.push(_CC_STREET[w] || w);
+      if (_CC_STREET[w] && street.length >= 2) { i++; break; }
+      if (street.length >= 4) { i++; break; }
+    }
+    for (; i < toks.length; i++) {
+      if (_CC_UNIT[toks[i]] && toks[i + 1]) {
+        unit = toks[i + 1]; i++;
+        if (/^[a-z]$/.test(unit) && /^\d+$/.test(toks[i + 1] || '') && !/^\d{5}$/.test(toks[i + 1])) { unit += toks[i + 1]; i++; }
+        continue;
+      }
+      if (/^\d{5}$/.test(toks[i])) zip = toks[i];
+    }
+    return { num: num, street: street.join(' '), unit: unit, zip: zip };
+  }
+  function _ccSameAddr(a, b) {
+    if (!a || !b) return false;
+    if (a.num !== b.num || a.street !== b.street) return false;
+    if (a.zip && b.zip && a.zip !== b.zip) return false;
+    if (a.unit && b.unit && a.unit !== b.unit) return false;
+    return true;
   }
   function _ccNormMoney(v) {
     var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
@@ -944,46 +1032,158 @@
     var t = String(v == null ? '' : v).trim();
     return t === '' || /^(null|n\/?a|none|unknown|not (found|present|specified))$/i.test(t);
   }
+  // Third parties whose own entity name is on the document (title company, escrow).
+  var _CC_THIRD_PARTY = /^(title_eo_insurance|title_escrow_contact|wire_instructions|appraisal_receipt)$/;
+  // Documents about OTHER debts / properties — their amount is not this loan's.
+  var _CC_OTHER_DEBT = /^(payoff_demand|mortgage_statements?_payoffs|mortgage_statement|vom|voh_corrfirst|track_record(_reo)?|pfs|reo_schedule)$/;
+  var _CC_OTHER_DEBT_LABEL = /payoff|mortgage statement|mortgage customer|verification of mortgage|\bvom\b|\bvor\b|track record|\breo\b|financial statement/i;
 
   function buildConsistencyReport(review) {
     review = review || {};
     var docs = review.docs || {};
     var client = review.sourceClientSnapshot || {};
-    var FIELDS = [
-      { key: 'llcName',         label: 'Entity / LLC Name', norm: _ccNormName, loanRef: client.entityName || _vestingName(review.sourceLoanSnapshot || review.snapshotLoan) }, // Deploy 237.080
-      { key: 'borrowerName',    label: 'Borrower Name',     norm: _ccNormName, loanRef: review.borrowerName },
-      { key: 'propertyAddress', label: 'Property Address',  norm: _ccNormAddr, loanRef: review.address },
-      { key: 'loanAmount',      label: 'Loan Amount',       norm: _ccNormMoney, money: true, loanRef: review.loanAmount },
-    ];
-    return FIELDS.map(function(f) {
-      var sources = []; // { label, raw, norm, isRef }
-      if (!_ccIsBlank(f.loanRef)) {
-        sources.push({ label: 'Loan File (of record)', raw: String(f.loanRef), norm: f.norm(f.loanRef), isRef: true });
-      }
-      Object.keys(docs).forEach(function(slug) {
-        var d = docs[slug];
-        if (!d || d.hidden) return;
-        var ee = d.aiExtractedEntities || {};
-        var v = ee[f.key];
-        if (_ccIsBlank(v)) return;
-        var label = (DOC_META[slug] && DOC_META[slug].label) || d.label || slug;
-        sources.push({ label: label, raw: String(v), norm: f.norm(v) });
-      });
-      // Group by normalized value.
-      var groups = [], byNorm = {};
-      sources.forEach(function(s) {
-        if (!s.norm) return;
-        if (!byNorm[s.norm]) { byNorm[s.norm] = { norm: s.norm, raw: s.raw, labels: [] }; groups.push(byNorm[s.norm]); }
-        byNorm[s.norm].labels.push(s.label);
-      });
-      var comparable = sources.filter(function(s) { return s.norm; }).length;
-      // Biggest group first so the "majority" value reads at the top.
-      groups.sort(function(a, b) { return b.labels.length - a.labels.length; });
-      return {
-        key: f.key, label: f.label, money: !!f.money, groups: groups, comparable: comparable,
-        status: groups.length > 1 ? 'mismatch' : (comparable >= 2 ? 'ok' : (comparable === 1 ? 'single' : 'none')),
-      };
+    var loanSnap = review.sourceLoanSnapshot || review.snapshotLoan || {};
+    var srcs = [];
+    Object.keys(docs).forEach(function(slug) {
+      var d = docs[slug];
+      if (!d || d.hidden) return;
+      var base = String(slug).replace(/__[pg]\d+$/, '');
+      var meta = DOC_META[base] || {};
+      var label = d.label || (DOC_META[slug] && DOC_META[slug].label) || meta.label || slug;
+      srcs.push({ slug: slug, base: base, label: label, ee: d.aiExtractedEntities || {},
+        guarantorDoc: /__g\d+$/.test(slug) || meta.section === 'guarantor' || d.section === 'guarantor' });
     });
+    function valuesFor(key) {
+      return srcs.filter(function(s) { return !_ccIsBlank(s.ee[key]); }).map(function(s) { return { src: s, raw: String(s.ee[key]).trim() }; });
+    }
+
+    // ── Entity ──────────────────────────────────────────────────────────
+    var entityRef = client.entityName || _vestingName(loanSnap);
+    var entity = (function() {
+      var groups = [], byKey = {};
+      function add(raw, label, info) {
+        var k = _ccEntityKey(raw); if (!k) return;
+        if (!byKey[k]) { byKey[k] = { raw: raw, labels: [], info: !!info, note: info ? 'third party (title / escrow) — not compared' : '' }; groups.push(byKey[k]); }
+        if (!info) { byKey[k].info = false; byKey[k].note = ''; }
+        byKey[k].labels.push(label);
+      }
+      if (!_ccIsBlank(entityRef)) add(String(entityRef), 'Loan File (of record)', false);
+      valuesFor('llcName').forEach(function(v) { add(v.raw, v.src.label, _CC_THIRD_PARTY.test(v.src.base)); });
+      return groups;
+    })();
+
+    // ── People ──────────────────────────────────────────────────────────
+    var roster = [];
+    (Array.isArray(review.guarantorNames) && review.guarantorNames.length ? review.guarantorNames : [review.borrowerName]).forEach(function(n) {
+      _ccPeople(n).forEach(function(p) { if (!roster.some(function(r) { return _ccSamePerson(r, p); })) roster.push(p); });
+    });
+    var people = (function() {
+      var clusters = [];
+      function add(raw, label) {
+        _ccPeople(raw).forEach(function(p) {
+          var c = null;
+          for (var i = 0; i < clusters.length; i++) { if (_ccSamePerson(clusters[i].person, p)) { c = clusters[i]; break; } }
+          if (!c) { c = { person: p, raw: p.raw, labels: [] }; clusters.push(c); }
+          if (p.middle.length > c.person.middle.length || (p.first.length > c.person.first.length && p.middle.length >= c.person.middle.length)) c.person = p; // keep the fullest form
+          if (c.labels.indexOf(label) < 0) c.labels.push(label);
+        });
+      }
+      if (!_ccIsBlank(review.borrowerName)) add(review.borrowerName, 'Loan File (of record)');
+      valuesFor('borrowerName').forEach(function(v) { add(v.raw, v.src.label); });
+      var tc = function(w) { return w.charAt(0) + w.slice(1).toLowerCase(); };
+      clusters.forEach(function(c) {
+        c.raw = [c.person.first].concat(c.person.middle, [c.person.last]).map(tc).join(' ');
+        var idx = -1;
+        for (var i = 0; i < roster.length; i++) { if (_ccSamePerson(roster[i], c.person)) { idx = i; break; } }
+        c.guarantorIdx = idx;
+        c.info = false;
+        c.note = idx >= 0 ? (roster.length > 1 ? 'Guarantor ' + (idx + 1) : 'guarantor') : 'does not match a guarantor (nickname or wrong person?)';
+      });
+      // roster order first, strangers last
+      clusters.sort(function(a, b) {
+        var ai = a.guarantorIdx < 0 ? 99 : a.guarantorIdx, bi = b.guarantorIdx < 0 ? 99 : b.guarantorIdx;
+        return ai !== bi ? ai - bi : b.labels.length - a.labels.length;
+      });
+      return clusters;
+    })();
+
+    // ── Address ─────────────────────────────────────────────────────────
+    var subject = _ccAddrParts(review.address || loanSnap.address);
+    var address = (function() {
+      var clusters = [];
+      function add(raw, src) {
+        String(raw).split(/\s*;\s*/).forEach(function(one) {
+          if (!one) return;
+          var parts = _ccAddrParts(one);
+          var key = parts ? null : one.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          var c = null;
+          for (var i = 0; i < clusters.length; i++) {
+            var x = clusters[i];
+            if (parts ? _ccSameAddr(x.parts, parts) : (x.key && x.key === key)) { c = x; break; }
+          }
+          if (!c) { c = { parts: parts, key: key, raw: one, labels: [], otherOnly: true }; clusters.push(c); }
+          if (!src) c.refRaw = one;
+          if (one.length > c.raw.length && parts && c.parts && (!c.parts.zip || parts.zip)) c.raw = one;
+          if (c.labels.indexOf(src ? src.label : 'Loan File (of record)') < 0) c.labels.push(src ? src.label : 'Loan File (of record)');
+          // a source counts as "other property" when it is a guarantor document or a
+          // tray/label that names this very (non-subject) address
+          var other = !!src && (src.guarantorDoc || _CC_OTHER_DEBT.test(src.base) ||
+            (parts && new RegExp('\\b' + parts.num + '\\b', 'i').test(src.label) && !_ccSameAddr(parts, subject)));
+          if (!other) c.otherOnly = false;
+        });
+      }
+      if (!_ccIsBlank(review.address || loanSnap.address)) add(review.address || loanSnap.address, null);
+      valuesFor('propertyAddress').forEach(function(v) { add(v.raw, v.src); });
+      clusters.forEach(function(c) {
+        c.isSubject = !!(subject && c.parts && _ccSameAddr(subject, c.parts));
+        if (c.refRaw) c.raw = c.refRaw;
+        c.info = !c.isSubject && c.otherOnly;
+        c.note = c.isSubject ? 'subject property' : (c.info ? 'other property / residence — not compared' : '');
+      });
+      clusters.sort(function(a, b) {
+        if (a.isSubject !== b.isSubject) return a.isSubject ? -1 : 1;
+        if (a.info !== b.info) return a.info ? 1 : -1;
+        return b.labels.length - a.labels.length;
+      });
+      return clusters;
+    })();
+
+    // ── Loan amount ─────────────────────────────────────────────────────
+    var amount = (function() {
+      var groups = [], byKey = {};
+      function add(raw, label, info) {
+        var k = _ccNormMoney(raw); if (!k) return;
+        if (!byKey[k]) { byKey[k] = { raw: raw, labels: [], info: true, note: '' }; groups.push(byKey[k]); }
+        if (!info) byKey[k].info = false;
+        byKey[k].labels.push(label);
+      }
+      if (!_ccIsBlank(review.loanAmount)) add(review.loanAmount, 'Loan File (of record)', false);
+      valuesFor('loanAmount').forEach(function(v) {
+        var other = _CC_OTHER_DEBT.test(v.src.base) || _CC_OTHER_DEBT_LABEL.test(v.src.label);
+        add(v.raw, v.src.label, other);
+      });
+      groups.forEach(function(g) { g.note = g.info ? 'another debt (payoff / mortgage / REO) — not compared' : ''; });
+      groups.sort(function(a, b) { if (a.info !== b.info) return a.info ? 1 : -1; return b.labels.length - a.labels.length; });
+      return groups;
+    })();
+
+    function finish(key, label, groups, opts) {
+      opts = opts || {};
+      var live = groups.filter(function(g) { return !g.info; });
+      var comparable = live.reduce(function(n, g) { return n + g.labels.length; }, 0);
+      var mismatch = opts.mismatch != null ? opts.mismatch : live.length > 1;
+      return {
+        key: key, label: label, money: !!opts.money, groups: groups, comparable: comparable,
+        status: mismatch ? 'mismatch' : (comparable >= 2 ? 'ok' : (comparable === 1 ? 'single' : (groups.length ? 'info' : 'none'))),
+      };
+    }
+    var strangers = people.filter(function(c) { return c.guarantorIdx < 0; });
+    return [
+      finish('llcName', 'Entity / LLC Name', entity),
+      finish('borrowerName', 'Borrower / Guarantor Names', people, { mismatch: roster.length ? strangers.length > 0 : people.length > 1 }),
+      finish('propertyAddress', 'Property Address', address),
+      finish('loanAmount', 'Loan Amount', amount, { money: true }),
+    ];
   }
 
   function renderConsistencyCard(review) {
@@ -1001,6 +1201,17 @@
           '<div class="dr-cc-detail">Not extracted from any document yet.</div></div>';
       }
       var fmt = function(g) { return r.money ? _ccMoney(g.raw) : g.raw; };
+      // Deploy 237.122 -- expected / informational groups (other guarantors, other
+      // properties, other debts, third parties) render muted with their note.
+      var noteHtml = function(g) { return g.note ? ' <span class="dr-cc-note" style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:' + (g.info ? 'var(--muted)' : (g.guarantorIdx != null && g.guarantorIdx < 0 ? 'var(--danger, #7c1f1f)' : 'var(--dr-green, #166534)')) + '">' + escHtml(g.note) + '</span>' : ''; };
+      var variantHtml = function(g, quiet) {
+        return '<div class="dr-cc-variant"' + (quiet ? ' style="background:rgba(0,0,0,0.03)"' : '') + '><span class="dr-cc-val"' + (g.info ? ' style="color:var(--muted);font-weight:500"' : '') + '>' + escHtml(fmt(g)) + '</span>' + noteHtml(g) +
+          '<span class="dr-cc-srcs">' + escHtml(g.labels.join(', ')) + '</span></div>';
+      };
+      if (r.status === 'info') {
+        return '<div class="dr-cc-row single"><div class="dr-cc-field">' + escHtml(r.label) + '</div>' +
+          '<div class="dr-cc-detail">' + r.groups.map(function(g) { return variantHtml(g, true); }).join('') + '</div></div>';
+      }
       if (r.status === 'single') {
         var g0 = r.groups[0];
         return '<div class="dr-cc-row single"><div class="dr-cc-field">' + escHtml(r.label) + '</div>' +
@@ -1008,15 +1219,24 @@
           '<span class="dr-cc-only">— only on ' + escHtml(g0.labels.join(', ')) + '; nothing to cross-check yet</span></div></div>';
       }
       if (r.status === 'ok') {
-        var gk = r.groups[0];
+        var live = r.groups.filter(function(g) { return !g.info; });
+        var extra = r.groups.filter(function(g) { return g.info; });
+        // people: every guarantor listed; otherwise the single agreed value + any muted extras
+        if (r.key === 'borrowerName' && live.length > 1) {
+          return '<div class="dr-cc-row ok"><div class="dr-cc-field">✓ ' + escHtml(r.label) + '</div>' +
+            '<div class="dr-cc-detail">' + r.groups.map(function(g) { return variantHtml(g, true); }).join('') + '</div></div>';
+        }
+        var gk = live[0];
         return '<div class="dr-cc-row ok"><div class="dr-cc-field">✓ ' + escHtml(r.label) + '</div>' +
           '<div class="dr-cc-detail"><span class="dr-cc-val">' + escHtml(fmt(gk)) + '</span> ' +
-          '<span class="dr-cc-agree">— matches across ' + gk.labels.length + ' sources</span></div></div>';
+          '<span class="dr-cc-agree">— matches across ' + gk.labels.length + ' sources</span>' +
+          (extra.length ? '<div style="margin-top:6px">' + extra.map(function(g) { return variantHtml(g, true); }).join('') + '</div>' : '') +
+          '</div></div>';
       }
       // mismatch
       var gl = r.groups.map(function(g) {
-        return '<div class="dr-cc-variant"><span class="dr-cc-val">' + escHtml(fmt(g)) + '</span>' +
-          '<span class="dr-cc-srcs">' + escHtml(g.labels.join(', ')) + '</span></div>';
+        var quiet = g.info || (r.key === 'borrowerName' && g.guarantorIdx >= 0) || g.isSubject;
+        return variantHtml(g, quiet);
       }).join('');
       return '<div class="dr-cc-row mismatch"><div class="dr-cc-field">⚠ ' + escHtml(r.label) + '</div>' +
         '<div class="dr-cc-detail">' + gl + '</div></div>';
