@@ -74,6 +74,9 @@ export default async (req, context) => {
       myCalendar: myProfile ? { birthday: myProfile.birthday, startDate: myProfile.startDate, avatar: myProfile.avatar || '' } : null,
       // Deploy 237.086 — chosen avatars, email → key (Round Table, podium, Legends, Hall of Deeds).
       avatars: profiles.reduce((m, p) => { if (p.avatar) m[p.email] = p.avatar; return m; }, {}),
+      // Deploy 237.097 — the whole roster, so the Round Table can list everyone
+      // (including knights who have not ridden this month).
+      roster: profiles.map((p) => ({ email: p.email, name: p.name, avatar: p.avatar || '' })),
     });
   } catch (e) {
     console.error('armory-state error:', e);
