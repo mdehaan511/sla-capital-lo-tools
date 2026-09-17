@@ -481,13 +481,45 @@ const citizenOf = (c) => {
   return (u === 'yes' || u === 'y' || u === 'true');
 };
 
+// ── Deploy 237.131 (Mike: "make it so those tapes get all of the formulas and
+// appropriate widths like we did with the Colchis Settlement tape") ──────────
+// Measured against Mike's own Stride submissions (3 RTL .xlsx, 2 DSCR .xlsm):
+//   RTL  Sheet1 carries three formulas per loan (I =+C, S =P-Q, W =R), $ money
+//        columns, 0.000% buy rate, real date serials, bold wrapped grey headers
+//        (yellow on the two Stride-owned columns) -- and a SECOND sheet,
+//        "Form, mapped", that re-expresses each Sheet1 row in Stride's Form
+//        layout with ~38 formulas a row. Both are reproduced; the mapped sheet's
+//        one hand-broken cell (AB3 =#REF!) is written as the working =Sheet1!L.
+//   DSCR Form has NO formulas in the samples; it gets the template's formats
+//        (accounting amounts, 0.000% rate, 0.000 DSCR, real dates), the frozen
+//        wrapped header, and live formulas only where the cell is OUR arithmetic
+//        (LTV = amount / value, CLTV = LTV, P&I, lock expiry = lock + 45) so a
+//        hand-corrected amount / rate / value / lock date flows through.
+//        The .xlsm's Funding Notice + hidden Data / Batch Calc sheets and macros
+//        are Stride's own machinery and are NOT reproduced.
+// Column letters in the formulas are the templates' fixed positions;
+// scripts/stride-tape-test.mjs pins every referenced header to its letter.
+const sty = (n, s) => (n == null || n === '' || typeof n !== 'number' || !isFinite(n) ? '' : { v: n, s });
+const dateCell = (mdY) => { // 'M/D/YYYY' → a real Excel date serial
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(mdY || ''));
+  if (!m) return mdY || '';
+  return { v: excelSerial({ y: +m[3], m: +m[1], d: +m[2] }), s: 'date' };
+};
+const dscrValueOf = (c) => num(uw(c, 'appraisedValue')) || num(c.loan.propValue) || null;
+const dscrPI = (c) => {
+  const t = totalAmt(c.loan), rf = rateFrac(c.loan.rate || c.loan._finalRate);
+  if (!t || rf == null) return null;
+  // IO loans pay interest only (the sample sheet's own P&I is exactly this).
+  return String(c.loan.isIO || '').toLowerCase() === 'yes' ? round2(t * rf / 12) : amortPI(t, rf);
+};
+
 const STRIDE_DSCR_COLS = [
   ['Loan Numbers', (c) => c.sla],
   ['Seller', () => 'Sir Lends A Lot LLC'],
   ['Channel', () => 'Retail'],
   ['Seller Program', () => 'DSCR'],
-  ['Original Loan Amount', (c) => totalAmt(c.loan) || ''],
-  [' Current UPB', (c) => num(c.loan.upb) || totalAmt(c.loan) || ''],
+  ['Original Loan Amount', (c) => sty(totalAmt(c.loan), 'acct0')],
+  [' Current UPB', (c) => sty(num(c.loan.upb) || totalAmt(c.loan), 'acct0')],
   ['Borrower Name First', (c) => borrowerName(c)],
   ['Borrower Name Last', () => ''],
   ['Co-Borrower Name First', () => ''],
@@ -498,21 +530,22 @@ const STRIDE_DSCR_COLS = [
   ['Property City', (c) => parseAddr(c.loan.address).city],
   ['Property State', (c) => parseAddr(c.loan.address).state],
   ['Property Zip', (c) => parseAddr(c.loan.address).zip],
-  ['Note Rate', (c) => pct(rateFrac(c.loan.rate || c.loan._finalRate))],
+  ['Note Rate', (c) => sty(rateFrac(c.loan.rate || c.loan._finalRate), 'pct3')],
   ['Pass-thru Rate', () => ''], // investor-side — hand-fill
   [' FICO', (c) => { const g = g1Of(c); return g ? ficoOf(g, c.loan) : ''; }],
-  [' LTV', (c) => {
-    const t = totalAmt(c.loan), v = num(uw(c, 'appraisedValue')) || num(c.loan.propValue);
-    return (t && v) ? pct(round4(t / v)) : '';
+  // 237.131 — live: E = Original Loan Amount, Y = Property Value (the same value this divides by).
+  [' LTV', (c, r) => {
+    const t = totalAmt(c.loan), v = dscrValueOf(c);
+    return (t && v) ? { f: 'IF(Y' + r + '>0,ROUND(E' + r + '/Y' + r + ',4),"")', v: round4(t / v), s: 'pct' } : '';
   }],
-  ['CLTV', (c) => {
-    const t = totalAmt(c.loan), v = num(uw(c, 'appraisedValue')) || num(c.loan.propValue);
-    return (t && v) ? pct(round4(t / v)) : ''; // no junior liens on our deals
+  ['CLTV', (c, r) => {
+    const t = totalAmt(c.loan), v = dscrValueOf(c);
+    return (t && v) ? { f: 'T' + r, v: round4(t / v), s: 'pct' } : ''; // no junior liens on our deals
   }],
-  ['DSCR', (c) => dscrOf(c.loan) || ''],
+  ['DSCR', (c) => sty(dscrOf(c.loan), 'acct3')],
   [' DTI', () => ''],
-  ['Sales Price', (c) => (dscrPurpose(c.loan) === 'Purchase' ? (num(c.loan.purchasePrice) || '') : '')],
-  ['Property Value', (c) => num(uw(c, 'appraisedValue')) || num(c.loan.propValue) || ''],
+  ['Sales Price', (c) => (dscrPurpose(c.loan) === 'Purchase' ? sty(num(c.loan.purchasePrice) || null, 'acct2') : '')],
+  ['Property Value', (c) => sty(dscrValueOf(c), 'acct2')],
   ['Doc Type', () => 'DSCR'],
   ['Doc Months', () => ''],
   ['Doc Type Detail', () => ''],
@@ -544,23 +577,26 @@ const STRIDE_DSCR_COLS = [
   ['Monthly Tax', () => 'Yes'],
   ['Escrow Payment', () => 'Yes'],
   ['Program', () => ''],
-  ['Monthly P&I', (c) => {
-    const t = totalAmt(c.loan), rf = rateFrac(c.loan.rate || c.loan._finalRate);
-    if (!t || rf == null) return '';
-    // IO loans pay interest only (the sample sheet's own P&I is exactly this).
-    return String(c.loan.isIO || '').toLowerCase() === 'yes' ? round2(t * rf / 12) : amortPI(t, rf);
+  // 237.131 — live: E amount, Q note rate, AH amort term, AJ IO flag.
+  ['Monthly P&I', (c, r) => {
+    const pi = dscrPI(c);
+    if (pi == null) return '';
+    return { f: 'IF(AJ' + r + '="Yes",ROUND(E' + r + '*Q' + r + '/12,2),ROUND(-PMT(Q' + r + '/12,AH' + r + ',E' + r + '),2))', v: pi, s: 'acct2' };
   }],
-  ['Monthly PITI', (c) => pitiaOf(c.loan) || ''],
+  ['Monthly PITI', (c) => sty(pitiaOf(c.loan), 'acct2')],
   ['Application Date', () => ''],
-  ['Closing Date', (c) => dstr(c.loan.closingDate || c.loan.fundingDate)],
-  ['Origination Points', (c) => dscrPoints(c.loan) != null ? dscrPoints(c.loan) : ''],
-  ['Estimated Disbursment Date', (c) => dstr(c.loan.fundingDate)],
-  ['First Payment Date', (c) => firstPaymentOf(c.loan)],
+  ['Closing Date', (c) => dateCell(dstr(c.loan.closingDate || c.loan.fundingDate))],
+  ['Origination Points', (c) => sty(dscrPoints(c.loan), 'acct2')],
+  ['Estimated Disbursment Date', (c) => dateCell(dstr(c.loan.fundingDate))],
+  ['First Payment Date', (c) => dateCell(firstPaymentOf(c.loan))],
   ['Escrows at Close', () => ''],
   ['Pre-Paid Interest at Close', () => ''],
   ['Investor Name', () => 'Colchis'],
-  ['Investor Lock Date', (c) => dstr(c.loan.rateLockStart)],
-  ['Investor Lock Expiration Date', (c) => addDays(c.loan.rateLockStart, 45)], // 45-day DSCR lock
+  ['Investor Lock Date', (c) => dateCell(dstr(c.loan.rateLockStart))],
+  ['Investor Lock Expiration Date', (c, r) => { // 45-day DSCR lock — live off BN (lock date), 237.131
+    const d = dateCell(addDays(c.loan.rateLockStart, 45));
+    return (d && typeof d === 'object') ? { f: 'BN' + r + '+45', v: d.v, s: 'date' } : '';
+  }],
   ['Investor Lock Price', () => ''], // investor-side — hand-fill
   ['Estimated Investor Sale Date', () => ''],
   ['Servicer ID', () => ''],
@@ -581,30 +617,32 @@ const STRIDE_RTL_COLS = [
   ['Stride ID', () => ''], // assigned by Stride — hand-fill
   ['Seller Program', () => 'RTL'],
   ['Investor', () => 'Colchis'],
-  ['Investor Buy Rate', (c) => pct(rateFrac(c.loan.soldRate))],
-  ['Loan Number', (c) => c.sla], // yes, twice — the template repeats it
+  // 237.131 — the Closings-tab Buy Rate first (as the settlement tape), 0.000% like the template.
+  ['Investor Buy Rate', (c) => sty(rateFrac(c.loan.buyRate) || rateFrac(c.loan.soldRate), 'pct3')],
+  ['Loan Number', (c, r) => ({ f: '+C' + r, v: String(c.sla || '') })], // yes, twice — the template's own =+C2
   ['Borrowing Entity', (c) => borrowerName(c)],
   ['Guarantor', (c) => gPeople(c).map(clientName).filter(Boolean).join('; ')],
   ['Address', (c) => parseAddr(c.loan.address).street],
   ['City', (c) => parseAddr(c.loan.address).city],
   ['State', (c) => parseAddr(c.loan.address).state],
   ['Zip', (c) => parseAddr(c.loan.address).zip],
-  ['Total Loan Amount', (c) => totalAmt(c.loan) || ''],
-  ['Original Rehab Amount', (c) => rehabAmt(c.loan)],
-  ['Current Rehab Amount', (c) => rehabAmt(c.loan)], // pre-funding: nothing drawn yet
-  ['Current Balance', (c) => { const t = totalAmt(c.loan); return t == null ? '' : t - rehabAmt(c.loan); }],
+  ['Total Loan Amount', (c) => sty(totalAmt(c.loan), 'cur')],
+  ['Original Rehab Amount', (c) => sty(rehabAmt(c.loan), 'cur')],
+  ['Current Rehab Amount', (c) => sty(rehabAmt(c.loan), 'cur')], // pre-funding: nothing drawn yet
+  // 237.131 — the template's own formula: Total (P) less Original Rehab (Q).
+  ['Current Balance', (c, r) => { const t = totalAmt(c.loan); return t == null ? '' : { f: 'P' + r + '-Q' + r, v: t - rehabAmt(c.loan), s: 'cur' }; }],
   ['Original Interest Reserve', () => 'n/a'], // we don't hold interest reserves
   ['Current Interest Reserve', () => 'n/a'],
   ['OOP Rehab', () => 'n/a'],
-  ['Total Rehab Amount', (c) => rehabAmt(c.loan)],
+  ['Total Rehab Amount', (c, r) => ({ f: 'R' + r, v: rehabAmt(c.loan), s: 'cur' })], // template: =R2 (Current Rehab)
   ['Borrower Total Projects Completed', (c) => {
     const g1 = g1Of(c);
     return num(c.loan.experience) != null ? num(c.loan.experience) : (num(g1 && g1.flips) || '');
   }],
   ['FICO', (c) => { const g = g1Of(c); return g ? ficoOf(g, c.loan) : ''; }],
-  ['Purchase Price', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? (num(c.loan.purchasePrice) || '') : 'N/A')],
-  ['AIV', (c) => thirdPartyAiv(c) || ''],
-  ['ARV', (c) => num(c.loan.arvBpo) || num(c.loan.arv) || ''],
+  ['Purchase Price', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? sty(num(c.loan.purchasePrice) || null, 'cur') : 'N/A')],
+  ['AIV', (c) => sty(thirdPartyAiv(c), 'cur')],
+  ['ARV', (c) => sty(num(c.loan.arvBpo) || num(c.loan.arv), 'cur')],
   ['Appraisal Type', (c) => {
     const t = String(uw(c, 'valuationType') || '').toLowerCase();
     if (t === 'appraisal') return '1004';
@@ -613,10 +651,10 @@ const STRIDE_RTL_COLS = [
     return '';
   }],
   ['Note Rate', (c) => pct(rateFrac(c.loan.rate))],
-  ['Origination Date', (c) => dstr(c.loan.fundingDate)],
-  ['Next Due', (c) => firstPaymentOf(c.loan)], // pre-funding: next due IS first due
-  ['First Due', (c) => firstPaymentOf(c.loan)],
-  ['Maturity Date', (c) => maturityOf(c.loan)],
+  ['Origination Date', (c) => dateCell(dstr(c.loan.fundingDate))],
+  ['Next Due', (c) => dateCell(firstPaymentOf(c.loan))], // pre-funding: next due IS first due
+  ['First Due', (c) => dateCell(firstPaymentOf(c.loan))],
+  ['Maturity Date', (c) => dateCell(maturityOf(c.loan))],
   ['Term', (c) => termOf(c.loan) + ' months'],
   ['Purchase/Refi', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? 'PURCHASE' : (c.loan.loanPurpose ? 'REFI' : ''))],
   // Sample uses "Note" where interest accrues on the full note (our Dutch).
@@ -645,7 +683,7 @@ const STRIDE_RTL_COLS = [
   ['Asset Purchased', (c) => { const p = propTypeLabel(c.loan.propType); return p === 'SFR' ? 'SF' : p; }],
   ['Entitlement Status', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? '' : 'NA')],
   ['Build Status', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? '' : 'NA')],
-  ['Lot Purchase Price', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? (num(c.loan.purchasePrice) || '') : 'NA')],
+  ['Lot Purchase Price', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? sty(num(c.loan.purchasePrice) || null, 'cur') : 'NA')],
   ['Lot Purchase Date', (c) => (String(c.loan.toolType || c.loan.loanType || '').toLowerCase().indexOf('g') === 0 ? '' : 'NA')],
   ['Project Summary', (c) => String(c.loan.projectDescription || '').slice(0, 500)],
 ];
@@ -653,20 +691,97 @@ const STRIDE_RTL_REQUIRED = ['Address', 'State', 'Total Loan Amount', 'Note Rate
   'FICO', 'AIV', 'ARV', 'Origination Date', 'Maturity Date', 'Borrowing Entity',
   'Guarantor', 'Exit Strategy', 'Stride ID'];
 
-function strideBuild(cols, required, sheetName, filenameBase) {
+// ── Deploy 237.131 — Stride template layouts (widths in Excel character units,
+// read from the sample workbooks; the writer takes them as per-column FLOORS and
+// still widens a column for long data, never for the wrapped header). ─────────
+const STRIDE_RTL_WIDTHS = [13.86, 9.29, 18.86, 17.43, 8.71, 8.71, 14.71, 8.71, 18.14, 19, 15.86, 19.43, 8.71, 8.71, 9.29, 13.57, 12.71, 12.71, 12.71, 10.14, 11, 8.71, 12.71, 11.86, 9.29, 11.57, 13.57, 13.57, 9.29, 9.29, 11.43, 9.29, 9.29, 9.29, 11.14, 8.71, 8.71, 11.14, 8.71, 8.71, 11.14, 9.29, 9.29, 9.29, 8.71, 8.71, 11.71, 8.71, 8.71, 8.71, 8.71, 8.71, 8.71, 12.71, 11.71, 11.29];
+const STRIDE_MAPPED_WIDTHS = [20.43, 16, 15.14, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 19.43, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 12.57, 12.57, 12.57, 12.57, 12.57, 16, 20.43, 12.57, 12.57];
+const STRIDE_DSCR_WIDTHS = [20.43, 23.86, 8.71, 17.57, 13.86, 13.86, 30.71, 20.43, 19, 16.14, 22.43, 19.29, 24.43, 8.71, 8.71, 9.29, 8.71, 13.86, 9.29, 9.29, 9.29, 9.29, 8.71, 13.29, 13.29, 8.71, 8.71, 8.71, 15.57, 25.29, 8.71, 8.71, 15.86, 9.29, 13.14, 8.71, 8.71, 8.71, 9.29, 15, 8.71, 8.71, 8.71, 8.71, 8.71, 9.29, 9, 12.14, 18.86, 8.71, 8.71, 14.71, 8.71, 8.71, 8.71, 10.57, 10.57, 17.86, 10.57, 9.43, 14.71, 9.86, 10.57, 9.57, 11, 10.14, 9.71, 9.29, 11, 11.14, 8.71, 8.71, 8.71];
+const STRIDE_MAPPED_HEADERS = ['Loan Number', 'Servicer ID', 'Est Fund Date', 'Request Date', 'Closing Date', 'Investor Lock Number', 'Originator Description', 'Originator Type Description', 'Product Type Description', 'Loan Type Description', 'Loan Purpose Description', 'Lien Position', 'Total Loan Amount', 'Sales Price', 'Initial Funded Amount', 'LTV', 'CLTV', 'Note Rate', 'Term of Loan', 'Monthly Ins Prem', 'Monthly Taxes', 'Pass-thru Rate', 'Monthly P & I', 'Monthly PITI (A)', 'DSCR', 'Front-End Ratio', 'Back-End Ratio', 'Property Address Line 1', 'Property Address Line 2', 'Property Addr City', 'Prop Addr State', 'Prop Addr Zip', 'Property Type Desc', 'Occupancy Desc', 'Appraisal Amt', 'Guarantor', 'Guarantor2', 'Citizenship', 'Processor Desc', 'Underwriter Desc', 'Borrower First Name', 'Borrower Last Name', 'Borrower SSN', 'Borrower Date of Birth', 'Borrower Credit Score', 'Co-Borrower First Name', 'Co-Borrower Last Name', 'Co-Borrower SSN', 'Co-Borrower Date of Birth', 'Co-Borrower Credit Score', 'QM Loan', 'QM Type', 'Origination Points', 'Initial Escrow', 'Lock Capital Partner', 'Payment Reserve', 'Lock Expiration Date', 'Locked Price', 'Prepay Mos', 'IO Term', 'Amort Term', 'Fixed / ARM', 'Doc Type', 'First Pay Date', 'MERS MIN', 'ULI', 'Day Count'];
+const STRIDE_MAPPED_GROUPS = { C: 'Disbursment Date', E: 'Close Date', M: 'Total Loan Amount', O: 'Current Loan Amt', R: 'Note Rate', V: 'Pass-thru Rate', AJ: 'Guarantor', AK: 'Guarantor2' };
+const colIdx = (letters) => { let n = 0; for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+
+// "Form, mapped" — one formula row per Sheet1 loan row (mapped row = Sheet1 row + 1).
+// Every cell is a live formula back into Sheet1 with a cached value, so a viewer
+// that never recalculates still reads this tape's data.
+function strideRtlMapped(sheet1Rows) {
+  const S = 'Sheet1!';
+  const M = "'Form, mapped'!";
+  const width = STRIDE_MAPPED_HEADERS.length;
+  const prim = (cell) => (cell && typeof cell === 'object') ? (cell.v != null ? cell.v : (cell.t != null ? cell.t : '')) : (cell == null ? '' : cell);
+  const isNum = (x) => typeof x === 'number' && isFinite(x);
+  const fcell = (f, v, s) => { const o = { f }; if (v != null && (typeof v === 'string' || isNum(v))) o.v = v; if (s) o.s = s; return o; };
+  const top = new Array(width).fill('');
+  Object.keys(STRIDE_MAPPED_GROUPS).forEach((k) => { top[colIdx(k)] = { t: STRIDE_MAPPED_GROUPS[k], s: 'hdrGreen' }; });
+  const rows = [top, STRIDE_MAPPED_HEADERS.map((h) => ({ t: h, s: 'hdrNavy' }))];
+  for (let i = 1; i < sheet1Rows.length; i++) {
+    const src = sheet1Rows[i] || [];
+    const r = i + 1;      // Sheet1 row number
+    const m = i + 2;      // this sheet's row number
+    const g = (L) => prim(src[colIdx(L)]);
+    const row = new Array(width).fill('');
+    const put = (L, cell) => { row[colIdx(L)] = cell; };
+    const ref = (L, s) => put(L[0], fcell(S + L[1] + r, g(L[1]), s));
+    const total = g('P'), bal = g('S'), aiv = g('AA'), arv = g('AB'), term = String(g('AI') || '');
+    put('A', fcell('"PK"&' + S + 'C' + r, 'PK' + String(g('C') || '')));
+    ref(['B', 'A']); ref(['C', 'AE'], 'date'); ref(['E', 'AE'], 'date'); ref(['G', 'D']);
+    put('I', fcell(S + 'F' + r + '&"-"&' + S + 'AU' + r, String(g('F') || '') + '-' + String(g('AU') || '')));
+    ref(['J', 'AT']); ref(['K', 'AJ']); ref(['M', 'P'], 'acct2'); ref(['N', 'Z'], 'acct2'); ref(['O', 'S'], 'acct2');
+    put('P', fcell('IFERROR(' + M + '$O' + m + '/' + S + 'AA' + r + ',"")', (isNum(bal) && isNum(aiv) && aiv) ? bal / aiv : null, 'pct1'));
+    put('Q', fcell('IFERROR(' + S + 'P' + r + '/' + S + 'AB' + r + ',"")', (isNum(total) && isNum(arv) && arv) ? total / arv : null, 'pct1'));
+    ref(['R', 'AD'], 'pct');
+    put('S', fcell('LEFT(' + S + 'AI' + r + ',2)', term.slice(0, 2)));
+    ref(['V', 'H'], 'pct3');
+    ref(['AB', 'L']); ref(['AD', 'M']); ref(['AE', 'N']); ref(['AF', 'O']);
+    put('AG', fcell(S + 'AS' + r + '&" Units: "&' + S + 'AR' + r, String(g('AS') || '') + ' Units: ' + String(g('AR') || '')));
+    put('AH', 'Investment');
+    ref(['AI', 'AB'], 'acct2'); ref(['AJ', 'K']); ref(['AP', 'J']); ref(['AS', 'Y']);
+    ref(['BB', 'B'], 'acct2'); ref(['BC', 'G']);
+    put('BF', fcell('IF(' + M + '$O' + m + '<0.5*' + M + '$M' + m + ',96,99)', (isNum(bal) && isNum(total) && bal < 0.5 * total) ? 96 : 99));
+    put('BH', fcell(M + '$S' + m, term.slice(0, 2)));
+    put('BI', fcell(M + '$S' + m + '-' + M + '$BH' + m, 0));
+    ref(['BJ', 'AK']);
+    put('BK', 'RTL');
+    ref(['BL', 'AG'], 'date');
+    rows.push(row);
+  }
+  return [{
+    name: 'Form, mapped', rows,
+    minWidths: STRIDE_MAPPED_WIDTHS, autofitFromRow: 2,
+    rowHeights: { 1: 15.75, 2: 15.75 },
+    merges: ['Z1:AA1', 'AB1:AC1', 'AD1:AE1', 'AF1:AG1', 'AH1:AI1'],
+  }];
+}
+const STRIDE_RTL_LAYOUT = {
+  header: (label, i) => ({ t: label, s: i < 2 ? 'hdrYellow' : 'hdrGrey' }), // A-B are Stride's own columns
+  sheet: { minWidths: STRIDE_RTL_WIDTHS, autofitFromRow: 1, rowHeights: { 1: 60 } },
+  extraSheets: strideRtlMapped,
+};
+const STRIDE_DSCR_LAYOUT = {
+  header: (label) => ({ t: label, s: 'hdrWrap' }),
+  sheet: { minWidths: STRIDE_DSCR_WIDTHS, autofitFromRow: 1, rowHeights: { 1: 56.25 }, freeze: { cols: 1, rows: 1 } },
+};
+
+function strideBuild(cols, required, sheetName, filenameBase, layout) {
   return function build(ctxs) {
-    const rows = [cols.map((col) => col[0])];
+    // Deploy 237.131 — styled header cells, the sheet row number handed to each
+    // mapper (formula cells need it), template layout, and any extra sheets.
+    const hdr = (layout && layout.header) || ((label) => label);
+    const rows = [cols.map((col, i) => hdr(col[0], i))];
     const missing = [];
-    for (const c of ctxs) {
-      const row = cols.map((col) => { try { return col[1](c); } catch (e) { return ''; } });
+    ctxs.forEach((c, n) => {
+      const r = n + 2; // header is row 1
+      const row = cols.map((col) => { try { return col[1](c, r); } catch (e) { return ''; } });
       rows.push(row);
       cols.forEach((col, i) => {
         if (required.indexOf(col[0]) >= 0 && (row[i] === '' || row[i] == null)) {
           missing.push(c.sla + ': ' + col[0].trim());
         }
       });
-    }
-    return { sheets: [{ name: sheetName, rows }], missing, filenameBase };
+    });
+    const sheets = [Object.assign({ name: sheetName, rows }, (layout && layout.sheet) || {})];
+    if (layout && typeof layout.extraSheets === 'function') Array.prototype.push.apply(sheets, layout.extraSheets(rows, ctxs));
+    return { sheets, missing, filenameBase };
   };
 }
 
@@ -732,13 +847,13 @@ export const TRADE_TAPES = {
     label: 'Stride Submission Tape — DSCR (pre-funding)',
     stage: 'pre_funding',
     params: [],
-    build: strideBuild(STRIDE_DSCR_COLS, STRIDE_DSCR_REQUIRED, 'Form', 'Stride Submission Loan Tape - DSCR'),
+    build: strideBuild(STRIDE_DSCR_COLS, STRIDE_DSCR_REQUIRED, 'Form', 'Stride Submission Loan Tape - DSCR', STRIDE_DSCR_LAYOUT),
   },
   stride_rtl: {
     key: 'stride_rtl',
     label: 'Stride Submission Tape — RTL (pre-funding)',
     stage: 'pre_funding',
     params: [],
-    build: strideBuild(STRIDE_RTL_COLS, STRIDE_RTL_REQUIRED, 'Sheet1', 'Stride Submission Loan Tape - RTL'),
+    build: strideBuild(STRIDE_RTL_COLS, STRIDE_RTL_REQUIRED, 'Sheet1', 'Stride Submission Loan Tape - RTL', STRIDE_RTL_LAYOUT),
   },
 };
