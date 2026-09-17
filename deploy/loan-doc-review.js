@@ -584,7 +584,7 @@
       // Deploy 237.071 (item 6) -- Hide tray modal: who + why, for the underwriter to confirm.
       '<div class="dr-modal-bg" id="dr-hideModal"><div class="dr-modal">',
         '<h3>Hide this tray</h3>',
-        '<p>Why does this loan not need this document? The underwriter sees your name and reason under Ready for UW and confirms the hide.</p>',
+        '<p>Why does this loan not need this document? The underwriter sees your name and reason on the Underwriting tab and confirms the hide.</p>',
         '<textarea id="dr-hideReason" class="notes-area" placeholder="e.g., Refinance — no purchase contract on this loan."></textarea>',
         '<div class="dr-modal-actions">',
           '<button class="dr-modal-btn" onclick="dr_closeHideModal()">Cancel</button>',
@@ -751,17 +751,12 @@
     }
   }
 
-  // ── Deploy 237.071 (Mike, UW phase 2) — four-stage tray flow ─────────────
-  //   pending  -> no document yet, or the AI hasn't finished with it
-  //   ai       -> AI reviewed, waiting on the processor
-  //   uw       -> processor approved / N/A'd (or hid it) -- waiting on underwriting
-  //   reviewed -> the underwriter approved (or confirmed the hide)
-  // Stored per tray: verdict (processor); uwVerdict / uwApprovedAt / uwApprovedBy
-  // (underwriter); hidden + hiddenBy / hiddenAt / hiddenReason + hiddenConfirmedBy
-  // / hiddenConfirmedAt. Docs approved before this deploy have no uwVerdict, so
-  // they sit in Ready for UW until an underwriter clears them (Mike's call --
-  // "UW approve all" per section makes the catch-up quick). Any processor-tier
-  // user may UW-approve (Mike's call; no underwriter role yet).
+  // Per-tray fields still on the record: verdict + approvedAt / approvedBy
+  // (processor), uwVerdict / uwApprovedAt / uwApprovedBy / uwConditionsAt /
+  // uwConditionsBy (237.071/.100 — now written by dr_setStatus, read by the
+  // backend counts), hidden + hiddenBy / hiddenAt / hiddenReason +
+  // hiddenConfirmedBy / hiddenConfirmedAt. Any processor-tier user may set any
+  // status (Mike's call; there is no separate underwriter role).
   // ── Deploy 237.136 (Mike: "condense back all of the tabs into a singular tab
   // again for docs that have been reviewed by the processor and instead make it so
   // the status on the right is the conditions in the attached screenshot ... Its too
