@@ -318,13 +318,8 @@
       // Deploy 237.136 (Mike: "the tray is narrower") -- tighter header now that the
       // rubric subtext is gone.
       '.dr-root .tray-status { font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px; border:1px solid transparent; font-family:inherit; cursor:pointer; max-width:150px; }',
-      '.dr-root .tray-status.st-outstanding { background:#e03e3e; color:#fff; border-color:#e03e3e; }',
-      '.dr-root .tray-status.st-received { background:#1155cc; color:#fff; border-color:#1155cc; }',
-      '.dr-root .tray-status.st-processor_approved { background:#d81b76; color:#fff; border-color:#d81b76; }',
-      '.dr-root .tray-status.st-ptd_condition { background:#e8912d; color:#fff; border-color:#e8912d; }',
-      '.dr-root .tray-status.st-ptf_condition { background:#f0cf3f; color:#4a3a00; border-color:#d9b92c; }',
-      '.dr-root .tray-status.st-uw_approved { background:#166534; color:#fff; border-color:#166534; }',
-      '.dr-root .tray-status.st-na { background:#e9e5de; color:#4a4458; border-color:#d6cfc0; }',
+      // Deploy 237.140 -- the per-status colours moved to _STATUS_STYLE so the
+      // dropdown's options can use them too; only the shape stays in CSS.
       '.dr-root .tray.approved { border-color:var(--dr-green-border); }',
       '.dr-root .tray.issues   { border-color:var(--dr-red-border); }',
       '.dr-root .tray.na       { border-color:var(--dr-blue-border); }',
@@ -773,6 +768,24 @@
   //                  one (blue; see the four upload endpoints)
   //   PTD / PTF   -- Prior To Docs / Prior To Funding, the two condition kinds the
   //                  per-tray condition list already tracks as priorTo docs|funding
+  // Deploy 237.140 (Mike: "make the colors appear in the drop down menu. Currently
+  // its all the same color when you open the drop down") -- an <option> only takes a
+  // colour from an inline style / its own rule, so the chip AND every option are
+  // painted from this one table. Chrome + Firefox honour it; Safari on macOS draws
+  // the native popup plain, which is why the chip itself stays colour-coded.
+  var _STATUS_STYLE = {
+    outstanding:        { bg: '#e03e3e', fg: '#ffffff', bd: '#e03e3e' },
+    received:           { bg: '#1155cc', fg: '#ffffff', bd: '#1155cc' },
+    processor_approved: { bg: '#d81b76', fg: '#ffffff', bd: '#d81b76' },
+    ptd_condition:      { bg: '#e8912d', fg: '#ffffff', bd: '#e8912d' },
+    ptf_condition:      { bg: '#f0cf3f', fg: '#4a3a00', bd: '#d9b92c' },
+    uw_approved:        { bg: '#166534', fg: '#ffffff', bd: '#166534' },
+    na:                 { bg: '#e9e5de', fg: '#4a4458', bd: '#d6cfc0' },
+  };
+  function _statusCss(key) {
+    var c = _STATUS_STYLE[key] || { bg: '#ffffff', fg: '#4a4458', bd: '#ddd8d0' };
+    return 'background:' + c.bg + ';color:' + c.fg + ';border-color:' + c.bd;
+  }
   var _STATUSES = [
     { key: 'outstanding',        label: 'Outstanding'          },
     { key: 'received',           label: 'Received'             },
@@ -2108,12 +2121,13 @@
     } else {
       _statusHtml =
         (_openConds > 0 ? '<span class="tray-verdict conditions" title="' + _openConds + ' uncleared condition' + (_openConds === 1 ? '' : 's') + ' \u2014 expand the tray to view or clear">\u2691 ' + _openConds + '</span>' : '') +
-        '<select class="tray-status st-' + escAttr(_status || 'none') + '" onclick="event.stopPropagation()" ' +
+        '<select class="tray-status" style="' + _statusCss(_status) + '" onclick="event.stopPropagation()" ' +
           'onchange="dr_setStatus(\'' + escJs(slug) + '\',this.value)" title="Set this document\u2019s status">' +
           // Deploy 237.138 -- Outstanding is the base status, so there is no blank
           // option; a legacy N/A tray keeps N/A selectable until it is moved off.
           _STATUSES.concat(_status === 'na' ? _LEGACY_STATUSES : []).map(function(st) {
-            return '<option value="' + escAttr(st.key) + '"' + (st.key === _status ? ' selected' : '') + '>' + escHtml(st.label) + '</option>';
+            // Deploy 237.140 -- each option carries its own colour.
+            return '<option value="' + escAttr(st.key) + '" style="' + _statusCss(st.key) + '"' + (st.key === _status ? ' selected' : '') + '>' + escHtml(st.label) + '</option>';
           }).join('') +
         '</select>';
     }
