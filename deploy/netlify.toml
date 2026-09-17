@@ -2442,6 +2442,13 @@
   status = 200
   force = true
 
+# Deploy 237.134 (Mike) -- E-Sign saved signer roles library.
+[[redirects]]
+  from = "/api/esign-roles"
+  to = "/.netlify/functions/esign-roles"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/esign-loan-search"
   to = "/.netlify/functions/esign-loan-search"

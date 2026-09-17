@@ -185,12 +185,19 @@ export function normalizeSigners(raw) {
       if (seen.has(email)) throw new Error('Duplicate signer email: ' + email);
       seen.add(email);
     }
-    return {
+    const out = {
       id: (s && s.id && /^s[0-9a-z_]{1,20}$/i.test(s.id)) ? s.id : ('s' + (i + 1)),
       name, email, kind, order,
       color: (s && /^#[0-9a-f]{6}$/i.test(s.color || '')) ? s.color : SIGNER_COLORS[i % SIGNER_COLORS.length],
       // lifecycle fields are preserved by the caller when the signer already existed
     };
+    // Deploy 237.134 (Mike) -- the ROLE a signer signs as ("Borrower", "SLA Signer").
+    // Only set when the caller sent the key, so a client that never heard of roles
+    // cannot blank one: esign-doc-save keeps the stored roleName in that case. A
+    // slot may be role-only (no name / email yet) while the document is a draft;
+    // esign-doc-send still refuses to send until every signer is a real person.
+    if (s && s.roleName !== undefined) out.roleName = String(s.roleName || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    return out;
   });
 }
 

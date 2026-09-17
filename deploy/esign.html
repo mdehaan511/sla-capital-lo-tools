@@ -119,6 +119,17 @@
     .tool:hover { border-color: var(--gold); }
     .tool.active { background: var(--dark); color: #fff; border-color: var(--dark); }
     .hint { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+    /* Deploy 237.134 (Mike) -- signer roles */
+    .role-quick { margin-top: 8px; }
+    .role-quick .lbl { font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+    .role-quick .lbl a { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--gold-mid); cursor: pointer; }
+    .role-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 3px 9px; margin: 0 5px 5px 0; border: 1px solid var(--border); border-radius: 12px; background: #fff; cursor: pointer; color: var(--dark); }
+    .role-chip:hover { border-color: var(--gold); background: rgba(200,129,58,.08); }
+    .role-chip .rw { color: var(--muted); font-size: 10.5px; }
+    .role-chip .rx { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 0 0 2px; }
+    .role-chip .rx:hover { color: var(--danger); }
+    .chk { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--dark); margin-top: 8px; cursor: pointer; text-transform: none; font-weight: 400; letter-spacing: 0; }
+    .signer-row .who .e.need { color: var(--gold-mid); font-weight: 600; }
     .pages { display: flex; flex-direction: column; gap: 16px; align-items: center; overflow-x: auto; padding: 4px 2px 8px; }
     .pages.zoomed { align-items: flex-start; }
     .zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 2px; }
@@ -221,7 +232,8 @@
           <div class="panel">
             <h3>Signers <button class="btn xs ghost" onclick="openAddSigner()">+ Add</button></h3>
             <div id="signerList"></div>
-            <div class="hint" id="signerHint">Add the people who need to sign. Click a signer, then place their fields on the page.</div>
+            <div class="role-quick" id="roleQuick"></div>
+            <div class="hint" id="signerHint">Add a role (or a person) for everyone who signs. Click one, then place its fields on the page — you can fill in who it is any time before sending.</div>
             <label class="chk" style="margin-top:8px"><input type="checkbox" id="edSequential" onchange="markDirty();renderSigners()"> Sign in order (one at a time)</label>
           </div>
           <div class="panel">
@@ -315,7 +327,9 @@
 <div class="modal-bg" id="signerModal" style="display:none" onclick="if(event.target===this)closeAddSigner()">
   <div class="modal" style="width:min(520px,96vw);overflow:visible">
     <h2 id="signerModalTitle">Add signer</h2>
-    <p class="sub">Start typing a borrower or team member and pick from the list, or enter anyone.</p>
+    <p class="sub">Pick a saved role or type one. Fields belong to the role, so the person can stay blank until you are ready to send.</p>
+    <!-- Deploy 237.134 (Mike) — signer ROLES: what they sign as. Saved roles are one click. -->
+    <div class="field"><label>Role</label><input type="text" id="sRole" autocomplete="off" maxlength="60" placeholder="Borrower, Guarantor, SLA Signer…" oninput="onRoleInput()"><div id="sRoleChips" style="margin-top:6px"></div></div>
     <!-- Deploy 237.032 (Mike) — "Who is this" comes first and filters the
          suggestions: team member → SLA users only, borrower → borrowers only,
          other → anyone. -->
@@ -325,9 +339,11 @@
     </div>
     <div class="field pos-rel"><label>Name</label><input type="text" id="sName" autocomplete="off" oninput="signerSuggest(this)" onfocus="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="Jane Doe"><div class="suggest" id="sugName"></div></div>
     <div class="field pos-rel"><label>Email</label><input type="email" id="sEmail" autocomplete="off" oninput="signerSuggest(this)" onfocus="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="jane@example.com"><div class="suggest" id="sugEmail"></div></div>
+    <label class="chk"><input type="checkbox" id="sSaveRole"> <span id="sSaveRoleLbl">Save this role for next time</span></label>
+    <label class="chk" style="margin-left:22px;margin-top:4px"><input type="checkbox" id="sSaveWho"> …and remember this person for the role</label>
     <div class="actions">
       <button class="btn ghost" onclick="closeAddSigner()">Cancel</button>
-      <button class="btn" onclick="commitSigner()">Add signer</button>
+      <button class="btn" id="sCommit" onclick="commitSigner()">Add signer</button>
     </div>
   </div>
 </div>
@@ -636,6 +652,8 @@ function openEditor(id) {
     document.getElementById('edTitle').value = _doc.title || '';
     document.getElementById('edSequential').checked = _doc.sequential !== false;
     applyPrefillSigner();
+    // Deploy 237.134 -- after the loan prefill took its slot, roles that remember a person fill themselves.
+    loadRoles().then(function () { applyRoleDefaults(); if (_doc) renderSigners(); });
     _activeSigner = _doc.signers[0] ? _doc.signers[0].id : null;
     renderSigners();
     setSaveState('Saved');
@@ -800,29 +818,140 @@ document.getElementById('pages').addEventListener('wheel', function (e) {
 // Signers
 function signerById(id) { return (_doc.signers || []).filter(function (s) { return s.id === id; })[0] || null; }
 function signerColor(id) { var s = signerById(id); return s ? s.color : '#7a7488'; }
+// ── Deploy 237.134 (Mike: "make it so 'roles' can be saved for the signers and that
+// fields can be assigned to those roles so its easier to just assign those roles
+// without having to modify too much") ────────────────────────────────────────
+// A signer slot carries a roleName. Fields belong to the SLOT, so the layout is
+// built for "Borrower" / "SLA Signer" and the person is dropped in later -- by
+// hand, from the Loan Details prefill, or from the role's remembered person.
+// _roles is the org-wide saved library (/api/esign-roles).
+var _roles = null, _roleManage = false;
+function loadRoles(force) {
+  if (_roles && !force) return Promise.resolve(_roles);
+  return SLA.api('GET', '/api/esign-roles').then(function (r) { _roles = (r && r.roles) || []; return _roles; })
+    .catch(function () { _roles = _roles || []; return _roles; });
+}
+function roleByName(name) {
+  var q = String(name || '').trim().toLowerCase();
+  if (!q || !_roles) return null;
+  var hit = _roles.filter(function (r) { return String(r.name || '').toLowerCase() === q; })[0];
+  if (hit) return hit;
+  var base = q.replace(/\s+\d+$/, '');   // "SLA Signer 1" (a template's numbering) is the "SLA Signer" role
+  return base === q ? null : (_roles.filter(function (r) { return String(r.name || '').toLowerCase() === base; })[0] || null);
+}
+function signerTitle(s) { return s.roleName || s.name || 'Unnamed signer'; }
+function signerWho(s) { return s.roleName ? (s.name ? s.roleName + ' \u2014 ' + s.name : s.roleName) : (s.name || s.id); }
+function uniqueRoleName(base, exceptId) {
+  base = String(base || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!base) return '';
+  var taken = {};
+  (_doc.signers || []).forEach(function (s) { if (s.id !== exceptId && s.roleName) taken[s.roleName.toLowerCase()] = 1; });
+  if (!taken[base.toLowerCase()]) return base;
+  var n = 2; while (taken[(base + ' ' + n).toLowerCase()]) n++;
+  return base + ' ' + n;
+}
+function newSignerSlot(props) {
+  var used = {}; _doc.signers.forEach(function (x) { used[x.id] = 1; });
+  var n = 1; while (used['s' + n]) n++;
+  var colors = (_meta && _meta.signerColors) || ['#C8813A', '#2563eb', '#256940', '#7c1f1f', '#7a5218', '#4a7a8a'];
+  var ns = { id: 's' + n, name: '', email: '', kind: 'borrower', order: 1, roleName: '', color: colors[(_doc.signers.length) % colors.length] };
+  for (var k in props) if (Object.prototype.hasOwnProperty.call(props, k)) ns[k] = props[k];
+  _doc.signers.push(ns);
+  return ns;
+}
+function emailTaken(email, exceptId) {
+  return !!email && _doc.signers.some(function (s) { return s.email === email && s.id !== exceptId; });
+}
+// One click: a saved role becomes a slot (its remembered person comes with it).
+function quickAddRole(i) {
+  var r = _roles && _roles[i]; if (!r || !_doc) return;
+  var seq = document.getElementById('edSequential').checked;
+  var person = (r.defaultEmail && !emailTaken(r.defaultEmail)) ? { name: r.defaultName || '', email: r.defaultEmail } : { name: '', email: '' };
+  var ns = newSignerSlot({ roleName: uniqueRoleName(r.name), kind: r.kind || 'borrower', order: seq ? (r.order || 1) : 1, name: person.name, email: person.email });
+  _activeSigner = ns.id;
+  renderSigners(); markDirty();
+  showToast('Added \u201c' + ns.roleName + '\u201d' + (ns.email ? ' (' + ns.name + ')' : ' \u2014 place its fields now, fill in who it is any time before sending'), 'ok');
+}
+function deleteRole(id, name) {
+  if (!confirm('Remove the saved role \u201c' + name + '\u201d?\n\nDocuments and templates that already use it are not changed.')) return;
+  SLA.api('POST', '/api/esign-roles', { action: 'delete', id: id }).then(function (r) { _roles = (r && r.roles) || []; renderRoleQuick(); renderRoleChips(); showToast('Role removed', 'ok'); })
+    .catch(function (e) { showToast(e.message, 'err'); });
+}
+function toggleRoleManage() { _roleManage = !_roleManage; renderRoleQuick(); }
+function roleChipHtml(r, i, onclick, manage) {
+  return '<span class="role-chip" title="' + esc((r.kind === 'user' ? 'SLA team member' : r.kind === 'borrower' ? 'Borrower / guarantor' : 'Other') + ' \u00b7 signs #' + (r.order || 1) + (r.defaultEmail ? ' \u00b7 ' + r.defaultEmail : '')) + '" onclick="' + onclick + '(' + i + ')">' +
+    esc(r.name) + (r.defaultName ? '<span class="rw">' + esc(r.defaultName.split(' ')[0]) + '</span>' : '') +
+    (manage ? '<button class="rx" title="Remove this saved role" onclick="event.stopPropagation();deleteRole(\'' + esc(r.id) + '\',\'' + esc(String(r.name).replace(/\\/g, '').replace(/'/g, '')) + '\')">\u00d7</button>' : '') + '</span>';
+}
+function renderRoleQuick() {
+  var host = document.getElementById('roleQuick'); if (!host) return;
+  if (!_roles || !_roles.length) { host.innerHTML = ''; return; }
+  host.innerHTML = '<div class="lbl"><span>Add a role</span><a onclick="toggleRoleManage()">' + (_roleManage ? 'done' : 'manage') + '</a></div>' +
+    _roles.map(function (r, i) { return roleChipHtml(r, i, 'quickAddRole', _roleManage); }).join('');
+}
+function renderRoleChips() {
+  var host = document.getElementById('sRoleChips'); if (!host) return;
+  host.innerHTML = (_roles || []).map(function (r, i) { return roleChipHtml(r, i, 'pickRole', false); }).join('');
+}
+// In the signer dialog: a saved role fills kind + order, and its person when none is typed yet.
+function pickRole(i) {
+  var r = _roles && _roles[i]; if (!r) return;
+  document.getElementById('sRole').value = r.name;
+  document.getElementById('sKind').value = r.kind || 'borrower';
+  if (document.getElementById('edSequential').checked) document.getElementById('sOrder').value = r.order || 1;
+  var nm = document.getElementById('sName'), em = document.getElementById('sEmail');
+  if (!nm.value.trim() && !em.value.trim() && r.defaultEmail && !emailTaken(r.defaultEmail, _editingSignerId)) { nm.value = r.defaultName || ''; em.value = r.defaultEmail; }
+  onRoleInput();
+}
+function onRoleInput() {
+  var role = document.getElementById('sRole').value.trim();
+  var saved = roleByName(role);
+  var box = document.getElementById('sSaveRole'), lab = document.getElementById('sSaveRoleLbl');
+  if (lab) lab.textContent = saved && saved.name.toLowerCase() === role.toLowerCase() ? 'Update the saved role \u201c' + saved.name + '\u201d with these settings' : 'Save this role for next time';
+  if (box && !role) box.checked = false;
+}
+// A draft opened from a template (or with empty role slots): roles that remember a
+// person are filled in, so "SLA Signer" arrives assigned and only the borrower is left.
+function applyRoleDefaults() {
+  if (!_doc || _doc.status !== 'draft' || !_roles) return;
+  var filled = [];
+  _doc.signers.forEach(function (s) {
+    if (!s.roleName || s.name || s.email) return;
+    var r = roleByName(s.roleName);
+    if (!r || !r.defaultEmail || emailTaken(r.defaultEmail, s.id)) return;
+    s.name = r.defaultName || ''; s.email = r.defaultEmail; filled.push(s.roleName + ' \u2192 ' + s.name);
+  });
+  if (filled.length) { markDirty(); showToast('Filled from saved roles: ' + filled.join(', '), 'ok'); }
+}
+
 function renderSigners() {
   var host = document.getElementById('signerList');
   var seq = document.getElementById('edSequential').checked;
   var list = (_doc.signers || []).slice().sort(function (a, b) { return (a.order || 1) - (b.order || 1); });
   host.innerHTML = list.map(function (s) {
-    var label = s.name || s.roleName || 'Unnamed signer';
+    // Deploy 237.134 -- role first; the person (or the prompt to assign one) underneath.
+    var needs = !s.name || !s.email;
+    var sub = s.roleName ? (needs ? 'click to assign a person' : s.name + ' \u00b7 ' + s.email) : (s.email || 'no email yet');
     return '<div class="signer-row' + (s.id === _activeSigner ? ' active' : '') + '" onclick="selectSigner(\'' + esc(s.id) + '\')">' +
       '<span class="sw" style="background:' + esc(s.color) + '"></span>' +
-      '<div class="who"><div class="n">' + esc(label) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span></div><div class="e">' + esc(s.email || (s.roleName ? 'click to fill in' : 'no email yet')) + '</div></div>' +
+      '<div class="who"><div class="n">' + esc(signerTitle(s)) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span></div>' +
+      '<div class="e' + (needs ? ' need' : '') + '" title="' + (needs ? 'Assign the person for this role' : 'Change the person') + '" onclick="event.stopPropagation();openAddSigner(\'' + esc(s.id) + '\')">' + esc(sub) + '</div></div>' +
       (seq ? '<span class="ord" title="Signing order">#' + (s.order || 1) + '</span>' : '') +
+      '<button class="x" title="Edit role / person" onclick="event.stopPropagation();openAddSigner(\'' + esc(s.id) + '\')">&#9998;</button>' +
       '<button class="x" title="Remove signer" onclick="event.stopPropagation();removeSigner(\'' + esc(s.id) + '\')">×</button></div>';
   }).join('') +
   '<div class="signer-row' + (_activeSigner === 'sender' ? ' active' : '') + '" onclick="selectSigner(\'sender\')" style="border-style:dashed"><span class="sw" style="background:#7a7488"></span><div class="who"><div class="n">You fill in (before sending)</div><div class="e">Text, date and checkbox fields you complete yourself</div></div></div>';
   document.getElementById('signerHint').style.display = list.length ? 'none' : '';
+  renderRoleQuick();
   // property panel signer select
   var sel = document.getElementById('pSigner');
-  sel.innerHTML = list.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.name || s.roleName || s.id) + '</option>'; }).join('') + '<option value="sender">You (sender)</option>';
+  sel.innerHTML = list.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(signerWho(s)) + '</option>'; }).join('') + '<option value="sender">You (sender)</option>';
   if (_selField) sel.value = _selField.signerId;
 }
 function selectSigner(id) {
   _activeSigner = id; renderSigners();
   var s = id !== 'sender' && signerById(id);
-  if (s && (!s.name || !s.email)) openAddSigner(id);
+  if (s && !s.roleName && (!s.name || !s.email)) openAddSigner(id); // Deploy 237.134 -- a role slot is selectable as is
 }
 function removeSigner(id) {
   var s = signerById(id); if (!s) return;
@@ -839,6 +968,11 @@ function openAddSigner(existingId) {
   _editingSignerId = existingId || null;
   var s = existingId ? signerById(existingId) : null;
   document.getElementById('signerModalTitle').textContent = s ? 'Signer: ' + (s.roleName || s.name || '') : 'Add signer';
+  // Deploy 237.134 -- role + saved-role chips
+  document.getElementById('sRole').value = s ? (s.roleName || '') : '';
+  document.getElementById('sSaveRole').checked = false; document.getElementById('sSaveWho').checked = false;
+  document.getElementById('sCommit').textContent = s ? 'Save' : 'Add signer';
+  loadRoles().then(function () { renderRoleChips(); onRoleInput(); });
   document.getElementById('sName').value = s ? (s.name || '') : '';
   document.getElementById('sEmail').value = s ? (s.email || '') : '';
   document.getElementById('sKind').value = s ? s.kind : 'borrower';
@@ -850,23 +984,35 @@ function openAddSigner(existingId) {
 }
 function closeAddSigner() { document.getElementById('signerModal').style.display = 'none'; hideSuggest(); }
 function commitSigner() {
+  // Deploy 237.134 -- a slot needs a ROLE or a person. Role-only is fine while drafting
+  // (fields belong to the role); Send still insists on a name + email for everyone.
+  var role = document.getElementById('sRole').value.replace(/\s+/g, ' ').trim().slice(0, 60);
   var name = document.getElementById('sName').value.trim();
   var email = document.getElementById('sEmail').value.trim().toLowerCase();
   var kind = document.getElementById('sKind').value;
   var order = parseInt(document.getElementById('sOrder').value, 10) || 1;
-  if (!name) { showToast('Name is required', 'err'); return; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email', 'err'); return; }
-  var dupe = _doc.signers.filter(function (s) { return s.email === email && s.id !== _editingSignerId; })[0];
-  if (dupe) { showToast(email + ' is already a signer', 'err'); return; }
+  if (!role && !name) { showToast('Give this signer a role, or a name and email', 'err'); return; }
+  if (!role && !email) { showToast('Enter an email \u2014 or give them a role and fill the person in later', 'err'); return; }
+  if ((name && !email) || (!name && email)) { showToast('Enter both the name and the email, or leave both blank for now', 'err'); return; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email', 'err'); return; }
+  if (emailTaken(email, _editingSignerId)) { showToast(email + ' is already a signer', 'err'); return; }
   if (_editingSignerId) {
     var s = signerById(_editingSignerId);
-    s.name = name; s.email = email; s.kind = kind; s.order = order;
+    s.name = name; s.email = email; s.kind = kind; s.order = order; s.roleName = uniqueRoleName(role, s.id);
   } else {
-    var used = {}; _doc.signers.forEach(function (x) { used[x.id] = 1; });
-    var n = 1; while (used['s' + n]) n++;
-    var colors = (_meta && _meta.signerColors) || ['#C8813A', '#2563eb', '#256940', '#7c1f1f', '#7a5218', '#4a7a8a'];
-    var ns = { id: 's' + n, name: name, email: email, kind: kind, order: order, color: colors[(_doc.signers.length) % colors.length] };
-    _doc.signers.push(ns); _activeSigner = ns.id;
+    var ns = newSignerSlot({ name: name, email: email, kind: kind, order: order, roleName: uniqueRoleName(role) });
+    _activeSigner = ns.id;
+  }
+  if (role && document.getElementById('sSaveRole').checked) {
+    var keepWho = document.getElementById('sSaveWho').checked && name && email;
+    var existing = roleByName(role);
+    SLA.api('POST', '/api/esign-roles', { action: 'save', role: {
+      id: existing && existing.name.toLowerCase() === role.toLowerCase() ? existing.id : undefined,
+      name: role.replace(/\s+\d+$/, '') || role, kind: kind, order: order,
+      defaultName: keepWho ? name : '', defaultEmail: keepWho ? email : '',
+      keepPerson: !keepWho,   // not ticking "remember" never erases a person someone else saved
+    } }).then(function (r) { _roles = (r && r.roles) || _roles; renderRoleQuick(); showToast('Role \u201c' + r.role.name + '\u201d saved', 'ok'); })
+      .catch(function (e) { showToast('Could not save the role: ' + e.message, 'err'); });
   }
   closeAddSigner(); renderSigners(); renderAllFields(); markDirty();
 }
@@ -947,7 +1093,9 @@ function setTool(t) {
   }
 }
 function fieldLabel(f) {
-  var s = f.signerId === 'sender' ? 'You' : (signerById(f.signerId) || {}).name || (signerById(f.signerId) || {}).roleName || '?';
+  // Deploy 237.134 -- a field shows the ROLE it belongs to (the whole role name), else the signer's first name.
+  var _fs = f.signerId === 'sender' ? null : (signerById(f.signerId) || {});
+  var s = !_fs ? 'You' : (_fs.roleName ? _fs.roleName.replace(/ /g, '\u00a0') : ((_fs.name || '?').split(' ')[0]));
   var t = { signature: 'Sign', initials: 'Initials', date: 'Date', text: f.label || 'Text', checkbox: '' }[f.type];
   if (f.type === 'checkbox') return f.value ? '✓' : '';
   if (f.signerId === 'sender' && f.value) return String(f.value);
@@ -1238,7 +1386,7 @@ function renderDetail() {
     else { st = 'Waiting for turn'; cls = 'wait'; }
     var acts2 = '';
     if (d.status === 'sent' && !s.signedAt && s.signUrl) acts2 = '<button class="btn xs ghost" onclick="copyText(\'' + esc(s.signUrl) + '\')">Copy link</button> <button class="btn xs ghost" onclick="resendSigner(\'' + esc(s.id) + '\')">Resend</button>';
-    return '<div class="dt-signer"><span class="sw" style="background:' + esc(s.color) + '"></span><div class="who"><div>' + esc(s.name) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span>' + (d.sequential ? ' <span style="color:var(--muted);font-size:11px">#' + (s.order || 1) + '</span>' : '') + '</div><div class="e">' + esc(s.email) + (s.audit && s.audit.ipAddress ? ' · IP ' + esc(s.audit.ipAddress) : '') + '</div></div>' +
+    return '<div class="dt-signer"><span class="sw" style="background:' + esc(s.color) + '"></span><div class="who"><div>' + esc((s.roleName ? s.roleName + ' \u2014 ' : '') + (s.name || '')) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span>' + (d.sequential ? ' <span style="color:var(--muted);font-size:11px">#' + (s.order || 1) + '</span>' : '') + '</div><div class="e">' + esc(s.email) + (s.audit && s.audit.ipAddress ? ' · IP ' + esc(s.audit.ipAddress) : '') + '</div></div>' +
       '<div style="text-align:right"><div class="st ' + cls + '">' + st + '</div><div style="margin-top:3px">' + acts2 + '</div></div></div>';
   }).join('');
   // history
