@@ -42,6 +42,7 @@ import { canReadLoan } from './_shared/access.mjs';
 import { resolveViewAs, denyWrite } from './_shared/portal-view-as.mjs';
 import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.072
 import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -188,6 +189,7 @@ async function handle(req, context) {
     }],
     uploadedByBorrower: normalizeEmail(user.email),
   };
+  applyCanonicalDocName(review, slug, docId, { incomingFilename: finalName, entities: {}, ignoreTray: true }); // Deploy 237.133
   review.updatedAt = now;
 
   try {

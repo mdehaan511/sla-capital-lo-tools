@@ -31,6 +31,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 
 // Assembled-file ceiling. Generous for a signed closing package while keeping
 // the finalize call's memory + runtime inside the function budget.
@@ -137,6 +138,7 @@ async function handle(req, context) {
   docState.currentSize       = bytes.length;
   docState.currentMimeType   = mimeType;
   docState.currentUploadedAt = now;
+  applyCanonicalDocName(review, body.slug, docId, { incomingFilename: filename, mode: incomingMode, entities: {}, ignoreTray: true }); // Deploy 237.133
   docState.verdict = 'pending';
   docState.processorNotes = '';
   docState.aiFindings = [];

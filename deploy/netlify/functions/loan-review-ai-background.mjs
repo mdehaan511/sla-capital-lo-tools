@@ -28,6 +28,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { internalBgSig, queueEntityNameDependents, guarantorIdNames, queueIdNameDependents } from './_shared/review-truth.mjs';
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 import { guidelinesTextFor } from './_shared/guidelines-text.mjs'; // Deploy 237.096 // Deploy 236.818 / 237.049
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
@@ -110,6 +111,10 @@ async function handle(req, context) {
     } else if (!entry) {
       return null; // doc replaced AND entry gone — nothing to attach the result to
     }
+    // Deploy 237.133 (Mike) -- a landed review refines the file name (statement month,
+    // the person on a shared tray). This is the path long documents take, and it
+    // never renamed anything before.
+    if (patch && patch.aiExtractedEntities) applyCanonicalDocName(fresh, body.slug, targetDocId, { entities: patch.aiExtractedEntities, documentDate: patch.documentDate || '', ignoreTray: true });
     if (costCents) {
       fd.aiCostCents    = Number(fd.aiCostCents || 0) + Number(costCents);
       fresh.aiCostCents = Number(fresh.aiCostCents || 0) + Number(costCents);

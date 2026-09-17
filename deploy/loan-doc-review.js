@@ -573,6 +573,16 @@
           '<button class="dr-modal-btn" onclick="dr_confirmHide()">Hide tray</button>',
         '</div>',
       '</div></div>',
+      // Deploy 237.133 (Mike) -- loan-file ZIP: which tabs go in it.
+      '<div class="dr-modal-bg" id="dr-zipModal"><div class="dr-modal">',
+        '<h3>Download loan file (ZIP)</h3>',
+        '<p style="font-size:12px;color:#7a7488;margin-bottom:12px">Files are named by document type and sorted into the same sections you see here.</p>',
+        '<div id="dr-zipBody" style="font-size:13px;line-height:1.9"></div>',
+        '<div class="dr-modal-actions">',
+          '<button class="dr-modal-btn" onclick="dr_closeZipModal()">Cancel</button>',
+          '<button class="dr-modal-btn approve" onclick="dr_confirmZip()">Download</button>',
+        '</div>',
+      '</div></div>',
       // Deploy 236.162 — Add Custom Document modal.
       '<div class="dr-modal-bg" id="dr-addDocModal"><div class="dr-modal">',
         '<h3>Add a document category</h3>',
@@ -860,7 +870,7 @@
         '<button class="expand-btn" onclick="dr_expandAll(false)">Collapse all</button>' +
         // Deploy 236.159 — one-click ZIP of every uploaded doc on
         // this review. Server bundles current + history per tray.
-        '<button class="expand-btn" id="dr-zipBtn" onclick="dr_downloadZip(this)">⬇ Download all (ZIP)</button>' +
+        '<button class="expand-btn" id="dr-zipBtn" onclick="dr_downloadZip(this)">⬇ Download (ZIP)…</button>' +
         // Deploy 236.208 — bulk zip upload. Client extracts, AI
         // classifies filenames into checklist slugs, high-confidence
         // matches auto-upload, ambiguous ones surface in a modal.
@@ -2853,7 +2863,7 @@
     var docs = (docState.documents || []).map(function(d) {
       if (!d) return d;
       if (d.docId !== docId) return d;
-      return Object.assign({}, d, { filename: next });
+      return Object.assign({}, d, { filename: next, nameManual: true }); // Deploy 237.133 -- a hand-typed name is never auto-renamed
     });
     var patch = { docs: {} };
     patch.docs[slug] = { documents: docs };
@@ -3700,7 +3710,74 @@
   // plain <a href> would 401 because /api/loan-review-zip-download
   // requires the Netlify Identity JWT). Filename comes from the
   // Content-Disposition header set by the backend.
+  // Deploy 237.133 (Mike: "when they download the zip loan folder it asks if it wants to
+  // grab just the tab or items from the other tabs. If they say other tabs make
+  // them specify specifically which ones") -- the button opens a dialog; the ZIP
+  // is built from the trays in the chosen tabs (?slugs=), replaced / prior
+  // versions only on request.
+  var _ZIP_TABS = [['pending', 'Pending Docs'], ['ai', 'AI Reviewed'], ['uw', 'Ready for UW'], ['conditions', 'Pending Conditions'], ['reviewed', 'Approved Docs']];
+  var _zipBtn = null;
+  function _zipTabStats() {
+    var out = {};
+    _ZIP_TABS.forEach(function(t) { out[t[0]] = { slugs: [], docs: 0 }; });
+    Object.keys((_review && _review.docs) || {}).forEach(function(slug) {
+      var dd = _review.docs[slug] || {};
+      if (dd.hidden) return;
+      var st = out[_stageOf(slug)];
+      if (!st) return;
+      var n = _liveDocs(slug).length;
+      var hasPrior = (Array.isArray(dd.history) && dd.history.length) || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && x.hidden; }));
+      if (!n && !hasPrior) return;
+      st.slugs.push(slug);
+      st.docs += n;
+    });
+    return out;
+  }
   global.dr_downloadZip = function(btn) {
+    if (!_review || !_review.id) return;
+    _zipBtn = btn || null;
+    var stats = _zipTabStats();
+    var curLabel = '';
+    _ZIP_TABS.forEach(function(t) { if (t[0] === _activeTab) curLabel = t[1]; });
+    var cur = stats[_activeTab] || { docs: 0 };
+    var plural = function(n) { return n + ' document' + (n === 1 ? '' : 's'); };
+    var html =
+      '<label style="display:block;cursor:pointer"><input type="radio" name="dr-zipScope" value="tab" checked onchange="dr_zipScopeChanged()"> Just this tab &mdash; <b>' + escHtml(curLabel) + '</b> (' + plural(cur.docs) + ')</label>' +
+      '<label style="display:block;cursor:pointer"><input type="radio" name="dr-zipScope" value="pick" onchange="dr_zipScopeChanged()"> Include other tabs &mdash; choose which:</label>' +
+      '<div id="dr-zipTabs" style="margin:2px 0 8px 24px;opacity:0.45">';
+    _ZIP_TABS.forEach(function(t) {
+      html += '<label style="display:block;cursor:pointer"><input type="checkbox" class="dr-zipTab" value="' + t[0] + '" disabled' + (t[0] === _activeTab ? ' checked' : '') + '> ' + escHtml(t[1]) + ' (' + plural(stats[t[0]].docs) + ')</label>';
+    });
+    html += '</div>' +
+      '<label style="display:block;cursor:pointer;border-top:1px solid rgba(0,0,0,0.08);padding-top:6px"><input type="checkbox" id="dr-zipPrior"> Also include replaced / prior versions</label>';
+    document.getElementById('dr-zipBody').innerHTML = html;
+    document.getElementById('dr-zipModal').classList.add('show');
+  };
+  global.dr_zipScopeChanged = function() {
+    var pick = !!document.querySelector('input[name="dr-zipScope"][value="pick"]:checked');
+    var box = document.getElementById('dr-zipTabs');
+    if (box) box.style.opacity = pick ? '1' : '0.45';
+    var cbs = document.querySelectorAll('.dr-zipTab');
+    for (var i = 0; i < cbs.length; i++) cbs[i].disabled = !pick;
+  };
+  global.dr_closeZipModal = function() { document.getElementById('dr-zipModal').classList.remove('show'); };
+  global.dr_confirmZip = function() {
+    var pick = !!document.querySelector('input[name="dr-zipScope"][value="pick"]:checked');
+    var tabs = [];
+    if (pick) {
+      var cbs = document.querySelectorAll('.dr-zipTab');
+      for (var i = 0; i < cbs.length; i++) if (cbs[i].checked) tabs.push(cbs[i].value);
+      if (!tabs.length) { showToast('Pick at least one tab to include.', 'error'); return; }
+    } else { tabs = [_activeTab]; }
+    var prior = !!(document.getElementById('dr-zipPrior') || {}).checked;
+    var stats = _zipTabStats();
+    var slugs = [], docs = 0;
+    tabs.forEach(function(t) { var st = stats[t]; if (st) { slugs = slugs.concat(st.slugs); docs += st.docs; } });
+    if (!slugs.length || (!docs && !prior)) { showToast('No documents in the selected tab' + (tabs.length === 1 ? '' : 's') + '.', 'error'); return; }
+    global.dr_closeZipModal();
+    _zipFetch('&slugs=' + encodeURIComponent(slugs.join(',')) + '&tabs=' + encodeURIComponent(tabs.join(',')) + (prior ? '&prior=1' : ''), _zipBtn);
+  };
+  function _zipFetch(query, btn) {
     if (!_review || !_review.id) return;
     var originalHTML = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = 'Building ZIP…'; }
@@ -3712,7 +3789,7 @@
         showToast('Not signed in.', 'error');
         return;
       }
-      return fetch('/api/loan-review-zip-download?reviewId=' + encodeURIComponent(_review.id), {
+      return fetch('/api/loan-review-zip-download?reviewId=' + encodeURIComponent(_review.id) + (query || ''), {
         headers: { 'Authorization': 'Bearer ' + token },
       });
     }).then(function(r) {
@@ -4303,7 +4380,7 @@
     if (!next) { showToast('Filename can\'t be empty.', 'error'); return; }
     if (next === (d.currentFilename || '')) { render(); return; }
     var patch = { docs: {} };
-    patch.docs[slug] = { currentFilename: next };
+    patch.docs[slug] = { currentFilename: next, currentNameManual: true }; // Deploy 237.133
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
       showToast('Renamed.', 'success');

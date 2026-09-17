@@ -37,6 +37,7 @@ import { guidelinesTextFor } from './_shared/guidelines-text.mjs'; // Deploy 237
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 
 export default async (req, context) => {
@@ -255,6 +256,7 @@ async function handle(req, context) {
   };
   if (targetEntry) { Object.assign(targetEntry, _ok); if (_integrity) targetEntry.integrity = _integrity; }
   if (isCurrentTarget) { Object.assign(docState, _ok); if (_integrity) docState.integrity = _integrity; }
+  applyCanonicalDocName(review, body.slug, targetDocId, { entities: _ok.aiExtractedEntities, ignoreTray: true }); // Deploy 237.133
   docState.aiCostCents         = Number(docState.aiCostCents || 0) + Number(aiResult.costCents || 0);
   review.aiCostCents           = Number(review.aiCostCents || 0) + Number(aiResult.costCents || 0);
 

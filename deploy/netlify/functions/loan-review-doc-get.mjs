@@ -79,7 +79,18 @@ async function handle(req, context) {
 
   const meta = result.metadata || {};
   const mimeType = meta.mimeType || 'application/pdf';
-  const filename = meta.filename || (docId + '.pdf');
+  // Deploy 237.133 (Mike) -- the review's name for this document ("{Doc Type} -
+  // {subject}"), not the raw upload name kept in the blob metadata.
+  let filename = meta.filename || (docId + '.pdf');
+  try {
+    const _docs = (review && review.docs) || {};
+    for (const s of Object.keys(_docs)) {
+      const d = _docs[s] || {};
+      const hit = (Array.isArray(d.documents) ? d.documents : []).find((x) => x && x.docId === docId);
+      const nm = (hit && hit.filename) || (d.currentDocId === docId ? d.currentFilename : '');
+      if (nm) { filename = String(nm); break; }
+    }
+  } catch (_) { /* keep the stored name */ }
 
   return new Response(result.data, {
     status: 200,

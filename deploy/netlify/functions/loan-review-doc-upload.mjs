@@ -45,6 +45,7 @@ import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { writeFieldProposals, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
 // are < 5MB; appraisals can run larger. If this becomes a problem we'll
@@ -126,7 +127,7 @@ async function handle(req, context) {
   const now = new Date().toISOString();
 
   // Deploy 236.503 — filename is now finalized AFTER the AI review (once we
-  // know the business / individual the doc names), via _finalizeDocName().
+  // know the business / individual the doc names), via the shared namer (_shared/doc-naming.mjs).
   // At storage time we just keep the incoming filename as a provisional; the
   // old " V<N>"-on-every-add behavior (_autoVersionFilename) is retired — a
   // V-suffix is only added on a REPLACE, and the smart name is derived from
@@ -226,6 +227,11 @@ async function handle(req, context) {
   docState.currentSize       = bytes.length;
   docState.currentMimeType   = String(body.mimeType || 'application/pdf');
   docState.currentUploadedAt = now;
+  // Deploy 237.133 (Mike) -- name the file the moment it is filed: "{Doc Type} -
+  // {address | entity | borrower}". No AI needed for this; the review below only
+  // refines it (statement month, which person on a shared tray). ignoreTray: the
+  // tray-level ai* fields still describe the PREVIOUS document at this point.
+  applyCanonicalDocName(review, body.slug, docId, { incomingFilename: _incomingFilename, mode: incomingMode, entities: {}, ignoreTray: true });
   // Deploy 236.502 — record when the browser auto-compressed this file to
   // fit the upload limit, so the tray can flag it and a human knows the
   // stored copy is a reduced-resolution version of the original.
@@ -494,13 +500,11 @@ async function handle(req, context) {
   // single-doc downloads, and the closer's ZIP all agree. A V-version is
   // added only on a REPLACE (never on an add). Best-effort — never throws.
   try {
-    _finalizeDocName(docState, docId, {
-      mode:             incomingMode,
-      typeLabel:        (docState.isCustom && docState.label) ? docState.label : (docMeta.label || docState.label || body.slug),
-      section:          (docMeta.section || docState.section || 'loan'),
-      incomingFilename: _incomingFilename,
-      entities:         docState.aiExtractedEntities || {},
-    });
+    // Deploy 237.133 -- the shared namer (_shared/doc-naming.mjs) replaces the inline
+    // 236.503 one: subject from the LOAN by document kind, bank statements carry
+    // their month, and every other path (background, chunked, borrower, move,
+    // retry) now names the same way.
+    applyCanonicalDocName(review, body.slug, docId, { incomingFilename: _incomingFilename, mode: incomingMode, entities: docState.aiExtractedEntities || {}, ignoreTray: true });
   } catch (e) {
     console.warn('loan-review-doc-upload: name finalize failed:', e && e.message);
   }
@@ -667,92 +671,8 @@ function buildLoanContext(review) {
   };
 }
 
-// Deploy 236.503 — _autoVersionFilename (which appended " V<N>" to EVERY
-// add, deriving the base from a sibling doc's filename) is retired. Naming
-// is now finalized post-AI by _finalizeDocName below; V-versions only on a
-// replace. _extOf / _stripExt remain — used by the new namer.
-function _extOf(name) {
-  const m = String(name || '').match(/\.([a-z0-9]{1,8})$/i);
-  return m ? m[1].toLowerCase() : '';
-}
-function _stripExt(name) {
-  return String(name || '').replace(/\.[a-z0-9]{1,8}$/i, '');
-}
-
-// ── Deploy 236.503 — smart document naming ──────────────────────────
-// "DOC TYPE - Business or Individual named on the doc - Category". The
-// entity comes from the doc's OWN AI extraction (llcName / borrowerName),
-// NOT from a sibling tray doc's filename (the old bug). Docs that don't
-// name a business/individual (tax certs, wire instructions, etc.) keep
-// their source filename rather than get a misleading label.
-// Short category label for the filename (Mike's spec: "Borrower", "Loan
-// Docs", …) — distinct from the full section titles ("Borrower Documents").
-const _SECTION_SHORT = {
-  borrower:   'Borrower',
-  guarantor:  'Guarantor',
-  collateral: 'Collateral',
-  loan:       'Loan Docs',
-  closing:    'Closing',
-};
-
-function _finalizeDocName(docState, docId, opts) {
-  const ext = _extOf(opts.incomingFilename) || _extOf(docState.currentFilename) || 'pdf';
-  const entity = _pickEntity(opts.section, opts.entities);
-  let base;
-  if (entity) {
-    base = [_cleanNamePart(opts.typeLabel), entity, _cleanNamePart(_SECTION_SHORT[opts.section] || '')]
-      .filter(Boolean).join(' - ');
-  } else {
-    // No business/individual on the doc → keep the source name (minus any
-    // stray trailing " V<N>"); don't invent a misleading label.
-    base = _stripExt(opts.incomingFilename).replace(/\s+V\d+\s*$/i, '').trim()
-        || _cleanNamePart(opts.typeLabel) || 'Document';
-  }
-  // Only a REPLACE gets a V-version; an "add" keeps its own distinct name.
-  if (opts.mode === 'replace') {
-    const hiddenCount = (docState.documents || []).filter((d) => d && d.hidden).length;
-    base = base + ' V' + (hiddenCount + 1);
-  }
-  const finalName = _dedupeTrayFilename(docState, docId, base + '.' + ext);
-  docState.currentFilename = finalName;
-  const d0 = (docState.documents || []).find((d) => d && d.docId === docId);
-  if (d0) d0.filename = finalName;
-  return finalName;
-}
-
-// Guarantor / individual docs name the person; everything else names the
-// business (LLC), each falling back to the other. Property-only docs with
-// no named entity return '' (caller keeps the source filename).
-function _pickEntity(section, ee) {
-  ee = ee || {};
-  const llc = _cleanNamePart(ee.llcName);
-  const person = _cleanNamePart(ee.borrowerName);
-  if (section === 'guarantor') return person || llc;
-  return llc || person;
-}
-
-function _cleanNamePart(s) {
-  if (!s) return '';
-  const t = String(s).replace(/[\/\\:*?"<>|]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  if (!t || /^(null|n\/?a|none|unknown)$/i.test(t)) return '';
-  return t;
-}
-
-// Avoid two docs on the same tray sharing a filename (they'd collide when
-// the closer extracts the ZIP). On an exact clash append " (2)", " (3)"…
-function _dedupeTrayFilename(docState, selfId, name) {
-  const taken = {};
-  (docState.documents || []).forEach((d) => {
-    if (d && d.docId !== selfId && d.filename) taken[String(d.filename).toLowerCase()] = true;
-  });
-  if (!taken[name.toLowerCase()]) return name;
-  const dot = name.lastIndexOf('.');
-  const nameBase = dot > 0 ? name.slice(0, dot) : name;
-  const nameExt  = dot > 0 ? name.slice(dot) : '';
-  let i = 2;
-  while (taken[(nameBase + ' (' + i + ')' + nameExt).toLowerCase()]) i++;
-  return nameBase + ' (' + i + ')' + nameExt;
-}
+// Deploy 237.133 -- the inline 236.503 namer (_finalizeDocName and friends) moved to
+// _shared/doc-naming.mjs so every upload / review path names documents the same way.
 
 // Deploy 236.738 — STALE_DAYS + _staleAfterFor moved to _shared/loan-review-
 // checklists.mjs (`STALE_DAYS` / `staleAfterFor`) so the upload path and the

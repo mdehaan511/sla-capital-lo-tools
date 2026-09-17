@@ -32,6 +32,7 @@ import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { writeFieldProposals } from './_shared/uw-field-write.mjs';
 import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -313,6 +314,9 @@ async function handle(req, context) {
     }
   }
   review.docs[slug] = docState;
+  // Deploy 237.133 -- same file naming as a processor upload (the inline review above,
+  // when it ran, supplies the statement month / the person).
+  applyCanonicalDocName(review, slug, docId, { incomingFilename: finalName, entities: docState.aiExtractedEntities || {}, ignoreTray: true });
   review.updatedAt = now;
   review.lastEditedBy = normalizeEmail(user.email);
   review.lastEditedAt = now;

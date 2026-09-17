@@ -503,6 +503,7 @@ function _attachToSlug({ review, slug, bytes, filename, mimeType, sourceNote, ac
   docState.documents.unshift({
     docId: docState.currentDocId, filename: filename, size: bytes.length,
     mimeType: mimeType || 'application/pdf', uploadedAt: now, hidden: false,
+    nameLocked: true, // Deploy 237.133 -- generated name; the shared namer leaves it alone
   });
   docState.currentFilename    = filename;
   docState.currentSize        = bytes.length;

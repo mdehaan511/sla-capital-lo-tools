@@ -36,6 +36,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
 import { getChecklist, findCategory } from './_shared/loan-review-checklists.mjs';
+import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -168,6 +169,9 @@ async function handle(req, context) {
   to.approvedAt = '';
   to.approvedBy = '';
   if (to.hidden) to.hidden = false;  // moving a doc into a hidden tray un-hides it
+  // Deploy 237.133 (Mike) -- a moved document is renamed for the tray it landed in
+  // (hand-typed names are kept). The re-review the caller kicks off refines it.
+  for (const md of moving) applyCanonicalDocName(review, body.toSlug, md.docId, { entities: {}, ignoreTray: true });
 
   // ── Clean the source ────────────────────────────────────────────────
   from.documents = (Array.isArray(from.documents) ? from.documents : []).filter((d) => d && !movedIds[d.docId]);

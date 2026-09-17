@@ -1,22 +1,30 @@
 /**
  * loan-review-zip-download.mjs — GET /api/loan-review-zip-download
  *
- * Deploy 236.159 — bundles every uploaded document on a doc-review
- * (one per active tray, plus everything in each tray's `history`)
- * into a single ZIP for offline / investor-handoff use.
+ * Deploy 236.159 — bundles the uploaded documents on a doc review into a single
+ * ZIP for offline / investor-handoff use.
+ *
+ * Deploy 237.133 (Mike, 11415 Prairie Ct SE: "its downloading items with
+ * different file structure and name that doesn't make sense. It also appears to
+ * be downloading random files") — three fixes:
+ *   1. SCOPE. The Documents tab now asks which review tabs to take (just the one
+ *      open, or a hand-picked set) and sends their trays as ?slugs=. No slugs =
+ *      every tray, as before.
+ *   2. NO RANDOM FILES. Replaced documents and each tray's upload history used
+ *      to ride along as "prior-1-…" files. They are now left out unless the
+ *      processor ticks "include replaced / prior versions" (?prior=1), and then
+ *      they sit in a "Prior versions" folder of their own.
+ *   3. STRUCTURE + NAMES. Folders were guessed from a regex over the slug — it
+ *      filed "bank_stmt_current" under Income because "current" contains "rent",
+ *      and dropped most trays in Other. Folders are now the tab's own sections
+ *      (numbered, a folder per guarantor), and every file is named by the shared
+ *      namer: "{Doc Type} - {address | entity | borrower}[ - {Mon YYYY}]".
+ *      Loans filed before this deploy download clean too — names are computed
+ *      here from what the review already knows; nothing is re-reviewed.
  *
  * Auth: requireAuth + isProcessor (same gate as loan-review-doc-get).
- * Query: ?reviewId=...
- * Response: application/zip, attachment; filename="...-Documents.zip"
- *
- * ZIP layout — flat. Filenames are namespaced as
- *   <Section>/<slug>-<displayName>
- * so the LO sees the same logical grouping as the review UI:
- *   Loan/sow-Statement of Work.pdf
- *   Borrower/operating-agreement-LLC Operating Agreement.pdf
- *   ...
- * Filename collisions (rare — same display name across trays) are
- * disambiguated with a -2 / -3 suffix.
+ * Query: ?reviewId=…[&slugs=a,b,c][&tabs=uw,reviewed][&prior=1]
+ * Response: application/zip, attachment.
  */
 import { getStore } from '@netlify/blobs';
 import JSZip from 'jszip';
@@ -24,6 +32,9 @@ import {
   handleOptions, json, requireAuth, isProcessor, keySafe, corsHeaders,
 } from './_shared/auth.mjs';
 import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
+import { zipFolderFor, zipNameFor } from './_shared/doc-naming.mjs';
+
+const TAB_LABELS = { pending: 'Pending Docs', ai: 'AI Reviewed', uw: 'Ready for UW', conditions: 'Pending Conditions', reviewed: 'Approved Docs' };
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -44,6 +55,11 @@ async function handle(req, context) {
   const url = new URL(req.url);
   const reviewId = url.searchParams.get('reviewId');
   if (!reviewId) return json(400, { error: 'reviewId required' });
+  const slugsParam = url.searchParams.get('slugs');
+  const wanted = (slugsParam == null) ? null
+    : new Set(String(slugsParam).split(',').map((s) => s.trim()).filter(Boolean));
+  const includePrior = url.searchParams.get('prior') === '1';
+  const tabs = String(url.searchParams.get('tabs') || '').split(',').map((t) => t.trim()).filter((t) => TAB_LABELS[t]);
 
   const reviewsStore = getStore({ name: 'loan_reviews',     consistency: 'strong' });
   const docsStore    = getStore({ name: 'loan-review-docs', consistency: 'strong' });
@@ -51,66 +67,60 @@ async function handle(req, context) {
   const review = await reviewsStore.get(keySafe(reviewId), { type: 'json' });
   if (!review) return json(404, { error: 'Review not found' });
 
-  // Walk every tray and every doc (current + history) and queue them
-  // for fetch. The fetches happen in parallel since the blob store
-  // calls are independent.
-  const queue = []; // { sectionLabel, slug, docId, filename }
+  // One queue row per file: { folder, name, docId, slug, stored }.
+  const queue = [];
   const docMap = (review.docs && typeof review.docs === 'object') ? review.docs : {};
   for (const slug of Object.keys(docMap)) {
+    if (wanted && !wanted.has(slug)) continue;
     const d = docMap[slug] || {};
-    if (d.hidden) continue; // Deploy 236.161 — skip hidden trays.
-    const sectionLabel = _sectionLabelForSlug(slug);
-    // Deploy 236.163 — prefer the multi-doc documents[] array when
-    // present. Live (non-hidden) docs get bundled; hidden (replaced)
-    // docs are skipped by default. Legacy single-doc trays still
-    // surface via the currentDocId fallback below.
+    if (d.hidden) continue; // Deploy 236.161 — a hidden tray is "not needed on this loan".
+    const folder = zipFolderFor(review, slug, d);
+    const liveIds = {};
+    // Deploy 236.163 — live documents[] first; legacy single-doc trays fall back
+    // to currentDocId.
     if (Array.isArray(d.documents) && d.documents.length) {
       d.documents.forEach((entry) => {
-        if (!entry || !entry.docId || entry.hidden) return;
-        queue.push({
-          sectionLabel, slug,
-          docId:    entry.docId,
-          filename: entry.filename || (slug + '.pdf'),
-        });
+        if (!entry || !entry.docId) return;
+        if (entry.hidden) {
+          if (includePrior) queue.push({ folder: folder + '/Prior versions', name: 'replaced - ' + (entry.filename || (slug + '.pdf')), docId: entry.docId, slug, stored: entry.filename || '' });
+          return;
+        }
+        liveIds[entry.docId] = 1;
+        // Per DOCUMENT: on a multi-guarantor loan the folder follows the person the
+        // document is about, even when it was dropped in the other guarantor's tray.
+        queue.push({ folder: zipFolderFor(review, slug, d, entry.docId), name: zipNameFor(review, slug, entry.docId), docId: entry.docId, slug, stored: entry.filename || '' });
       });
     } else if (d.currentDocId) {
-      queue.push({
-        sectionLabel, slug,
-        docId:    d.currentDocId,
-        filename: d.currentFilename || (slug + '.pdf'),
-      });
+      liveIds[d.currentDocId] = 1;
+      queue.push({ folder, name: zipNameFor(review, slug, d.currentDocId), docId: d.currentDocId, slug, stored: d.currentFilename || '' });
     }
-    if (Array.isArray(d.history)) {
+    if (includePrior && Array.isArray(d.history)) {
       d.history.forEach((h, hi) => {
-        if (!h || !h.docId) return;
-        queue.push({
-          sectionLabel, slug,
-          docId:    h.docId,
-          filename: 'prior-' + (hi + 1) + '-' + (h.filename || (slug + '.pdf')),
-        });
+        if (!h || !h.docId || liveIds[h.docId]) return;
+        queue.push({ folder: folder + '/Prior versions', name: 'prior ' + (hi + 1) + ' - ' + (h.filename || (slug + '.pdf')), docId: h.docId, slug, stored: h.filename || '' });
       });
     }
   }
+  if (!queue.length) return json(404, { error: 'No documents in the selected tab(s).' });
 
+  const scopeLabel = !wanted ? 'every tab' : (tabs.length ? tabs.map((t) => TAB_LABELS[t]).join(', ') : 'selected trays');
   const zip = new JSZip();
   const seen = new Set();
   const manifest = [];
   manifest.push('SLA Capital — Loan Document Review ZIP');
   manifest.push('Review: ' + (review.address || review.id));
   manifest.push('Generated: ' + new Date().toISOString());
+  manifest.push('Scope: ' + scopeLabel + (includePrior ? ' + replaced / prior versions' : ''));
   manifest.push('');
   manifest.push('Contents (' + queue.length + ' document' + (queue.length === 1 ? '' : 's') + '):');
 
-  // Fetch in parallel for speed; the blob store handles concurrent
-  // reads natively. Failed fetches are noted in the manifest rather
-  // than aborting the whole ZIP — partial bundles are better than
-  // nothing for the LO.
+  // Fetch in parallel; a failed fetch is noted in the manifest rather than
+  // aborting the whole ZIP — a partial bundle beats nothing.
   const fetched = await Promise.all(queue.map(async (q) => {
     try {
-      const key = keySafe(reviewId) + '/' + keySafe(q.docId);
-      const r = await docsStore.getWithMetadata(key, { type: 'arrayBuffer' });
-      if (!r || !r.data) return { ...q, ok: false, error: 'not found' };
-      return { ...q, ok: true, bytes: Buffer.from(r.data), metaName: (r.metadata && r.metadata.filename) || q.filename };
+      const r = await docsStore.get(keySafe(reviewId) + '/' + keySafe(q.docId), { type: 'arrayBuffer' });
+      if (!r) return { ...q, ok: false, error: 'not found' };
+      return { ...q, ok: true, bytes: Buffer.from(r) };
     } catch (e) {
       return { ...q, ok: false, error: (e && e.message) || 'unknown' };
     }
@@ -118,25 +128,24 @@ async function handle(req, context) {
 
   fetched.forEach((f) => {
     if (!f.ok) {
-      manifest.push('  [MISSING] ' + f.sectionLabel + '/' + f.slug + ' — ' + f.filename + ' (' + f.error + ')');
+      manifest.push('  [MISSING] ' + f.folder + '/' + f.name + ' (' + f.error + ')');
       return;
     }
-    // Disambiguate by adding -2 / -3 / ... to the basename when a
-    // filename collision shows up.
-    const baseDir = _safePath(f.sectionLabel);
-    const base = _safePath(f.filename) || (f.slug + '.pdf');
+    const baseDir = f.folder.split('/').map(_safePath).filter(Boolean).join('/');
+    const base = _safePath(f.name) || (f.slug + '.pdf');
     let candidate = baseDir + '/' + base;
-    if (seen.has(candidate)) {
+    if (seen.has(candidate.toLowerCase())) {
       const dot = base.lastIndexOf('.');
       const stem = dot > 0 ? base.slice(0, dot) : base;
       const ext  = dot > 0 ? base.slice(dot)  : '';
       let n = 2;
-      while (seen.has(baseDir + '/' + stem + '-' + n + ext)) n++;
-      candidate = baseDir + '/' + stem + '-' + n + ext;
+      while (seen.has((baseDir + '/' + stem + ' (' + n + ')' + ext).toLowerCase())) n++;
+      candidate = baseDir + '/' + stem + ' (' + n + ')' + ext;
     }
-    seen.add(candidate);
+    seen.add(candidate.toLowerCase());
     zip.file(candidate, f.bytes);
-    manifest.push('  [OK] ' + candidate + '  (' + f.bytes.length + ' bytes)');
+    manifest.push('  [OK] ' + candidate + '  (' + f.bytes.length + ' bytes)' +
+      ((f.stored && _safePath(f.stored) !== base) ? '   <- uploaded as "' + f.stored + '"' : ''));
   });
 
   zip.file('bundle-manifest.txt', manifest.join('\n'));
@@ -147,8 +156,7 @@ async function handle(req, context) {
     compressionOptions: { level: 6 },
   });
 
-  // Filename mirrors the loan-bundle convention from 236.152:
-  // "<Street> - Documents.zip" (street portion only, filesystem-safe).
+  // "<Street> - Full Loan File.zip" (236.161); a single tab names itself.
   const rawAddr = String(review.address || '').trim();
   const street = rawAddr ? rawAddr.split(',')[0].trim() : '';
   const safeStreet = street
@@ -156,18 +164,15 @@ async function handle(req, context) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
-  // Deploy 236.161 — renamed per Mike from " - Documents" to
-  // " - Full Loan File". The investor / closing-package context
-  // is what matters; "Documents" was too generic.
-  const filename = (safeStreet ? safeStreet + ' - Full Loan File' : 'Loan File - ' + reviewId) + '.zip';
+  const suffix = !wanted ? 'Full Loan File' : (tabs.length === 1 ? TAB_LABELS[tabs[0]] : (tabs.length === Object.keys(TAB_LABELS).length ? 'Full Loan File' : 'Loan File (' + (tabs.length || 'selected') + ' tabs)'));
+  const filename = (safeStreet ? safeStreet + ' - ' + suffix : 'Loan File - ' + reviewId) + '.zip';
 
-  // Deploy 236.456 (F3) — audit the full-loan-file zip disclosure (contains
-  // the complete document package). Processor/admin-gated. Fail-open.
+  // Deploy 236.456 (F3) — audit the loan-file zip disclosure. Fail-open.
   await logPiiAccess(req, context, {
     action: 'doc_download', resource: 'loan_review_zip',
     actorEmail: user.email, actorRole: 'processor',
     clientId: review.clientId || null, loanId: review.loanId || null,
-    resourceId: reviewId, detail: filename,
+    resourceId: reviewId, detail: filename + ' [' + scopeLabel + (includePrior ? ', prior' : '') + ', ' + queue.length + ' docs]',
   });
 
   return new Response(out, {
@@ -182,23 +187,11 @@ async function handle(req, context) {
   });
 }
 
-// Strip characters that would break ZIP paths or filesystem extracts
-// on Windows. Spaces / ordinary punctuation are fine.
+// Strip characters that would break ZIP paths or filesystem extracts on
+// Windows. Spaces / ordinary punctuation are fine.
 function _safePath(s) {
   return String(s || '')
     .replace(/[<>:"|?*\\/\x00-\x1F]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// Section labels match what loan-doc-review.js groups by. Keeps the
-// ZIP folder structure aligned with the on-screen review.
-function _sectionLabelForSlug(slug) {
-  const s = String(slug || '').toLowerCase();
-  if (/(borrow|guarantor|fico|credit|w2|paystub|tax-return|bank-statement|drivers|passport)/.test(s)) return 'Borrower';
-  if (/(operating|articles|ein|llc|entity|certificate-of-good)/.test(s))                              return 'Entity';
-  if (/(appraisal|insurance|hoi|title|survey|inspection|env|flood|prelim|hazard|property)/.test(s))   return 'Property';
-  if (/(rent-roll|lease|rent|t12|t-12|noi|rent-schedule)/.test(s))                                    return 'Income';
-  if (/(purchase|psa|contract|hud|cd|closing|wire|loi|term-sheet|rate-sheet|loan-app)/.test(s))      return 'Loan';
-  return 'Other';
 }
