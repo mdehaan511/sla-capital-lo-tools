@@ -1589,7 +1589,7 @@
               'style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid ' + (on ? '#C8813A' : '#ddd8d0') + ';background:' + (on ? '#C8813A' : '#fff') + ';color:' + (on ? '#fff' : '#1a1520') + ';border-radius:8px;cursor:pointer">' + escHtml(lbl) + '</button>';
           }).join('') + '</div>';
         var _agName = (_review.guarantors[_ag] && _review.guarantors[_ag].name) || '';
-        if (_agName) _propTabsHtml += '<div style="font-size:12px;color:#7a7488;margin:0 0 10px">Documents for <strong>' + escHtml(_agName) + '</strong> — shared items (Credit Authorization, anything unassigned) show under every guarantor.</div>';
+        if (_agName) _propTabsHtml += '<div style="font-size:12px;color:#7a7488;margin:0 0 10px">Documents for <strong>' + escHtml(_agName) + '</strong></div>';
         _stdToRender = standardInSec.filter(function(s) {
           var gi = (_review.docs[s] || {}).guarantorIndex;
           return (gi == null) || gi === _ag;

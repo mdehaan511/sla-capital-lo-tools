@@ -339,7 +339,7 @@
       <!-- Deploy 237.082 — Armory channels -->
       <div class="setting-row">
         <label>Slack webhook — Armory (company fun channel)</label>
-        <div class="hint">Closing Bell, the Monday Town Crier, and the monthly Round Table champion. Blank = use Default.</div>
+        <div class="hint">Blank = use Default.</div>
         <div class="input-row">
           <input type="text" id="slackArmoryInput" placeholder="Blank = use Default webhook" />
           <button class="small-btn primary" onclick="saveSlackChannel('armory')">Save</button>
@@ -348,7 +348,7 @@
       </div>
       <div class="setting-row">
         <label>Slack webhook — Leadership (private)</label>
-        <div class="hint">Birthdays, work anniversaries (daily 8am PT, plus a 3-day heads-up) and game milestones. Point this at a PRIVATE channel with just Mike, Dan and Chance: create the channel in Slack, add an Incoming Webhook to it, paste the URL here. Blank = falls back to Default (which is NOT private).</div>
+        <div class="hint">Blank = use Default (not private).</div>
         <div class="input-row">
           <input type="text" id="slackLeadershipInput" placeholder="https://hooks.slack.com/services/…" />
           <button class="small-btn primary" onclick="saveSlackChannel('leadership')">Save</button>
@@ -358,7 +358,7 @@
       <!-- Deploy 237.091 (Mike) -- pricing notices go to the MAIN company channel. -->
       <div class="setting-row">
         <label>Slack webhook — Pricing changes (main Sir Lends A Lot channel)</label>
-        <div class="hint">Posted automatically when a new DSCR rate sheet deploys: "@channel DSCR rates have increased/decreased by … Floor rate is now …". Blank falls back to the Default webhook (the prospects channel).</div>
+        <div class="hint">Blank = use Default.</div>
         <div class="input-row">
           <input type="text" id="slackPricingInput" placeholder="https://hooks.slack.com/services/…" />
           <button class="small-btn primary" onclick="saveSlackChannel('pricing')">Save</button>

@@ -2293,7 +2293,6 @@ function render() {
     '<div class="section" id="vestingLLCSection">' +
       '<div class="section-head"><h2>Vesting Entity Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
-        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">The vesting entity(ies) on title for this loan. Auto-filled from the primary guarantor\'s entity. Edit or add additional entities if title is held by multiple entities (sub-entity / pass-through structures).</div>' +
         '<div id="vestingLLCList">' +
           _vestingLLCsInitial.map(function(v, i) {
             return _renderVestingLLCRow(v, i, _vestingLLCsInitial.length);

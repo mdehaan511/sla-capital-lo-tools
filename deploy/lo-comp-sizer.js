@@ -324,7 +324,7 @@
         chips += chip(fmtBps(t.bps) + ' bps', esc(rangeLabel(t)), t.current ? 'current' : (seen ? 'above' : 'below'));
         if (t.current) seen = true;
       }
-      if (!u.next) line = 'Top tier — ' + fmtBps(u.current.bps) + ' bps. Nothing higher to upsell to.';
+      if (!u.next) line = 'Top tier — ' + fmtBps(u.current.bps) + ' bps.';
       else {
         var how = '<b>' + u.targetPoints.toFixed(2) + ' pts</b> at this rate';
         if (u.lever === 'rate') how += ', or a rate of <b>' + fmtRate(u.targetRatePct) + '</b> (+' + fmtRate(u.rateDelta) + ') at ' + r.points.toFixed(2) + ' pts';
@@ -358,7 +358,6 @@
       label = 'Points'; big = r.points.toFixed(2);
       sub = 'rate ' + fmtRate(r.ratePct) + ' → ×' + C.salaryMultiplier(r.ratePct, false).toFixed(1) + ' multiplier';
     }
-    if (plan === 'flat50') sub += ' <span style="color:#7a7488">— flat plan, the spread does not change your comp</span>';
     return '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:8px">' +
       '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488">' + label + '</div>' +
       '<div style="font-family:Lora,Georgia,serif;font-size:20px;font-weight:600;color:var(--dark,#261a36)">' + big + '</div>' +
@@ -383,17 +382,16 @@
     } else if (plan === 'salary') {
       headline = money(c.total);
       detail = esc(label) + ' · base ' + money(c.base) + ' (' + c.applied.toFixed(1) + ' bps) + point split ' + money(c.bonus) + ' on ' + money(r.amount) + '.';
-      foot = 'Plus salary via payroll. Settles at closing from the final amount, rate and points.';
+      foot = '';
     } else if (plan === 'flat50') {
       headline = money(c.total);
       detail = esc(label) + ' · 50 bps on ' + money(r.amount);
-      foot = 'Settles at closing from the final loan amount.';
+      foot = '';
     } else {
       headline = money(c.total);
       detail = esc(label) + ' · ' + c.applied.toFixed(2) + ' bps on ' + money(r.amount) +
         (r.source === 'company' ? ' · company-sourced first loan (½ tier)' : '');
-      foot = (c.bonus ? 'Includes ' + money(c.bonus) + ' in bonuses on file. ' : '') +
-        'Repeat-borrower and referral bonuses (+$250 each) are added at closing' + (r.source === 'company' ? '.' : '; company-sourced first loans pay half the tier.');
+      foot = c.bonus ? 'Includes ' + money(c.bonus) + ' in bonuses on file.' : '';
     }
     var u = upsell(p, plan, s); // Deploy 237.128
     var note = STATE.plan.configured ? '' : ' <span title="No plan saved for you in the LO Compensation table yet — showing the default plan. Ask an admin if this looks wrong.">(default plan)</span>';

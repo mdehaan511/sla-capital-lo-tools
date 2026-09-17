@@ -394,7 +394,7 @@ function _pbBody(group){
         '<button type="button" class="cl-act" onclick="markBoarding(\''+escAttr(it.client.id)+'\',\''+escAttr(l.id)+'\',\''+escAttr(it.ownerKey)+'\',\'boarded\')">✓ Boarded</button>' +
       '</td></tr>';
   }).join('');
-  var note = '<div class="cl-note">Sold / serviced loans not yet confirmed on the servicer\'s book. FCI-serviced loans clear this list <strong>automatically</strong> when the nightly FCI sync finds them (it also fills the Servicer Loan #); generating the FCI boarding sheet marks them <strong>Sent</strong>. Non-FCI servicers: use the buttons.</div>';
+  var note = '';
   return note + '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Address</th><th>Borrower</th><th>Type</th><th>Sold</th><th>Investor</th><th>Servicer</th><th>Days</th><th>Boarding</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 function markBoarding(clientId, loanId, ownerKey, status){
@@ -1785,12 +1785,12 @@ function _closeOutHtml(it, typeVal, keepInvestor){
     '<option value="rtl"'+(t==='rtl'?' selected':'')+'>RTL</option>' +
     '<option value="dscr"'+(t==='dscr'?' selected':'')+'>DSCR</option>' +
   '</select>';
-  var html = '<div class="svc-fld" style="grid-column:1/-1"><label>Loan Type <span class="req">*</span> <span class="svc-hint">— routes the loan</span></label>'+typeSel+'</div>' +
+  var html = '<div class="svc-fld" style="grid-column:1/-1"><label>Loan Type <span class="req">*</span></label>'+typeSel+'</div>' +
     '<div class="svc-fld" style="grid-column:1/-1"><label>Investor (buying the loan) <span class="req">*</span></label>' +
       _investorSelect('co_investorName', inv, 'onchange="_coInvestorChanged()"') + '</div>';
   if (t==='rtl'){
     _reqRegister('co_servicerName','Note Servicer');
-    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer <span class="req">*</span> <span class="svc-hint">— from Vendors</span></label>' +
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer <span class="req">*</span></label>' +
       _servicerSelect('co_servicerName', l.servicerName||'', 'onchange="_validateRequired()"') + '</div>';
   } else if (t==='dscr'){
     // Deploy 237.016 (Mike) — TPO comes from the Closing tab (loan.tpo; Baseline
@@ -1801,10 +1801,10 @@ function _closeOutHtml(it, typeVal, keepInvestor){
     var fees = _closeOutFeesDefault(l, inv);
     html += '<div class="svc-fld"><label>TPO Spread (points) <span class="req">*</span> <span class="svc-hint">' + (tpo!=='' ? 'from Closing tab' : 'not set on the Closing tab — enter it') + '</span></label>' +
         '<input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" placeholder="e.g. 1.5" inputmode="decimal" oninput="_validateRequired()" /></div>' +
-      '<div class="svc-fld"><label>Closing Fees <span class="svc-hint" id="co_feesHint">' + escH(fees.hint) + ' — editable</span></label>' +
+      '<div class="svc-fld"><label>Closing Fees <span class="svc-hint" id="co_feesHint">' + escH(fees.hint) + '</span></label>' +
         '<input type="text" id="co_closingFees" data-auto="' + (fees.fromLoan ? '0' : '1') + '" value="'+escAttr(String(fees.amount))+'" inputmode="decimal" oninput="this.setAttribute(\'data-auto\',\'0\')" /></div>';
   } else {
-    html += '<div class="svc-fld" style="grid-column:1/-1"><div class="cl-note" style="margin:0">Select the loan type to continue — RTL routes to Servicing + Pending Sale (with a Note Servicer); DSCR routes to Pending Sale (with a TPO spread).</div></div>';
+    html += '<div class="svc-fld" style="grid-column:1/-1"><div class="cl-note" style="margin:0">Select the loan type to continue.</div></div>';
   }
   return html;
 }
@@ -1898,7 +1898,7 @@ function openMarkSold(clientId, loanId, ownerKey){
     '<div class="svc-fld"><label>Investor <span class="req">*</span></label>' + _investorSelect('ms_investorName', _investorNameFor(l), 'onchange="_validateRequired()"') + '</div>';
   if (rtl){
     _reqRegister('ms_soldRate','Sold Rate');
-    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) <span class="req">*</span> <span class="svc-hint">drives yield spread — prefilled from the Closing tab Buy Rate</span></label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||l.buyRate||'')+'" placeholder="e.g. 8.5" oninput="_validateRequired()" /></div>';
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) <span class="req">*</span></label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||l.buyRate||'')+'" placeholder="e.g. 8.5" oninput="_validateRequired()" /></div>';
   }
   document.getElementById('svcGrid').innerHTML = html;
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Mark Sold';
@@ -1946,7 +1946,7 @@ function renderServicing(items){
   });
   group = sortItems(group, 'servicing', svcVal);
   if (!group.length) return '<div class="cl-empty">No loans in servicing.</div>';
-  var note = '<div class="cl-note">Every loan SLA services, in one list — the legacy Servicing tag, RTL loans pending sale, and Sold-RTL loans (sold to an investor but still serviced). DSCRs are not serviced here. Use the <strong>Disposition</strong> dropdown to move a loan to <strong>Paid Off</strong> (you\'ll be prompted for the payoff amount &amp; date). Rows highlight <strong style="background:#fef9c3;padding:0 4px">yellow</strong> within 60 days of maturity and <strong style="background:#fee2e2;padding:0 4px">red</strong> within 30 days (or past maturity).</div>';
+  var note = '';
   // Deploy 236.733 (Mike) — includeDisp:true adds the staff Disposition picker so a
   // servicing loan can be marked Paid Off (or moved) right from this list; picking
   // "Paid Off" opens the confirm modal that collects payoff amount + date.
@@ -1963,10 +1963,9 @@ function renderServicing(items){
 function renderPostCloseReview(items){
   var group = sortItems(items.filter(function(it){ return inPostClose(it.loan); }), 'post_close', postVal);
   var late = group.filter(function(it){ var h = hoursInPostClose(it.loan); return h != null && h > 48; }).length;
-  var note = '<div class="cl-note">Loans stay here until the post-close review is done — confirm every field in SLA matches the executed loan documents, then click <strong>✓ Review Done</strong>. ' +
-    'They keep moving through their status (RTL → Pending Sale + Pending Boarding; DSCR sold to DIYA → Sold – DSCR; other DSCR → Pending Sale) while they wait.' +
-    (late ? ' <strong style="color:#7c1f1f">' + late + ' loan' + (late === 1 ? ' has' : 's have') + ' been waiting more than 48 hours.</strong>' : '') +
-    ' <a href="#" onclick="setTab(\'all\');return false">Back to all closed loans</a></div>';
+  var note = '<div class="cl-note">' +
+    (late ? '<strong style="color:#7c1f1f">' + late + ' loan' + (late === 1 ? ' has' : 's have') + ' been waiting more than 48 hours.</strong> ' : '') +
+    '<a href="#" onclick="setTab(\'all\');return false">Back to all closed loans</a></div>';
   if (!group.length) return note + '<div class="cl-empty">Nothing waiting on post-close review. 🎉</div>';
   return note + '<div class="acc" style="padding:0">' + _dispBody(group, 'post_close', false) + '</div>';
 }
@@ -2033,7 +2032,7 @@ function renderPendingSale(items){
   var tapeBtn = _isStaff
     ? ' <button type="button" class="cl-act primary" style="margin-left:10px" onclick="openTradeTapeModal()">📊 Trade Tapes</button>'
     : '';
-  var note = '<div class="cl-note">Loans closed out and awaiting sale. Toggle <strong>Actively Trading?</strong> once conditions are cleared and the loan is ready to trade.' + tapeBtn + '</div>';
+  var note = tapeBtn ? '<div class="cl-note">' + tapeBtn.replace('margin-left:10px', 'margin-left:0') + '</div>' : '';
   return note + renderBucketTab(items, 'pending_sale');
 }
 
@@ -2326,7 +2325,7 @@ function drawVal(it, k){
   return '';
 }
 function sitewireNote(){
-  var base = 'RTL loans only. Draw data is live from the Sitewire API <span class="sitewire-tag">Sitewire</span>';
+  var base = 'Draw data <span class="sitewire-tag">Sitewire</span>';
   if (_sitewireState==='loading') return '<div class="cl-note">'+base+' — loading draw data…</div>';
   if (_sitewireState==='error') return '<div class="cl-note" style="color:var(--danger)">'+base+' — failed to load: '+escH(_sitewireErr)+' <a href="#" onclick="refreshSitewire();return false">Retry</a></div>';
   var ago = '';
@@ -2334,7 +2333,7 @@ function sitewireNote(){
     var mins = Math.max(0, Math.round((Date.now() - Date.parse(_sitewireFetchedAt)) / 60000));
     ago = ' · updated ' + (mins < 1 ? 'just now' : mins + ' min ago');
   }
-  return '<div class="cl-note">'+base+ago+' · <a href="#" onclick="refreshSitewire();return false">Refresh</a>. Click a loan to expand its draws. Paid-off loans are hidden.</div>';
+  return '<div class="cl-note">'+base+ago+' · <a href="#" onclick="refreshSitewire();return false">Refresh</a></div>';
 }
 function renderDraws(items){
   if (_sitewireState==='' ) loadSitewire(false);
@@ -2563,7 +2562,7 @@ function _pmtHistoryHtml(it){
       }).join('') + '</tbody></table></div>';
   } else if (tab === 'add') {
     var today = new Date().toISOString().slice(0,10);
-    body = '<div class="cl-note" style="margin:0 0 8px">Posts a charge to the loan at FCI (the borrower sees it on their next statement). Use FCI\'s charge code exactly as it appears in their portal (e.g. LATE, NSF, INSP, LEGAL). This is logged on the loan\'s Notes &amp; Activity.</div>' +
+    body = ''+
       '<div class="row3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;max-width:760px">' +
         '<div class="field"><label>Charge code</label><input type="text" id="fc_code_' + escAttr(key) + '" placeholder="e.g. LATE" style="width:100%"></div>' +
         '<div class="field"><label>Amount ($)</label><input type="text" id="fc_amt_' + escAttr(key) + '" inputmode="decimal" placeholder="e.g. 150.00" style="width:100%"></div>' +
