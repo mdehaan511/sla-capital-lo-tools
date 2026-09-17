@@ -12,6 +12,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -41,7 +42,7 @@ async function handle(req, context) {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': 'attachment; filename="' + String(filename).replace(/"/g, '') + '"',
+      'Content-Disposition': contentDisposition('attachment', filename),
     },
   });
 }

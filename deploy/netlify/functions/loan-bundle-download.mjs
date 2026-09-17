@@ -49,6 +49,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { synthRecordForGuarantor } from './_shared/guarantor-synth.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 
 export default async (req, context) => {
@@ -274,7 +275,7 @@ async function handle(req, context) {
   const headers = Object.assign({}, corsHeaders(), {
     'Content-Type':        'application/pdf',
     'Content-Length':      String(outBytes.length),
-    'Content-Disposition': 'attachment; filename="' + filename + '"',
+    'Content-Disposition': contentDisposition('attachment', filename),
     'Cache-Control':       'private, no-store',
   });
   // Deploy 236.456 (F3) — audit the full loan-application bundle disclosure. Fail-open.

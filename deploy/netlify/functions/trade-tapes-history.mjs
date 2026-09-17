@@ -18,6 +18,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor,
 } from './_shared/auth.mjs';
 import { contentTypeFor } from './_shared/trade-tape-store.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -55,7 +56,7 @@ async function handle(req, context) {
         // final tape can be .xls or .csv, and serving one of those as xlsx
         // makes Excel greet the auditor with a repair prompt.
         'Content-Type': contentTypeFor(name),
-        'Content-Disposition': 'attachment; filename="' + name + '"',
+        'Content-Disposition': contentDisposition('attachment', name),
       },
     });
   }

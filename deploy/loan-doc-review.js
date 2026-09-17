@@ -161,6 +161,18 @@
   // ── Utils ────────────────────────────────────────────────────────
   function escHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function escAttr(s) { return escHtml(s).replace(/"/g,'&quot;'); }
+  // Deploy 237.139 (Mike) — escAttr is NOT enough for a value that lands inside a
+  // single-quoted argument of an inline handler: the HTML parser decodes entities
+  // BEFORE the JS is compiled, so an apostrophe (or &#39;) closes the string early
+  // and the whole handler dies with "SyntaxError: missing ) after argument list".
+  // A document named "Owner's Rent Roll.pdf" took the doc-review list down that way.
+  // escJs escapes for the JS string first, then for the attribute.
+  function escJs(s) {
+    return escAttr(String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/[\r\n\u2028\u2029]+/g, ' '));
+  }
   function formatDate(iso) {
     if (!iso) return '—';
     try {
@@ -1521,7 +1533,7 @@
       if (!slugsInSec.length && !hiddenInSec.length && !(sec.key === 'guarantor' && _multiG)) return '';
       var showHidden = _showHidden[sec.key] === true;
       var hiddenToggle = hiddenInSec.length
-        ? '<button class="dr-section-toggle" onclick="dr_toggleHiddenInSection(\'' + escAttr(sec.key) + '\')">' +
+        ? '<button class="dr-section-toggle" onclick="dr_toggleHiddenInSection(\'' + escJs(sec.key) + '\')">' +
             (showHidden ? 'Hide ' : 'Show ') + hiddenInSec.length + ' hidden' +
           '</button>'
         : '';
@@ -1531,7 +1543,7 @@
       // Deploy 236.162 — "+ Add Document" creates a custom tray in this
       // section. Deploy 236.501 — relabeled "+ Add Other Document" and
       // moved into the per-section "Other Documents" area below.
-      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')" title="Add a document category to this section — a type that isn\'t listed, or an additional version to review">+ Add Category</button>';
+      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escJs(sec.key) + '\',\'' + escJs(sec.label) + '\')" title="Add a document category to this section — a type that isn\'t listed, or an additional version to review">+ Add Category</button>';
       // Deploy 236.164 — bulk "Approve all pending" per section.
       // Counts trays in this section that have a doc uploaded AND
       // verdict is still pending (i.e. awaiting processor click).
@@ -1551,7 +1563,7 @@
         return st === 'received' && _trayHasDoc(dd);
       });
       var bulkBtn = bulkable.length
-        ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escAttr(sec.key) + '\')" title="' +
+        ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escJs(sec.key) + '\')" title="' +
             (_bulkUw ? 'Underwriter-approve every processor-approved document in this section' : 'Processor-approve every collected document in this section that has not been reviewed') + '">\u2713 ' +
             (_bulkUw ? 'UW approve ' : 'Approve ') + bulkable.length + '</button>'
         : '';
@@ -2097,7 +2109,7 @@
       _statusHtml =
         (_openConds > 0 ? '<span class="tray-verdict conditions" title="' + _openConds + ' uncleared condition' + (_openConds === 1 ? '' : 's') + ' \u2014 expand the tray to view or clear">\u2691 ' + _openConds + '</span>' : '') +
         '<select class="tray-status st-' + escAttr(_status || 'none') + '" onclick="event.stopPropagation()" ' +
-          'onchange="dr_setStatus(\'' + escAttr(slug) + '\',this.value)" title="Set this document\u2019s status">' +
+          'onchange="dr_setStatus(\'' + escJs(slug) + '\',this.value)" title="Set this document\u2019s status">' +
           // Deploy 237.138 -- Outstanding is the base status, so there is no blank
           // option; a legacy N/A tray keeps N/A selectable until it is moved off.
           _STATUSES.concat(_status === 'na' ? _LEGACY_STATUSES : []).map(function(st) {
@@ -2123,14 +2135,14 @@
           '<div style="min-width:0;flex:1">' +
             '<div class="doc-name" id="dr-docname_' + escAttr(slug) + '_' + idx + '">' +
               '<span class="doc-name-text">' + escHtml(ld.filename || '(unnamed)') + '</span>' +
-              '<button class="dr-rename-btn" title="Rename" onclick="dr_renameDocAt(\'' + escAttr(slug) + '\',\'' + escAttr(ld.docId) + '\')">&#x270e;</button>' +
+              '<button class="dr-rename-btn" title="Rename" onclick="dr_renameDocAt(\'' + escJs(slug) + '\',\'' + escJs(ld.docId) + '\')">&#x270e;</button>' +
             '</div>' +
             '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(ld.uploadedAt) + '</div>' +
           '</div>' +
           '<div class="doc-actions">' +
-            '<button class="small-btn" onclick="dr_viewDoc(\'' + escAttr(ld.docId) + '\')">View</button>' +
-            '<button class="small-btn" onclick="dr_downloadOneDoc(\'' + escAttr(ld.docId) + '\',\'' + escAttr(ld.filename || ld.docId) + '\')" title="Download this PDF">⬇</button>' +
-            '<button class="small-btn danger" onclick="dr_removeDocAt(\'' + escAttr(slug) + '\',\'' + escAttr(ld.docId) + '\')">Remove</button>' +
+            '<button class="small-btn" onclick="dr_viewDoc(\'' + escJs(ld.docId) + '\')">View</button>' +
+            '<button class="small-btn" onclick="dr_downloadOneDoc(\'' + escJs(ld.docId) + '\',\'' + escJs(ld.filename || ld.docId) + '\')" title="Download this PDF">⬇</button>' +
+            '<button class="small-btn danger" onclick="dr_removeDocAt(\'' + escJs(slug) + '\',\'' + escJs(ld.docId) + '\')">Remove</button>' +
           '</div>' +
         '</div>';
     });
@@ -2145,8 +2157,8 @@
               '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(hd.uploadedAt) + '</div>' +
             '</div>' +
             '<div class="doc-actions">' +
-              '<button class="small-btn" onclick="dr_viewDoc(\'' + escAttr(hd.docId) + '\')">View</button>' +
-              '<button class="small-btn" onclick="dr_unhideDoc(\'' + escAttr(slug) + '\',\'' + escAttr(hd.docId) + '\')" title="Unhide this document">↩ Unhide</button>' +
+              '<button class="small-btn" onclick="dr_viewDoc(\'' + escJs(hd.docId) + '\')">View</button>' +
+              '<button class="small-btn" onclick="dr_unhideDoc(\'' + escJs(slug) + '\',\'' + escJs(hd.docId) + '\')" title="Unhide this document">↩ Unhide</button>' +
             '</div>' +
           '</div>';
       });
@@ -2174,7 +2186,7 @@
     }
 
     var dz =
-      '<label class="dropzone" id="dr-dz_' + escAttr(slug) + '" ondragover="dr_dzOver(event,\'' + escAttr(slug) + '\')" ondragleave="dr_dzLeave(event,\'' + escAttr(slug) + '\')" ondrop="dr_dzDrop(event,\'' + escAttr(slug) + '\')">' +
+      '<label class="dropzone" id="dr-dz_' + escAttr(slug) + '" ondragover="dr_dzOver(event,\'' + escJs(slug) + '\')" ondragleave="dr_dzLeave(event,\'' + escJs(slug) + '\')" ondrop="dr_dzDrop(event,\'' + escJs(slug) + '\')">' +
         '<div class="dz-icon">📄</div>' +
         // Deploy 237.011 (Mike) — say "Add document": a new upload is kept in
         // ADDITION to the current one by default (the Add/Replace modal defaults
@@ -2187,7 +2199,7 @@
         // image block. The file picker still hides everything else
         // by default but the LO can switch to "All files" if
         // needed.
-        '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
+        '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" onchange="dr_dzPick(event,\'' + escJs(slug) + '\')" />' +
       '</label>';
 
     // Deploy 237.066 (Mike) — processor notes are a per-document NOTE LOG now
@@ -2210,16 +2222,16 @@
     // the one control. What is left are the actions that are not a status.
     var verdictBtns = '';
     if (d.hidden) {
-      if (!d.hiddenConfirmedAt) verdictBtns += '<button class="v-btn approve" onclick="dr_confirmHidden(\'' + escAttr(slug) + '\')">\u2713 Confirm hidden</button>';
-      verdictBtns += '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escAttr(slug) + '\', false)" title="Unhide this tray">\u21a9 Unhide</button>';
+      if (!d.hiddenConfirmedAt) verdictBtns += '<button class="v-btn approve" onclick="dr_confirmHidden(\'' + escJs(slug) + '\')">\u2713 Confirm hidden</button>';
+      verdictBtns += '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escJs(slug) + '\', false)" title="Unhide this tray">\u21a9 Unhide</button>';
     } else {
-      verdictBtns += '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escAttr(slug) + '\', true)" title="Hide this tray (not relevant to this loan)">\u2298 Hide tray</button>';
+      verdictBtns += '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escJs(slug) + '\', true)" title="Hide this tray (not relevant to this loan)">\u2298 Hide tray</button>';
     }
     // Deploy 236.675 -- move this tray's document(s) into a different category so they
     // are reviewed against that category's checklist.
     if (hasDoc) {
       verdictBtns +=
-        '<button class="v-btn unapprove" onclick="dr_openMoveModal(\'' + escAttr(slug) + '\')" title="Move this document to a different category so it is reviewed against that category&#39;s checklist">\u21c4 Move to\u2026</button>';
+        '<button class="v-btn unapprove" onclick="dr_openMoveModal(\'' + escJs(slug) + '\')" title="Move this document to a different category so it is reviewed against that category&#39;s checklist">\u21c4 Move to\u2026</button>';
     }
 
     var naBlock = verdict === 'na' && d.naReason
@@ -2242,7 +2254,7 @@
             '<div class="h-filename">' + escHtml(h.filename || '(unnamed)') + '</div>' +
             '<div class="h-meta">' + formatDate(h.uploadedAt) + ' &middot; verdict: ' + escHtml(h.verdict || 'pending') + '</div>' +
             (h.processorNotes ? '<div class="h-notes">Notes: ' + escHtml(h.processorNotes) + '</div>' : '') +
-            '<div style="margin-top:6px;"><button class="small-btn" onclick="dr_viewDoc(\'' + escAttr(h.docId) + '\')">View</button></div>' +
+            '<div style="margin-top:6px;"><button class="small-btn" onclick="dr_viewDoc(\'' + escJs(h.docId) + '\')">View</button></div>' +
           '</div>';
         }).join('') +
       '</details>';
@@ -2263,11 +2275,11 @@
     }
     if (d.isCustom) {
       trayNameHtml +=
-        '<button class="dr-tray-rename-btn" title="Rename tray" onclick="event.stopPropagation();dr_renameTrayLabel(\'' + escAttr(slug) + '\')">&#x270e;</button>';
+        '<button class="dr-tray-rename-btn" title="Rename tray" onclick="event.stopPropagation();dr_renameTrayLabel(\'' + escJs(slug) + '\')">&#x270e;</button>';
       // Deploy 236.920 (Mike) — ask the borrower for this category. Flagged
       // trays show on the borrower's document page with an Upload button.
       trayNameHtml +=
-        '<button class="dr-tray-rename-btn" title="' + (d.borrowerRequested ? 'Requested from the borrower — click to stop requesting' : 'Request this document from the borrower') + '" onclick="event.stopPropagation();dr_toggleBorrowerRequest(\'' + escAttr(slug) + '\')">' + (d.borrowerRequested ? '&#x1F4E8;' : '&#x2709;') + '</button>';
+        '<button class="dr-tray-rename-btn" title="' + (d.borrowerRequested ? 'Requested from the borrower — click to stop requesting' : 'Request this document from the borrower') + '" onclick="event.stopPropagation();dr_toggleBorrowerRequest(\'' + escJs(slug) + '\')">' + (d.borrowerRequested ? '&#x1F4E8;' : '&#x2709;') + '</button>';
     }
     // Deploy 236.945 (Mike) — trays that have a borrower form (W-9, PM
     // questionnaire, draw wire info, commitment letter) get a send button:
@@ -2276,7 +2288,7 @@
     var _bf = _borrowerFormFor(slug);
     if (_bf && !d.hidden) {
       trayNameHtml +=
-        '<button class="dr-tray-rename-btn" title="Send the ' + escAttr(_bf.label) + ' to the borrower to complete and sign" onclick="event.stopPropagation();dr_sendBorrowerForm(\'' + escAttr(slug) + '\')">&#x1F4DD;</button>';
+        '<button class="dr-tray-rename-btn" title="Send the ' + escAttr(_bf.label) + ' to the borrower to complete and sign" onclick="event.stopPropagation();dr_sendBorrowerForm(\'' + escJs(slug) + '\')">&#x1F4DD;</button>';
     }
     // Deploy 236.165 — expiration badge. Surfaces when the AI
     // extracted a document/expiration date or when per-slug rules
@@ -2304,8 +2316,8 @@
     var formBadge = '';
     if (_bfs && _bfs.status === 'sent') {
       formBadge = '<div class="dr-form-badge">&#x1F4DD; Form sent ' + (_bfs.sentAt ? new Date(_bfs.sentAt).toLocaleDateString() : '') + ' to ' + escHtml(_bfs.to || '') + ' — awaiting the borrower' +
-        '<span class="dr-form-act" onclick="event.stopPropagation();dr_copyBorrowerFormLink(\'' + escAttr(slug) + '\')">Copy link</span>' +
-        '<span class="dr-form-act" onclick="event.stopPropagation();dr_voidBorrowerForm(\'' + escAttr(slug) + '\')">Cancel</span></div>';
+        '<span class="dr-form-act" onclick="event.stopPropagation();dr_copyBorrowerFormLink(\'' + escJs(slug) + '\')">Copy link</span>' +
+        '<span class="dr-form-act" onclick="event.stopPropagation();dr_voidBorrowerForm(\'' + escJs(slug) + '\')">Cancel</span></div>';
     } else if (_bfs && _bfs.status === 'completed') {
       formBadge = '<div class="dr-form-badge done">&#x1F4DD; Completed and signed by the borrower ' + (_bfs.completedAt ? new Date(_bfs.completedAt).toLocaleDateString() : '') + '</div>';
     }
@@ -2316,10 +2328,10 @@
       var _who = (_fu.creditor && _fu.creditor.name) || 'the landlord / mortgage company';
       if (!_fu.done) {
         formBadge += '<div class="dr-follow-badge" title="' + escAttr([_fu.creditor && _fu.creditor.address, _fu.creditor && _fu.creditor.phone].filter(Boolean).join(' · ')) + '">&#x26A0; Still needs to be sent to ' + escHtml(_who) + ' for Part II' +
-          '<span class="dr-form-act" onclick="event.stopPropagation();dr_followUpDone(\'' + escAttr(slug) + '\')">Mark as sent</span></div>';
+          '<span class="dr-form-act" onclick="event.stopPropagation();dr_followUpDone(\'' + escJs(slug) + '\')">Mark as sent</span></div>';
       } else {
         formBadge += '<div class="dr-form-badge done">&#x2709; Sent to ' + escHtml(_who) + (_fu.doneAt ? ' ' + new Date(_fu.doneAt).toLocaleDateString() : '') + (_fu.doneBy ? ' by ' + escHtml(String(_fu.doneBy).split('@')[0]) : '') +
-          '<span class="dr-form-act" onclick="event.stopPropagation();dr_followUpDone(\'' + escAttr(slug) + '\', true)">Undo</span></div>';
+          '<span class="dr-form-act" onclick="event.stopPropagation();dr_followUpDone(\'' + escJs(slug) + '\', true)">Undo</span></div>';
       }
     }
     var mrBadge = d.manualReviewRequested
@@ -2327,7 +2339,7 @@
       : (d.uploadedByBorrower ? '<div class="dr-br-badge">⬆ Uploaded by borrower</div>' : '');
 
     return '<div class="tray st-' + escAttr(_status || 'none') + (d.hidden ? ' is-hidden' : '') + '" id="dr-tray_' + escAttr(slug) + '">' +
-      '<div class="tray-head" onclick="dr_toggleExpand(\'' + escAttr(slug) + '\')">' +
+      '<div class="tray-head" onclick="dr_toggleExpand(\'' + escJs(slug) + '\')">' +
         '<div style="min-width:0;flex:1">' +
           '<div class="tray-name" id="dr-tray-name_' + escAttr(slug) + '">' + trayNameHtml + '</div>' +
           // Deploy 237.136 (Mike: "remove the subtext on each tray so it just says the
@@ -2403,21 +2415,21 @@
         (n.editedAt ? '<span class="dr-note-when" title="Edited ' + escAttr(formatDate(n.editedAt)) + (n.editedBy ? ' by ' + escAttr(n.editedBy) : '') + '">(edited)</span>' : '') +
         '<span style="flex:1"></span>' +
         (!editing && _noteCanEdit(n)
-          ? '<span class="dr-note-act" onclick="dr_noteEdit(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">Edit</span>' +
-            '<span class="dr-note-act danger" onclick="dr_noteDelete(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">Delete</span>'
+          ? '<span class="dr-note-act" onclick="dr_noteEdit(\'' + escJs(slug) + '\',\'' + escJs(n.id) + '\')">Edit</span>' +
+            '<span class="dr-note-act danger" onclick="dr_noteDelete(\'' + escJs(slug) + '\',\'' + escJs(n.id) + '\')">Delete</span>'
           : '') +
         '</div>';
       var body = editing
-        ? '<textarea class="notes-area" id="dr-note-edit_' + escAttr(slug) + '" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\')dr_noteEditSave(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">' + escHtml(n.text || '') + '</textarea>' +
-          '<div class="dr-note-btns"><button class="small-btn" onclick="dr_noteEditSave(\'' + escAttr(slug) + '\',\'' + escAttr(n.id) + '\')">Save</button>' +
+        ? '<textarea class="notes-area" id="dr-note-edit_' + escAttr(slug) + '" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\')dr_noteEditSave(\'' + escJs(slug) + '\',\'' + escJs(n.id) + '\')">' + escHtml(n.text || '') + '</textarea>' +
+          '<div class="dr-note-btns"><button class="small-btn" onclick="dr_noteEditSave(\'' + escJs(slug) + '\',\'' + escJs(n.id) + '\')">Save</button>' +
           '<button class="small-btn" onclick="dr_noteEditCancel()">Cancel</button></div>'
         : '<div class="dr-note-text">' + escHtml(n.text || '') + '</div>';
       return '<div class="dr-note' + (editing ? ' editing' : '') + '">' + head + body + '</div>';
     }).join('');
     var draft = _noteDrafts[slug] || '';
     var add = '<div class="dr-note-add">' +
-        '<textarea class="notes-area" id="dr-note-new_' + escAttr(slug) + '" placeholder="' + (log.length ? 'Add another note…' : 'Add a note about this document…') + '" oninput="dr_noteDraft(\'' + escAttr(slug) + '\',this.value)" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\')dr_noteAdd(\'' + escAttr(slug) + '\')">' + escHtml(draft) + '</textarea>' +
-        '<div class="dr-note-btns"><button class="small-btn primary" onclick="dr_noteAdd(\'' + escAttr(slug) + '\')">Save note</button><span class="dr-note-hint">Ctrl+Enter saves</span></div>' +
+        '<textarea class="notes-area" id="dr-note-new_' + escAttr(slug) + '" placeholder="' + (log.length ? 'Add another note…' : 'Add a note about this document…') + '" oninput="dr_noteDraft(\'' + escJs(slug) + '\',this.value)" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\')dr_noteAdd(\'' + escJs(slug) + '\')">' + escHtml(draft) + '</textarea>' +
+        '<div class="dr-note-btns"><button class="small-btn primary" onclick="dr_noteAdd(\'' + escJs(slug) + '\')">Save note</button><span class="dr-note-hint">Ctrl+Enter saves</span></div>' +
       '</div>';
     return '<div class="dr-notes-wrap">' +
         '<div class="dr-notes-label">' +
@@ -2441,8 +2453,8 @@
       return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border,#ddd8d0);border-radius:6px;margin-bottom:6px;background:' + (cleared ? 'rgba(37,105,64,0.04)' : '#fff') + '">' +
           '<div style="flex:1;min-width:0;font-size:12px' + (cleared ? ';text-decoration:line-through;opacity:0.7' : '') + '">' + escHtml(c.title || '') +
             '<span style="color:var(--muted);font-size:10px"> · ' + escHtml(sub) + '</span></div>' +
-          '<select onchange="dr_condStatus(\'' + escAttr(slug) + '\',\'' + escAttr(c.id) + '\',this.value)" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid transparent;color:' + col + ';background:' + bg + ';font-weight:600;font-family:inherit">' + opts + '</select>' +
-          '<button title="Remove condition" onclick="dr_condRemove(\'' + escAttr(slug) + '\',\'' + escAttr(c.id) + '\')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px">✕</button>' +
+          '<select onchange="dr_condStatus(\'' + escJs(slug) + '\',\'' + escJs(c.id) + '\',this.value)" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid transparent;color:' + col + ';background:' + bg + ';font-weight:600;font-family:inherit">' + opts + '</select>' +
+          '<button title="Remove condition" onclick="dr_condRemove(\'' + escJs(slug) + '\',\'' + escJs(c.id) + '\')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px">✕</button>' +
         '</div>';
     }).join('');
     var openN = conds.filter(function(c){ return c.status !== 'cleared'; }).length;
@@ -2450,12 +2462,12 @@
         '<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Conditions' + (conds.length ? ' (' + openN + ' open)' : '') + '</div>' +
         rows +
         '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">' +
-          '<input id="dr-cond-input_' + escAttr(slug) + '" type="text" placeholder="Add a condition for this document…" onkeydown="if(event.key===\'Enter\')dr_addCond(\'' + escAttr(slug) + '\')" style="flex:1;min-width:160px;font-size:12px;padding:6px 9px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit" />' +
+          '<input id="dr-cond-input_' + escAttr(slug) + '" type="text" placeholder="Add a condition for this document…" onkeydown="if(event.key===\'Enter\')dr_addCond(\'' + escJs(slug) + '\')" style="flex:1;min-width:160px;font-size:12px;padding:6px 9px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit" />' +
           // Deploy 237.138 -- a PTF Condition tray adds Prior to Funding items by default.
           '<select id="dr-cond-prior_' + escAttr(slug) + '" style="font-size:12px;padding:6px 8px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit">' +
             '<option value="docs"' + (_statusOf(slug) === 'ptf_condition' ? '' : ' selected') + '>Prior to Docs</option>' +
             '<option value="funding"' + (_statusOf(slug) === 'ptf_condition' ? ' selected' : '') + '>Prior to Funding</option></select>' +
-          '<button onclick="dr_addCond(\'' + escAttr(slug) + '\')" style="font-size:12px;font-weight:600;padding:6px 12px;background:#261a36;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">+ Add</button>' +
+          '<button onclick="dr_addCond(\'' + escJs(slug) + '\')" style="font-size:12px;font-weight:600;padding:6px 12px;background:#261a36;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">+ Add</button>' +
         '</div>' +
       '</div>';
   }
@@ -3566,8 +3578,8 @@
     var current = d.label || slug;
     nameEl.innerHTML =
       '<input class="dr-rename-input" type="text" value="' + escAttr(current) + '" onclick="event.stopPropagation()" />' +
-      '<button class="small-btn dr-rename-save" onclick="event.stopPropagation();dr_commitTrayRename(\'' + escAttr(slug) + '\')">Save</button>' +
-      '<button class="small-btn dr-rename-cancel" onclick="event.stopPropagation();dr_cancelTrayRename(\'' + escAttr(slug) + '\')">Cancel</button>';
+      '<button class="small-btn dr-rename-save" onclick="event.stopPropagation();dr_commitTrayRename(\'' + escJs(slug) + '\')">Save</button>' +
+      '<button class="small-btn dr-rename-cancel" onclick="event.stopPropagation();dr_cancelTrayRename(\'' + escJs(slug) + '\')">Cancel</button>';
     var input = nameEl.querySelector('.dr-rename-input');
     if (input) {
       input.focus();
@@ -4269,8 +4281,8 @@
     var current = d.currentFilename || '';
     nameEl.innerHTML =
       '<input class="dr-rename-input" type="text" value="' + escAttr(current) + '" />' +
-      '<button class="small-btn dr-rename-save" onclick="dr_commitRename(\'' + escAttr(slug) + '\')">Save</button>' +
-      '<button class="small-btn dr-rename-cancel" onclick="dr_cancelRename(\'' + escAttr(slug) + '\')">Cancel</button>';
+      '<button class="small-btn dr-rename-save" onclick="dr_commitRename(\'' + escJs(slug) + '\')">Save</button>' +
+      '<button class="small-btn dr-rename-cancel" onclick="dr_cancelRename(\'' + escJs(slug) + '\')">Cancel</button>';
     var input = nameEl.querySelector('.dr-rename-input');
     if (input) {
       input.focus();

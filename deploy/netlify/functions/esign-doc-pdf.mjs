@@ -15,6 +15,7 @@ import { logPiiAccess } from './_shared/pii-audit.mjs';
 import {
   readDoc, docKey, docPdfStore, docFinalStore, tplStore, tplPdfStore, safeFilename,
 } from './_shared/esign-docs.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 const staff = (u) => isAdmin(u) || isProcessor(u);
 
@@ -25,7 +26,7 @@ function pdfResponse(b64, filename, inline) {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Length': String(bytes.length),
-      'Content-Disposition': (inline ? 'inline' : 'attachment') + '; filename="' + filename + '"',
+      'Content-Disposition': contentDisposition(inline ? 'inline' : 'attachment', filename),
       'Cache-Control': 'private, no-cache',
     },
   });

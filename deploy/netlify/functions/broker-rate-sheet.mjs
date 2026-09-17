@@ -33,6 +33,7 @@ import { checkPartnerAccess, getPartner } from './_shared/broker-partners.mjs';
 import { getQuote, patchQuote } from './_shared/broker-quotes.mjs';
 import { getLogo } from './_shared/broker-assets.mjs';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 const INK   = rgb(0.10, 0.08, 0.13);
 const MUTED = rgb(0.48, 0.45, 0.53);
@@ -110,7 +111,7 @@ async function handle(req, context) {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': 'inline; filename="' + fileNameFor(quote) + '"',
+      'Content-Disposition': contentDisposition('inline', fileNameFor(quote)),
       'Cache-Control': 'no-store',
     },
   });

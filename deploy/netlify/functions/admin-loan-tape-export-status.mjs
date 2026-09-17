@@ -6,6 +6,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth, isAdmin, isProcessor } from './_shared/auth.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 export default async (req, context) => {
   try {
@@ -26,7 +27,7 @@ export default async (req, context) => {
         status: 200,
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': 'attachment; filename="' + String(rec.meta.filename || ('SLA ' + year + ' Loan Tape.xlsx')).replace(/"/g, '') + '"',
+          'Content-Disposition': contentDisposition('attachment', rec.meta.filename || ('SLA ' + year + ' Loan Tape.xlsx')),
           'Cache-Control': 'no-store',
         },
       });

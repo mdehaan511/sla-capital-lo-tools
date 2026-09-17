@@ -13,6 +13,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isSuperAdmin, corsHeaders,
 } from './_shared/auth.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 export default async (req, context) => {
   try {
@@ -39,7 +40,7 @@ async function handle(req, context) {
     headers: {
       ...corsHeaders(),
       'Content-Type':        'application/pdf',
-      'Content-Disposition': 'inline; filename="' + String(meta.filename || investor + '.pdf').replace(/"/g, "'") + '"',
+      'Content-Disposition': contentDisposition('inline', meta.filename || (investor + '.pdf')),
       'Cache-Control':       'private, no-cache',
     },
   });

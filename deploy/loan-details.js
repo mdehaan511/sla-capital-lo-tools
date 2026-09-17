@@ -37,7 +37,23 @@ var _loan = null;
 var _loEmail = null;
 
 function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escAttr(s) { return String(s||'').replace(/"/g,'&quot;'); }
+// Deploy 237.139 — escAttr used to escape ONLY the double quote, so a value
+// holding a literal `&` could still close the attribute early: a document named
+// `x&quot;y.pdf` decodes back to a real quote in the browser. Escape the
+// ampersand first (then the rest), exactly like escH above.
+function escAttr(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Deploy 237.139 (Mike) — escAttr is NOT enough for a value that lands inside a
+// single-quoted argument of an inline handler: the HTML parser decodes entities
+// BEFORE the JS is compiled, so an apostrophe (or &#39;) closes the string early
+// and the whole handler dies with "SyntaxError: missing ) after argument list".
+// A document named "Owner's Rent Roll.pdf" took the doc-review list down that way.
+// escJs escapes for the JS string first, then for the attribute.
+function escJs(s) {
+  return escAttr(String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/[\r\n\u2028\u2029]+/g, ' '));
+}
 // Deploy 236.358 — cap at 2 decimals. Was: raw toLocaleString(), which
 // rendered a monthly payment like 3024.6091 as '$3,024.609'. With the
 // Intl options below whole-dollar amounts stay '$300,000' (min 0) and
@@ -1097,7 +1113,7 @@ function render() {
         var displayId = (l.slaDisplayId && String(l.slaDisplayId).trim()) || _deriveSlaLoanIdClient(l);
         // Deploy 237.102 (Mike) -- staff can hand-edit the loan number (pencil next to the chip).
         var _canEditId = !!(_isAdminUser || (window.SLA && typeof SLA.isProcessor === 'function' && SLA.isProcessor(_user)));
-        return '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(displayId) + '\')" title="Click to copy SLA loan ID (storage id: ' + escAttr(l.id || '') + ')">' +
+        return '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escJs(displayId) + '\')" title="Click to copy SLA loan ID (storage id: ' + escAttr(l.id || '') + ')">' +
           '<span class="ld-loan-id-label">Loan ID</span>' +
           '<span id="ldLoanIdText">' + escH(displayId || '(none)') + '</span>' +
         '</span>' +
@@ -3208,7 +3224,7 @@ function refreshBorrowerInfoPanes() {
         // SKIPS the application re-sign reset (transformData matches nobody).
         pane.innerHTML = '<div style="padding:10px 12px;background:#fff;border:1px solid var(--border, #ddd8d0);border-radius:6px;font-size:12px;color:var(--muted)">' +
           'Borrower record ' + escH(id) + ' not found — it was likely deleted or merged after being linked here. ' +
-          '<a href="#" onclick="removeGuarantorFromLoan(\'' + escAttr(id) + '\');return false" style="color:var(--danger,#7c1f1f);font-weight:600">Remove this ghost guarantor from the loan</a>' +
+          '<a href="#" onclick="removeGuarantorFromLoan(\'' + escJs(id) + '\');return false" style="color:var(--danger,#7c1f1f);font-weight:600">Remove this ghost guarantor from the loan</a>' +
           '</div>';
         if (tab) {
           var sub = tab.querySelector('.bw-tab-sub');
@@ -3374,7 +3390,7 @@ function _renderEditGuarantorButton(clientId, isPrimary, gEmail, gName) {
     ? '&owner=' + encodeURIComponent(_loEmail) : '';
   var href = '/client-details.html?clientId=' + encodeURIComponent(clientId) + ownerSuffix;
   var downloadBtn = isPrimary ? '' :
-    '<button type="button" class="bw-edit-guarantor-btn" onclick="downloadGuarantorApplication(this, \'' + escAttr(clientId) + '\')" ' +
+    '<button type="button" class="bw-edit-guarantor-btn" onclick="downloadGuarantorApplication(this, \'' + escJs(clientId) + '\')" ' +
        'title="Download this guarantor\'s full application as PDF (includes decrypted SSN and signed Credit Authorization if on file).">' +
       '<span class="bw-edit-icon">⬇</span> Download Application' +
     '</button>';
@@ -3391,7 +3407,7 @@ function _renderEditGuarantorButton(clientId, isPrimary, gEmail, gName) {
   // the primary would orphan the loan). Mike's original use case:
   // broker loans get a co-guarantor added by accident before ready.
   var removeBtn = isPrimary ? '' :
-    '<button type="button" class="bw-remove-guarantor-btn" onclick="removeGuarantorFromLoan(\'' + escAttr(clientId) + '\')" ' +
+    '<button type="button" class="bw-remove-guarantor-btn" onclick="removeGuarantorFromLoan(\'' + escJs(clientId) + '\')" ' +
        'title="Unlink this guarantor from this loan. Their client record is kept — you can re-add them later or leave them for other loans they\'re tied to.">' +
       '<span class="bw-edit-icon">×</span> Remove Guarantor' +
     '</button>';
@@ -3399,7 +3415,7 @@ function _renderEditGuarantorButton(clientId, isPrimary, gEmail, gName) {
   // primary (moves loan ownership + relabels them Guarantor 1); the old primary
   // is demoted to a secondary guarantor and existing signatures are preserved.
   var makePrimaryBtn = isPrimary ? '' :
-    '<button type="button" class="bw-edit-guarantor-btn" onclick="makePrimaryGuarantor(\'' + escAttr(clientId) + '\')" ' +
+    '<button type="button" class="bw-edit-guarantor-btn" onclick="makePrimaryGuarantor(\'' + escJs(clientId) + '\')" ' +
        'title="Make this guarantor the PRIMARY (Guarantor 1). The current primary becomes a secondary guarantor. Both parties keep their existing signatures — the application is just relabeled.">' +
       '<span class="bw-edit-icon">★</span> Make Primary' +
     '</button>';
@@ -3748,7 +3764,7 @@ function _renderSubFormLinkCard(tokenEntry, c) {
     '</div>' +
     '<div class="sf-url-row">' +
       '<input type="text" class="sf-url-input" readonly value="' + escAttr(url) + '" onclick="this.select()" />' +
-      '<button type="button" class="sf-btn" onclick="copySubFormLink(this, \'' + escAttr(tokenEntry.token) + '\')">Copy</button>' +
+      '<button type="button" class="sf-btn" onclick="copySubFormLink(this, \'' + escJs(tokenEntry.token) + '\')">Copy</button>' +
       '<a class="sf-btn" href="' + escAttr(mailto) + '" style="text-decoration:none">Email</a>' +
     '</div>' +
     // Deploy 236.130 — Signed Authorizations block. Lists every
@@ -5205,7 +5221,7 @@ function _hydrateTeamProc(containerId, canAssign) {
         var nm = p.name || p.email || 'Assigned';
         var role = p.role || 'processor';
         var badge = '<span class="proc-role-badge proc-role-' + escAttr(role) + '">' + escH(_procRoleLabel(role)) + '</span>';
-        var rm = canAssign ? '<button type="button" class="proc-remove" title="Remove from loan" onclick="_procTeamRemove(\'' + escAttr(String(p.email || '')) + '\')">&times;</button>' : '';
+        var rm = canAssign ? '<button type="button" class="proc-remove" title="Remove from loan" onclick="_procTeamRemove(\'' + escJs(String(p.email || '')) + '\')">&times;</button>' : '';
         return '<div class="proc-chip"><span class="proc-chip-name">' + escH(nm) + '</span>' + badge + rm + '</div>';
       }).join('')
     : '<div class="proc-empty">No processing team assigned yet.</div>';
@@ -5724,7 +5740,7 @@ function refreshBorrowerAccessList() {
     var _canViewPortal = !!(window.SLA && ((SLA.isAdmin && SLA.isAdmin(_user)) || (SLA.isProcessor && SLA.isProcessor(_user))));
     listEl.innerHTML = grants.map(function(g) {
       var viewBtn = _canViewPortal
-        ? '<button type="button" onclick="viewBorrowerPortal(\'' + escAttr(g.email) + '\')" title="Open this borrower\'s portal, read-only" style="font-size:11px;color:var(--ink,#222);background:#fff;border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;margin-right:6px">👁 View portal</button>'
+        ? '<button type="button" onclick="viewBorrowerPortal(\'' + escJs(g.email) + '\')" title="Open this borrower\'s portal, read-only" style="font-size:11px;color:var(--ink,#222);background:#fff;border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;margin-right:6px">👁 View portal</button>'
         : '';
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff;gap:8px">' +
         '<div style="min-width:0">' +
@@ -5732,7 +5748,7 @@ function refreshBorrowerAccessList() {
           '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace;margin-top:2px">' + escH(g.role || 'borrower') + ' · granted ' + (g.grantedAt ? new Date(g.grantedAt).toLocaleDateString() : 'unknown') + '</div>' +
         '</div>' +
         '<div style="white-space:nowrap">' + viewBtn +
-          '<button type="button" onclick="revokeBorrowerAccess(\'' + escAttr(g.email) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 10px;cursor:pointer">Revoke</button>' +
+          '<button type="button" onclick="revokeBorrowerAccess(\'' + escJs(g.email) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 10px;cursor:pointer">Revoke</button>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -6012,7 +6028,7 @@ function _renderDocRow(d) {
     '</div>' +
     '<a href="' + escAttr(viewUrl) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold-mid,#b5712d);text-decoration:none;padding:5px 10px;border:1px solid var(--gold-border,rgba(200,129,58,0.28));border-radius:4px" title="Open in new tab">View</a>' +
     '<a href="' + escAttr(dlUrl) + '" style="font-size:11px;color:var(--gold-mid,#b5712d);text-decoration:none;padding:5px 10px;border:1px solid var(--gold-border,rgba(200,129,58,0.28));border-radius:4px" title="Download">Download</a>' +
-    '<button type="button" onclick="deleteDoc(\'' + escAttr(d.id) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 9px;cursor:pointer" title="Delete">✕</button>' +
+    '<button type="button" onclick="deleteDoc(\'' + escJs(d.id) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 9px;cursor:pointer" title="Delete">✕</button>' +
   '</div>';
 }
 
@@ -6605,7 +6621,7 @@ function _renderLoanContactRow(c) {
     : '<span class="muted">—</span>';
   // Deploy 236.114 — row is clickable to edit; the delete button
   // stops propagation so clicking the X doesn't also open the modal.
-  return '<div class="contact-row" data-contact-id="' + escAttr(c.id) + '" onclick="openEditContactModal(\'' + escAttr(c.id) + '\')" style="cursor:pointer" title="Click to edit">' +
+  return '<div class="contact-row" data-contact-id="' + escAttr(c.id) + '" onclick="openEditContactModal(\'' + escJs(c.id) + '\')" style="cursor:pointer" title="Click to edit">' +
     '<div><span class="ct-role ' + escAttr(role) + '">' + escH(roleLabel) + '</span></div>' +
     '<div class="ct-name">' +
       '<span class="ct-name-name">' + escH(name) + '</span>' +
@@ -6613,7 +6629,7 @@ function _renderLoanContactRow(c) {
     '</div>' +
     '<div class="ct-info ct-email">' + emailHtml + '</div>' +
     '<div class="ct-info ct-phone">' + phoneHtml + '</div>' +
-    '<button class="ct-delete" onclick="event.stopPropagation();deleteLoanContact(\'' + escAttr(c.id) + '\')" title="Delete contact">✕</button>' +
+    '<button class="ct-delete" onclick="event.stopPropagation();deleteLoanContact(\'' + escJs(c.id) + '\')" title="Delete contact">✕</button>' +
   '</div>';
 }
 
@@ -7373,11 +7389,11 @@ function _renderTaskRow(t) {
   var dueStr = t.dueDate ? _formatTaskDate(t.dueDate) : '';
   var assigneeStr = t.assignedToName || t.assignedTo || '—';
   return '<div class="task-row' + (t.completed ? ' done' : '') + (past ? ' past-due' : '') + '" data-task-id="' + escAttr(t.id) + '">' +
-    '<input type="checkbox" class="task-check"' + (t.completed ? ' checked' : '') + ' onchange="toggleTaskComplete(\'' + escAttr(t.id) + '\', this.checked)" title="Mark complete" />' +
+    '<input type="checkbox" class="task-check"' + (t.completed ? ' checked' : '') + ' onchange="toggleTaskComplete(\'' + escJs(t.id) + '\', this.checked)" title="Mark complete" />' +
     '<div class="task-title" title="' + escAttr((t.description || '') + (t.createdByName ? '\nAdded by ' + t.createdByName : '')) + '">' + escH(t.title) + '</div>' +
     '<div class="task-due">' + (dueStr ? escH(dueStr) : '—') + '</div>' +
     '<div class="task-assignee" title="' + escAttr(t.assignedTo || '') + '">' + escH(assigneeStr) + '</div>' +
-    '<button class="task-action" onclick="deleteTask(\'' + escAttr(t.id) + '\')" title="Delete task">✕</button>' +
+    '<button class="task-action" onclick="deleteTask(\'' + escJs(t.id) + '\')" title="Delete task">✕</button>' +
   '</div>';
 }
 
@@ -7526,8 +7542,8 @@ function _renderUserPicker(input, query) {
     html += '<div class="user-picker-empty">No matches for "' + escH(q) + '"</div>';
   } else {
     html += matches.map(function(u) {
-      var safeEmail = escAttr(u.email);
-      var safeName  = escAttr(u.name || '');
+      var safeEmail = escJs(u.email);
+      var safeName  = escJs(u.name || '');   // Deploy 237.139 — O'Brien
       return '<div class="user-picker-item" onmousedown="event.preventDefault();pickUser(this,\'' + safeEmail + '\',\'' + safeName + '\')">' +
         '<div class="up-name">' + escH(u.name || u.email) + '</div>' +
         (u.name ? '<div class="up-email">' + escH(u.email) + '</div>' : '') +
@@ -9848,7 +9864,7 @@ function renderVerificationsList(list) {
     h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border,#eee7da)">' +
       '<span style="flex:1;line-height:1.4;color:var(--text,#1a1520)">' + line + '</span>' + badge +
       '<span style="color:var(--muted);white-space:nowrap">' + escH(when) + '</span>' +
-      (v.hasPdf ? '<a href="#" onclick="downloadVerificationDoc(\'' + escAttr(v.id) + '\');return false" style="white-space:nowrap">PDF</a>' : '') +
+      (v.hasPdf ? '<a href="#" onclick="downloadVerificationDoc(\'' + escJs(v.id) + '\');return false" style="white-space:nowrap">PDF</a>' : '') +
     '</div>';
   });
   h += '<div style="margin-top:8px;font-size:11px;color:var(--muted)">Credit reports are valid 120 days. PDFs are auto-filed into this loan\'s Documents.</div>';
@@ -10812,7 +10828,7 @@ function _renderMergeLoserList() {
     var amt = cand.loanAmt ? '$' + Math.round(cand.loanAmt).toLocaleString() : '—';
     var updated = cand.updatedAt ? new Date(cand.updatedAt).toLocaleDateString() : '';
     var loLabel = cand.ownerKey === myOwner ? 'This LO' : cand.ownerKey;
-    return '<div onclick="pickMergeLoser(\'' + escAttr(selKey) + '\')" style="padding:12px 14px;border-bottom:1px solid var(--border, #E4DFD4);cursor:pointer;background:' + (isSel ? 'rgba(133,77,14,0.08)' : '#fff') + ';border-left:3px solid ' + (isSel ? '#854d0e' : 'transparent') + '">' +
+    return '<div onclick="pickMergeLoser(\'' + escJs(selKey) + '\')" style="padding:12px 14px;border-bottom:1px solid var(--border, #E4DFD4);cursor:pointer;background:' + (isSel ? 'rgba(133,77,14,0.08)' : '#fff') + ';border-left:3px solid ' + (isSel ? '#854d0e' : 'transparent') + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
         '<div style="font-size:14px;font-weight:600;color:var(--dark)">' + escH(cand.borrower) + '</div>' +
         '<div style="font-size:11px;color:var(--muted)">' + escH(updated) + '</div>' +
@@ -10997,12 +11013,12 @@ function _mergeRowHtml(kind, field, vW, vL) {
   var label = field;
 
   var wBox = '<label style="flex:1;display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:8px 10px;border-radius:6px;background:' + (wSel ? 'rgba(21,128,61,0.08)' : '#fff') + ';border:1.5px solid ' + (wSel ? '#166534' : 'var(--border, #E4DFD4)') + ';transition:all 0.12s">' +
-    '<input type="radio" name="mergepick_' + escAttr(pickKey) + '" ' + (wSel ? 'checked' : '') + ' onchange="setMergePick(\'' + escAttr(pickKey) + '\', \'W\')" style="margin-top:2px" />' +
+    '<input type="radio" name="mergepick_' + escAttr(pickKey) + '" ' + (wSel ? 'checked' : '') + ' onchange="setMergePick(\'' + escJs(pickKey) + '\', \'W\')" style="margin-top:2px" />' +
     '<div style="flex:1;min-width:0"><div style="font-size:10px;color:#166534;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">Winner value</div><div style="font-size:12px;color:var(--dark);word-break:break-word;white-space:pre-wrap">' + (vW ? escH(vW) : '<em style="color:var(--muted)">(empty)</em>') + '</div></div>' +
   '</label>';
 
   var lBox = '<label style="flex:1;display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:8px 10px;border-radius:6px;background:' + (lSel ? 'rgba(124,31,31,0.08)' : '#fff') + ';border:1.5px solid ' + (lSel ? '#7C1F1F' : 'var(--border, #E4DFD4)') + ';transition:all 0.12s">' +
-    '<input type="radio" name="mergepick_' + escAttr(pickKey) + '" ' + (lSel ? 'checked' : '') + ' onchange="setMergePick(\'' + escAttr(pickKey) + '\', \'L\')" style="margin-top:2px" />' +
+    '<input type="radio" name="mergepick_' + escAttr(pickKey) + '" ' + (lSel ? 'checked' : '') + ' onchange="setMergePick(\'' + escJs(pickKey) + '\', \'L\')" style="margin-top:2px" />' +
     '<div style="flex:1;min-width:0"><div style="font-size:10px;color:#7C1F1F;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">Loser value</div><div style="font-size:12px;color:var(--dark);word-break:break-word;white-space:pre-wrap">' + (vL ? escH(vL) : '<em style="color:var(--muted)">(empty)</em>') + '</div></div>' +
   '</label>';
 

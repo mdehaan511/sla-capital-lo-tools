@@ -795,7 +795,19 @@ function calcCommissionNum(q) {
 }
 function fmtM(v){ var n=parseFloat(v); if(!v||isNaN(n))return '—'; return '$'+Math.round(n).toLocaleString(); }
 function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Deploy 237.139 (Mike) — escAttr is NOT enough for a value that lands inside a
+// single-quoted argument of an inline handler: the HTML parser decodes entities
+// BEFORE the JS is compiled, so an apostrophe (or &#39;) closes the string early
+// and the whole handler dies with "SyntaxError: missing ) after argument list".
+// A document named "Owner's Rent Roll.pdf" took the doc-review list down that way.
+// escJs escapes for the JS string first, then for the attribute.
+function escJs(s) {
+  return escAttr(String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/[\r\n\u2028\u2029]+/g, ' '));
+}
 function humanizeEmail(email) {
   if (!email) return '';
   var s = String(email);
@@ -1119,9 +1131,9 @@ function renderSubmittedTable() {
       + '<td><span class="status-badge submitted">⬆ Submitted</span></td>'
       + '<td class="td-date">' + date + '</td>'
       + '<td class="action-cell">'
-        + '<button class="status-btn approve" onclick="event.stopPropagation();adminDecision(\'' + ua + '\',\'' + uid + '\',\'' + tt + '\',\'' + addr + '\',\'approved\')"'
+        + '<button class="status-btn approve" onclick="event.stopPropagation();adminDecision(\'' + escJs(ua) + '\',\'' + escJs(uid) + '\',\'' + escJs(tt) + '\',\'' + escJs(addr) + '\',\'approved\')"'
           + '>&#10003; Approve</button>'
-        + '<button class="status-btn deny" onclick="event.stopPropagation();adminDecision(\'' + ua + '\',\'' + uid + '\',\'' + tt + '\',\'' + addr + '\',\'denied\')"'
+        + '<button class="status-btn deny" onclick="event.stopPropagation();adminDecision(\'' + escJs(ua) + '\',\'' + escJs(uid) + '\',\'' + escJs(tt) + '\',\'' + escJs(addr) + '\',\'denied\')"'
           + '>&#10005; Deny</button>'
       + '</td>';
     tbody.appendChild(tr);

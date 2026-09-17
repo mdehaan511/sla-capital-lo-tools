@@ -33,6 +33,7 @@ import {
 } from './_shared/auth.mjs';
 import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 import { zipFolderFor, zipNameFor } from './_shared/doc-naming.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 const TAB_LABELS = { pending: 'Pending Docs', ai: 'AI Reviewed', uw: 'Ready for UW', conditions: 'Pending Conditions', reviewed: 'Approved Docs' };
 
@@ -181,7 +182,7 @@ async function handle(req, context) {
       ...corsHeaders(),
       'Content-Type':        'application/zip',
       'Content-Length':      String(out.length),
-      'Content-Disposition': 'attachment; filename="' + filename.replace(/"/g, "'") + '"',
+      'Content-Disposition': contentDisposition('attachment', filename),
       'Cache-Control':       'private, no-store',
     },
   });

@@ -16,6 +16,7 @@ import {
 import { canReadReviewDoc } from './_shared/access.mjs';
 // Deploy 236.881 — LO tray restriction, enforced on the download too.
 import { seesAllTrays, canSeeSlug } from './_shared/loan-review-visibility.mjs';
+import { contentDisposition } from './_shared/content-disposition.mjs'; // Deploy 237.139
 
 export default async (req, context) => {
   try {
@@ -97,7 +98,8 @@ async function handle(req, context) {
     headers: {
       ...corsHeaders(),
       'Content-Type': mimeType,
-      'Content-Disposition': 'inline; filename="' + filename.replace(/"/g, "'") + '"',
+      // Deploy 237.139 — a curly apostrophe in the name used to 500 here.
+      'Content-Disposition': contentDisposition('inline', filename),
       'Cache-Control': 'private, no-cache',
     },
   });
