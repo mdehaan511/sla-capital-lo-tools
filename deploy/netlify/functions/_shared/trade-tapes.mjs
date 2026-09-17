@@ -205,7 +205,18 @@ const reservesOf = (c) => {
   if (emd != null) { total += emd; any = true; }
   return any ? round2(total) : '';
 };
-const thirdPartyAiv = (c) => num(c.loan.aivBpo) || num(uw(c, 'asIsPrice')) || null;
+// Deploy 237.132 (Mike) -- AIV comes from the BPO or the appraisal: the loan's AIV
+// BPO, else the UW tab's As-Is value, else the as-is value the document review
+// read off the valuation tray (c.reviewValuation, attached by trade-tape-export).
+const thirdPartyAiv = (c) => num(c.loan.aivBpo) || num(uw(c, 'asIsPrice')) || num(c.reviewValuation && c.reviewValuation.aiv) || null;
+// Exit strategy is a long-app answer (sell / refi / cash); saved onto the loan
+// from 237.132, read straight off the long app (c.longApp) for older loans.
+// Labels match Mike's own Stride submissions ("Sell", "Refinance").
+const EXIT_LABEL = { sell: 'Sell', sale: 'Sell', refi: 'Refinance', refinance: 'Refinance', cash: 'Pay off in Cash' };
+const exitStrategyOf = (c) => {
+  const raw = String((c.loan && c.loan.exitStrategy) || (c.longApp && c.longApp.exitStrategy) || '').trim();
+  return raw ? (EXIT_LABEL[raw.toLowerCase()] || raw) : '';
+};
 
 // ── Template: Colchis post-close trade tape (61 cols) ─────────────────────
 const COLCHIS_TRADE_COLS = [
@@ -648,6 +659,7 @@ const STRIDE_RTL_COLS = [
     if (t === 'appraisal') return '1004';
     if (t === 'bpo' || (!t && num(c.loan.aivBpo))) return 'BPO';
     if (t === 'avm') return 'AVM';
+    if (!t && c.reviewValuation && c.reviewValuation.kind) return c.reviewValuation.kind === 'appraisal' ? '1004' : 'BPO'; // 237.132
     return '';
   }],
   ['Note Rate', (c) => pct(rateFrac(c.loan.rate))],
@@ -676,7 +688,7 @@ const STRIDE_RTL_COLS = [
     if (lt === 'ground_up' || lt === 'guc' || String(c.loan.toolType || '').toLowerCase() === 'guc') return 'GUC';
     return 'RTL';
   }],
-  ['Exit Strategy', () => ''], // lives on the long app, not the loan — hand-fill
+  ['Exit Strategy', (c) => exitStrategyOf(c)], // 237.132 -- from the long app
   ['Guarantor Citizenship Status', (c) => { const u = citizenOf(c); return u == null ? '' : (u ? 'US' : 'Foreign National'); }],
   ['Multi Property Flag', () => 'N'],
   ['Cross Collateralized Flag', () => 'N'],

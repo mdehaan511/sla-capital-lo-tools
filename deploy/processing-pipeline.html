@@ -2052,21 +2052,48 @@ function _strideName(it) {
 }
 function _strideLoanRows() {
   var key = (document.getElementById('strideKey') || {}).value || 'stride_dscr';
-  var items = _strideCandidates(key);
+  // Deploy 237.132 (Mike) -- soonest closing date first (no date = bottom).
+  var items = _strideCandidates(key).slice().sort(function(a, b) {
+    var da = String(a.loan.fundingDate || '').slice(0, 10), db = String(b.loan.fundingDate || '').slice(0, 10);
+    if (!da !== !db) return da ? -1 : 1;
+    if (da !== db) return da < db ? -1 : 1;
+    return String(a.loan.address || '').localeCompare(String(b.loan.address || ''));
+  });
   window._strideItems = items;
   if (!items.length) return '<div style="font-size:13px;color:var(--muted);padding:8px 0">No in-processing ' + (key === 'stride_dscr' ? 'DSCR' : 'RTL') + ' loans.</div>';
   return items.map(function(it, i) {
     var l = it.loan;
-    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#eee7da);font-size:13px;cursor:pointer">' +
+    var _q = [l.address, _strideName(it), l.slaDisplayId, l.baselineLoanId, l.id, it.ownerKey].join(' ').toLowerCase();
+    return '<label class="stride-row" data-q="' + escAttr(_q) + '" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#eee7da);font-size:13px;cursor:pointer">' +
       '<input type="checkbox" class="stride-loan" data-i="' + i + '" style="flex:none" />' +
       '<span style="flex:1">' + escH(l.address || '(no address)') + ' — ' + escH(_strideName(it)) + '</span>' +
-      '<span style="color:var(--muted);font-size:11px;white-space:nowrap">' + escH(fmtMoney(l.loanAmt)) + (l.fundingDate ? ' · closes ' + escH(String(l.fundingDate).slice(0, 10)) : '') + '</span>' +
+      '<span style="color:var(--muted);font-size:11px;white-space:nowrap">' + escH(fmtMoney(l.loanAmt)) + (l.fundingDate ? ' · closes ' + escH(_strideDate(l.fundingDate)) : '') + '</span>' +
     '</label>';
   }).join('');
 }
 function _strideRefreshRows() {
   var box = document.getElementById('strideLoans');
   if (box) box.innerHTML = _strideLoanRows();
+  _strideFilter();
+}
+// Deploy 237.132 -- yyyy-mm-dd -> mm-dd-yyyy.
+function _strideDate(v) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+  return m ? (m[2] + '-' + m[3] + '-' + m[1]) : String(v || '');
+}
+// Search hides rows instead of re-rendering, so checked loans stay checked.
+function _strideFilter() {
+  var q = String((document.getElementById('strideSearch') || {}).value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  var terms = q ? q.split(' ') : [];
+  var shown = 0;
+  Array.prototype.forEach.call(document.querySelectorAll('#strideLoans .stride-row'), function(row) {
+    var hay = row.getAttribute('data-q') || '';
+    var ok = terms.every(function(t) { return hay.indexOf(t) !== -1; });
+    row.style.display = ok ? 'flex' : 'none';
+    if (ok) shown++;
+  });
+  var none = document.getElementById('strideNoMatch');
+  if (none) none.style.display = (terms.length && !shown) ? '' : 'none';
 }
 function openStrideTapeModal() {
   var old = document.getElementById('strideModal'); if (old) old.remove();
@@ -2085,7 +2112,9 @@ function openStrideTapeModal() {
           '<option value="stride_rtl">Stride RTL (pre-funding)</option>' +
         '</select>' +
         '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Loans in processing</label>' +
+        '<input type="search" id="strideSearch" oninput="_strideFilter()" placeholder="Search address, borrower or loan #" autocomplete="off" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-size:13px;margin-bottom:8px" />' +
         '<div id="strideLoans">' + _strideLoanRows() + '</div>' +
+        '<div id="strideNoMatch" style="display:none;font-size:13px;color:var(--muted);padding:8px 0">No loans match.</div>' +
         '<div id="strideStatus" style="font-size:12px;color:var(--muted);margin-top:10px"></div>' +
       '</div>' +
       '<div style="padding:12px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +

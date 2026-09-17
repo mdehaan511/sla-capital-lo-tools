@@ -144,6 +144,7 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.purchaseOrRefi)  loanUpdates.purchaseOrRefi = String(data.purchaseOrRefi);
   if (data.dscrPurchaseRefi) loanUpdates.purchaseOrRefi = String(data.dscrPurchaseRefi);
   if (data.planDescription) loanUpdates.projectDescription = String(data.planDescription);
+  if (data.exitStrategy) loanUpdates.exitStrategy = String(data.exitStrategy); // Deploy 237.132 (Mike) -- sell / refi / cash, for the Stride tape
   if (data.dscrCloseDate) loanUpdates.fundingDate = String(data.dscrCloseDate);
   if (data.ffCloseDate)   loanUpdates.fundingDate = String(data.ffCloseDate);
   // Deploy 236.742 — construction + transactional desired close dates were

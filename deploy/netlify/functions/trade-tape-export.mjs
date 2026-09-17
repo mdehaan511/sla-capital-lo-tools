@@ -24,6 +24,7 @@ import { TRADE_TAPES } from './_shared/trade-tapes.mjs';
 import { buildXlsx } from './_shared/xlsx-write.mjs';
 import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
 import { saveTape } from './_shared/trade-tape-store.mjs';
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -79,6 +80,7 @@ async function handle(req, context) {
     ctxs.push({ loan, client, guarantors, ownerKey, params, sla: deriveBaselineLoanId(loan) });
   }
   if (!ctxs.length) return json(404, { error: 'No loans resolved: ' + errors.join('; ') });
+  await attachLongAppAndValuation(ctxs);
 
   const built = tape.build(ctxs);
   const buf = await buildXlsx(built.sheets);
@@ -128,4 +130,55 @@ async function handle(req, context) {
       'X-Tape-Errors': encodeURIComponent(errors.join(' | ')).slice(0, 1000),
     },
   });
+}
+
+// Deploy 237.132 (Mike: "AIV and Exit Strategy need to be hand filled, do we not
+// save those?") -- both ARE on file, just not on the loan record the tape reads:
+//   - Exit Strategy is a long-app answer -> ctx.longApp (the borrower_info data).
+//   - AIV is read by the document review off the BPO / appraisal tray. It lands on
+//     the loan (aivBpo / uwData.asIsPrice) when the field write succeeds; when it
+//     did not (older reviews, an appraisal-only file) the tray still carries the
+//     extracted asIsValue -> ctx.reviewValuation { aiv, kind }.
+// Reviews have no by-loan index, so the store is walked ONCE per export and only
+// when some loan on the tape is actually missing its AIV. Never throws.
+async function attachLongAppAndValuation(ctxs) {
+  try {
+    const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+    for (const c of ctxs) {
+      if (c.loan.exitStrategy) continue;
+      try {
+        const rec = await loadRecord(biStore, c.ownerKey, c.client.id, c.loan.id, c.client);
+        if (rec && rec.data) c.longApp = rec.data;
+      } catch (_) {}
+    }
+  } catch (e) { console.warn('[trade-tape-export] long app attach failed:', e && e.message); }
+  try {
+    const n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+    const need = {};
+    for (const c of ctxs) {
+      const onLoan = n(c.loan.aivBpo) || n(c.loan.uwData && c.loan.uwData.asIsPrice && c.loan.uwData.asIsPrice.value);
+      if (!onLoan) need[c.loan.id] = c;
+    }
+    if (!Object.keys(need).length) return;
+    const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
+    const { blobs } = await store.list();
+    const keys = blobs.map((b) => b.key);
+    for (let i = 0; i < keys.length; i += 12) {
+      const batch = await Promise.all(keys.slice(i, i + 12).map((k) => store.get(k, { type: 'json' }).catch(() => null)));
+      for (const review of batch) {
+        const lid = review && review.source && review.source.loanId;
+        const c = lid && need[lid];
+        if (!c || c.reviewValuation) continue;
+        const docs = review.docs || {};
+        // The appraisal outranks the BPO when both were read; portfolio trays
+        // (__p<i>) are skipped -- a per-property value is not the loan's AIV.
+        for (const slug of ['appraisal', 'bpo_valuation']) {
+          const d = docs[slug];
+          if (!d || d.hidden || d.verdict === 'na') continue;
+          const aiv = n(d.aiExtractedEntities && d.aiExtractedEntities.asIsValue);
+          if (aiv > 0) { c.reviewValuation = { aiv, kind: slug === 'appraisal' ? 'appraisal' : 'bpo' }; break; }
+        }
+      }
+    }
+  } catch (e) { console.warn('[trade-tape-export] review valuation attach failed:', e && e.message); }
 }
