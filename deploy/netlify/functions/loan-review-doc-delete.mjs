@@ -14,6 +14,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs';
 
 export default async (req, context) => {
   try {
@@ -51,20 +52,47 @@ async function handle(req, context) {
 
   const docState = (review.docs || {})[body.slug];
   if (docState) {
-    // Clear current* refs if they pointed at the deleted doc.
+    // Deploy 237.130 (Dan: removing one of several OFAC docs sent the whole tray
+    // back to Pending Docs with a dead Approve button) -- the removed doc leaves
+    // documents[] here, and when it was the primary the next live document is
+    // promoted WITH its own AI result. The tray keeps its verdict / UW state; it
+    // only resets when nothing is left in it. (The page used to promote, but it
+    // compared against currentDocId AFTER this endpoint had blanked it.)
+    if (Array.isArray(docState.documents)) {
+      docState.documents = docState.documents.filter(function (d) { return d && d.docId !== body.docId; });
+    }
     if (docState.currentDocId === body.docId) {
-      docState.currentDocId = '';
-      docState.currentFilename = '';
-      docState.currentSize = 0;
-      docState.currentMimeType = '';
-      docState.currentUploadedAt = '';
-      docState.verdict = 'pending';
-      docState.processorNotes = '';
-      docState.aiVerdict = '';
-      docState.aiNotes = '';
-      docState.processorOverrideReason = '';
-      docState.approvedAt = '';
-      docState.approvedBy = '';
+      const next = (docState.documents || []).filter(function (d) { return d && !d.hidden && d.docId; })
+        .sort(function (x, y) { return String(y.uploadedAt || '').localeCompare(String(x.uploadedAt || '')); })[0]; // most recent upload = primary (matches the upload path)
+      if (next) {
+        docState.currentDocId = next.docId;
+        docState.currentFilename = next.filename || '';
+        docState.currentSize = next.size || 0;
+        docState.currentMimeType = next.mimeType || 'application/pdf';
+        docState.currentUploadedAt = next.uploadedAt || '';
+        docState.aiVerdict = next.aiVerdict || '';
+        docState.aiNotes = next.aiNotes || '';
+        docState.aiFindings = Array.isArray(next.aiFindings) ? next.aiFindings : [];
+        docState.aiExtractedEntities = next.aiExtractedEntities || {};
+        docState.aiReviewedAt = next.aiReviewedAt || '';
+        docState.aiError = next.aiError || '';
+      } else {
+        docState.currentDocId = '';
+        docState.currentFilename = '';
+        docState.currentSize = 0;
+        docState.currentMimeType = '';
+        docState.currentUploadedAt = '';
+        docState.verdict = 'pending';
+        docState.processorNotes = '';
+        docState.aiVerdict = '';
+        docState.aiNotes = '';
+        docState.processorOverrideReason = '';
+        docState.approvedAt = '';
+        docState.approvedBy = '';
+        docState.uwVerdict = '';
+        docState.uwApprovedAt = '';
+        docState.uwApprovedBy = '';
+      }
     }
     // Also strip from history if it was a prior upload.
     if (Array.isArray(docState.history)) {
@@ -78,6 +106,7 @@ async function handle(req, context) {
   review.lastEditedBy = normalizeEmail(user.email);
   review.lastEditedAt = now;
   await reviewStore.setJSON(keySafe(body.reviewId), review);
+  await syncReviewCountsToLoan(review); // Deploy 237.130 -- a removal changes Docs Collected on the Processing tile
 
   return json(200, { ok: true, review });
 }

@@ -2195,7 +2195,7 @@
         : "dr_setVerdict('" + escAttr(slug) + "','approved')";
       var approveLabel = (d.aiVerdict === 'issues') ? '✓ Override AI &amp; Approve' : '✓ Approve';
       verdictBtns =
-        '<button class="v-btn approve" onclick="' + approveOnclick + '"' + (d.currentDocId ? '' : ' disabled title="Upload a doc first"') + '>' + approveLabel + '</button>' +
+        '<button class="v-btn approve" onclick="' + approveOnclick + '"' + (_trayHasDoc(d) ? '' : ' disabled title="Upload a doc first"') + '>' + approveLabel + '</button>' +
         '<button class="v-btn na" onclick="dr_openNaModal(\'' + escAttr(slug) + '\')">○ Mark N/A</button>';
     }
     // Deploy 236.161 — hide/unhide control. Trays the LO marks
@@ -2871,32 +2871,10 @@
     if (!confirm('Remove this document from the tray? (Deletes the file from storage.)')) return;
     global.SLA.LoanReviews.deleteDoc(_review.id, slug, docId).then(function(r) {
       _review = r.review;
-      // Belt-and-suspenders: also strip the entry from documents[]
-      // locally in case the backend doesn't (the delete endpoint
-      // historically only nulled current* fields).
-      var docState = _review.docs[slug] || {};
-      if (Array.isArray(docState.documents)) {
-        var next = docState.documents.filter(function(d) { return d && d.docId !== docId; });
-        if (next.length !== docState.documents.length) {
-          var patch = { docs: {} };
-          patch.docs[slug] = { documents: next };
-          // Promote a new primary if we just removed it.
-          if (docState.currentDocId === docId) {
-            var newPrimary = next.find(function(d) { return d && !d.hidden; });
-            if (newPrimary) {
-              patch.docs[slug].currentDocId      = newPrimary.docId;
-              patch.docs[slug].currentFilename   = newPrimary.filename || '';
-              patch.docs[slug].currentSize       = newPrimary.size || 0;
-              patch.docs[slug].currentMimeType   = newPrimary.mimeType || 'application/pdf';
-              patch.docs[slug].currentUploadedAt = newPrimary.uploadedAt || '';
-            }
-          }
-          global.SLA.LoanReviews.patch(_review.id, patch).then(function(r2) {
-            _review = r2.review;
-            render();
-          }).catch(function() { render(); });
-        } else { render(); }
-      } else { render(); }
+      // Deploy 237.130 -- the endpoint strips documents[] and promotes the next
+      // live document itself (the old page-side promotion compared against a
+      // currentDocId the server had already blanked, so it never ran).
+      render();
       showToast('Removed.', 'success');
     }).catch(function(err) {
       showToast('Failed to remove: ' + (err.message || 'Unknown'), 'error');
@@ -4336,6 +4314,22 @@
     });
   };
 
+  // Deploy 237.130 -- a tray left with live documents but no primary pointer
+  // (a pre-237.130 removal of the primary doc blanked currentDocId and the
+  // promotion never ran) gets its most recent live document promoted on the
+  // next verdict save, so Approve works again.
+  function _primaryHealFields(slug) {
+    var dd = (_review && _review.docs && _review.docs[slug]) || {};
+    if (dd.currentDocId || !Array.isArray(dd.documents)) return null;
+    var live = dd.documents.filter(function(x) { return x && !x.hidden && x.docId; })
+      .sort(function(x, y) { return String(y.uploadedAt || '').localeCompare(String(x.uploadedAt || '')); });
+    if (!live.length) return null;
+    var n = live[0];
+    return { currentDocId: n.docId, currentFilename: n.filename || '', currentSize: n.size || 0,
+      currentMimeType: n.mimeType || 'application/pdf', currentUploadedAt: n.uploadedAt || '',
+      aiVerdict: n.aiVerdict || '', aiNotes: n.aiNotes || '', aiFindings: Array.isArray(n.aiFindings) ? n.aiFindings : [],
+      aiExtractedEntities: n.aiExtractedEntities || {}, aiReviewedAt: n.aiReviewedAt || '' };
+  }
   global.dr_setVerdict = function(slug, verdict) {
     // Deploy 236.746 — flagging an issue now requires the processor to say
     // WHAT the issue is (modal); the reason flows to the loan note stream,
@@ -4348,6 +4342,8 @@
     } else {
       patch.docs[slug] = { verdict: 'pending', approvedAt: '', approvedBy: '', flagReason: '', uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
     }
+    var _heal = _primaryHealFields(slug); // Deploy 237.130
+    if (_heal) { for (var _hk in _heal) { if (Object.prototype.hasOwnProperty.call(_heal, _hk)) patch.docs[slug][_hk] = _heal[_hk]; } }
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
       showToast('Saved.', 'success');
