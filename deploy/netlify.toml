@@ -711,6 +711,13 @@
   status = 200
   force = true
 
+# Deploy 237.127 -- Owner "View as user" (read-only; enforced in _shared/auth.mjs)
+[[redirects]]
+  from = "/api/view-as-start"
+  to = "/.netlify/functions/view-as-start"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/users-directory"
   to = "/.netlify/functions/users-directory"

@@ -15,6 +15,7 @@
 // trusting a decoded payload. See the requireAuth body for the full
 // rationale.
 import { verifySupabaseToken } from './supabase-auth.mjs';
+import { db } from './supabase-db.mjs'; // Deploy 237.127 -- view-as role lookup
 
 export function corsHeaders() {
   return {
@@ -71,7 +72,64 @@ export function handleOptions(req) {
  * populated), falls back to parsing the Authorization header's JWT
  * payload ourselves.
  */
+// Deploy 237.127 (Mike) -- "View as user". A super admin (Owner) can send
+// `x-sla-view-as: <email>`; every endpoint then answers as that user (their email +
+// their roles from public.sla_user_roles, the same table the token hook reads), so the
+// page shows exactly what they see. It is READ-ONLY: any request that could write
+// (anything but GET/HEAD, except POST read endpoints ending -list/-get/-find/-fetch/
+// -search) is refused with no user. Nobody else can use the header -- it is ignored.
+// The real viewer rides along as user._viewAsBy and every request is logged.
+const _VIEW_AS_READ_POST = /(-list|-get|-find|-fetch|-search|-zip-download)$|^\/api\/search(-pg)?$/;
+const _viewAsRoleCache = new Map(); // email -> { at, roles }
+async function _viewAsRoles(email) {
+  const hit = _viewAsRoleCache.get(email);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.roles;
+  let roles = null;
+  try {
+    const rows = await db.select('sla_user_roles', { select: 'email,roles', eq: { email } });
+    const r = Array.isArray(rows) ? rows[0] : null;
+    if (r) roles = Array.isArray(r.roles) ? r.roles : (r.roles ? [String(r.roles)] : []);
+  } catch (e) { console.warn('[view-as] role lookup failed:', e && e.message); }
+  _viewAsRoleCache.set(email, { at: Date.now(), roles });
+  return roles;
+}
+export function isReadOnlyRequest(req) {
+  const m = String((req && req.method) || 'GET').toUpperCase();
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
+  if (m !== 'POST') return false;
+  let path = '';
+  try { path = new URL(req.url).pathname; } catch (_) {}
+  return _VIEW_AS_READ_POST.test(path.replace(/\/+$/, ''));
+}
+async function _applyViewAs(user, req) {
+  if (!user || !req || !req.headers || typeof req.headers.get !== 'function') return user;
+  const target = normalizeEmail(req.headers.get('x-sla-view-as') || '');
+  if (!target || !target.includes('@')) return user;
+  if (!isSuperAdmin(user)) return user;                    // header ignored for everyone else
+  const self = normalizeEmail(user.email);
+  if (target === self) return user;
+  let path = '';
+  try { path = new URL(req.url).pathname; } catch (_) {}
+  if (!isReadOnlyRequest(req)) {
+    console.warn('[view-as] BLOCKED write', self, '->', target, req.method, path);
+    return null;
+  }
+  const roles = await _viewAsRoles(target);
+  if (roles === null) { console.warn('[view-as] no role row for', target, '- refused'); return null; }
+  console.log('[view-as]', self, 'viewing as', target, req.method, path);
+  return {
+    sub: 'view-as:' + target, id: 'view-as:' + target, email: target,
+    app_metadata: { roles, role: roles[0] || null, provider: 'view-as' },
+    user_metadata: {},
+    _viewAsBy: self,
+  };
+}
+
 export async function requireAuth(context, req) {
+  return _applyViewAs(await _requireAuthReal(context, req), req);
+}
+
+async function _requireAuthReal(context, req) {
   // 1. Netlify Identity: context.clientContext.user is populated AND
   //    signature-validated by Netlify's edge. Trust it.
   const ccUser = context && context.clientContext && context.clientContext.user;

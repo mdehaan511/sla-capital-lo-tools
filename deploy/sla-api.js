@@ -17,6 +17,116 @@
 
   var CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+  // ── Deploy 237.127 (Mike) — Owner "View as user" ─────────────────────
+  // A super admin can see the platform exactly as another user does. The session is
+  // per-tab (sessionStorage). While it is on:
+  //   * every /api and /.netlify/functions request carries `x-sla-view-as`, and the
+  //     server (_shared/auth.mjs) answers as that user — their email + their roles;
+  //   * the user object pages receive (init/login, currentUser(), getCurrentUser())
+  //     carries the target's email and roles, so role-gated UI matches too — but its
+  //     jwt()/token still belong to the real Owner (the server needs the real login);
+  //   * anything that could write is refused here AND on the server (read-only view);
+  //   * a banner on every page says whose view this is, with an Exit button.
+  var VIEW_AS_KEY = 'sla_view_as';
+  var _VIEW_AS_READ_POST = /(-list|-get|-find|-fetch|-search|-zip-download)$|^\/api\/search(-pg)?$/;
+  function _viewAsState() {
+    try { var v = JSON.parse(window.sessionStorage.getItem(VIEW_AS_KEY) || 'null'); return (v && v.email) ? v : null; }
+    catch (_) { return null; }
+  }
+  var _viewAsShadows = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function _viewAsWrap(u) {
+    var va = _viewAsState();
+    if (!u || typeof u !== 'object' || !va || u._viewAsReal) return u;
+    var roles = [];
+    try { var am = u.app_metadata || {}; roles = Array.isArray(am.roles) ? am.roles : (am.roles ? [am.roles] : []); } catch (_) {}
+    if (roles.indexOf('super_admin') < 0) return u;                       // only Owners can view as someone
+    if (String(u.email || '').toLowerCase() === String(va.email).toLowerCase()) return u;
+    var cached = _viewAsShadows && _viewAsShadows.get(u);
+    if (cached && cached._viewAsFor === va.email) return cached;
+    var shadow = Object.create(u);
+    ['jwt', 'logout', 'update', 'getUserData', 'clearSession', 'admin'].forEach(function (m) {
+      if (typeof u[m] === 'function') shadow[m] = u[m].bind(u);
+    });
+    try { Object.defineProperty(shadow, 'token', { get: function () { return u.token; }, set: function (v) { u.token = v; }, enumerable: true }); } catch (_) {}
+    shadow.email = va.email;
+    shadow.user_metadata = { full_name: va.name || '', fullName: va.name || '' };
+    shadow.app_metadata = { roles: (va.roles || []).slice(), role: (va.roles || [])[0] || null, provider: 'view-as' };
+    shadow._viewAsReal = { email: u.email, name: (u.user_metadata && (u.user_metadata.full_name || u.user_metadata.fullName)) || '' };
+    shadow._viewAsFor = va.email;
+    if (_viewAsShadows) _viewAsShadows.set(u, shadow);
+    _viewAsBanner(va);
+    return shadow;
+  }
+  function _viewAsRoleLabel(roles) {
+    var r = (roles || [])[0] || '';
+    return ({ super_admin: 'Owner', admin: 'Admin', senior_lo: 'Senior LO', loan_officer: 'Loan Officer', user: 'Loan Officer',
+      processor: 'Processor', office_assistant: 'Office Assistant', borrower: 'Borrower' })[r] || r || 'no role';
+  }
+  var _viewAsBannerShown = false;
+  function _viewAsBanner(va) {
+    if (_viewAsBannerShown) return;
+    var paint = function () {
+      if (_viewAsBannerShown || !document.body) return;
+      _viewAsBannerShown = true;
+      var bar = document.createElement('div');
+      bar.id = 'slaViewAsBar';
+      bar.setAttribute('style', 'position:fixed;left:0;right:0;bottom:0;z-index:2147483000;background:#1a1520;color:#fff;font:600 13px DM Sans,system-ui,sans-serif;padding:9px 16px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.25)');
+      var txt = document.createElement('span');
+      txt.textContent = '👁 Viewing as ' + (va.name || va.email) + ' (' + _viewAsRoleLabel(va.roles) + ') — read-only. This is what they see.';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Exit view';
+      btn.setAttribute('style', 'background:#c8813a;color:#fff;border:0;border-radius:14px;padding:5px 14px;font:700 12px inherit;cursor:pointer');
+      btn.onclick = function () { SLA_viewAsStop(); };
+      bar.appendChild(txt); bar.appendChild(btn);
+      document.body.appendChild(bar);
+      try { document.body.style.paddingBottom = '44px'; } catch (_) {}
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paint, { once: true });
+    else paint();
+  }
+  function SLA_viewAsStop() {
+    try { window.sessionStorage.removeItem(VIEW_AS_KEY); } catch (_) {}
+    try { Object.keys(window.localStorage).forEach(function (k) { if (/^sla_cache_/.test(k)) window.localStorage.removeItem(k); }); } catch (_) {}
+    window.location.href = '/users-admin.html';
+  }
+  var _viewAsToastAt = 0;
+  function _viewAsBlockedNotice(va) {
+    if (Date.now() - _viewAsToastAt < 3000) return;
+    _viewAsToastAt = Date.now();
+    var msg = 'Read-only: you are viewing the platform as ' + (va.name || va.email) + '. Exit the view to make changes.';
+    try { if (typeof window.showToast === 'function') { window.showToast(msg, 'error'); return; } } catch (_) {}
+    try { console.warn('[SLA] ' + msg); } catch (_) {}
+  }
+  (function _patchFetchForViewAs() {
+    if (!window.fetch || window._slaViewAsFetchPatched) return;
+    window._slaViewAsFetchPatched = true;
+    var orig = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      var va = _viewAsState();
+      if (!va) return orig(input, init);
+      var url = typeof input === 'string' ? input : ((input && input.url) || '');
+      var loc;
+      try { loc = new URL(url, window.location.href); } catch (_) { return orig(input, init); }
+      if (loc.origin !== window.location.origin || !/^\/(api\/|\.netlify\/functions\/)/.test(loc.pathname)) return orig(input, init);
+      var method = String((init && init.method) || (input && typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+      var path = loc.pathname.replace(/\/+$/, '');
+      var readOnly = method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || (method === 'POST' && _VIEW_AS_READ_POST.test(path));
+      if (!readOnly) {
+        // background pings (last-seen) are skipped quietly -- they must not stamp the viewed user either
+        if (!/^\/api\/(profile-ping|notifications-seen)$/.test(path)) _viewAsBlockedNotice(va);
+        return Promise.resolve(new Response(JSON.stringify({ error: 'Read-only: you are viewing the platform as ' + (va.name || va.email) + '. Exit the view to make changes.' }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }));
+      }
+      var opts = {};
+      if (init) { for (var k in init) opts[k] = init[k]; }
+      var h = new Headers((init && init.headers) || (input && typeof input !== 'string' && input.headers) || {});
+      h.set('x-sla-view-as', va.email);
+      opts.headers = h;
+      return orig(input, opts);
+    };
+  })();
+
   // ── Deploy 236.265 — Path A Phase 2: dual auth ──────────────────
   // Bridge Supabase-invited users into the existing Netlify Identity
   // callsites without touching every LO page. Two hooks:
@@ -425,6 +535,7 @@
   var _loginPending = []; // callbacks passed to .on('login')
 
   function _fireInit(u) {
+    u = _viewAsWrap(u); // Deploy 237.127
     _initResolved = true;
     _initUser = u;
     var cbs = _initPending.slice(); _initPending = [];
@@ -453,6 +564,12 @@
     if (typeof window.netlifyIdentity.on !== 'function') return;
     window._slaNetlifyIdentityOnPatched = true;
     var _origOn = window.netlifyIdentity.on.bind(window.netlifyIdentity);
+    // Deploy 237.127 -- pages that ask currentUser() directly see the viewed user too.
+    if (typeof window.netlifyIdentity.currentUser === 'function' && !window._slaCurrentUserPatched) {
+      window._slaCurrentUserPatched = true;
+      var _origCurrentUser = window.netlifyIdentity.currentUser.bind(window.netlifyIdentity);
+      window.netlifyIdentity.currentUser = function () { return _viewAsWrap(_origCurrentUser()); };
+    }
 
     // Deploy 236.274 — patch netlifyIdentity.logout to ALSO sign the
     // user out of Supabase. sla-nav.js's Sign Out button, and every
@@ -583,6 +700,7 @@
   }
 
   function _fireLogin(nlUser) {
+    nlUser = _viewAsWrap(nlUser); // Deploy 237.127
     _loginPending.slice().forEach(function (cb) { try { cb(nlUser); } catch (_) {} });
   }
 
@@ -3058,13 +3176,26 @@
     // Deploy 236.267 — helpers we set earlier were being clobbered
     // when this window.SLA = {...} assignment ran. Attach on the same
     // object so they survive.
+    // Deploy 237.127 -- Owner "View as user" (see the block at the top of this file).
+    viewAs: {
+      current: function () { return _viewAsState(); },
+      stop: function () { SLA_viewAsStop(); },
+      start: function (email, name) {
+        return api('POST', '/api/view-as-start', { email: email, name: name || '' }).then(function (r) {
+          try { window.sessionStorage.setItem(VIEW_AS_KEY, JSON.stringify({ email: r.email, name: r.name || name || '', roles: r.roles || [], startedAt: new Date().toISOString() })); } catch (_) {}
+          try { Object.keys(window.localStorage).forEach(function (k) { if (/^sla_cache_/.test(k)) window.localStorage.removeItem(k); }); } catch (_) {}
+          window.location.href = '/';
+          return r;
+        });
+      },
+    },
     getCurrentUser: function () {
       return _initSupabase().then(function (supa) {
         try {
           var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
           if (nlUser) return nlUser;
         } catch (_) {}
-        return supa ? _mapSupabaseUserToNetlifyShape(supa) : null;
+        return supa ? _viewAsWrap(_mapSupabaseUserToNetlifyShape(supa)) : null; // Deploy 237.127
       });
     },
     signOut: function () {
