@@ -33,6 +33,12 @@
  * hidden TPO (1.00) and says so. Repeat-borrower / referral bonuses are set at
  * closing and are not guessed (an existing loan's stamps are honoured).
  *
+ * Deploy 237.128 (Mike): the box leads with the COMP SPREAD the tier is read
+ * from (live -- every sizer recalculation re-renders #results, which the
+ * observer follows), the plan's tier ladder with the current rung marked, and a
+ * "next tier" line: how much more spread, as points at this rate or as a rate
+ * at these points, and what it is worth on this loan. See upsell().
+ *
  * Visibility: the LO Compensation table decides. /api/lo-comp-plan says whether
  * the signed-in user has a plan on file (configured) — Jeremy and Chance do —
  * and loan_officer / senior_lo roles always qualify (default plan if none is
@@ -234,6 +240,132 @@
 
   function money(n) { var C = comp(); return C ? C.money(n) : ('$' + Math.round(n)); }
 
+  // ── Deploy 237.128 (Mike: "show the current spread being used to determine
+  // the commission and have it update as they modify the sizer. Also list what
+  // the tiers are so they know what they need to upsell to") ────────────────
+  // Pure: the ladder the plan pays on and what this pricing would need to reach
+  // the next rung. Tiered plans: SLA_COMP's close-date schedule, need = spread to
+  // the next bound, levers = points at this rate OR rate at these points (DSCR
+  // rate moves scaled by the engine's TPO sensitivity; an Admin Mode TPO makes the
+  // TPO itself the lever). Salary plan: the RTL rate multiplier steps + the 1.50
+  // point-split floor. Flat / revenue plans have no ladder.
+  function fmtBps(b) { var n = num(b); return (Math.round(n * 100) / 100 === Math.round(n)) ? String(Math.round(n)) : n.toFixed(2).replace(/0$/, ''); }
+  function fmtRate(x) { return num(x).toFixed(3).replace(/0+$/, '').replace(/\.$/, '') + '%'; }
+  function rangeLabel(t) {
+    if (!t) return '';
+    if (t.min <= 0) return 'under ' + t.max.toFixed(2);
+    if (!isFinite(t.max)) return t.min.toFixed(2) + '+';
+    return t.min.toFixed(2) + '–' + (t.max - 0.01).toFixed(2);
+  }
+  function upsell(p, plan, s) {
+    var C = comp();
+    if (!C) return { kind: 'none' };
+    s = s || summarize(p, plan);
+    var r = s.row, c = s.calc;
+    var isDscr = r.tool === 'DSCR';
+    if (plan === 'flat50') return { kind: 'flat' };
+    if (plan === 'revenue') return { kind: 'none' };
+    if (plan === 'salary') {
+      var basis = isDscr ? (r.points + r.tpoSpread) : r.points;   // what the 50/50 split is measured on
+      var res = { kind: 'salary', isDscr: isDscr, floor: 1.5, basis: basis, above: basis - 1.5, mult: C.salaryMultiplier(r.ratePct, isDscr), steps: [], next: null, gain: 0, rateDelta: 0, targetRatePct: 0 };
+      if (isDscr || !(r.ratePct > 0)) return res;
+      var snapped = Math.min(13, Math.max(10, Math.round(r.ratePct * 2) / 2));
+      var steps = C.SALARY_RATE_STEPS || [];
+      var ci = -1;
+      for (var i = 0; i < steps.length; i++) {
+        var cur = steps[i] === snapped;
+        if (cur) ci = i;
+        res.steps.push({ rate: steps[i], mult: C.salaryMultiplier(steps[i], false), current: cur });
+      }
+      if (ci >= 0 && ci + 1 < res.steps.length) {
+        var nx = res.steps[ci + 1];
+        var row2 = {};
+        for (var k2 in r) if (Object.prototype.hasOwnProperty.call(r, k2)) row2[k2] = r[k2];
+        row2.ratePct = nx.rate;
+        res.next = nx;
+        res.targetRatePct = nx.rate - 0.25;   // half-point snapping: 12.25 already rounds up to the 12.5 step
+        res.rateDelta = res.targetRatePct - r.ratePct;
+        res.gain = C.computeRow(row2, plan).total - c.total;
+      }
+      return res;
+    }
+    // Tiered comp model (the default plan).
+    var nt = C.nextTierFor(r.margin, r.closeDate);
+    var out = { kind: 'tiers', ladder: nt.ladder, current: nt.current, next: nt.next, need: 0, gain: 0, targetPoints: 0, targetRatePct: 0, rateDelta: 0, targetTpo: 0, lever: '' };
+    if (!nt.next) return out;
+    var need = nt.need;
+    if (need < 0.005) need = 0.01;   // float noise right at a bound
+    need = Math.round(need * 100) / 100;
+    out.need = need;
+    out.gain = r.amount * (nt.next.bps - nt.current.bps) / 10000 * (r.source === 'company' ? 0.5 : 1);
+    out.targetPoints = r.points + need;
+    if (isDscr && p.tpoAdmin) { out.lever = 'tpo'; out.targetTpo = r.tpoSpread + need; }
+    else {
+      var k = (isDscr && num(p.tpoPerRate) > 0) ? num(p.tpoPerRate) : 1;
+      out.lever = 'rate'; out.rateDelta = need / k; out.targetRatePct = r.ratePct + out.rateDelta;
+    }
+    return out;
+  }
+  function chip(label, sub, state) {
+    var st = 'display:inline-block;border-radius:8px;padding:4px 8px;margin:4px 6px 0 0;font-size:11px;line-height:1.25;text-align:center;';
+    if (state === 'current') st += 'border:2px solid #b5712d;background:rgba(200,129,58,0.16);color:#261a36;font-weight:700;';
+    else if (state === 'below') st += 'border:1px solid rgba(74,68,88,0.18);color:#8a8497;';
+    else st += 'border:1px solid rgba(200,129,58,0.35);color:#4a4458;';
+    return '<span style="' + st + '"' + (state === 'current' ? ' title="Where this pricing lands now"' : '') + '>' + label +
+      '<br><span style="font-size:10px;font-weight:400">' + sub + '</span></span>';
+  }
+  function ladderHtml(u, r) {
+    if (!u || u.kind === 'none' || u.kind === 'flat') return '';
+    var chips = '', line = '', title = '', seen = false, i;
+    if (u.kind === 'tiers') {
+      title = 'Comp tiers — bps by spread';
+      for (i = 0; i < u.ladder.length; i++) {
+        var t = u.ladder[i];
+        chips += chip(fmtBps(t.bps) + ' bps', esc(rangeLabel(t)), t.current ? 'current' : (seen ? 'above' : 'below'));
+        if (t.current) seen = true;
+      }
+      if (!u.next) line = 'Top tier — ' + fmtBps(u.current.bps) + ' bps. Nothing higher to upsell to.';
+      else {
+        var how = '<b>' + u.targetPoints.toFixed(2) + ' pts</b> at this rate';
+        if (u.lever === 'rate') how += ', or a rate of <b>' + fmtRate(u.targetRatePct) + '</b> (+' + fmtRate(u.rateDelta) + ') at ' + r.points.toFixed(2) + ' pts';
+        else if (u.lever === 'tpo') how += ', or a <b>' + u.targetTpo.toFixed(2) + ' TPO</b>';
+        line = 'Next tier <b>' + fmtBps(u.next.bps) + ' bps</b> starts at a ' + u.current.max.toFixed(2) + ' spread — you need <b>+' + u.need.toFixed(2) + '</b>: e.g. ' + how + '. Worth <b>+' + money(u.gain) + '</b> on this loan.';
+      }
+    } else if (u.kind === 'salary') {
+      var ab = u.above;
+      var floorLine = 'Point split: 50% of ' + (u.isDscr ? 'pts + TPO' : 'points') + ' above the 1.50 floor — now ' +
+        (ab >= 0 ? '<b>+' + ab.toFixed(2) + '</b>' : '<b>−' + Math.abs(ab).toFixed(2) + '</b> (a deficit nets against your payout)') + '.';
+      if (!u.steps.length) return '<div style="font-size:12px;color:#4a4458;margin-top:6px;line-height:1.45">' + floorLine + '</div>';
+      title = 'Rate multiplier steps (RTL)';
+      for (i = 0; i < u.steps.length; i++) {
+        var st = u.steps[i];
+        chips += chip('×' + st.mult.toFixed(1), fmtRate(st.rate), st.current ? 'current' : (seen ? 'above' : 'below'));
+        if (st.current) seen = true;
+      }
+      line = (u.next
+        ? 'Next step <b>×' + u.next.mult.toFixed(1) + '</b> from a rate of <b>' + fmtRate(u.targetRatePct) + '</b> (+' + fmtRate(u.rateDelta) + '). Worth <b>+' + money(u.gain) + '</b> on this loan. '
+        : 'Top step — ×' + u.mult.toFixed(1) + '. ') + floorLine;
+    }
+    return '<div style="margin-top:8px">' +
+      '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488">' + esc(title) + '</div>' +
+      '<div>' + chips + '</div>' +
+      '<div style="font-size:12px;color:#4a4458;margin-top:6px;line-height:1.45">' + line + '</div></div>';
+  }
+  function spreadHtml(u, r, plan) {
+    var C = comp();
+    var label = 'Comp spread', big = r.margin.toFixed(2), sub = esc(r.marginParts);
+    if (plan === 'salary' && r.tool !== 'DSCR' && C) {
+      label = 'Points'; big = r.points.toFixed(2);
+      sub = 'rate ' + fmtRate(r.ratePct) + ' → ×' + C.salaryMultiplier(r.ratePct, false).toFixed(1) + ' multiplier';
+    }
+    if (plan === 'flat50') sub += ' <span style="color:#7a7488">— flat plan, the spread does not change your comp</span>';
+    return '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:8px">' +
+      '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488">' + label + '</div>' +
+      '<div style="font-family:Lora,Georgia,serif;font-size:20px;font-weight:600;color:var(--dark,#261a36)">' + big + '</div>' +
+      '<div style="font-size:12px;color:#4a4458">' + sub + '</div></div>';
+  }
+
+
   function render(p) {
     var host = STATE.host;
     if (!host) return;
@@ -246,12 +378,11 @@
     var headline, detail, foot;
     if (plan === 'revenue') {
       headline = '<span style="font-size:15px;font-weight:600;color:var(--dark,#261a36)">Revenue-based plan</span>';
-      detail = 'Settled on total revenue, not per loan. This loan: ' + money(r.amount) + ' · margin ' + r.margin.toFixed(2) + ' (' + esc(r.marginParts) + ').';
+      detail = 'Settled on total revenue, not per loan. This loan: ' + money(r.amount) + '.';
       foot = '';
     } else if (plan === 'salary') {
       headline = money(c.total);
-      detail = esc(label) + ' · base ' + money(c.base) + ' (' + c.applied.toFixed(1) + ' bps) + point split ' + money(c.bonus) + ' on ' + money(r.amount) +
-        ' · ' + esc(r.marginParts);
+      detail = esc(label) + ' · base ' + money(c.base) + ' (' + c.applied.toFixed(1) + ' bps) + point split ' + money(c.bonus) + ' on ' + money(r.amount) + '.';
       foot = 'Plus salary via payroll. Settles at closing from the final amount, rate and points.';
     } else if (plan === 'flat50') {
       headline = money(c.total);
@@ -259,11 +390,12 @@
       foot = 'Settles at closing from the final loan amount.';
     } else {
       headline = money(c.total);
-      detail = esc(label) + ' · ' + c.applied.toFixed(2) + ' bps on ' + money(r.amount) + ' · margin ' + r.margin.toFixed(2) + ' (' + esc(r.marginParts) + ')' +
+      detail = esc(label) + ' · ' + c.applied.toFixed(2) + ' bps on ' + money(r.amount) +
         (r.source === 'company' ? ' · company-sourced first loan (½ tier)' : '');
       foot = (c.bonus ? 'Includes ' + money(c.bonus) + ' in bonuses on file. ' : '') +
         'Repeat-borrower and referral bonuses (+$250 each) are added at closing' + (r.source === 'company' ? '.' : '; company-sourced first loans pay half the tier.');
     }
+    var u = upsell(p, plan, s); // Deploy 237.128
     var note = STATE.plan.configured ? '' : ' <span title="No plan saved for you in the LO Compensation table yet — showing the default plan. Ask an admin if this looks wrong.">(default plan)</span>';
     host.innerHTML =
       '<div style="border:1px solid rgba(200,129,58,0.35);background:rgba(200,129,58,0.06);border-radius:10px;padding:12px 14px;margin-top:12px">' +
@@ -271,7 +403,8 @@
           '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#b5712d">Your expected commission' + note + '</div>' +
           '<div style="font-family:Lora,Georgia,serif;font-size:22px;font-weight:600;color:var(--dark,#261a36)">' + headline + '</div>' +
         '</div>' +
-        '<div style="font-size:12px;color:#4a4458;margin-top:4px;line-height:1.45">' + detail + '</div>' +
+        spreadHtml(u, r, plan) + ladderHtml(u, r) + // Deploy 237.128
+        '<div style="font-size:12px;color:#4a4458;margin-top:8px;line-height:1.45">' + detail + '</div>' +
         (foot ? '<div style="font-size:11px;color:#7a7488;margin-top:4px;line-height:1.4">' + foot + '</div>' : '') +
       '</div>';
     host.style.display = 'block';
@@ -279,6 +412,7 @@
 
   var API = { attach: attach, mount: mount, update: update, load: load, refresh: refresh,
               rowFrom: rowFrom, summarize: summarize, fromDscr: fromDscr, fromRtl: fromRtl, dscrTpoPerRate: dscrTpoPerRate,
+              upsell: upsell, fmtBps: fmtBps, fmtRate: fmtRate, rangeLabel: rangeLabel, // Deploy 237.128
               DEFAULT_DSCR_TPO: DEFAULT_DSCR_TPO, _state: STATE };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   if (root) root.SLA_COMP_SIZER = API;

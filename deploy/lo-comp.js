@@ -45,6 +45,15 @@
   //   + $48,000/yr salary via payroll — displayed as a note, never in totals.
   var PLAN_LABEL = { model: 'Comp Model', flat50: 'Flat 50 bps', revenue: 'Revenue-based', salary: 'Salary + Commission' };
   var SALARY_PLAN_NOTE = 'Salary Commission Structure — plus $48,000/yr salary paid via payroll (not included in these totals).';
+  // Deploy 237.128 (Mike: "list what the tiers are so they know what they need to
+  // upsell to") -- the salary plan's rate steps, shared with the sizer box's ladder.
+  // Same math computeRow always used (snap to the nearest half point, 10-13).
+  var SALARY_RATE_STEPS = [10, 10.5, 11, 11.5, 12, 12.5, 13];
+  function salaryMultiplier(ratePct, isDscr) {
+    if (isDscr || !(ratePct > 0)) return 1;
+    var snapped = Math.min(13, Math.max(10, Math.round(ratePct * 2) / 2));
+    return Math.round((1 + (snapped - 11) * 0.2) * 10) / 10;
+  }
 
   function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[$,%]/g, '')); return isFinite(n) ? n : 0; }
   // Deploy 236.938 (Mike) — a value WITH cents always shows both digits
@@ -86,6 +95,35 @@
     var tiers = tierScheduleFor(closeDate).tiers;
     for (var i = 0; i < tiers.length; i++) if (margin < tiers[i][0]) return tiers[i][1];
     return tiers[tiers.length - 1][1];
+  }
+
+  // Deploy 237.128 (Mike: "show the current spread being used to determine the
+  // commission ... list what the tiers are so they know what they need to upsell
+  // to") -- the tier ladder for a close date, with the tier a spread lands in.
+  // Each rung: { min, max (exclusive), bps, current }. nextTierFor adds the rung
+  // above and how much more spread reaches it (the bound itself qualifies, since
+  // tierBps tests margin < max).
+  function tierLadder(margin, closeDate) {
+    var tiers = tierScheduleFor(closeDate).tiers;
+    var m = isFinite(margin) ? margin : 0;
+    var out = [], lo = 0, found = false;
+    for (var i = 0; i < tiers.length; i++) {
+      var hi = tiers[i][0];
+      var here = !found && (m < hi);
+      if (here) found = true;
+      out.push({ min: lo, max: hi, bps: tiers[i][1], current: here });
+      lo = hi;
+    }
+    if (!found && out.length) out[out.length - 1].current = true;
+    return out;
+  }
+  function nextTierFor(margin, closeDate) {
+    var ladder = tierLadder(margin, closeDate);
+    var cur = 0;
+    for (var i = 0; i < ladder.length; i++) if (ladder[i].current) cur = i;
+    var next = (cur + 1 < ladder.length) ? ladder[cur + 1] : null;
+    var m = isFinite(margin) ? margin : 0;
+    return { ladder: ladder, current: ladder[cur], next: next, need: next ? Math.max(0, ladder[cur].max - m) : 0 };
   }
 
   // Margin per Mike: DSCR = points + TPO spread; RTL/GUC = points + (rate − buy rate).
@@ -299,11 +337,7 @@
     if (plan === 'salary') {
       // See the PLAN_LABEL comment for the sheet this ports, line by line.
       var isDscr = r.tool === 'DSCR';
-      var mult = 1;
-      if (!isDscr && r.ratePct > 0) {
-        var snapped = Math.min(13, Math.max(10, Math.round(r.ratePct * 2) / 2));
-        mult = Math.round((1 + (snapped - 11) * 0.2) * 10) / 10;
-      }
+      var mult = salaryMultiplier(r.ratePct, isDscr); // Deploy 237.128 -- same math, now shared with the sizer ladder
       var split = isDscr
         ? (r.points + r.tpoSpread - 1.5) / 100 * r.amount / 2
         : (r.points > 1.5 ? (r.points - 1.5) / 100 * r.amount / 2 : 0);
@@ -346,6 +380,7 @@
     DEFAULT_PLANS: DEFAULT_PLANS, PLAN_LABEL: PLAN_LABEL, SALARY_PLAN_NOTE: SALARY_PLAN_NOTE,
     num: num, money: money, shortDate: shortDate,
     TIER_SCHEDULES: TIER_SCHEDULES, tierScheduleFor: tierScheduleFor, tierBps: tierBps,
+    tierLadder: tierLadder, nextTierFor: nextTierFor, SALARY_RATE_STEPS: SALARY_RATE_STEPS, salaryMultiplier: salaryMultiplier, // Deploy 237.128
     marginOf: marginOf, spreadParts: spreadParts, isClosedWon: isClosedWon, buildRows: buildRows,
     clientIsBrokerFor: clientIsBrokerFor, repeatKeyOf: repeatKeyOf,
     isPendingApproved: isPendingApproved, buildPendingRows: buildPendingRows, STAGE_LABEL: STAGE_LABEL, todayISO: todayISO,

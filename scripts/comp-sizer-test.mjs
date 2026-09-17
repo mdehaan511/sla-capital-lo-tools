@@ -93,5 +93,31 @@ check('revenue plan quotes no per-loan number', S.summarize({ tool: 'dscr', amou
   check('no calc yet → nothing to show', S.fromRtl('rtl'), null);
 }
 
+// ── Deploy 237.128 — comp spread stat, tier ladder, upsell hints ───────────
+{
+  const lad = C.tierLadder(2.5, '2026-09-16');
+  check('tier ladder (current schedule): six rungs, 2.50 sits in 58.75', [lad.length, lad.map((t) => t.bps), lad.findIndex((t) => t.current)], [6, [35, 50, 58.75, 65, 70, 85], 2]);
+  const nt = C.nextTierFor(2.5, '2026-09-16');
+  check('next tier from 2.50: 65 bps at 2.75 — need 0.25', [nt.current.bps, nt.next.bps, r2(nt.need)], [58.75, 65, 0.25]);
+  check('top tier has no next', C.nextTierFor(5, '2026-09-16').next, null);
+  check('legacy schedule by close date: 1.0 → 35, next 50 at 1.5', (() => { const n = C.nextTierFor(1.0, '2026-01-01'); return [n.current.bps, n.next.bps, r2(n.need)]; })(), [35, 50, 0.5]);
+  check('exactly on a bound lands in the higher tier', C.nextTierFor(2.75, '2026-09-16').current.bps, 65);
+  check('salaryMultiplier matches the sheet steps', C.SALARY_RATE_STEPS.map((x) => C.salaryMultiplier(x, false)), [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4]);
+  check('salaryMultiplier: DSCR is flat 1, off-step rates snap (10.25 → 0.9, 10.99 → 1.0)', [C.salaryMultiplier(12, true), C.salaryMultiplier(10.25, false), C.salaryMultiplier(10.99, false)], [1, 0.9, 1]);
+  const u = S.upsell({ tool: 'dscr', amount: 300000, ratePct: 7.2, basePct: 7.2, points: 1, tpoSpread: 1.5, tpoPerRate: 3.125 }, 'model');
+  check('DSCR upsell: +0.25 spread = 1.25 pts or +0.08% rate (3.125 pts per 1%), worth +$187.50', [u.kind, r2(u.need), r2(u.targetPoints), u.lever, r2(u.rateDelta), r2(u.targetRatePct), r2(u.gain)], ['tiers', 0.25, 1.25, 'rate', 0.08, 7.28, 187.5]);
+  check('company-sourced halves the gain', r2(S.upsell({ tool: 'dscr', amount: 300000, ratePct: 7.2, basePct: 7.2, points: 1, tpoSpread: 1.5, source: 'company' }, 'model').gain), 93.75);
+  check('Admin Mode TPO: the lever is the TPO, not the rate', (() => { const a = S.upsell({ tool: 'dscr', amount: 1, ratePct: 7.2, basePct: 7.2, points: 1, tpoSpread: 1.5, tpoAdmin: true }, 'model'); return [a.lever, r2(a.targetTpo)]; })(), ['tpo', 1.75]);
+  const v = S.upsell({ tool: 'rtl', amount: 500000, ratePct: 0.1125, basePct: 0.11, points: 2 }, 'model');
+  check('RTL upsell: 2.25 → 65 bps at 2.75: +0.50 = 2.50 pts or 11.75% (+0.50%), worth +$312.50', [r2(v.need), r2(v.targetPoints), r2(v.targetRatePct), r2(v.rateDelta), r2(v.gain)], [0.5, 2.5, 11.75, 0.5, 312.5]);
+  check('top tier: nothing to upsell', S.upsell({ tool: 'rtl', amount: 1, ratePct: 0.13, basePct: 0.11, points: 3 }, 'model').next, null);
+  const w = S.upsell({ tool: 'rtl', amount: 200000, ratePct: 0.12, basePct: 0.12, points: 2.5 }, 'salary');
+  check('salary RTL: rate steps, 12% = ×1.2, next ×1.3 from 12.25%, split on +1.00 above the floor', [w.kind, w.steps.length, w.steps.filter((s) => s.current)[0].rate, w.next.mult, r2(w.targetRatePct), r2(w.rateDelta), r2(w.above)], ['salary', 7, 12, 1.3, 12.25, 0.25, 1]);
+  check('salary RTL: next step gain = computeRow at ×1.3 minus now', r2(w.gain), r2(C.computeRow({ tool: 'RTL', amount: 200000, ratePct: 12.5, points: 2.5, tpoSpread: 0 }, 'salary').total - C.computeRow({ tool: 'RTL', amount: 200000, ratePct: 12, points: 2.5, tpoSpread: 0 }, 'salary').total));
+  check('salary DSCR: no rate steps, split basis = pts + TPO above 1.50', (() => { const x = S.upsell({ tool: 'dscr', amount: 1, ratePct: 7, basePct: 7, points: 1, tpoSpread: 1 }, 'salary'); return [x.steps.length, x.next, r2(x.above)]; })(), [0, null, 0.5]);
+  check('flat / revenue plans: no ladder', [S.upsell({ tool: 'dscr', amount: 1, points: 1, tpoSpread: 1 }, 'flat50').kind, S.upsell({ tool: 'dscr', amount: 1, points: 1, tpoSpread: 1 }, 'revenue').kind], ['flat', 'none']);
+  check('format helpers', [S.fmtBps(58.75), S.fmtBps(35), S.fmtRate(7.28), S.fmtRate(11.25), S.fmtRate(11), S.rangeLabel(lad[0]), S.rangeLabel(lad[2]), S.rangeLabel(lad[5])], ['58.75', '35', '7.28%', '11.25%', '11%', 'under 1.50', '2.25–2.74', '4.50+']);
+}
+
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(failures ? 1 : 0);
