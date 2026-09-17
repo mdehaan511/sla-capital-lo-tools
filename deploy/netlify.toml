@@ -1224,6 +1224,19 @@
   force = true
 # Deploy 236.803 — payoffs. GET (per loan / ?demands=1) reads FCI; POST FILES A
 # REAL DEMAND on the servicer, so it is only ever called from a button.
+# Deploy 237.135 (Mike) -- Financial Audit ledger (admins + processors).
+[[redirects]]
+  from = "/api/financial-audit-list"
+  to = "/.netlify/functions/financial-audit-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/financial-audit-update"
+  to = "/.netlify/functions/financial-audit-update"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/fci-payoff"
   to = "/.netlify/functions/fci-payoff"
@@ -2492,4 +2505,9 @@
 [functions.achievements-cron]
   timeout = 26
 [functions.armory-admin]
+  timeout = 26
+# Deploy 237.135 -- the Financial Audit ledger reads every loan + the Sitewire cache.
+[functions.financial-audit-list]
+  timeout = 26
+[functions.financial-audit-alerts]
   timeout = 26

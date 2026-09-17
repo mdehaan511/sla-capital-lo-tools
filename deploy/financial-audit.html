@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Financial Audit — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="/sla-search.js"></script>
+  <script src="sla-notifications.js?v=237120"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --dark: #261a36; --bg: #f0ece5; --surface: #ffffff;
+      --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+    }
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    .page { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; }
+    .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+    h1 { font-family: 'Lora', Georgia, serif; font-size: 27px; font-weight: 600; }
+    .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .btn { background: var(--gold); color: #fff; border: none; border-radius: 7px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 20px; margin-bottom: 20px; }
+    .card h2 { font-family: 'Lora', Georgia, serif; font-size: 17px; font-weight: 600; margin-bottom: 3px; }
+    .card .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 15px 17px; }
+    .stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .stat .val { font-size: 23px; font-weight: 600; margin-top: 5px; font-family: 'DM Mono', monospace; }
+    .tw { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; padding: 0 12px 8px 0; white-space: nowrap; }
+    td { padding: 9px 12px 9px 0; border-top: 1px solid var(--border); vertical-align: top; }
+    td.num { font-family: 'DM Mono', monospace; white-space: nowrap; }
+    a { color: var(--gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+    .pill.warn { color: var(--warn); border-color: rgba(122,82,24,.4); background: rgba(122,82,24,.08); }
+    .pill.danger { color: var(--danger); border-color: rgba(124,31,31,.4); background: rgba(124,31,31,.08); }
+    .pill.ok { color: var(--success); border-color: rgba(37,105,64,.4); background: rgba(37,105,64,.08); }
+    .empty { color: var(--muted); font-size: 13px; padding: 14px 0; }
+    .err { color: var(--danger); font-size: 12px; padding: 8px 0; }
+    #auth-gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .gate-msg { text-align: center; color: var(--muted); font-size: 14px; }
+    .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+    /* Deploy 237.001: page-level nav CSS. sla-nav.js only injects the dropdown
+       (.nav-dd*) rules; the bar layout + logo size must live on each page
+       (same fix closed-loans needed in 236.611). Without it the logo renders at
+       native size and the links stack unstyled. */
+    :root { --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10); --gold-border: rgba(200,129,58,0.28); --muted: #7a7488; --border: #ddd8d0; }
+    .nav { max-width: 1280px; margin: 0 auto; padding: 1.5rem 22px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .nav img { height: 48px; width: auto; display: block; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
+    .toolbar label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
+    .toolbar input, .toolbar select, .modal input, .modal select, .modal textarea { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: var(--text); }
+    .toolbar .grow { flex: 1; min-width: 200px; }
+    .toolbar .grow input { width: 100%; }
+    .month td { background: #f7f4ee; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 7px 10px; }
+    td.first { padding-left: 10px; }
+    .amt-in { color: var(--success); }
+    .amt-out { color: var(--danger); }
+    .amt-xfer { color: #3d4a7a; }
+    .small { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .acct { white-space: nowrap; }
+    .acct .l4 { font-family: 'DM Mono', monospace; color: var(--muted); font-size: 11px; }
+    .acct.unset { color: var(--warn); }
+    .ftype { font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; background: #fff; color: var(--muted); cursor: pointer; }
+    .ftype.ovr { border-color: rgba(200,129,58,.6); color: var(--gold); }
+    .netbox { font-size: 11px; color: var(--muted); margin-left: 6px; white-space: nowrap; cursor: pointer; }
+    .btn.sm { padding: 5px 10px; font-size: 12px; }
+    .link-btn { background: none; border: none; color: var(--gold); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+    .trade-list { margin-top: 4px; font-size: 12px; }
+    .trade-list div { display: flex; justify-content: space-between; gap: 10px; }
+    .banner { background: rgba(200,129,58,.1); border: 1px solid rgba(200,129,58,.35); border-radius: 9px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+    .modal h3 { font-family: 'Lora', Georgia, serif; font-size: 17px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .modal .mb { padding: 14px 18px; }
+    .modal .mf { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; background: #faf8f3; }
+    .modal .fld { margin-bottom: 10px; }
+    .modal .fld label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
+    .modal .fld input, .modal .fld select, .modal .fld textarea { width: 100%; }
+    .modal .row2 { display: flex; gap: 10px; }
+    .modal .row2 > * { flex: 1; }
+    .roles { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+    .acct-list td { padding: 7px 8px 7px 0; }
+    .merr { color: var(--danger); font-size: 12px; min-height: 16px; }
+    @media (max-width: 700px) { .page { padding: 18px 12px 40px; } }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Financial Audit</h1>
+        <p>Money in and out from loan activity, in date order. Loan payments run through the servicers and are not listed.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="openAccounts()">Accounts &amp; settings</button>
+        <button class="btn ghost" onclick="openManual()">+ Manual entry</button>
+        <button class="btn" onclick="loadAll()">Refresh</button>
+      </div>
+    </div>
+
+    <div id="banners"></div>
+
+    <div class="toolbar">
+      <div><label>From</label><input type="date" id="fFrom" onchange="loadAll()" /></div>
+      <div><label>To</label><input type="date" id="fTo" onchange="loadAll()" /></div>
+      <div><label>Status</label>
+        <select id="fStatus" onchange="render()">
+          <option value="">All</option>
+          <option value="open">Needs verification</option>
+          <option value="verified">Verified</option>
+          <option value="upcoming">Upcoming</option>
+        </select></div>
+      <div><label>Type</label><select id="fKind" onchange="render()"><option value="">All</option></select></div>
+      <div><label>Account</label><select id="fAcct" onchange="render()"><option value="">All</option></select></div>
+      <div class="grow"><label>Search</label><input type="search" id="fSearch" oninput="render()" placeholder="Address, borrower, loan #, buyer, memo" /></div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+    <div class="card" style="padding:14px 16px">
+      <div class="tw"><table>
+        <thead><tr><th style="padding-left:10px">Date</th><th>Loan</th><th>Movement</th><th>From → To</th><th style="text-align:right">Amount</th><th>Status</th><th></th></tr></thead>
+        <tbody id="ledger"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+  <div id="modalHost"></div>
+
+<script>
+var _data = null;
+var _rows = [];
+var _isAdmin = false;
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function money(n) {
+  var v = Number(n) || 0;
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function mdy(d) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? (m[2] + '/' + m[3] + '/' + m[1]) : ''; }
+function monthLabel(d) {
+  var m = /^(\d{4})-(\d{2})/.exec(String(d || ''));
+  if (!m) return '';
+  return ['January','February','March','April','May','June','July','August','September','October','November','December'][parseInt(m[2], 10) - 1] + ' ' + m[1];
+}
+function toast(msg, bad) {
+  var t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9900;padding:10px 16px;border-radius:8px;font-size:13px;color:#fff;background:' + (bad ? '#7c1f1f' : '#256940');
+  document.body.appendChild(t);
+  setTimeout(function () { t.remove(); }, bad ? 5000 : 2200);
+}
+function api(method, path, body) {
+  return SLA.getToken().then(function (token) {
+    return fetch(path, {
+      method: method,
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  }).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (j) {
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      return j;
+    });
+  });
+}
+function update(op) {
+  return api('POST', '/api/financial-audit-update', op);
+}
+function loanHref(loanId, owner) {
+  return (SLA.urls && SLA.urls.loanDetails) ? SLA.urls.loanDetails(loanId, { owner: owner }) : ('/loan-details.html?loanId=' + encodeURIComponent(loanId));
+}
+
+// ── Load ────────────────────────────────────────────────────────────
+function loadAll() {
+  var from = document.getElementById('fFrom').value;
+  var to = document.getElementById('fTo').value;
+  var qs = [];
+  if (from) qs.push('from=' + encodeURIComponent(from));
+  if (to) qs.push('to=' + encodeURIComponent(to));
+  document.getElementById('ledger').innerHTML = '<tr><td colspan="7" class="empty">Loading…</td></tr>';
+  api('GET', '/api/financial-audit-list' + (qs.length ? '?' + qs.join('&') : '')).then(function (j) {
+    _data = j;
+    if (!from && j.from) document.getElementById('fFrom').value = j.from;
+    fillFilters();
+    render();
+  }).catch(function (e) {
+    document.getElementById('ledger').innerHTML = '<tr><td colspan="7" class="err">' + esc(e.message) + '</td></tr>';
+  });
+}
+function fillFilters() {
+  var k = document.getElementById('fKind'), kv = k.value;
+  var kinds = (_data.labels && _data.labels.kinds) || {};
+  k.innerHTML = '<option value="">All</option>' + Object.keys(kinds).map(function (x) { return '<option value="' + x + '">' + esc(kinds[x]) + '</option>'; }).join('');
+  k.value = kv;
+  var a = document.getElementById('fAcct'), av = a.value;
+  a.innerHTML = '<option value="">All</option>' + (_data.accounts || []).map(function (x) {
+    return '<option value="' + esc(x.id) + '">' + esc(x.name) + (x.last4 ? ' ••' + esc(x.last4) : '') + '</option>';
+  }).join('') + '<option value="__unset">No account set</option>';
+  a.value = av;
+}
+
+// ── Render ──────────────────────────────────────────────────────────
+function acctHtml(e) {
+  if (!e) return '';
+  if (e.unassigned) return '<span class="acct unset" title="Add an account for this entity under Accounts &amp; settings">' + esc(e.label) + ' · no account set</span>';
+  return '<span class="acct">' + esc(e.label) + (e.last4 ? ' <span class="l4">••' + esc(e.last4) + '</span>' : '') + '</span>';
+}
+function matches(r) {
+  var st = document.getElementById('fStatus').value;
+  if (st === 'open' && !(r.status === 'overdue' || r.status === 'due' || r.status === 'changed')) return false;
+  if (st === 'verified' && r.status !== 'verified') return false;
+  if (st === 'upcoming' && r.status !== 'upcoming') return false;
+  var kd = document.getElementById('fKind').value;
+  if (kd && r.kind !== kd) return false;
+  var ac = document.getElementById('fAcct').value;
+  if (ac === '__unset' && !(r.from.unassigned || r.to.unassigned)) return false;
+  if (ac && ac !== '__unset' && r.from.accountId !== ac && r.to.accountId !== ac) return false;
+  var q = String(document.getElementById('fSearch').value || '').toLowerCase().trim();
+  if (q) {
+    var hay = [r.address, r.borrower, r.slaId, r.buyer, r.memo, r.detail, r.from.label, r.to.label, r.kindLabel];
+    (r.loans || []).forEach(function (x) { hay.push(x.address, x.borrower, x.slaId); });
+    hay = hay.join(' ').toLowerCase();
+    var terms = q.split(/\s+/);
+    for (var i = 0; i < terms.length; i++) if (hay.indexOf(terms[i]) === -1) return false;
+  }
+  return true;
+}
+function render() {
+  if (!_data) return;
+  var all = _data.rows || [];
+  _rows = all.filter(matches);
+
+  // Banners
+  var b = '';
+  if (!(_data.accounts || []).length) {
+    b += '<div class="banner"><span>Add the bank accounts (with the last 4 digits) so every row shows exactly where the money should land.</span><button class="btn sm" onclick="openAccounts()">Add accounts</button></div>';
+  }
+  if (_data.earlierUnverified) {
+    b += '<div class="banner"><span>' + _data.earlierUnverified + ' item' + (_data.earlierUnverified === 1 ? '' : 's') + ' before ' + esc(mdy(_data.from)) + ' ' + (_data.earlierUnverified === 1 ? 'is' : 'are') + ' not verified.</span><button class="btn ghost sm" onclick="showEarlier()">Show them</button></div>';
+  }
+  if ((_data.undated || []).length) {
+    b += '<div class="banner"><span>' + _data.undated.length + ' loan' + (_data.undated.length === 1 ? '' : 's') + ' in processing ' + (_data.undated.length === 1 ? 'has' : 'have') + ' no closing date, so ' + (_data.undated.length === 1 ? 'it is' : 'they are') + ' not forecast yet: ' +
+      _data.undated.slice(0, 6).map(function (u) { return esc(u.address || u.loanId); }).join(', ') + (_data.undated.length > 6 ? '…' : '') + '</span></div>';
+  }
+  document.getElementById('banners').innerHTML = b;
+
+  // Stats
+  var inT = 0, outT = 0, xfer = 0, open = 0, changed = 0, openAmt = 0;
+  _rows.forEach(function (r) {
+    if (r.flow === 'in') inT += r.amount; else if (r.flow === 'out') outT += r.amount; else xfer += r.amount;
+    if (r.status === 'overdue' || r.status === 'due') { open++; openAmt += r.amount; }
+    if (r.status === 'changed') changed++;
+  });
+  document.getElementById('stats').innerHTML =
+    stat('Money in', money(inT), 'amt-in') +
+    stat('Money out', money(outT), 'amt-out') +
+    stat('Net', (inT - outT < 0 ? '−' : '') + money(Math.abs(inT - outT)), '') +
+    stat('KAF ⇄ SLA transfers', money(xfer), 'amt-xfer') +
+    stat('Needs verification', open + (open ? ' · ' + money(openAmt) : ''), open ? 'amt-out' : '') +
+    (changed ? stat('Changed after verifying', String(changed), 'amt-out') : '');
+
+  // Table
+  if (!_rows.length) {
+    document.getElementById('ledger').innerHTML = '<tr><td colspan="7" class="empty">Nothing matches.</td></tr>';
+    return;
+  }
+  var html = '', lastMonth = '';
+  _rows.forEach(function (r, i) {
+    var mo = monthLabel(r.date);
+    if (mo !== lastMonth) { html += '<tr class="month"><td colspan="7">' + esc(mo) + '</td></tr>'; lastMonth = mo; }
+    html += rowHtml(r, i);
+  });
+  document.getElementById('ledger').innerHTML = html;
+}
+function stat(lbl, val, cls) {
+  return '<div class="stat"><div class="lbl">' + esc(lbl) + '</div><div class="val ' + cls + '" style="font-size:19px">' + esc(val) + '</div></div>';
+}
+function rowHtml(r, i) {
+  var loan;
+  if (r.kind === 'trade') {
+    loan = '<strong>' + esc(r.buyer) + '</strong><div class="trade-list">' + r.loans.map(function (x) {
+      return '<div><a href="' + esc(loanHref(x.loanId, x.owner)) + '">' + esc(x.address || x.loanId) + '</a><span class="acct' + (x.upbOnFile ? '' : '" title="Estimated: loan amount − holdback + draws') + '">' + money(x.upb) + '</span></div>';
+    }).join('') + '</div>';
+  } else if (r.loanId && r.kind !== 'manual') {
+    loan = '<a href="' + esc(loanHref(r.loanId, r.owner)) + '">' + esc(r.address || r.loanId) + '</a>' +
+      '<div class="small">' + esc(r.borrower || '') + (r.slaId ? ' · ' + esc(r.slaId) : '') + '</div>';
+  } else {
+    loan = r.address ? esc(r.address) : '<span class="small">—</span>';
+  }
+
+  var mv = '<strong>' + esc(r.kindLabel) + '</strong>';
+  if (r.fundingType) {
+    mv += ' <button class="ftype' + (r.fundingTypeOverridden ? ' ovr' : '') + '" title="How this loan was funded — click to change" onclick="openFundingType(' + i + ')">' + esc(r.fundingTypeLabel) + '</button>';
+  }
+  if (r.canNet) {
+    mv += '<label class="netbox" title="Points and fees came out of the closing wire instead of coming back separately"><input type="checkbox"' + (r.net ? ' checked' : '') + ' onchange="setNet(' + i + ', this.checked)" /> net funded</label>';
+  }
+  mv += '<div class="small">' + esc(r.detail || '') + (r.pipeline ? ' · in processing (forecast)' : '') + '</div>';
+
+  var sign = r.flow === 'in' ? '+' : (r.flow === 'out' ? '−' : '⇄ ');
+  var cls = r.flow === 'in' ? 'amt-in' : (r.flow === 'out' ? 'amt-out' : 'amt-xfer');
+  var amt = '<div class="' + cls + '">' + sign + money(r.amount) + '</div>';
+  if (r.verified && Math.abs(Number(r.verified.amount) - r.amount) > 0.005) {
+    amt += '<div class="small">bank: ' + money(r.verified.amount) + '</div>';
+  }
+
+  var status, action = '';
+  if (r.status === 'verified' || r.status === 'changed') {
+    var v = r.verified;
+    status = (r.status === 'changed'
+      ? '<span class="pill warn" title="The expected amount was ' + money(v.expected) + ' when this was verified">Changed since verified</span>'
+      : '<span class="pill ok">Verified</span>') +
+      '<div class="small">' + esc(mdy(v.date)) + ' · ' + esc(String(v.by || '').split('@')[0]) + '</div>' +
+      (v.note ? '<div class="small">' + esc(v.note) + '</div>' : '');
+    action = (r.status === 'changed' ? '<button class="btn sm" onclick="openVerify(' + i + ')">Re-verify</button> ' : '') +
+      '<button class="link-btn" onclick="unverify(' + i + ')">Undo</button>';
+  } else {
+    status = r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
+      : r.status === 'due' ? '<span class="pill warn">Due today</span>'
+      : '<span class="pill">' + (r.pipeline ? 'Forecast' : 'Upcoming') + '</span>';
+    if (r.late24h) status += '<div class="small" style="color:var(--danger)">24h past closing — Mike &amp; Dan alerted</div>';
+    action = r.status === 'upcoming' && r.pipeline ? '' : '<button class="btn sm" onclick="openVerify(' + i + ')">Verify</button>';
+  }
+  if (r.kind === 'manual') {
+    action += ' <button class="link-btn" onclick="openManual(' + i + ')">Edit</button>';
+  }
+
+  return '<tr>' +
+    '<td class="num first">' + esc(mdy(r.date)) + '</td>' +
+    '<td>' + loan + '</td>' +
+    '<td>' + mv + '</td>' +
+    '<td>' + acctHtml(r.from) + '<div class="small">→ ' + acctHtml(r.to) + '</div></td>' +
+    '<td class="num" style="text-align:right">' + amt + '</td>' +
+    '<td>' + status + '</td>' +
+    '<td style="white-space:nowrap;text-align:right">' + action + '</td>' +
+  '</tr>';
+}
+function showEarlier() {
+  document.getElementById('fFrom').value = '2015-01-01';
+  document.getElementById('fStatus').value = 'open';
+  loadAll();
+}
+
+// ── Modals ──────────────────────────────────────────────────────────
+function modal(title, body, footer) {
+  document.getElementById('modalHost').innerHTML =
+    '<div class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal">' +
+      '<h3>' + esc(title) + '</h3><div class="mb">' + body + '<div class="merr" id="mErr"></div></div>' +
+      '<div class="mf">' + footer + '</div>' +
+    '</div></div>';
+}
+function closeModal() { document.getElementById('modalHost').innerHTML = ''; }
+function mErr(msg) { var e = document.getElementById('mErr'); if (e) e.textContent = msg || ''; }
+function busy(btn, on, label) { if (!btn) return; btn.disabled = on; if (label) btn.textContent = label; }
+
+function openVerify(i) {
+  var r = _rows[i];
+  var who = r.kind === 'trade' ? r.buyer : (r.address || r.kindLabel);
+  modal('Verify against the bank statement',
+    '<div class="small" style="margin-bottom:12px">' + esc(r.kindLabel) + ' — ' + esc(who) + '<br>' +
+      acctHtml(r.from) + ' → ' + acctHtml(r.to) + '<br>Expected ' + money(r.amount) + ' on ' + esc(mdy(r.date)) + '</div>' +
+    '<div class="row2">' +
+      '<div class="fld"><label>Amount on the statement</label><input id="vAmt" inputmode="decimal" value="' + r.amount.toFixed(2) + '" /></div>' +
+      '<div class="fld"><label>Date on the statement</label><input type="date" id="vDate" value="' + esc(r.date <= _data.today ? r.date : _data.today) + '" /></div>' +
+    '</div>' +
+    '<div class="fld"><label>Note (optional)</label><input id="vNote" maxlength="500" placeholder="e.g. wire ref, per-diem difference" /></div>',
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" id="vGo" onclick="saveVerify(' + i + ')">Mark verified</button>');
+}
+function saveVerify(i) {
+  var r = _rows[i], btn = document.getElementById('vGo');
+  busy(btn, true, 'Saving…');
+  update({ op: 'verify', key: r.key, amount: document.getElementById('vAmt').value, date: document.getElementById('vDate').value,
+    note: document.getElementById('vNote').value, expected: r.amount }).then(function () {
+    closeModal(); toast('Verified.'); loadAll();
+  }).catch(function (e) { busy(btn, false, 'Mark verified'); mErr(e.message); });
+}
+function unverify(i) {
+  var r = _rows[i];
+  if (!confirm('Remove the verification on this item?')) return;
+  update({ op: 'unverify', key: r.key }).then(function () { toast('Verification removed.'); loadAll(); })
+    .catch(function (e) { toast(e.message, true); });
+}
+function setNet(i, on) {
+  var r = _rows[i];
+  update({ op: 'loan.set', loanId: r.loanId, net: !!on }).then(function () { loadAll(); })
+    .catch(function (e) { toast(e.message, true); loadAll(); });
+}
+function openFundingType(i) {
+  var r = _rows[i], types = _data.labels.fundingTypes;
+  modal('Funding type — ' + (r.address || r.loanId),
+    '<div class="fld"><label>How was this loan funded?</label><select id="ftSel">' +
+      '<option value="">Automatic (from the Funding Plan / holder on file)</option>' +
+      Object.keys(types).map(function (k) { return '<option value="' + k + '"' + (r.fundingTypeOverridden && r.fundingType === k ? ' selected' : '') + '>' + esc(types[k]) + '</option>'; }).join('') +
+    '</select></div>' +
+    '<div class="small">Currently: ' + esc(r.fundingTypeLabel) + (r.fundingTypeOverridden ? ' (set here)' : ' (automatic)') + '. This only changes the ledger, not the loan.</div>',
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" id="ftGo" onclick="saveFundingType(' + i + ')">Save</button>');
+}
+function saveFundingType(i) {
+  var r = _rows[i], btn = document.getElementById('ftGo');
+  busy(btn, true, 'Saving…');
+  update({ op: 'loan.set', loanId: r.loanId, fundingType: document.getElementById('ftSel').value }).then(function () {
+    closeModal(); loadAll();
+  }).catch(function (e) { busy(btn, false, 'Save'); mErr(e.message); });
+}
+
+// Accounts + settings
+function openAccounts() {
+  var L = _data.labels, accts = _data.accounts || [];
+  var list = accts.length ? '<table class="acct-list" style="margin-bottom:14px"><tbody>' + accts.map(function (a) {
+    return '<tr><td><strong>' + esc(a.name) + '</strong>' + (a.last4 ? ' <span class="acct"><span class="l4">••' + esc(a.last4) + '</span></span>' : '') +
+      '<div class="small">' + esc(L.entities[a.entity] || a.entity) + ' · ' + ((a.roles || []).length ? a.roles.map(function (x) { return esc(L.roles[x] || x); }).join(', ') : 'everything for this entity') + '</div></td>' +
+      '<td style="text-align:right;white-space:nowrap"><button class="link-btn" onclick="editAccount(\'' + esc(a.id) + '\')">Edit</button> · <button class="link-btn" onclick="deleteAccount(\'' + esc(a.id) + '\')">Remove</button></td></tr>';
+  }).join('') + '</tbody></table>' : '<div class="small" style="margin-bottom:12px">No accounts yet.</div>';
+  modal('Accounts & settings',
+    list + '<div id="acctForm"></div>' +
+    '<button class="btn ghost sm" onclick="editAccount()">+ Add account</button>' +
+    '<div class="fld" style="margin-top:18px"><label>Track from</label>' +
+      '<div style="display:flex;gap:8px"><input type="date" id="sTrack" value="' + esc(_data.settings.trackFrom || '') + '" /><button class="btn ghost sm" onclick="saveTrackFrom()">Save</button></div>' +
+      '<div class="small">The ledger opens on this date, and the 24-hour KAF alert only covers loans closed on or after it.</div></div>',
+    '<button class="btn" onclick="closeModal()">Done</button>');
+}
+function editAccount(id) {
+  var L = _data.labels;
+  var a = (_data.accounts || []).filter(function (x) { return x.id === id; })[0] || { entity: 'sla', roles: [] };
+  document.getElementById('acctForm').innerHTML =
+    '<div class="card" style="padding:12px;margin-bottom:10px">' +
+    '<div class="row2"><div class="fld"><label>Account name</label><input id="aName" maxlength="80" value="' + esc(a.name || '') + '" placeholder="e.g. SLA Operating" /></div>' +
+      '<div class="fld" style="max-width:110px"><label>Last 4</label><input id="aL4" maxlength="4" inputmode="numeric" value="' + esc(a.last4 || '') + '" /></div></div>' +
+    '<div class="fld"><label>Owned by</label><select id="aEnt">' + Object.keys(L.entities).map(function (k) {
+      return '<option value="' + k + '"' + (a.entity === k ? ' selected' : '') + '>' + esc(L.entities[k]) + '</option>'; }).join('') + '</select></div>' +
+    '<div class="fld"><label>Used for (leave blank = everything for this entity)</label><div class="roles">' + Object.keys(L.roles).map(function (k) {
+      return '<label><input type="checkbox" class="aRole" value="' + k + '"' + ((a.roles || []).indexOf(k) !== -1 ? ' checked' : '') + ' /> ' + esc(L.roles[k]) + '</label>'; }).join('') + '</div></div>' +
+    '<button class="btn sm" id="aGo" onclick="saveAccount(\'' + esc(a.id || '') + '\')">Save account</button>' +
+    '</div>';
+}
+function saveAccount(id) {
+  var roles = [];
+  Array.prototype.forEach.call(document.querySelectorAll('.aRole:checked'), function (c) { roles.push(c.value); });
+  var btn = document.getElementById('aGo');
+  busy(btn, true, 'Saving…');
+  update({ op: 'account.save', account: { id: id || undefined, name: document.getElementById('aName').value,
+    last4: document.getElementById('aL4').value, entity: document.getElementById('aEnt').value, roles: roles } }).then(function (j) {
+    _data.accounts = j.accounts; fillFilters(); openAccounts(); toast('Account saved.'); loadAll();
+  }).catch(function (e) { busy(btn, false, 'Save account'); mErr(e.message); });
+}
+function deleteAccount(id) {
+  if (!confirm('Remove this account? Rows that used it will show "no account set" until another account covers them.')) return;
+  update({ op: 'account.delete', id: id }).then(function (j) {
+    _data.accounts = j.accounts; fillFilters(); openAccounts(); loadAll();
+  }).catch(function (e) { mErr(e.message); });
+}
+function saveTrackFrom() {
+  update({ op: 'settings.save', trackFrom: document.getElementById('sTrack').value }).then(function (j) {
+    _data.settings = j.settings; document.getElementById('fFrom').value = j.settings.trackFrom; toast('Saved.'); loadAll();
+  }).catch(function (e) { mErr(e.message); });
+}
+
+// Manual entries
+function sideSelect(id, acctId, label) {
+  var opts = '<option value="">Outside party…</option>' + (_data.accounts || []).map(function (a) {
+    return '<option value="' + esc(a.id) + '"' + (a.id === acctId ? ' selected' : '') + '>' + esc(a.name) + (a.last4 ? ' ••' + esc(a.last4) : '') + '</option>';
+  }).join('');
+  return '<select id="' + id + 'Acct" onchange="document.getElementById(\'' + id + 'Lbl\').style.display=this.value?\'none\':\'\'">' + opts + '</select>' +
+    '<input id="' + id + 'Lbl" style="margin-top:6px' + (acctId ? ';display:none' : '') + '" maxlength="80" placeholder="Who (e.g. KAF investor, title company)" value="' + esc(label || '') + '" />';
+}
+function openManual(i) {
+  var r = (i != null) ? _rows[i] : null;
+  var m = r ? { id: r.manualId, date: r.date, amount: r.amount, fromAccountId: r.from.accountId, fromLabel: r.from.accountId ? '' : r.from.label,
+    toAccountId: r.to.accountId, toLabel: r.to.accountId ? '' : r.to.label, memo: r.memo, loanLabel: r.address, loanId: r.loanId } : { date: _data.today };
+  var opts = (_data.loanOptions || []).map(function (o) { return '<option value="' + esc(o.label) + '"></option>'; }).join('');
+  modal(r ? 'Edit manual entry' : 'Manual entry',
+    '<div class="row2"><div class="fld"><label>Date</label><input type="date" id="mDate" value="' + esc(m.date || '') + '" /></div>' +
+      '<div class="fld"><label>Amount</label><input id="mAmt" inputmode="decimal" value="' + (m.amount ? Number(m.amount).toFixed(2) : '') + '" /></div></div>' +
+    '<div class="row2"><div class="fld"><label>From</label>' + sideSelect('mFrom', m.fromAccountId, m.fromLabel) + '</div>' +
+      '<div class="fld"><label>To</label>' + sideSelect('mTo', m.toAccountId, m.toLabel) + '</div></div>' +
+    '<div class="fld"><label>Memo</label><input id="mMemo" maxlength="300" value="' + esc(m.memo || '') + '" placeholder="e.g. KAF capital call, wire correction" /></div>' +
+    '<div class="fld"><label>Loan (optional)</label><input id="mLoan" list="mLoanList" maxlength="160" value="' + esc(m.loanLabel || '') + '" placeholder="Start typing an address" /><datalist id="mLoanList">' + opts + '</datalist></div>',
+    (r ? '<button class="btn ghost" style="margin-right:auto;color:var(--danger)" onclick="deleteManual(\'' + esc(m.id) + '\')">Delete</button>' : '') +
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" id="mGo" onclick="saveManual(\'' + esc(m.id || '') + '\')">Save</button>');
+}
+function saveManual(id) {
+  var lbl = document.getElementById('mLoan').value.trim();
+  var hit = (_data.loanOptions || []).filter(function (o) { return o.label === lbl; })[0];
+  var btn = document.getElementById('mGo');
+  busy(btn, true, 'Saving…');
+  update({ op: 'manual.save', entry: {
+    id: id || undefined, date: document.getElementById('mDate').value, amount: document.getElementById('mAmt').value,
+    fromAccountId: document.getElementById('mFromAcct').value, fromLabel: document.getElementById('mFromLbl').value,
+    toAccountId: document.getElementById('mToAcct').value, toLabel: document.getElementById('mToLbl').value,
+    memo: document.getElementById('mMemo').value, loanId: hit ? hit.loanId : '', loanLabel: lbl
+  } }).then(function () { closeModal(); toast('Saved.'); loadAll(); })
+    .catch(function (e) { busy(btn, false, 'Save'); mErr(e.message); });
+}
+function deleteManual(id) {
+  if (!confirm('Delete this manual entry?')) return;
+  update({ op: 'manual.delete', id: id }).then(function () { closeModal(); loadAll(); })
+    .catch(function (e) { mErr(e.message); });
+}
+
+// ── Auth + load ─────────────────────────────────────────────────────
+// Admins + processors (Mike). senior_lo is deliberately excluded.
+window.netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  var ok = (SLA.getRoles ? SLA.getRoles(user) : []).some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; });
+  if (!ok) { window.location.replace('/'); return; }
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  loadAll();
+});
+</script>
+</body>
+</html>

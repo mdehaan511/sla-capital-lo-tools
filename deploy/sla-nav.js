@@ -70,6 +70,8 @@
         // Deploy 236.803 — live FCI payoff-demand tracker. Processor-only: it
         // reads the whole servicing book, not one LO's loans.
         { label: 'Payoff Demands', href: '/payoff-demands.html', requires: 'processor' },
+        // Deploy 237.135 (Mike) - money in/out from loan activity, verified against bank statements.
+        { label: 'Financial Audit', href: '/financial-audit.html', requires: 'processor' },
         // Deploy 236.995 (Mike) - mail room: office assistant + processor tier.
         { label: 'Mail', href: '/mail.html', requires: 'mail' },
         { label: 'Tasks',        href: '/tasks.html' },   // Deploy 236.931 (Mike) — everyone; was processor-only
