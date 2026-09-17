@@ -243,6 +243,12 @@ async function handle(req, context) {
   // dependent-tray re-grade can tell "same name, already graded" from a change.
   const _prevArticles = { llcName: String((docState.aiExtractedEntities || {}).llcName || ''), aiReviewedAt: String(docState.aiReviewedAt || '') };
   const _prevIds = { name: guarantorIdNames(review).join(' | '), aiReviewedAt: String(docState.aiReviewedAt || '') }; // Deploy 237.075
+  // Deploy 237.138 (Dan) -- "Received" is applied automatically the moment a
+  // borrower or processor uploads a document. A new file also clears any prior
+  // sign-off (the verdict reset below), so the tray goes back for review.
+  docState.status = 'received';
+  docState.statusAt = now;
+  docState.statusBy = normalizeEmail(user.email);
   docState.verdict = 'pending';
   docState.processorNotes = '';
   docState.aiVerdict = '';

@@ -509,6 +509,8 @@ function _attachToSlug({ review, slug, bytes, filename, mimeType, sourceNote, ac
   docState.currentSize        = bytes.length;
   docState.currentMimeType    = mimeType;
   docState.currentUploadedAt  = now;
+  docState.status             = 'received'; // Deploy 237.138 (Dan) -- a generated doc has landed too
+  docState.statusAt           = now;
   // Reset verdict + AI state — the new doc needs its own review,
   // even though it was auto-attached. Processor still has to click
   // Approve (or run AI review).

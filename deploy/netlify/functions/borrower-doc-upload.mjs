@@ -165,6 +165,8 @@ async function handle(req, context) {
     section:         'borrower',
     conditions:      'Uploaded by the borrower via the portal. Needs manual review.',
     required:        false,
+    status:          'received', // Deploy 237.138 (Dan) -- auto-applied on a borrower upload
+    statusAt:        now,
     verdict:         'pending',
     processorNotes:  '',
     naReason:        '',

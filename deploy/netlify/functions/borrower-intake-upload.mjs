@@ -183,6 +183,8 @@ async function handle(req, context) {
     // over an approved tray: the old carry-forward let a borrower swap the
     // file under an approved verdict (stale portal tab / direct API call)
     // and the never-reviewed replacement kept the approval + approvedBy.
+    status:          'received', // Deploy 237.138 (Dan) -- auto-applied on a borrower upload
+    statusAt:        now,
     verdict:         'pending',
     processorNotes:  (prior && prior.processorNotes) || '',
     naReason:        '',

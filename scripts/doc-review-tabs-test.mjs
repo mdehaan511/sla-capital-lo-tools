@@ -1,10 +1,13 @@
 /**
- * scripts/doc-review-tabs-test.mjs — Deploy 237.136
+ * scripts/doc-review-tabs-test.mjs — Deploy 237.138
  *
  * Gate for the doc review's status model (deploy/loan-doc-review.js). The page is one
  * big IIFE with no exports, so the test LIFTS the real status / stage block out of the
  * file and runs it in a vm: tab routing is checked against the code that ships, not a
  * copy of it. If the block is renamed the markers below fail loudly.
+ *
+ * Statuses are Dan Austin's list (237.138): Outstanding / Received / Processor
+ * Approved / PTD Condition / PTF Condition / Underwriter Approved.
  *
  * Run: node scripts/doc-review-tabs-test.mjs
  */
@@ -28,7 +31,6 @@ const ctx = {
     term_sheet: { label: 'Term Sheet', section: 'loan' },
     appraisal: { label: 'Appraisal', section: 'collateral' },
     guarantor_id: { label: 'Guarantor ID', section: 'guarantor' },
-    articles_of_organization: { label: 'Articles', section: 'borrower' },
     cpl: { label: 'CPL', section: 'closing' },
   },
   _review: null,
@@ -51,63 +53,73 @@ const sec = (slug) => run('_secOf(' + JSON.stringify(slug) + ')');
 
 console.log('doc review tabs + status gate\n');
 
-check('the nine statuses from Mike\'s screenshot, in order',
+check('Dan\'s six statuses, in his order',
   run('_STATUSES.map(function(s){return s.label})'),
-  ['Approved', 'Not Applicable', 'Requested', 'Received', 'Outstanding', 'Rejected', 'Conditions', 'Post Close', 'Prior to Close']);
+  ['Outstanding', 'Received', 'Processor Approved', 'PTD Condition', 'PTF Condition', 'Underwriter Approved']);
+check('Not Applicable survives only as a legacy option', run('_LEGACY_STATUSES.map(function(s){return s.label})'), ['Not Applicable']);
+
+// ── Dan's two behavioural notes ───────────────────────────────────────────
+setDocs({
+  empty:     {},
+  withDoc:   { currentDocId: 'd1' },
+  multiDoc:  { documents: [{ docId: 'd1', hidden: false }] },
+  allHidden: { documents: [{ docId: 'd1', hidden: true }] },
+});
+check('Outstanding is the base status until a document is uploaded',
+  [status('empty'), status('allHidden')], ['outstanding', 'outstanding']);
+check('a tray holding a document reads Received even before anyone sets it',
+  [status('withDoc'), status('multiDoc')], ['received', 'received']);
 
 // ── tab routing ───────────────────────────────────────────────────────────
 setDocs({
-  empty:       {},
-  collected:   { currentDocId: 'd1' },
-  requested:   { status: 'requested' },
-  received:    { status: 'received', currentDocId: 'd1' },
   outstanding: { status: 'outstanding' },
-  rejected:    { status: 'rejected', currentDocId: 'd1' },
-  approved:    { status: 'approved', currentDocId: 'd1' },
-  na:          { status: 'na' },
-  conds:       { status: 'conditions', currentDocId: 'd1' },
-  post:        { status: 'post_close' },
-  prior:       { status: 'prior_to_close' },
+  received:    { status: 'received', currentDocId: 'd1' },
+  procApp:     { status: 'processor_approved', currentDocId: 'd1' },
+  ptd:         { status: 'ptd_condition', currentDocId: 'd1' },
+  ptf:         { status: 'ptf_condition', currentDocId: 'd1' },
+  uwApp:       { status: 'uw_approved', currentDocId: 'd1' },
+  legacyNa:    { status: 'na' },
 });
-check('Processor tab: not collected, collected-but-unreviewed, and the collection statuses',
-  ['empty', 'collected', 'requested', 'received', 'outstanding', 'rejected'].map(stage),
-  ['processor', 'processor', 'processor', 'processor', 'processor', 'processor']);
-check('Underwriting tab: every status where the processor has made a call',
-  ['approved', 'na', 'conds', 'post', 'prior'].map(stage), ['uw', 'uw', 'uw', 'uw', 'uw']);
+check('Processor tab: Outstanding + Received (not collected, or collected and unreviewed)',
+  ['outstanding', 'received'].map(stage), ['processor', 'processor']);
+check('Underwriting tab: everything the processor has made a call on',
+  ['procApp', 'ptd', 'ptf', 'uwApp', 'legacyNa'].map(stage), ['uw', 'uw', 'uw', 'uw', 'uw']);
 
 // ── the Conditions tab is a VIEW of Underwriting ──────────────────────────
 setDocs({
-  open1:    { status: 'conditions', conditions: [{ id: 'c1', status: 'outstanding' }] },
-  received: { status: 'conditions', conditions: [{ id: 'c1', status: 'received' }] },
-  cleared:  { status: 'conditions', conditions: [{ id: 'c1', status: 'cleared' }] },
-  justmark: { status: 'conditions' },
-  approvedWithOpen: { status: 'approved', conditions: [{ id: 'c1', status: 'outstanding' }] },
-  hiddenOpen: { status: 'conditions', hidden: true, conditions: [{ id: 'c1', status: 'outstanding' }] },
-  plain:    { status: 'approved' },
+  ptdOpen:   { status: 'ptd_condition', conditions: [{ id: 'c1', status: 'outstanding', priorTo: 'docs' }] },
+  ptfRecv:   { status: 'ptf_condition', conditions: [{ id: 'c1', status: 'received', priorTo: 'funding' }] },
+  cleared:   { status: 'ptd_condition', conditions: [{ id: 'c1', status: 'cleared', priorTo: 'docs' }] },
+  justmark:  { status: 'ptf_condition' },
+  approvedWithOpen: { status: 'processor_approved', conditions: [{ id: 'c1', status: 'outstanding' }] },
+  hiddenOpen: { status: 'ptd_condition', hidden: true, conditions: [{ id: 'c1', status: 'outstanding' }] },
+  plain:     { status: 'uw_approved' },
 });
 check('Conditions tab: outstanding + received show; CLEARED drops off (Mike\'s rule)',
-  ['open1', 'received', 'cleared'].map(onCond), [true, true, false]);
-check('a tray just marked Conditions with nothing listed still shows, so the items can be added', onCond('justmark'), true);
-check('an open condition on an Approved tray still shows on Conditions', onCond('approvedWithOpen'), true);
+  ['ptdOpen', 'ptfRecv', 'cleared'].map(onCond), [true, true, false]);
+check('a tray just marked PTD / PTF with nothing listed still shows, so the items can be added', onCond('justmark'), true);
+check('an open condition on an approved tray still shows on Conditions', onCond('approvedWithOpen'), true);
 check('hidden trays and clean trays never show on Conditions', [onCond('hiddenOpen'), onCond('plain')], [false, false]);
 check('…and every one of those is still on the Underwriting tab (it always shows all reviewed docs)',
-  ['open1', 'received', 'cleared', 'justmark', 'approvedWithOpen', 'plain'].map(stage),
+  ['ptdOpen', 'ptfRecv', 'cleared', 'justmark', 'approvedWithOpen', 'plain'].map(stage),
   ['uw', 'uw', 'uw', 'uw', 'uw', 'uw']);
 
 // ── trays reviewed before this deploy ────────────────────────────────────
 setDocs({
-  legacyProcApproved: { verdict: 'approved', currentDocId: 'd1' },            // was "Ready for UW"
-  legacyUwApproved:   { verdict: 'approved', uwVerdict: 'approved' },          // was "Approved Docs"
-  legacyConditions:   { verdict: 'approved', uwVerdict: 'conditions' },        // was "Pending Conditions"
+  legacyProcApproved: { verdict: 'approved', currentDocId: 'd1' },
+  legacyUwApproved:   { verdict: 'approved', uwVerdict: 'approved' },
+  legacyCondDocs:     { verdict: 'approved', uwVerdict: 'conditions', conditions: [{ id: 'c1', status: 'outstanding', priorTo: 'docs' }] },
+  legacyCondFunding:  { verdict: 'approved', uwVerdict: 'conditions', conditions: [{ id: 'c1', status: 'outstanding', priorTo: 'funding' }] },
   legacyNa:           { verdict: 'na' },
   legacyIssues:       { verdict: 'issues', currentDocId: 'd1' },
-  legacyPending:      { verdict: 'pending', currentDocId: 'd1', aiVerdict: 'approved' }, // was "AI Reviewed"
+  legacyCollected:    { verdict: 'pending', currentDocId: 'd1', aiVerdict: 'approved' },
+  legacyEmpty:        { verdict: 'pending' },
 });
-check('legacy trays derive a status from the old verdict pair',
-  ['legacyProcApproved', 'legacyUwApproved', 'legacyConditions', 'legacyNa', 'legacyIssues', 'legacyPending'].map(status),
-  ['approved', 'approved', 'conditions', 'na', 'rejected', '']);
+check('legacy trays derive a status; an old conditions tray picks PTD vs PTF from its own items',
+  ['legacyProcApproved', 'legacyUwApproved', 'legacyCondDocs', 'legacyCondFunding', 'legacyNa', 'legacyIssues', 'legacyCollected', 'legacyEmpty'].map(status),
+  ['processor_approved', 'uw_approved', 'ptd_condition', 'ptf_condition', 'na', 'outstanding', 'received', 'outstanding']);
 check('…and land on the right tab with no migration',
-  ['legacyProcApproved', 'legacyUwApproved', 'legacyConditions', 'legacyNa', 'legacyIssues', 'legacyPending'].map(stage),
+  ['legacyProcApproved', 'legacyUwApproved', 'legacyCondDocs', 'legacyNa', 'legacyIssues', 'legacyCollected'].map(stage),
   ['uw', 'uw', 'uw', 'uw', 'processor', 'processor']);
 setDocs({ x: { status: 'outstanding', verdict: 'approved', uwVerdict: 'approved' } });
 check('an explicit status always beats the legacy pair', [status('x'), stage('x')], ['outstanding', 'processor']);

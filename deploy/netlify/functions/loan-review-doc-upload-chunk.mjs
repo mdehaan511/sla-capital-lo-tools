@@ -139,6 +139,12 @@ async function handle(req, context) {
   docState.currentMimeType   = mimeType;
   docState.currentUploadedAt = now;
   applyCanonicalDocName(review, body.slug, docId, { incomingFilename: filename, mode: incomingMode, entities: {}, ignoreTray: true }); // Deploy 237.133
+  // Deploy 237.138 (Dan) -- "Received" is applied automatically the moment a
+  // borrower or processor uploads a document. A new file also clears any prior
+  // sign-off (the verdict reset below), so the tray goes back for review.
+  docState.status = 'received';
+  docState.statusAt = now;
+  docState.statusBy = normalizeEmail(user.email);
   docState.verdict = 'pending';
   docState.processorNotes = '';
   docState.aiFindings = [];

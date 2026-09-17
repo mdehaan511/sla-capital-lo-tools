@@ -306,16 +306,13 @@
       // Deploy 237.136 (Mike: "the tray is narrower") -- tighter header now that the
       // rubric subtext is gone.
       '.dr-root .tray-status { font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px; border:1px solid transparent; font-family:inherit; cursor:pointer; max-width:150px; }',
-      '.dr-root .tray-status.st-none { background:var(--gold-light); color:var(--muted); border-color:var(--border, #ddd8d0); }',
-      '.dr-root .tray-status.st-approved { background:#d4edda; color:#166534; border-color:#a9d9b6; }',
-      '.dr-root .tray-status.st-na { background:#e6f4ea; color:#4a7a5c; border-color:#c3e0cd; }',
-      '.dr-root .tray-status.st-requested { background:#cfe2f3; color:#1d4e89; border-color:#a7c8e8; }',
-      '.dr-root .tray-status.st-received { background:#1155cc; color:#fff; border-color:#1155cc; }',
       '.dr-root .tray-status.st-outstanding { background:#e03e3e; color:#fff; border-color:#e03e3e; }',
-      '.dr-root .tray-status.st-rejected { background:#e8912d; color:#fff; border-color:#e8912d; }',
-      '.dr-root .tray-status.st-conditions { background:#f0cf3f; color:#4a3a00; border-color:#d9b92c; }',
-      '.dr-root .tray-status.st-post_close { background:#dcc6f0; color:#4a2a6b; border-color:#c3a5e0; }',
-      '.dr-root .tray-status.st-prior_to_close { background:#e91e8c; color:#fff; border-color:#e91e8c; }',
+      '.dr-root .tray-status.st-received { background:#1155cc; color:#fff; border-color:#1155cc; }',
+      '.dr-root .tray-status.st-processor_approved { background:#d81b76; color:#fff; border-color:#d81b76; }',
+      '.dr-root .tray-status.st-ptd_condition { background:#e8912d; color:#fff; border-color:#e8912d; }',
+      '.dr-root .tray-status.st-ptf_condition { background:#f0cf3f; color:#4a3a00; border-color:#d9b92c; }',
+      '.dr-root .tray-status.st-uw_approved { background:#166534; color:#fff; border-color:#166534; }',
+      '.dr-root .tray-status.st-na { background:#e9e5de; color:#4a4458; border-color:#d6cfc0; }',
       '.dr-root .tray.approved { border-color:var(--dr-green-border); }',
       '.dr-root .tray.issues   { border-color:var(--dr-red-border); }',
       '.dr-root .tray.na       { border-color:var(--dr-blue-border); }',
@@ -757,58 +754,62 @@
   // backend counts), hidden + hiddenBy / hiddenAt / hiddenReason +
   // hiddenConfirmedBy / hiddenConfirmedAt. Any processor-tier user may set any
   // status (Mike's call; there is no separate underwriter role).
-  // ── Deploy 237.136 (Mike: "condense back all of the tabs into a singular tab
-  // again for docs that have been reviewed by the processor and instead make it so
-  // the status on the right is the conditions in the attached screenshot ... Its too
-  // much work and too confusing with all the tabs now") ──────────────────────────
-  // ONE status per tray replaces the Pending -> AI Reviewed -> Ready for UW ->
-  // Pending Conditions -> Approved walk (237.071/.100). Three tabs:
-  //   processor  -- not collected yet, or collected and not yet reviewed
-  //   uw         -- the processor has made a call: EVERY reviewed doc, always
-  //   conditions -- a VIEW of the uw tab: only trays with an open condition
-  // `status` is the truth; the legacy verdict / uwVerdict pair is kept in sync by
-  // dr_setStatus because the Processing Pipeline tile counts (review-loan-counts
-  // .mjs), the full-file tracker and the borrower portal all read those.
+  // Deploy 237.138 (Dan Austin's list, via Mike) -- the six statuses. The notes Dan
+  // put in parentheses are BEHAVIOUR, not labels:
+  //   Outstanding -- the base status until a document is uploaded (red)
+  //   Received    -- applied AUTOMATICALLY when a borrower or processor uploads
+  //                  one (blue; see the four upload endpoints)
+  //   PTD / PTF   -- Prior To Docs / Prior To Funding, the two condition kinds the
+  //                  per-tray condition list already tracks as priorTo docs|funding
   var _STATUSES = [
-    { key: 'approved',       label: 'Approved'       },
-    { key: 'na',             label: 'Not Applicable' },
-    { key: 'requested',      label: 'Requested'      },
-    { key: 'received',       label: 'Received'       },
-    { key: 'outstanding',    label: 'Outstanding'    },
-    { key: 'rejected',       label: 'Rejected'       },
-    { key: 'conditions',     label: 'Conditions'     },
-    { key: 'post_close',     label: 'Post Close'     },
-    { key: 'prior_to_close', label: 'Prior to Close' },
+    { key: 'outstanding',        label: 'Outstanding'          },
+    { key: 'received',           label: 'Received'             },
+    { key: 'processor_approved', label: 'Processor Approved'   },
+    { key: 'ptd_condition',      label: 'PTD Condition'        },
+    { key: 'ptf_condition',      label: 'PTF Condition'        },
+    { key: 'uw_approved',        label: 'Underwriter Approved' },
   ];
+  // Trays marked N/A before Dan's list replaced that option. Kept so the old data
+  // still reads correctly, and offered in the dropdown ONLY on a tray that already
+  // holds it -- it is not a choice on anything else.
+  var _LEGACY_STATUSES = [{ key: 'na', label: 'Not Applicable' }];
   // Statuses that mean the processor is DONE with the tray -> Underwriting tab.
-  // Requested / Received / Outstanding / Rejected are collection work, so they
-  // stay on the Processor tab.
-  var _UW_STATUS = { approved: 1, na: 1, conditions: 1, post_close: 1, prior_to_close: 1 };
+  // Outstanding / Received are collection work, so they stay with the processor.
+  var _UW_STATUS = { processor_approved: 1, ptd_condition: 1, ptf_condition: 1, uw_approved: 1, na: 1 };
+  function _condPriorTo(d) {
+    var open = (Array.isArray(d && d.conditions) ? d.conditions : []).filter(function(c) { return c && c.status !== 'cleared'; });
+    for (var i = 0; i < open.length; i++) if (open[i].priorTo === 'funding') return 'funding';
+    return 'docs';
+  }
   function _statusOf(slug) {
     var d = (_review && _review.docs && _review.docs[slug]) || {};
     if (d.status) return d.status;
     // Trays reviewed before this deploy: derive from the old verdict pair.
     if (d.verdict === 'na') return 'na';
-    if (d.verdict === 'issues') return 'rejected';
-    if (d.uwVerdict === 'conditions') return 'conditions';
-    if (d.verdict === 'approved') return 'approved';
-    return '';
+    if (d.uwVerdict === 'approved') return 'uw_approved';
+    if (d.uwVerdict === 'conditions') return _condPriorTo(d) === 'funding' ? 'ptf_condition' : 'ptd_condition';
+    if (d.verdict === 'approved') return 'processor_approved';
+    // 'issues' was the retired Rejected -- that document is work outstanding again.
+    if (d.verdict === 'issues') return 'outstanding';
+    return _trayHasDoc(d) ? 'received' : 'outstanding';
   }
   function _statusLabel(key) {
-    for (var i = 0; i < _STATUSES.length; i++) if (_STATUSES[i].key === key) return _STATUSES[i].label;
+    var all = _STATUSES.concat(_LEGACY_STATUSES);
+    for (var i = 0; i < all.length; i++) if (all[i].key === key) return all[i].label;
     return '';
   }
   function _openCondCount(d) {
     return (Array.isArray(d && d.conditions) ? d.conditions : []).filter(function(c) { return c && c.status !== 'cleared'; }).length;
   }
   // Mike: "When conditions are cleared they are removed from the Conditions tab."
-  // A tray just marked Conditions with nothing listed yet still shows, so the
+  // A tray just marked PTD / PTF with nothing listed yet still shows, so the
   // underwriter can go add the items.
   function _onConditionsTab(slug) {
     var d = (_review && _review.docs && _review.docs[slug]) || {};
     if (d.hidden) return false;
     if (_openCondCount(d) > 0) return true;
-    return _statusOf(slug) === 'conditions' && !(Array.isArray(d.conditions) && d.conditions.length);
+    var st = _statusOf(slug);
+    return (st === 'ptd_condition' || st === 'ptf_condition') && !(Array.isArray(d.conditions) && d.conditions.length);
   }
   // The section a tray renders under (the Application & Terms override).
   function _secOf(slug) {
@@ -1537,18 +1538,23 @@
       // Skips trays with no doc, hidden trays, already-approved /
       // issues / na trays. Button only renders when there's
       // something to bulk-approve.
+      // Deploy 237.138 -- one sweep button that follows the tab: on Processor it
+      // approves collected documents, on Underwriting it signs off what the processor
+      // already approved.
+      var _bulkUw = (_activeTab === 'uw');
       var bulkable = slugsInSec.filter(function(s) {
         var dd = docs[s] || {};
         if (dd.hidden) return false;
         if ((DOC_META[s] && DOC_META[s].noReview) || dd.noReview) return false; // Deploy 236.752 — storage-only trays aren't approvable
-        if ((dd.verdict || 'pending') !== 'pending') return false;
-        return !!(dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; })));
+        var st = _statusOf(s);
+        if (_bulkUw) return st === 'processor_approved';
+        return st === 'received' && _trayHasDoc(dd);
       });
       var bulkBtn = bulkable.length
-        ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escAttr(sec.key) + '\')" title="Approve every uploaded doc in this section that\'s still pending">✓ Approve ' + bulkable.length + ' pending</button>'
+        ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escAttr(sec.key) + '\')" title="' +
+            (_bulkUw ? 'Underwriter-approve every processor-approved document in this section' : 'Processor-approve every collected document in this section that has not been reviewed') + '">\u2713 ' +
+            (_bulkUw ? 'UW approve ' : 'Approve ') + bulkable.length + '</button>'
         : '';
-      // Deploy 237.136 -- the separate "UW approve all" sweep is gone with the UW
-      // tab: ✓ Approve N sets the one status straight to Approved.
 
       // Deploy 236.501 — split this section's visible slugs into standard
       // checklist docs and "Other" (custom / uncategorized) docs so every
@@ -2092,8 +2098,9 @@
         (_openConds > 0 ? '<span class="tray-verdict conditions" title="' + _openConds + ' uncleared condition' + (_openConds === 1 ? '' : 's') + ' \u2014 expand the tray to view or clear">\u2691 ' + _openConds + '</span>' : '') +
         '<select class="tray-status st-' + escAttr(_status || 'none') + '" onclick="event.stopPropagation()" ' +
           'onchange="dr_setStatus(\'' + escAttr(slug) + '\',this.value)" title="Set this document\u2019s status">' +
-          '<option value=""' + (_status ? '' : ' selected') + '>\u2014 Status \u2014</option>' +
-          _STATUSES.map(function(st) {
+          // Deploy 237.138 -- Outstanding is the base status, so there is no blank
+          // option; a legacy N/A tray keeps N/A selectable until it is moved off.
+          _STATUSES.concat(_status === 'na' ? _LEGACY_STATUSES : []).map(function(st) {
             return '<option value="' + escAttr(st.key) + '"' + (st.key === _status ? ' selected' : '') + '>' + escHtml(st.label) + '</option>';
           }).join('') +
         '</select>';
@@ -2444,7 +2451,10 @@
         rows +
         '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">' +
           '<input id="dr-cond-input_' + escAttr(slug) + '" type="text" placeholder="Add a condition for this document…" onkeydown="if(event.key===\'Enter\')dr_addCond(\'' + escAttr(slug) + '\')" style="flex:1;min-width:160px;font-size:12px;padding:6px 9px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit" />' +
-          '<select id="dr-cond-prior_' + escAttr(slug) + '" style="font-size:12px;padding:6px 8px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit"><option value="docs">Prior to Docs</option><option value="funding">Prior to Funding</option></select>' +
+          // Deploy 237.138 -- a PTF Condition tray adds Prior to Funding items by default.
+          '<select id="dr-cond-prior_' + escAttr(slug) + '" style="font-size:12px;padding:6px 8px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit">' +
+            '<option value="docs"' + (_statusOf(slug) === 'ptf_condition' ? '' : ' selected') + '>Prior to Docs</option>' +
+            '<option value="funding"' + (_statusOf(slug) === 'ptf_condition' ? ' selected' : '') + '>Prior to Funding</option></select>' +
           '<button onclick="dr_addCond(\'' + escAttr(slug) + '\')" style="font-size:12px;font-weight:600;padding:6px 12px;background:#261a36;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">+ Add</button>' +
         '</div>' +
       '</div>';
@@ -3151,6 +3161,9 @@
   // existing override modal, which we don't want to bypass
   // silently.
   global.dr_bulkApprove = function(sectionKey) {
+    // Deploy 237.138 -- the sweep matches the tab (see renderSections): Processor
+    // Approved from the Processor tab, Underwriter Approved from Underwriting.
+    var toUw = (_activeTab === 'uw');
     var docs = _review.docs || {};
     var targets = [];
     var aiIssuesSkipped = 0;
@@ -3159,13 +3172,14 @@
       var dd = docs[s] || {};
       if (dd.hidden) return;
       if (_secOf(s) !== sectionKey) return;
-      if ((dd.verdict || 'pending') !== 'pending') return;
-      var hasDoc = !!(dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; })));
-      if (!hasDoc) return;
+      if ((DOC_META[s] && DOC_META[s].noReview) || dd.noReview) return;
+      var st = _statusOf(s);
+      if (toUw) { if (st === 'processor_approved') targets.push(s); return; }
+      if (st !== 'received' || !_trayHasDoc(dd)) return;
       if (dd.aiVerdict === 'issues') { aiIssuesSkipped++; return; }
-      // Deploy 236.590 — a doc with no rubric (or a non-AI-reviewable file type)
-      // was never actually auto-verified, so it must NOT be swept into a green
-      // bulk-approve. The processor opens it and approves it individually.
+      // Deploy 236.590 — a doc with no rubric (or a non-AI-reviewable file type) was
+      // never actually auto-verified, so it must NOT be swept into a green bulk
+      // approve. The processor opens it and approves it individually.
       if (dd.aiVerdict === 'needs_manual_review') { manualReviewSkipped++; return; }
       targets.push(s);
     });
@@ -3175,7 +3189,7 @@
         : 'Nothing to bulk-approve in this section.', 'info');
       return;
     }
-    var msg = 'Approve ' + targets.length + ' pending document' + (targets.length === 1 ? '' : 's') + ' in this section?';
+    var msg = (toUw ? 'Underwriter-approve ' : 'Processor-approve ') + targets.length + ' document' + (targets.length === 1 ? '' : 's') + ' in this section?';
     if (aiIssuesSkipped) msg += '\n\n(' + aiIssuesSkipped + ' doc(s) with AI-flagged issues will be SKIPPED — open those individually to override.)';
     if (manualReviewSkipped) msg += '\n\n(' + manualReviewSkipped + ' doc(s) need manual review — no rubric — and will be SKIPPED. Open them individually to approve.)';
     if (!confirm(msg)) return;
@@ -3184,12 +3198,13 @@
     var actor = (_user && _user.email) || '';
     var patch = { docs: {} };
     targets.forEach(function(s) {
-      // Deploy 237.136 -- one status: the sweep sets Approved outright.
-      patch.docs[s] = { status: 'approved', statusAt: now, statusBy: actor, verdict: 'approved', approvedAt: now, approvedBy: actor, uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: actor };
+      patch.docs[s] = toUw
+        ? { status: 'uw_approved', statusAt: now, statusBy: actor, verdict: 'approved', approvedAt: now, approvedBy: actor, uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: actor }
+        : { status: 'processor_approved', statusAt: now, statusBy: actor, verdict: 'approved', approvedAt: now, approvedBy: actor, uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
     });
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
-      showToast('Approved ' + targets.length + ' document' + (targets.length === 1 ? '' : 's') + '.', 'success');
+      showToast((toUw ? 'UW approved ' : 'Approved ') + targets.length + ' document' + (targets.length === 1 ? '' : 's') + '.', 'success');
       render();
     }).catch(function(err) {
       showToast('Bulk approve failed: ' + ((err && err.message) || 'unknown'), 'error');
@@ -4303,28 +4318,35 @@
       aiVerdict: n.aiVerdict || '', aiNotes: n.aiNotes || '', aiFindings: Array.isArray(n.aiFindings) ? n.aiFindings : [],
       aiExtractedEntities: n.aiExtractedEntities || {}, aiReviewedAt: n.aiReviewedAt || '' };
   }
-  // Deploy 237.136 (Mike) -- ONE control for where a document stands. `status` is the
-  // truth; verdict / uwVerdict are written alongside it because the Processing
-  // Pipeline tile counts (review-loan-counts.mjs), the full-file tracker and the
-  // borrower portal all still read that pair. Rejected routes through the flag
-  // modal -- the reason feeds the borrower's "please fix" email (236.746).
+  // Deploy 237.138 (Dan's list) -- ONE control for where a document stands.
+  // `status` is the truth; verdict / uwVerdict are written alongside because the
+  // Processing Pipeline tile counts (review-loan-counts.mjs), the full-file tracker
+  // and the borrower portal all read that pair. The split now lines up exactly:
+  // Processor Approved = verdict approved, Underwriter Approved = + uwVerdict.
   global.dr_setStatus = function(slug, status) {
-    if (status === 'rejected') { global.dr_openFlagModal(slug); return; }
+    var dd = (_review && _review.docs && _review.docs[slug]) || {};
+    // Outstanding on a tray that HAS a document means "this one is no good" -- the
+    // reason feeds the borrower's please-fix email (236.746). An empty tray is just
+    // the base state, so it is set without a prompt.
+    if (status === 'outstanding' && _trayHasDoc(dd)) { global.dr_openFlagModal(slug); return; }
     var now = new Date().toISOString();
     var who = (_user && _user.email) || '';
-    var p = { status: status, statusAt: status ? now : '', statusBy: status ? who : '' };
-    if (status === 'approved' || status === 'na') {
-      p.verdict = (status === 'na') ? 'na' : 'approved';
-      p.approvedAt = now; p.approvedBy = who;
-      p.uwVerdict = 'approved'; p.uwApprovedAt = now; p.uwApprovedBy = who;
-      p.flagReason = '';
-    } else if (status === 'conditions') {
+    var p = { status: status, statusAt: now, statusBy: who };
+    if (status === 'uw_approved') {
+      p.verdict = 'approved'; p.approvedAt = now; p.approvedBy = who;
+      p.uwVerdict = 'approved'; p.uwApprovedAt = now; p.uwApprovedBy = who; p.flagReason = '';
+    } else if (status === 'processor_approved') {
+      p.verdict = 'approved'; p.approvedAt = now; p.approvedBy = who;
+      p.uwVerdict = ''; p.uwApprovedAt = ''; p.uwApprovedBy = ''; p.flagReason = '';
+    } else if (status === 'ptd_condition' || status === 'ptf_condition') {
       p.verdict = 'approved'; p.approvedAt = now; p.approvedBy = who;
       p.uwVerdict = 'conditions'; p.uwConditionsAt = now; p.uwConditionsBy = who;
       p.uwApprovedAt = ''; p.uwApprovedBy = '';
+    } else if (status === 'na') {
+      p.verdict = 'na'; p.approvedAt = now; p.approvedBy = who;
+      p.uwVerdict = ''; p.uwApprovedAt = ''; p.uwApprovedBy = '';
     } else {
-      // Requested / Received / Outstanding / Post Close / Prior to Close / cleared:
-      // nothing is signed off yet.
+      // Outstanding (empty tray) / Received: nothing is signed off yet.
       p.verdict = 'pending'; p.approvedAt = ''; p.approvedBy = '';
       p.uwVerdict = ''; p.uwApprovedAt = ''; p.uwApprovedBy = '';
     }
@@ -4334,7 +4356,7 @@
     patch.docs[slug] = p;
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
-      showToast(status ? 'Set to ' + _statusLabel(status) + '.' : 'Status cleared.', 'success');
+      showToast('Set to ' + _statusLabel(status) + '.', 'success');
       render();
     }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
   };
@@ -4346,9 +4368,9 @@
     var now = new Date().toISOString();
     var patch = { docs: {} };
     if (verdict === 'approved') {
-      patch.docs[slug] = { status: 'approved', statusAt: now, statusBy: (_user && _user.email) || '', verdict: 'approved', approvedAt: now, approvedBy: (_user && _user.email) || '', uwVerdict: 'approved', uwApprovedAt: now, uwApprovedBy: (_user && _user.email) || '' }; // Deploy 237.136
+      patch.docs[slug] = { status: 'processor_approved', statusAt: now, statusBy: (_user && _user.email) || '', verdict: 'approved', approvedAt: now, approvedBy: (_user && _user.email) || '', uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' }; // Deploy 237.138
     } else {
-      patch.docs[slug] = { status: '', statusAt: '', statusBy: '', verdict: 'pending', approvedAt: '', approvedBy: '', flagReason: '', uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
+      patch.docs[slug] = { status: 'received', statusAt: '', statusBy: '', verdict: 'pending', approvedAt: '', approvedBy: '', flagReason: '', uwVerdict: '', uwApprovedAt: '', uwApprovedBy: '' };
     }
     var _heal = _primaryHealFields(slug); // Deploy 237.130
     if (_heal) { for (var _hk in _heal) { if (Object.prototype.hasOwnProperty.call(_heal, _hk)) patch.docs[slug][_hk] = _heal[_hk]; } }
@@ -4375,6 +4397,9 @@
     var slug = _pendingFlag;
     var patch = { docs: {} };
     patch.docs[slug] = {
+      // Deploy 237.138 -- flagging a collected document IS "Outstanding" (Dan's
+      // base status); verdict 'issues' stays for the borrower portal + fix emails.
+      status: 'outstanding', statusAt: new Date().toISOString(), statusBy: (_user && _user.email) || '',
       verdict: 'issues',
       flagReason: reason,
       flaggedAt: new Date().toISOString(),
@@ -4453,7 +4478,7 @@
     var now = new Date().toISOString();
     var patch = { docs: {} };
     patch.docs[slug] = {
-      status: 'na', statusAt: now, statusBy: (_user && _user.email) || '', // Deploy 237.136
+      status: 'na', statusAt: now, statusBy: (_user && _user.email) || '', // Deploy 237.136 (legacy option)
       verdict: 'na',
       naReason: reason,
       approvedAt: now,
