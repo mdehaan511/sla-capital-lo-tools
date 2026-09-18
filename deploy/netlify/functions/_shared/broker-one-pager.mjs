@@ -70,14 +70,18 @@ export const PRODUCTS = [
       ['Approval', 'Unpermitted land is eligible'],
     ] },
   { name: 'DSCR Rental', tag: '1-4 unit · 30-year',
-    blurb: 'Long-term rental financing qualified on the property’s income, not the borrower’s.',
+    blurb: 'Rental financing qualified on the property’s income - and cash-out with no seasoning.',
     rows: [
       ['Rates', 'From 6.75%'],
       ['Leverage', 'Up to 80% LTV purchase and rate/term'],
       ['Credit', '660+ FICO, 660-679 by pre-approval'],
       ['Structures', '30-yr fixed, 5-yr IO, 5/1 ARM, 7/1 ARM'],
       ['Qualifying', '1.00 DSCR minimum, no lease required'],
-      ['Cash-out', 'Up to 75% LTV, 6-month seasoning'],
+      // 2026-09-18 (Mike: "We can do no seasoning now", relaying Chance: "no
+      // seasoning period is massively competitive"). This replaces the 6-month
+      // line the sheet shipped with; the marketing site still publishes 6 months
+      // in /rental/ body copy + FAQ, so that needs the same change to match.
+      ['Cash-out', 'Up to 75% LTV, no seasoning required'],
       ['Portfolio', 'Up to 10 properties on a single DSCR loan'],
       ['Loan size', '$100K - $3M'],
     ] },
