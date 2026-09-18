@@ -232,19 +232,32 @@ export function insertPayoffVerdict(result) {
  * Zero-throw: a failed read-back means UNCONFIRMED, never a false positive.
  * @returns { confirmed, checked, reason }
  */
+/**
+ * Deploy 237.179 -- does FCI's payoff-request record already list a demand for this
+ * date? PURE, so the immediate read-back, the 4-hourly cron and the page-load heal all
+ * decide it the same way (FCI's date formats differ per query -- usDate normalizes both
+ * sides). Exported so it can be tested without a network.
+ */
+export function payoffListHasDate(rec, payoffDate) {
+  if (!rec) return false;
+  const want = usDate(payoffDate, '/') || '';
+  if (!want) return false;
+  const all = [].concat(
+    Array.isArray(rec.requests) ? rec.requests : [],
+    rec.latestRequest ? [rec.latestRequest] : []
+  );
+  return all.some((r) => {
+    const raw = String((r && r.payoffDate) || '');
+    const got = usDate(raw, '/') || raw;
+    return !!got && got === want;
+  });
+}
+
 export async function fciConfirmPayoffFiled(account, payoffDate) {
   try {
     const rec = await fciPayoffRequests(account);
     if (!rec) return { confirmed: false, checked: true, reason: 'FCI lists no payoff requests on this loan' };
-    const want = usDate(payoffDate, '/') || '';
-    const all = [].concat(
-      Array.isArray(rec.requests) ? rec.requests : [],
-      rec.latestRequest ? [rec.latestRequest] : []
-    );
-    const hit = all.some((r) => {
-      const got = usDate(String((r && r.payoffDate) || ''), '/') || String((r && r.payoffDate) || '');
-      return got && want && got === want;
-    });
+    const hit = payoffListHasDate(rec, payoffDate);
     return hit
       ? { confirmed: true, checked: true, reason: '' }
       : { confirmed: false, checked: true, reason: 'FCI did not list a demand for ' + (payoffDate || 'that date') };

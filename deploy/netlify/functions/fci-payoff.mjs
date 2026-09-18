@@ -31,7 +31,7 @@ import { canOverrideOwner } from './_shared/access.mjs';
 import {
   fciConfigured, fciPayoffValue, fciPayoffRequests, fciPendingPayoffDemands,
   fciPayoffDemandStatus, fciInsertPayoff, insertPayoffVerdict, fciConfirmPayoffFiled,
-  PAYOFF_REASONS, fciNum,
+  payoffListHasDate, PAYOFF_REASONS, fciNum,
 } from './_shared/fci-api.mjs';
 import { recordLoanChanges } from './_shared/loan-change-log.mjs';
 
@@ -106,6 +106,38 @@ async function handle(req, context) {
       fciPayoffValue(acct).catch((e) => ({ _err: (e && e.message) || 'failed' })),
       fciPayoffRequests(acct).catch((e) => ({ _err: (e && e.message) || 'failed' })),
     ]);
+
+    // Deploy 237.179 (Mike) -- heal the record while we are here. FCI's list is
+    // already in hand, so a demand they have since picked up gets stamped confirmed on
+    // the loan the moment anyone opens it, rather than waiting on the 4-hourly cron.
+    // Zero-throw and write-only-if-changed: this is a READ endpoint and must stay fast.
+    if (requests && !requests._err && Array.isArray(found.loan.payoffRequests)) {
+      let healed = 0;
+      for (const p of found.loan.payoffRequests) {
+        if (!p || p.confirmed === true) continue;
+        if (!payoffListHasDate(requests, p.payoffDate)) continue;
+        p.confirmed = true;
+        p.confirmedAt = new Date().toISOString();
+        p.confirmReason = '';
+        p.confirmedBy = 'page-load';
+        healed++;
+      }
+      if (healed) {
+        try {
+          const { writeClient } = await import('./_shared/client-write.mjs');
+          found.loan.updatedAt = new Date().toISOString();
+          await writeClient(found.ownerKey, found.client, { clientsStore: found.store });
+          const { unwatchPayoff } = await import('./_shared/fci-payoff-watch.mjs');
+          for (const p of found.loan.payoffRequests) {
+            if (p && p.confirmedBy === 'page-load') {
+              await unwatchPayoff({ ownerKey: found.ownerKey, clientId: found.client.id, loanId: found.loan.id, payoffDate: p.payoffDate });
+            }
+          }
+        } catch (e) {
+          console.warn('fci-payoff: confirm-heal write failed (non-fatal):', e && e.message);
+        }
+      }
+    }
     return json(200, {
       ok: true, serviced: true, account: acct,
       // Deploy 237.144 (Mike: "I dont believe it went through") -- the demands WE
@@ -189,6 +221,17 @@ async function handle(req, context) {
   };
   loan.payoffRequests = Array.isArray(loan.payoffRequests) ? loan.payoffRequests : [];
   loan.payoffRequests.unshift(entry);
+  // Deploy 237.179 (Mike: "a way to check and confirm when it is picked up by FCI")
+  // -- FCI's tracker can lag, so a demand it has not listed YET goes on a short waiting
+  // list. fci-payoff-confirm-cron re-checks it every 4 hours, stamps the loan when it
+  // lands and tells whoever ordered it. One confirmed on the spot needs no watching.
+  if (!confirm.confirmed) {
+    const { watchPayoff } = await import('./_shared/fci-payoff-watch.mjs');
+    await watchPayoff({
+      ownerKey, clientId: client.id, loanId: loan.id, account: acct,
+      payoffDate, at: now, by: selfEmail, address: loan.address || '',
+    });
+  }
   if (loan.payoffRequests.length > 50) loan.payoffRequests.length = 50;
   loan.payoffRequestedAt = now;
   loan.payoffRequestedBy = selfEmail;
