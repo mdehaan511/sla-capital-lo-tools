@@ -314,7 +314,14 @@
     return (
       '<div class="nav-left">' +
         '<a href="/index.html" style="display:flex;align-items:center;text-decoration:none">' +
-          '<img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display=\'none\'" />' +
+          // Deploy 237.177 (Mike: "the logo doesnt appear to be on all pages").
+          // The src was RELATIVE, so on the pretty loan URL (/loan-details/<id>,
+          // the most visited page in the app) the browser asked for
+          // /loan-details/SLA_Capital_Logo_2_1.png — which the :loanId redirect
+          // answers with loan-details.html at 200, text/html + nosniff. The img
+          // could not decode it, onerror fired, and the logo hid itself. Every
+          // other URL in this bar is already absolute; this one wasn't.
+          '<img src="/SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display=\'none\'" />' +
         '</a>' +
         // Deploy 236.167 — renamed "Tools" to "Home" per Mike.
         // The index page is now positioned as the home dashboard
