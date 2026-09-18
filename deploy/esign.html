@@ -87,7 +87,8 @@
     /* Page rail (Deploy 237.173) — thumbnails you drag to re-order, with a + to
        combine another PDF in. Every action applies straight away, like PandaDoc. */
     .pgrail { position: sticky; top: 66px; max-height: calc(100vh - 80px); display: flex; flex-direction: column;
-              background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+              flex: 0 0 158px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .pgrail.collapsed { flex-basis: 34px; }
     .pgr-head { display: flex; align-items: center; gap: 4px; padding: 8px 6px 8px 10px; border-bottom: 1px solid var(--border);
                 font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
     .pgr-head .sp { flex: 1; }
@@ -135,12 +136,21 @@
     .ed-top input.title { flex: 1; min-width: 200px; font-size: 15px; font-weight: 600; border: 1px solid transparent; padding: 6px 8px; }
     .ed-top input.title:hover, .ed-top input.title:focus { border-color: var(--border); }
     .ed-save { font-size: 12px; color: var(--muted); min-width: 90px; }
-    /* Deploy 237.173 (Mike) — a standing page rail between the tools and the
-       document, the way PandaDoc shows its Document preview. It replaced the
-       two toolbar buttons 237.168/169 shipped. */
-    .ed-layout { display: grid; grid-template-columns: 300px 158px 1fr; gap: 14px; align-items: start; }
-    .ed-layout.rail-off { grid-template-columns: 300px 30px 1fr; }
-    @media (max-width: 900px) { .ed-layout, .ed-layout.rail-off { grid-template-columns: 1fr; } }
+    /* Deploy 237.173 (Mike) — a standing page rail beside the document, the way
+       PandaDoc shows its Document preview. It replaced the two toolbar buttons
+       237.168/169 shipped.
+       Deploy 237.174 (Mike: "always hug the left side of the document") — the rail
+       used to be its own grid column, so it sat against the signers panel while
+       the page floated centred in the leftover space, a gap apart. It now lives
+       INSIDE the document column, and the pair is centred together, so the rail
+       tracks the page's left edge at any window width or zoom. */
+    .ed-layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+    @media (max-width: 900px) { .ed-layout { grid-template-columns: 1fr; } }
+    .doc-area { display: flex; align-items: flex-start; gap: 12px; justify-content: center; }
+    /* A definite basis, not flex:1 — renderPages sizes each canvas from this
+       element's clientWidth, so it must not depend on its own contents. */
+    .doc-area .pages { flex: 0 1 900px; min-width: 0; }
+    @media (max-width: 900px) { .doc-area { justify-content: flex-start; } .pgrail { display: none; } }
     .side { position: sticky; top: 66px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 80px); overflow-y: auto; }
     .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
     .panel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
@@ -301,7 +311,10 @@
             <div class="hint" id="pPos"></div>
           </div>
         </div>
-        <!-- Deploy 237.173 — page rail (Mike: "a bar to the left that shows the pages") -->
+        <!-- Deploy 237.173 — page rail (Mike: "a bar to the left that shows the pages").
+             Deploy 237.174 — rail + document share one centred row so the rail always
+             sits against the page's left edge. -->
+        <div class="doc-area">
         <div class="pgrail" id="pgRail">
           <div class="pgr-head">
             <span class="ttl" id="pgrCount">Pages</span><span class="sp"></span>
@@ -310,7 +323,6 @@
           <div class="pgr-list" id="pgrList"></div>
           <button class="pgr-add" onclick="openAddPages()" title="Add pages from another PDF">+ Add pages</button>
         </div>
-        <div>
           <div class="pages" id="pages"><div class="loading">Rendering PDF…</div></div>
         </div>
       </div>
@@ -1514,10 +1526,11 @@ function railShoot() {
   return Promise.all(jobs);
 }
 function togglePageRail() {
-  var r = document.getElementById('pgRail'), l = document.querySelector('.ed-layout'), b = document.getElementById('pgrToggle');
-  if (!r || !l) return;
+  var r = document.getElementById('pgRail'), b = document.getElementById('pgrToggle');
+  if (!r) return;
+  // Deploy 237.174 — the rail carries its own width now (it is a flex item beside
+  // the document, not a grid column), so collapsing is one class on the rail.
   var off = r.classList.toggle('collapsed');
-  l.classList.toggle('rail-off', off);
   if (b) { b.textContent = off ? '»' : '«'; b.title = off ? 'Show the page list' : 'Hide the page list'; }
   try { localStorage.setItem('sla_esign_rail', off ? '0' : '1'); } catch (_) {}
 }
