@@ -2535,6 +2535,12 @@
 [functions.armory-admin]
   timeout = 26
 # Deploy 237.135 -- the Financial Audit ledger reads every loan + the Sitewire cache.
+# Deploy 237.184 -- the one-pager embeds a logo and builds a QR; the FIRST hit
+# after a deploy cold-starts pdf-lib + qrcode and measured 14s, which blew the
+# 10s default and 504'd. Warm hits are ~0.7s.
+[functions.broker-one-pager]
+  timeout = 26
+
 [functions.financial-audit-list]
   timeout = 26
 [functions.financial-audit-alerts]
