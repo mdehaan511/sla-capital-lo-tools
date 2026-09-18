@@ -3,7 +3,8 @@
  * Pins the Financial Audit money-movement rules (_shared/financial-audit.mjs).
  * Run: node scripts/financial-audit-test.mjs
  */
-import { buildLedger, fundingTypeOf, normalizeState } from '../deploy/netlify/functions/_shared/financial-audit.mjs';
+import { buildLedger, fundingTypeOf, normalizeState, prepaidInterestOf, weekEndOf, fundingLabelOf, ppiCollectedAtClosing }
+  from '../deploy/netlify/functions/_shared/financial-audit.mjs';
 
 let failures = 0;
 const ok = (cond, msg) => { console.log((cond ? '  ok   ' : '  FAIL ') + msg); if (!cond) failures++; };
@@ -90,6 +91,56 @@ ok(!rows.length, 'on-hold loans are not forecast');
 st = normalizeState({ accounts, manual: [{ id: 'm1', date: '2026-09-14', amount: 50000, fromLabel: 'KAF investor', toAccountId: 'a3', memo: 'Capital call' }] });
 ({ rows } = buildLedger([], null, st, NOW));
 ok(rows.length === 1 && rows[0].flow === 'in' && rows[0].to.last4 === '3333', 'manual capital call into KAF');
+
+
+// ── Deploy 237.141 — the tab data (Closings / Trades / Payoffs / Draws) ──────
+// Prepaid interest: loan x rate / 365 x days from funding through month end, the
+// same formula the UW tab uses (loan-uw-calc.js).
+ok(prepaidInterestOf({ loanAmt: 200000, rate: 10.95, fundingDate: '2026-09-10' }) === 1260, 'PPI = 200k x 10.95% / 365 x 21 days = $1,260');
+ok(prepaidInterestOf({ loanAmt: 200000, rate: 0.1095, fundingDate: '2026-09-10' }) === 1260, 'PPI takes a rate stored as a fraction too');
+ok(prepaidInterestOf({ loanAmt: 200000, rate: 10.95, fundingDate: '2026-09-30' }) === 60, 'closing on the last day = one day of interest');
+ok(prepaidInterestOf({ loanAmt: 200000, fundingDate: '2026-09-10' }) === 0, 'no rate on file = no PPI guessed');
+ok(ppiCollectedAtClosing('sla') && ppiCollectedAtClosing('kaf') && ppiCollectedAtClosing('sla_to_kaf') &&
+   !ppiCollectedAtClosing('stride') && !ppiCollectedAtClosing('dscr'),
+   "PPI is collected at the table on SLA + KAF funded only (the sheet's note)");
+
+// Mike: draw reimbursements "occur at the end of the week that draws are approved".
+ok(weekEndOf('2026-09-14') === '2026-09-18', 'a Monday draw is reimbursed that Friday');
+ok(weekEndOf('2026-09-18') === '2026-09-18', 'a Friday draw is reimbursed the same day');
+ok(weekEndOf('2026-09-19') === '2026-09-25', 'a Saturday draw rolls to the next Friday');
+
+ok(fundingLabelOf(base({ toolType: 'rtl' }), 'stride') === 'RTL - Stride' &&
+   fundingLabelOf(base({ toolType: 'dscr', investorName: 'DIYA' }), 'dscr') === 'DSCR - DIYA' &&
+   fundingLabelOf(base({ toolType: 'rtl' }), 'sla_to_kaf') === 'RTL - KAF',
+   "Loan Type - Funding Source reads like the sheet");
+
+// The closings table
+st = normalizeState({ accounts });
+let built = buildLedger([base({ id: 'C1', fundingSource: 'sla_capital', rate: 10.95, closingFees: '1000', slaDisplayId: 'SLA-1' })], null, st, NOW);
+let c1 = built.closings[0];
+ok(built.closings.length === 1 && c1.slaNumber === 'SLA-1' && c1.fundingLabel === 'RTL - SLA', 'one closing row per closed loan');
+ok(c1.originationFee === 4000 && c1.otherFees === 1000 && c1.rehabFunds === 50000, 'origination = points in dollars, other fees + rehab split out');
+ok(c1.ppiCollected && c1.prepaidInterest === 1260 && c1.totalCollected === 6260,
+   'SLA funded: Total Collected = origination + other fees + PPI');
+built = buildLedger([base({ id: 'C2', fundingSource: 'stride', rate: 10.95, closingFees: '1000' })], null, st, NOW);
+ok(!built.closings[0].ppiCollected && built.closings[0].totalCollected === 5000,
+   'Stride: PPI is net funded, so it is shown but left out of Total Collected');
+built = buildLedger([base({ id: 'C3', fundingSource: 'sla_capital', assignedToEntity: 'King Arthur Fund 1', rate: 10.95, closingFees: '1000' })], null, st, NOW);
+ok(built.closings[0].kaf && built.closings[0].kaf.upb === 150000 && built.closings[0].kaf.remainingHoldback === 50000 &&
+   built.closings[0].kaf.total === 6260, 'an SLA -> KAF assignment fills the Trades to KAF block');
+ok(!buildLedger([base({ id: 'C4' })], null, st, NOW).closings[0].kaf, 'a loan SLA keeps has no KAF transfer block');
+ok(!buildLedger([base({ id: 'C5', status: 'approved', processingStage: 'processing', fundingDate: '2026-09-25' })], null, st, NOW).closings.length,
+   'a loan still in the pipeline is not a closing yet');
+
+// Draw reimbursement: only when the party fronting the draw is not the holder.
+const drawCache = { 'SLA-1': { draws: [{ id: 'd1', number: 1, name: 'Draw 1', status: 'approved', approvedCents: 2500000, updatedAt: '2026-09-14' }] } };
+built = buildLedger([base({ id: 'D1', slaDisplayId: 'SLA-1', fundingSource: 'stride' })], drawCache, st, NOW);
+const reimb = built.rows.find((r) => r.kind === 'draw_reimb');
+ok(built.rows.some((r) => r.kind === 'draw' && r.amount === 25000), 'the draw itself goes out');
+ok(reimb && reimb.amount === 25000 && reimb.date === '2026-09-18', 'Stride reimburses the draw that Friday');
+ok(reimb && reimb.from.entity === 'stride' && reimb.to.entity === 'sla', 'the line pays SLA back');
+built = buildLedger([base({ id: 'D2', slaDisplayId: 'SLA-1', fundingSource: 'sla_capital' })], drawCache, st, NOW);
+ok(!built.rows.some((r) => r.kind === 'draw_reimb'), 'a loan SLA funds and holds has nothing to reimburse');
 
 console.log(failures ? '\n' + failures + ' failure(s)' : '\nall checks pass');
 process.exit(failures ? 1 : 0);

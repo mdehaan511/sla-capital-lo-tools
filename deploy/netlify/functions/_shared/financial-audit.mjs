@@ -75,6 +75,7 @@ export const KIND_LABELS = {
   broker: 'Broker fee',
   assign: 'Assignment to KAF',
   draw: 'Draw',
+  draw_reimb: 'Draw reimbursement', // Deploy 237.141
   trade: 'Trade proceeds',
   payoff: 'Payoff',
   dscr_comp: 'DSCR points + TPO',
@@ -96,6 +97,45 @@ export const ymd = (v) => {
   return isNaN(d) ? '' : d.toISOString().slice(0, 10);
 };
 const round2 = (n) => Math.round(n * 100) / 100;
+
+// Deploy 237.141 (Mike's closing sheet) -- prepaid interest is the interest from the
+// funding date through the end of that month, the same formula the UW tab uses
+// (loan-uw-calc.js): loan x rate / 365 x days. Keep the two in step.
+export function prepaidInterestOf(l) {
+  const amt = num(l.finalLoanAmount) || num(l.loanAmt);
+  const rate = num(l.rate);
+  const d = ymd(l.fundingDate);
+  if (!(amt > 0) || !(rate > 0) || !d) return 0;
+  const y = +d.slice(0, 4), m = +d.slice(5, 7), day = +d.slice(8, 10);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const days = daysInMonth - day + 1;   // funding day through month end, inclusive
+  const r = rate > 1 ? rate / 100 : rate;
+  return round2(amt * r / 365 * days);
+}
+// The sheet's note: "Prepaid Interest is only collected at closing on KAF and SLA
+// Funded Loans. All other loans Prepaid interest and Impounds are net funded."
+export const ppiCollectedAtClosing = (ft) => ft === 'sla' || ft === 'kaf' || ft === 'sla_to_kaf';
+// Mike: draw reimbursements "occur at the end of the week that draws are approved".
+export function weekEndOf(dateStr) {
+  const d = ymd(dateStr);
+  if (!d) return '';
+  const t = Date.parse(d + 'T12:00:00Z');
+  if (!isFinite(t)) return '';
+  const dow = new Date(t).getUTCDay();          // 0 Sun .. 6 Sat
+  return new Date(t + ((5 - dow + 7) % 7) * 86400000).toISOString().slice(0, 10); // that week's Friday
+}
+// "RTL - Stride" / "DSCR - DIYA" -- the sheet's Loan Type - Funding Source column.
+const FUNDING_SOURCE_LABEL = { sla: 'SLA', kaf: 'KAF', sla_to_kaf: 'KAF', stride: 'Stride' };
+export function productOf(l) {
+  const t = String(l.toolType || '').toLowerCase();
+  return t === 'dscr' ? 'DSCR' : t === 'guc' ? 'GUC' : 'RTL';
+}
+export function fundingLabelOf(l, ft) {
+  const src = (ft === 'dscr' || ft === 'table')
+    ? (cleanBuyer(l.investorName) || 'Correspondent')
+    : (FUNDING_SOURCE_LABEL[ft] || ft || '');
+  return productOf(l) + (src ? ' - ' + src : '');
+}
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export function holderOfName(name) {
@@ -216,6 +256,7 @@ export function buildLedger(loans, draws, state, now) {
   const rows = [];
   const trades = new Map();
   const undated = [];
+  const closings = []; // Deploy 237.141
 
   const push = (r) => {
     r.from = endpoint(accounts, r.fromSpec);
@@ -245,6 +286,33 @@ export function buildLedger(loans, draws, state, now) {
       pipeline, loanStatus: l.status || '', disposition: l.disposition || '',
     };
     const atClose = { date: close, forecast: pipeline || close > today };
+    // Deploy 237.141 -- one row per closing for the Closings tab, shaped like Mike's
+    // sheet: fees collected at the table, the rehab holdback, and (on an SLA -> KAF
+    // assignment) the transfer block on the right.
+    if (!pipeline) {
+      const _hb = holdbackOf(l);
+      const _orig = round2(num(l.points) / 100 * amt);
+      const _other = (ft === 'dscr') ? num(l.closingFees) : feesOf(l);
+      const _ppi = prepaidInterestOf(l);
+      const _ppiIn = ppiCollectedAtClosing(ft);
+      const _dscrTpo = (ft === 'dscr') ? round2((tpoOf(l) || 0) / 100 * amt) : 0;
+      closings.push({
+        loanId: l.id, clientId: base.clientId, owner: base.owner,
+        slaNumber: l.slaDisplayId || '', address: base.address, borrower: base.borrower || '',
+        closeDate: close, fundingType: ft, fundingLabel: fundingLabelOf(l, ft), product: productOf(l),
+        loanAmount: amt,
+        originationFee: _orig + _dscrTpo, otherFees: _other,
+        prepaidInterest: _ppi, ppiCollected: _ppiIn,
+        rehabFunds: _hb, impounds: 0,
+        totalCollected: round2(_orig + _dscrTpo + _other + (_ppiIn ? _ppi : 0)),
+        // "Trades to KAF" on the sheet: what KAF wires SLA when the loan is assigned.
+        kaf: ft === 'sla_to_kaf' ? {
+          upb: round2(amt - _hb), remainingHoldback: _hb,
+          fees: round2(_orig + _other), ppi: _ppi,
+          total: round2(_orig + _other + _ppi), transferDate: close,
+        } : null,
+      });
+    }
     const disp = String(l.disposition || '').toLowerCase();
     const buyerName = cleanBuyer(l.investorName);
     const buyerHolder = holderOfName(l.investorName);
@@ -322,6 +390,19 @@ export function buildLedger(loans, draws, state, now) {
           fromSpec: { entity: DRAW_FUNDER[ft], role: 'draws' }, toSpec: { label: 'Borrower (draw)' },
           detail: (d.name || ('Draw ' + (d.number || ''))) + (d.historical ? ' (historical)' : '') + ' — Sitewire approved',
         }));
+        // Deploy 237.141 (Mike: "draws and draw reimbursements which occur at the end
+        // of the week that draws are approved") -- when the party that FRONTS the draw
+        // is not the party that holds the loan, the holder reimburses them that Friday.
+        // Today that is the Stride warehouse line: SLA advances, the line pays it back.
+        if (DRAW_FUNDER[ft] !== HOLDER[ft]) {
+          const rd = weekEndOf(dd);
+          push(Object.assign({}, base, {
+            key: l.id + ':drawreimb:' + d.id, kind: 'draw_reimb', date: rd, forecast: rd > today,
+            amount: d.approvedCents / 100,
+            fromSpec: { entity: HOLDER[ft], role: 'draws' }, toSpec: { entity: DRAW_FUNDER[ft], role: 'draws' },
+            detail: 'Reimburses the ' + (d.name || ('draw ' + (d.number || ''))) + ' approved ' + dd + ' (end of that week)',
+          }));
+        }
       }
     }
 
@@ -379,7 +460,8 @@ export function buildLedger(loans, draws, state, now) {
     if (r.kind === 'assign' && !v && r.alertDue && r.alertDue < nowMs) r.late24h = true;
   }
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.key < b.key ? -1 : 1)));
-  return { rows, undated, today };
+  closings.sort((a, b) => (a.closeDate < b.closeDate ? -1 : a.closeDate > b.closeDate ? 1 : 0));
+  return { rows, undated, today, closings };
 }
 
 function money(n) { return '$' + Math.round(num(n)).toLocaleString('en-US'); }
@@ -420,7 +502,7 @@ const EXTRA_KEYS = ['fundingSource', 'assignedToEntity', 'investorName', 'finalL
   'brokerFee', 'brokerName', 'disposition', 'soldDate', 'upb', 'payoffDate', 'payoffAmount', 'closedAt',
   'tpo', 'tpoSpread', 'tpoPremium', '_baselineRaw'];
 export const LOAN_SELECT = 'id,client_id,owner_email,address,status,processing_stage,tool_type,loan_type,loan_amt,points,' +
-  'rehab_budget,funding_date,sla_display_id,fdRehabBudget:form_data->>rehabBudget,' +
+  'rehab_budget,funding_date,sla_display_id,rate,fdRehabBudget:form_data->>rehabBudget,' +
   EXTRA_KEYS.map((k) => k + ':extra->>' + k).join(',') +
   ',clients!client_id(first_name,last_name,entity_name)';
 
@@ -431,7 +513,7 @@ export function pgRowToLoan(r) {
     id: r.id, _clientId: r.client_id, _owner: r.owner_email || '',
     _borrower: c.entity_name || person || '',
     address: r.address, status: r.status, processingStage: r.processing_stage,
-    toolType: r.tool_type, loanType: r.loan_type, loanAmt: r.loan_amt, points: r.points,
+    toolType: r.tool_type, loanType: r.loan_type, loanAmt: r.loan_amt, points: r.points, rate: r.rate,
     rehabBudget: r.rehab_budget, fdRehabBudget: r.fdRehabBudget, fundingDate: r.funding_date,
     slaDisplayId: r.sla_display_id,
   };

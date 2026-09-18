@@ -97,6 +97,17 @@
     .roles { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
     .acct-list td { padding: 7px 8px 7px 0; }
     .merr { color: var(--danger); font-size: 12px; min-height: 16px; }
+    /* Deploy 237.141 -- tabs + the wide closing sheet */
+    .fa-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border, #ddd8d0); margin: 0 0 14px; }
+    .fa-tab { padding: 8px 15px; font-size: 13px; font-weight: 600; color: var(--muted, #7a7488); cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; background: none; font-family: inherit; }
+    .fa-tab:hover { color: var(--dark, #261a36); background: rgba(200,129,58,0.07); }
+    .fa-tab.active { color: var(--dark, #261a36); background: #fff; border-color: var(--border, #ddd8d0); margin-bottom: -1px; }
+    .fa-tab .n { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted, #7a7488); margin-left: 5px; }
+    .fa-grp { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted, #7a7488); background: rgba(200,129,58,0.08); text-align: center; }
+    .fa-num { text-align: right; font-family: 'DM Mono', monospace; font-size: 12px; white-space: nowrap; }
+    .fa-tot td { font-weight: 700; border-top: 2px solid var(--border, #ddd8d0); background: #faf8f5; }
+    .fa-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+    .fa-note { font-size: 12px; color: var(--muted, #7a7488); line-height: 1.5; }
     @media (max-width: 700px) { .page { padding: 18px 12px 40px; } }
   </style>
 </head>
@@ -118,6 +129,8 @@
     </div>
 
     <div id="banners"></div>
+    <!-- Deploy 237.141 (Mike: "add tabs like we have everywhere else") -->
+    <div class="fa-tabs" id="faTabs"></div>
 
     <div class="toolbar">
       <div><label>From</label><input type="date" id="fFrom" onchange="loadAll()" /></div>
@@ -134,6 +147,7 @@
       <div class="grow"><label>Search</label><input type="search" id="fSearch" oninput="render()" placeholder="Address, borrower, loan #, buyer, memo" /></div>
     </div>
 
+    <div id="viewAll">
     <div class="stats" id="stats"></div>
     <div class="card" style="padding:14px 16px">
       <div class="tw"><table>
@@ -141,6 +155,8 @@
         <tbody id="ledger"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
       </table></div>
     </div>
+    </div>
+    <div id="viewOther" style="display:none"></div>
   </div>
   <div id="modalHost"></div>
 
@@ -243,6 +259,194 @@ function matches(r) {
   }
   return true;
 }
+// ── Deploy 237.141 (Mike: "add tabs like we have everywhere else ... for the
+// closings we want that tab to look similar to this sheet ... then a tab for Trades
+// and another one for payoffs and another one for draws and draw reimbursements") ──
+// All money = the original verification ledger. The other four are views of the same
+// derived data, laid out the way that part of the business reads it.
+var _tab = 'all';
+var FA_TABS = [['all', 'All money'], ['closings', 'Closings'], ['trades', 'Trades'], ['payoffs', 'Payoffs'], ['draws', 'Draws']];
+function switchTab(t) { _tab = t; render(); }
+function tabRows(t) {
+  if (t === 'closings') return (_data && _data.closings ? _data.closings : []).filter(closingMatches);
+  if (t === 'trades')   return _rows.filter(function (r) { return r.kind === 'trade'; });
+  if (t === 'payoffs')  return _rows.filter(function (r) { return r.kind === 'payoff'; });
+  if (t === 'draws')    return _rows.filter(function (r) { return r.kind === 'draw' || r.kind === 'draw_reimb'; });
+  return _rows;
+}
+function faTabsHtml() {
+  return FA_TABS.map(function (t) {
+    return '<button class="fa-tab' + (_tab === t[0] ? ' active' : '') + '" onclick="switchTab(\'' + t[0] + '\')">' +
+      esc(t[1]) + '<span class="n">' + tabRows(t[0]).length + '</span></button>';
+  }).join('');
+}
+// The search box applies to closings too (the other filters are ledger-only).
+function closingMatches(c) {
+  var q = (document.getElementById('fSearch').value || '').toLowerCase().trim();
+  if (!q) return true;
+  return ((c.address || '') + ' ' + (c.borrower || '') + ' ' + (c.slaNumber || '') + ' ' + (c.fundingLabel || '')).toLowerCase().indexOf(q) >= 0;
+}
+function n2(v) { var x = Number(v) || 0; return x ? money(x) : ''; }
+function sumBy(list, f) { var t = 0; list.forEach(function (x) { t += Number(f(x)) || 0; }); return t; }
+
+function renderTab() {
+  var host = document.getElementById('viewOther');
+  if (_tab === 'closings') host.innerHTML = closingsHtml();
+  else if (_tab === 'trades') host.innerHTML = tradesHtml();
+  else if (_tab === 'payoffs') host.innerHTML = simpleHtml('payoffs', 'Payoffs', 'Payoffs land with whoever holds the loan. Once a loan has been traded the payoff goes to the buyer, so it is not listed here.');
+  else if (_tab === 'draws') host.innerHTML = drawsHtml();
+}
+function tabHead(title, note, csvTab) {
+  return '<div class="fa-head"><div class="fa-note">' + esc(note) + '</div>' +
+    '<button class="btn ghost" onclick="exportCsv(\'' + csvTab + '\')">Download CSV</button></div>';
+}
+
+// ── Closings: laid out like Mike's closing sheet ──────────────────────
+function closingsHtml() {
+  var list = tabRows('closings');
+  var head = tabHead('Closings',
+    'One row per closing. Prepaid interest is only collected at the table on SLA and KAF funded loans \u2014 on everything else it is net funded, so it is shown greyed and left out of Total Collected. Impounds are not on the loan record yet.',
+    'closings');
+  if (!list.length) return head + '<div class="card" style="padding:14px 16px"><div class="empty">No closings in this window.</div></div>';
+  var anyKaf = list.some(function (c) { return c.kaf; });
+  var h = '<div class="card" style="padding:14px 16px"><div class="tw"><table>';
+  if (anyKaf) {
+    h += '<thead><tr><th colspan="10"></th><th class="fa-grp" colspan="6">Trades to KAF</th></tr>';
+  } else { h += '<thead>'; }
+  h += '<tr><th style="padding-left:10px">Close Date</th><th>SLA Loan #</th><th>Property Address</th><th>Loan Type - Funding Source</th>' +
+    '<th class="fa-num">Origination Fee</th><th class="fa-num">Other Fees</th><th class="fa-num">Pre-paid interest</th>' +
+    '<th class="fa-num">Rehab Funds</th><th class="fa-num">Impounds</th><th class="fa-num">Total Collected</th>' +
+    (anyKaf ? '<th class="fa-num">UPB</th><th class="fa-num">Remaining Holdback</th><th class="fa-num">Fees</th><th class="fa-num">PPI</th><th class="fa-num">Total</th><th>Transfer Date</th>' : '') +
+    '</tr></thead><tbody>';
+  list.forEach(function (c) {
+    var k = c.kaf || {};
+    h += '<tr>' +
+      '<td style="padding-left:10px;white-space:nowrap">' + esc(mdy(c.closeDate)) + '</td>' +
+      '<td style="white-space:nowrap">' + esc(c.slaNumber || '') + '</td>' +
+      '<td><a href="' + esc(loanHref(c.loanId, c.owner)) + '">' + esc(c.address || '(no address)') + '</a></td>' +
+      '<td style="white-space:nowrap">' + esc(c.fundingLabel || '') + '</td>' +
+      '<td class="fa-num">' + n2(c.originationFee) + '</td>' +
+      '<td class="fa-num">' + n2(c.otherFees) + '</td>' +
+      '<td class="fa-num"' + (c.ppiCollected ? '' : ' style="color:#a9a3b5" title="Net funded on this funding type \u2014 not collected at the table"') + '>' + n2(c.prepaidInterest) + '</td>' +
+      '<td class="fa-num">' + n2(c.rehabFunds) + '</td>' +
+      '<td class="fa-num">' + n2(c.impounds) + '</td>' +
+      '<td class="fa-num"><strong>' + n2(c.totalCollected) + '</strong></td>' +
+      (anyKaf ? ('<td class="fa-num">' + n2(k.upb) + '</td><td class="fa-num">' + n2(k.remainingHoldback) + '</td>' +
+        '<td class="fa-num">' + n2(k.fees) + '</td><td class="fa-num">' + n2(k.ppi) + '</td>' +
+        '<td class="fa-num">' + n2(k.total) + '</td><td style="white-space:nowrap">' + esc(k.transferDate ? mdy(k.transferDate) : '') + '</td>') : '') +
+      '</tr>';
+  });
+  h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="4">' + list.length + ' closing' + (list.length === 1 ? '' : 's') + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.originationFee; })) + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.otherFees; })) + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.ppiCollected ? c.prepaidInterest : 0; })) + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.rehabFunds; })) + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.impounds; })) + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.totalCollected; })) + '</td>' +
+    (anyKaf ? '<td colspan="6"></td>' : '') + '</tr>';
+  return head + h + '</tbody></table></div></div>';
+}
+
+// ── Trades: one wire per buyer + sold date, the loans inside it ───────
+function tradesHtml() {
+  var list = tabRows('trades');
+  var head = tabHead('Trades', 'A buyer wires once for every loan in the trade, so each row here is one expected wire. Verify it on the All money tab.', 'trades');
+  if (!list.length) return head + '<div class="card" style="padding:14px 16px"><div class="empty">No trades in this window.</div></div>';
+  var h = '<div class="card" style="padding:14px 16px"><div class="tw"><table><thead><tr>' +
+    '<th style="padding-left:10px">Sold Date</th><th>Buyer</th><th>Receiving</th><th>Loans</th><th class="fa-num">Amount</th><th>Status</th></tr></thead><tbody>';
+  list.forEach(function (r) {
+    var loans = r.loans || [];
+    h += '<tr><td style="padding-left:10px;white-space:nowrap">' + esc(mdy(r.date)) + '</td>' +
+      '<td>' + esc(r.buyer || '') + '</td><td>' + esc((r.to && r.to.label) || '') + '</td>' +
+      '<td>' + loans.length + ' loan' + (loans.length === 1 ? '' : 's') + '</td>' +
+      '<td class="fa-num">' + money(r.amount) + '</td>' +
+      '<td>' + esc(r.status || '') + '</td></tr>';
+    loans.forEach(function (x) {
+      h += '<tr><td></td><td colspan="2" style="font-size:12px;color:#7a7488">\u21b3 <a href="' + esc(loanHref(x.loanId, x.owner)) + '">' + esc(x.address || '') + '</a></td>' +
+        '<td style="font-size:12px;color:#7a7488">' + esc(x.slaId || '') + '</td>' +
+        '<td class="fa-num" style="color:#7a7488">' + money(x.upb) + (x.upbOnFile ? '' : ' *') + '</td><td></td></tr>';
+    });
+  });
+  h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="4">' + list.length + ' trade' + (list.length === 1 ? '' : 's') + '</td>' +
+    '<td class="fa-num">' + money(sumBy(list, function (r) { return r.amount; })) + '</td><td></td></tr>';
+  return head + h + '</tbody></table></div><div class="fa-note" style="margin-top:8px">* UPB estimated from the loan amount less the holdback plus draws taken before the sale \u2014 no UPB on file.</div></div>';
+}
+
+// ── Draws + the reimbursement that comes back that Friday ────────────
+function drawsHtml() {
+  var list = tabRows('draws');
+  var head = tabHead('Draws',
+    'Draws go out as Sitewire approves them. Where the party that fronts the draw is not the party holding the loan, the reimbursement comes back at the end of that week (Friday) \u2014 today that is the Stride warehouse line.',
+    'draws');
+  if (!list.length) return head + '<div class="card" style="padding:14px 16px"><div class="empty">No draws in this window.</div></div>';
+  var out = list.filter(function (r) { return r.kind === 'draw'; });
+  var back = list.filter(function (r) { return r.kind === 'draw_reimb'; });
+  var h = '<div class="card" style="padding:14px 16px"><div class="tw"><table><thead><tr>' +
+    '<th style="padding-left:10px">Date</th><th>Loan</th><th>Draw</th><th>From \u2192 To</th><th class="fa-num">Amount</th><th>Status</th></tr></thead><tbody>';
+  list.forEach(function (r) {
+    h += '<tr' + (r.kind === 'draw_reimb' ? ' style="background:rgba(37,105,64,0.04)"' : '') + '>' +
+      '<td style="padding-left:10px;white-space:nowrap">' + esc(mdy(r.date)) + '</td>' +
+      '<td><a href="' + esc(loanHref(r.loanId, r.owner)) + '">' + esc(r.address || '') + '</a></td>' +
+      '<td style="font-size:12px">' + esc(r.kind === 'draw_reimb' ? 'Reimbursement' : (r.detail || '')) + '</td>' +
+      '<td style="font-size:12px;color:#7a7488">' + esc(((r.from && r.from.label) || '') + ' \u2192 ' + ((r.to && r.to.label) || '')) + '</td>' +
+      '<td class="fa-num">' + money(r.amount) + '</td>' +
+      '<td>' + esc(r.status || '') + '</td></tr>';
+  });
+  h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="4">' + out.length + ' draw' + (out.length === 1 ? '' : 's') + ' out \u00b7 ' + back.length + ' reimbursement' + (back.length === 1 ? '' : 's') + ' back</td>' +
+    '<td class="fa-num">' + money(sumBy(out, function (r) { return r.amount; })) + ' / ' + money(sumBy(back, function (r) { return r.amount; })) + '</td><td></td></tr>';
+  return head + h + '</tbody></table></div></div>';
+}
+
+// ── Payoffs (and anything else that is one row per movement) ─────────
+function simpleHtml(tab, title, note) {
+  var list = tabRows(tab);
+  var head = tabHead(title, note, tab);
+  if (!list.length) return head + '<div class="card" style="padding:14px 16px"><div class="empty">Nothing in this window.</div></div>';
+  var h = '<div class="card" style="padding:14px 16px"><div class="tw"><table><thead><tr>' +
+    '<th style="padding-left:10px">Date</th><th>Loan</th><th>From \u2192 To</th><th class="fa-num">Amount</th><th>Status</th></tr></thead><tbody>';
+  list.forEach(function (r) {
+    h += '<tr><td style="padding-left:10px;white-space:nowrap">' + esc(mdy(r.date)) + '</td>' +
+      '<td><a href="' + esc(loanHref(r.loanId, r.owner)) + '">' + esc(r.address || '') + '</a>' +
+        (r.slaId ? '<div style="font-size:11px;color:#7a7488">' + esc(r.slaId) + '</div>' : '') + '</td>' +
+      '<td style="font-size:12px;color:#7a7488">' + esc(((r.from && r.from.label) || '') + ' \u2192 ' + ((r.to && r.to.label) || '')) + '</td>' +
+      '<td class="fa-num">' + money(r.amount) + '</td>' +
+      '<td>' + esc(r.status || '') + '</td></tr>';
+  });
+  h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="3">' + list.length + ' item' + (list.length === 1 ? '' : 's') + '</td>' +
+    '<td class="fa-num">' + money(sumBy(list, function (r) { return r.amount; })) + '</td><td></td></tr>';
+  return head + h + '</tbody></table></div></div>';
+}
+
+// ── CSV, because this all starts life in a spreadsheet ───────────────
+function csvCell(v) {
+  var s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function exportCsv(tab) {
+  var rows = [], list = tabRows(tab);
+  if (tab === 'closings') {
+    rows.push(['Close Date', 'SLA Loan #', 'Property Address', 'Loan Type - Funding Source', 'Origination Fee', 'Other Fees', 'Pre-paid interest', 'Rehab Funds', 'Impounds', 'Total Collected', 'UPB', 'Remaining Holdback', 'Fees', 'PPI', 'Total', 'Transfer Date']);
+    list.forEach(function (c) {
+      var k = c.kaf || {};
+      rows.push([mdy(c.closeDate), c.slaNumber || '', c.address || '', c.fundingLabel || '',
+        c.originationFee || '', c.otherFees || '', c.prepaidInterest || '', c.rehabFunds || '', c.impounds || '', c.totalCollected || '',
+        k.upb || '', k.remainingHoldback || '', k.fees || '', k.ppi || '', k.total || '', k.transferDate ? mdy(k.transferDate) : '']);
+    });
+  } else {
+    rows.push(['Date', 'Loan', 'SLA Loan #', 'Movement', 'From', 'To', 'Amount', 'Status', 'Detail']);
+    list.forEach(function (r) {
+      rows.push([mdy(r.date), r.address || '', r.slaId || '', (_data.labels && _data.labels.kinds && _data.labels.kinds[r.kind]) || r.kind,
+        (r.from && r.from.label) || '', (r.to && r.to.label) || '', r.amount || 0, r.status || '', r.detail || '']);
+    });
+  }
+  var csv = rows.map(function (r) { return r.map(csvCell).join(','); }).join('\n');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'financial-audit-' + tab + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+
 function render() {
   if (!_data) return;
   var all = _data.rows || [];
@@ -261,6 +465,12 @@ function render() {
       _data.undated.slice(0, 6).map(function (u) { return esc(u.address || u.loanId); }).join(', ') + (_data.undated.length > 6 ? '…' : '') + '</span></div>';
   }
   document.getElementById('banners').innerHTML = b;
+
+  // Deploy 237.141 -- tabs
+  document.getElementById('faTabs').innerHTML = faTabsHtml();
+  document.getElementById('viewAll').style.display = (_tab === 'all') ? '' : 'none';
+  document.getElementById('viewOther').style.display = (_tab === 'all') ? 'none' : '';
+  if (_tab !== 'all') { renderTab(); return; }
 
   // Stats
   var inT = 0, outT = 0, xfer = 0, open = 0, changed = 0, openAmt = 0;

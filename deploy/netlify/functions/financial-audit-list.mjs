@@ -30,6 +30,8 @@ export default async (req, context) => {
     const to = ymd(url.searchParams.get('to')) || '';
     const built = buildLedger(loans, draws.byLoanNumber, state);
     const rows = built.rows.filter((r) => (!from || r.date >= from) && (!to || r.date <= to));
+    // Deploy 237.141 (Mike) -- the Closings tab: one row per closing, same window.
+    const closings = (built.closings || []).filter((c) => (!from || c.closeDate >= from) && (!to || c.closeDate <= to));
 
     const loanOptions = loans
       .filter((l) => l.fundingDate && (!from || String(l.fundingDate) >= addDays(from, -120)))
@@ -37,7 +39,7 @@ export default async (req, context) => {
 
     return json(200, {
       ok: true, from, to, today: built.today,
-      rows,
+      rows, closings,
       earlierUnverified: built.rows.filter((r) => from && r.date < from && r.status !== 'verified' && r.status !== 'changed').length,
       undated: built.undated,
       accounts: state.accounts,
