@@ -350,7 +350,12 @@
     s.id = 'slaNavStyles';
     s.textContent =
       // The bar.
-      'nav.nav{position:static;max-width:1280px;margin:0 auto;padding:1.5rem 22px 0;display:flex;align-items:center;justify-content:space-between;' +
+      // Deploy 237.172 (Mike): "I don't like this all being centered. Keep it the
+      // same full width on all pages including the pages where the lower body
+      // items are narrower." The bar was a centred 1280px block, so on a wide
+      // screen it floated in the middle while the page under it ran edge to
+      // edge. It now spans whatever it sits in, with the same side gutter.
+      'nav.nav{position:static;max-width:none;width:auto;margin:0;padding:1.5rem 22px 0;display:flex;align-items:center;justify-content:space-between;' +
         'gap:12px;flex-wrap:wrap;background:transparent;border:none;box-shadow:none;backdrop-filter:none}' +
       'nav.nav img{height:48px;width:auto;display:block}' +
       'nav.nav .nav-left,nav.nav .nav-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}' +
