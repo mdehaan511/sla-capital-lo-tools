@@ -842,7 +842,7 @@
     var st = _statusOf(slug);
     return (st === 'ptd_condition' || st === 'ptf_condition') && !(Array.isArray(d.conditions) && d.conditions.length);
   }
-  // Deploy 237.159 (Jessy: "2nd guarantor has been removed but still shows guarantor
+  // Deploy 237.160 (Jessy: "2nd guarantor has been removed but still shows guarantor
   // doc trays") -- the roster keeps everyone who has EVER been a guarantor so their
   // documents survive; `removed` marks who is off the loan now. Mirrors
   // activeGuarantors() in _shared/guarantor-trays.mjs.
@@ -1587,7 +1587,7 @@
       var hiddenInSec = hiddenBySection[sec.key] || [];
       // Deploy 237.111 (Mike) -- a 2+ guarantor review always shows the Guarantor section
       // (and every guarantor's group) on every tab, even when nothing is on the tab.
-      var _multiG = _activeGuarantors().length > 1; // Deploy 237.159 -- active only
+      var _multiG = _activeGuarantors().length > 1; // Deploy 237.160 -- active only
       // Deploy 237.150 -- the Other section stays on the Processor tab even when
       // empty, because its header carries the "+ Add Category" button.
       var _keepEmpty = (sec.key === 'guarantor' && _multiG) || (sec.key === 'other' && _activeTab === 'processor');
@@ -1670,7 +1670,7 @@
       // guarantorIndex); untagged guarantor trays are shared. The Guarantor 1/2 tab strip
       // was replaced by stacked groups in 237.110 (Mike) -- the old block is kept below
       // behind `false` for reference only.
-      if (sec.key === 'guarantor' && _multiG) { // Deploy 237.159
+      if (sec.key === 'guarantor' && _multiG) { // Deploy 237.160
         // Deploy 237.110 (Mike) -- STACKED per-guarantor groups instead of the Guarantor 1/2
         // tab strip: every guarantor's own trays under their own header (name, n/N
         // collected, approved count, a "+ Add" that files a custom tray under them), then
@@ -1682,7 +1682,7 @@
           if (gi == null) _shared.push(s); else (_byG[gi] = _byG[gi] || []).push(s);
         });
         _propTabsHtml = _review.guarantors.map(function(g, i) {
-          // Deploy 237.159 -- a removed guarantor has no group. Their trays are hidden
+          // Deploy 237.160 -- a removed guarantor has no group. Their trays are hidden
           // (guarantor-trays.setGuarantorTraysHidden), so they are still reachable from the
           // section's "Show N hidden" with every document in them.
           if (g && g.removed) return '';
@@ -2331,7 +2331,7 @@
     // it needs filing to a guarantor.
     if (d.guarantorIndex != null) {
       trayNameHtml += ' <span style="font-size:11px;font-weight:600;color:#7a5218;background:rgba(200,129,58,0.12);border:1px solid rgba(200,129,58,0.35);border-radius:10px;padding:1px 8px;vertical-align:middle">' + escHtml((d.guarantorLabel || ('Guarantor ' + (d.guarantorIndex + 1))) + (d.guarantorName ? ' · ' + d.guarantorName : '')) + '</span>';
-    } else if (_activeGuarantors().length > 1 && /^(guarantor_id|proof_of_citizenship|credit_report|guarantor_background_check|ofac_personal|guarantor_loe|pfs)$/.test(slug)) { // Deploy 237.159
+    } else if (_activeGuarantors().length > 1 && /^(guarantor_id|proof_of_citizenship|credit_report|guarantor_background_check|ofac_personal|guarantor_loe|pfs)$/.test(slug)) { // Deploy 237.160
       trayNameHtml += ' <span style="font-size:11px;font-weight:600;color:#7c1f1f;background:rgba(124,31,31,0.08);border:1px solid rgba(124,31,31,0.3);border-radius:10px;padding:1px 8px;vertical-align:middle" title="Uploaded without a guarantor (borrower portal). Use Move to file it under the right guarantor.">shared — file to a guarantor</span>';
     }
     if (d.isCustom) {

@@ -42,7 +42,7 @@ export async function backfillGuarantorTrays({ budgetMs = 24000, onlyInProgress 
       if (names.length) review.guarantorNames = names;
       const a = adoptGuarantorsFromLoan(review, names);
       const added = expandGuarantorTrays(review);
-      // Deploy 237.159 -- removals and restorations count as changes to save.
+      // Deploy 237.160 -- removals and restorations count as changes to save.
       if (a.adopted || a.migrated.length || a.renamed || added.length ||
           (a.removed && a.removed.length) || (a.restored && a.restored.length)) {
         review.updatedAt = new Date().toISOString();

@@ -421,7 +421,7 @@ async function handle(req, context) {
     console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
   }
 
-  // Deploy 237.159 -- a guarantor LEAVING is a change too: without it the trays got
+  // Deploy 237.160 -- a guarantor LEAVING is a change too: without it the trays got
   // re-hidden on every page open and the result was never written down.
   const _gChanged = guarantors.adopted || guarantors.migrated.length || guarantors.renamed ||
     (guarantors.removed && guarantors.removed.length) || (guarantors.restored && guarantors.restored.length);

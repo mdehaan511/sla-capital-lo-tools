@@ -1763,7 +1763,7 @@ function submitNewLoan() {
 // "Name · Role" badge), so the card shows the full team at a glance rather than
 // just the primary processor. `excludeEmail` drops one member (used to avoid
 // duplicating the processor already shown in the assign <select> for editors).
-// Deploy 237.160 (Chance, via Mike: "make the loan officer more visible") — the LO
+// Deploy 237.161 (Chance, via Mike: "make the loan officer more visible") — the LO
 // rides at the FRONT of the same pill row as the processing team. 236.94 pulled
 // the LO name off the tile on the grounds that the board's LO filter covered
 // attribution, but 236.695 repurposed that filter to PROCESSOR ("All
@@ -1790,8 +1790,8 @@ function _teamPillsHtml(it, excludeEmail) {
     if (ex && String(p.email || '').toLowerCase() === ex) return false;
     return true;
   });
-  var loPill = _loPillHtml(it); // Deploy 237.160
-  // Deploy 237.160 — the row renders for the LO alone now: an unassigned loan used to
+  var loPill = _loPillHtml(it); // Deploy 237.161
+  // Deploy 237.161 — the row renders for the LO alone now: an unassigned loan used to
   // drop the whole block, and that is exactly the card that most needs to say
   // whose it is.
   if (!members.length && !loPill) return '';
