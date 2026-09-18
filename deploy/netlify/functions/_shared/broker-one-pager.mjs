@@ -137,6 +137,16 @@ function qrMatrix(text) {
   }
 }
 
+/** "4065707339" -> "(406) 570-7339"; anything else is passed through as typed. */
+export function fmtPhone(v) {
+  const raw = String(v == null ? '' : v).trim();
+  if (!raw) return '';
+  const d = raw.replace(/\D/g, '');
+  const ten = d.length === 11 && d[0] === '1' ? d.slice(1) : d;
+  if (ten.length !== 10) return raw;
+  return '(' + ten.slice(0, 3) + ') ' + ten.slice(3, 6) + '-' + ten.slice(6);
+}
+
 /**
  * Render the sheet. `rep` = { name, email, phone, applyUrl } — any field may be
  * blank and falls back to the company contact.
@@ -144,7 +154,9 @@ function qrMatrix(text) {
 export async function buildBrokerOnePager(rep = {}) {
   const repName = String(rep.name || '').trim();
   const email = String(rep.email || '').trim() || COMPANY.email;
-  const phone = String(rep.phone || '').trim() || COMPANY.phone;
+  // Profiles store whatever the rep typed ("4065707339", "406-570-7339"); this
+  // sheet goes to brokers, so print a 10-digit US number the readable way.
+  const phone = fmtPhone(rep.phone) || COMPANY.phone;
   const applyUrl = String(rep.applyUrl || '').trim() || ('https://' + COMPANY.site + '/apply/');
 
   const pdf = await PDFDocument.create();
