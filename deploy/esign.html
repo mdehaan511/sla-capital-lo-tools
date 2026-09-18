@@ -7,6 +7,7 @@
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js?v=237178"></script>
   <script src="sla-nav.js"></script>
+  <script src="/sla-search.js" defer></script>
   <script src="sla-notifications.js?v=237120"></script>
   <script src="sla-chat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -489,6 +490,46 @@ var _pendingFile = null;
 var _prefill = null;
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+// Deploy 237.186 (Mike): "when docs are signed make it so that you can click to
+// go to the signers Client Details page." A signer record only carries a name,
+// an email and a kind — no client id — so the person is resolved BY EMAIL
+// through the same search the universal search bar uses, which hands back a
+// ready-made client-details link. Looked up once per email and cached, so
+// reopening documents costs nothing; a signer with no matching contact record
+// (an "other" party, a one-off counterparty) simply stays plain text.
+var _profileLinks = {};   // lowercased email -> contact-page link ('' = asked, no match)
+
+function signerNameHTML(s) {
+  var label = (s.roleName ? s.roleName + ' \u2014 ' : '') + (s.name || '');
+  var link = _profileLinks[String(s.email || '').toLowerCase().trim()];
+  if (!link) return esc(label);
+  return '<a href="' + esc(link) + '" title="Open this person\u2019s contact page" ' +
+    'style="color:inherit;text-decoration:underline;text-underline-offset:2px">' + esc(label) + '</a>';
+}
+function paintSignerLink(s) {
+  var el = document.getElementById('dtsn_' + s.id);
+  if (el) el.innerHTML = signerNameHTML(s);
+}
+function resolveSignerProfiles(signers) {
+  (signers || []).forEach(function (s) {
+    var e = String(s.email || '').toLowerCase().trim();
+    if (!e) return;
+    if (Object.prototype.hasOwnProperty.call(_profileLinks, e)) { paintSignerLink(s); return; }
+    _profileLinks[e] = '';   // claim it so two signers with one email ask once
+    SLA.api('GET', '/api/search-pg?all=1&q=' + encodeURIComponent(e)).then(function (r) {
+      var rows = [].concat((r && r.clients) || [], (r && r.brokers) || []);
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i] && rows[i].link && String(rows[i].email || '').toLowerCase().trim() === e) {
+          _profileLinks[e] = rows[i].link;
+          paintSignerLink(s);
+          return;
+        }
+      }
+    }).catch(function () { /* no contact page is not an error */ });
+  });
+}
+
 function fmtDate(iso) { if (!iso) return '—'; var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
 function fmtWhen(iso) { if (!iso) return '—'; var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
 function showToast(msg, kind) {
@@ -1774,9 +1815,10 @@ function renderDetail() {
     else { st = 'Waiting for turn'; cls = 'wait'; }
     var acts2 = '';
     if (d.status === 'sent' && !s.signedAt && s.signUrl) acts2 = '<button class="btn xs ghost" onclick="copyText(\'' + esc(s.signUrl) + '\')">Copy link</button> <button class="btn xs ghost" onclick="resendSigner(\'' + esc(s.id) + '\')">Resend</button>';
-    return '<div class="dt-signer"><span class="sw" style="background:' + esc(s.color) + '"></span><div class="who"><div>' + esc((s.roleName ? s.roleName + ' \u2014 ' : '') + (s.name || '')) + '<span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span>' + (d.sequential ? ' <span style="color:var(--muted);font-size:11px">#' + (s.order || 1) + '</span>' : '') + '</div><div class="e">' + esc(s.email) + (s.audit && s.audit.ipAddress ? ' · IP ' + esc(s.audit.ipAddress) : '') + '</div></div>' +
+    return '<div class="dt-signer"><span class="sw" style="background:' + esc(s.color) + '"></span><div class="who"><div><span id="dtsn_' + esc(s.id) + '">' + signerNameHTML(s) + '</span><span class="kbadge ' + esc(s.kind) + '">' + (s.kind === 'user' ? 'SLA' : s.kind) + '</span>' + (d.sequential ? ' <span style="color:var(--muted);font-size:11px">#' + (s.order || 1) + '</span>' : '') + '</div><div class="e">' + esc(s.email) + (s.audit && s.audit.ipAddress ? ' · IP ' + esc(s.audit.ipAddress) : '') + '</div></div>' +
       '<div style="text-align:right"><div class="st ' + cls + '">' + st + '</div><div style="margin-top:3px">' + acts2 + '</div></div></div>';
   }).join('');
+  resolveSignerProfiles(list);   // Deploy 237.186 — turns the names into contact-page links as they resolve
   // history
   document.getElementById('dtHistory').innerHTML = (d.history || []).slice().reverse().map(function (h) {
     return '<div class="ev"><div>' + esc(h.note || h.event) + (h.by ? ' <span style="color:var(--muted)">— ' + esc(h.by) + '</span>' : '') + '</div><div class="when">' + fmtWhen(h.ts) + '</div></div>';
