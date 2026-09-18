@@ -13,6 +13,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { mergeIdentityProfile } from './_shared/profile-record.mjs'; // Deploy 237.153
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -22,36 +23,18 @@ export default async (req, context) => {
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!user.email) return json(400, { error: 'No email in token' });
 
-  const meta = user.user_metadata || {};
-  const app  = user.app_metadata  || {};
-  const fullName =
-    meta.full_name || meta.fullName || meta.name ||
-    ((meta.firstName || '') + ' ' + (meta.lastName || '')).trim() || '';
-  const roles = Array.isArray(app.roles) ? app.roles
-              : (app.roles ? [app.roles] : ['user']);
-
-  const profile = {
-    id: user.sub || null,
-    email: normalizeEmail(user.email),
-    fullName,
-    roles,
-    confirmed_at: user.confirmed_at || null,
-    last_seen_at: new Date().toISOString(),
-    user_metadata: meta,
-  };
-
   try {
     const store = getStore({ name: 'profiles', consistency: 'strong' });
-    // Merge with whatever's already there so we don't lose created_at, etc.
+    const key = keySafe(normalizeEmail(user.email));
     let existing = null;
-    try { existing = await store.get(keySafe(profile.email), { type: 'json' }); } catch (_) {}
-    const merged = Object.assign({}, existing || {}, profile);
-    if (existing && existing.created_at) merged.created_at = existing.created_at;
-    // Deploy 237.088 — first sign-in stamps created_at; with no admin-entered
-    // start date that day IS the work anniversary (Mike: "when they were added
-    // to the SLA app"). Existing members without it get today on their next ping.
-    if (!merged.created_at) merged.created_at = new Date().toISOString();
-    await store.setJSON(keySafe(profile.email), merged);
+    try { existing = await store.get(key, { type: 'json' }); } catch (_) {}
+    // Deploy 237.153 — one shared merge rule with the identity-login /
+    // identity-signup handlers: app-owned fields (birthday, startDate, avatar,
+    // phone) survive, and a token with no name or no roles can't blank the
+    // stored ones. It also keeps the first created_at, which is the fallback
+    // work anniversary (Deploy 237.088, Mike: "when they were added to the app").
+    const merged = mergeIdentityProfile(existing, user);
+    await store.setJSON(key, merged);
     // Deploy 237.082 — hand back the calendar fields so the client can decide
     // whether to prompt for a birthday (they live on the blob, not the token).
     return json(200, { ok: true, profile: { fullName: merged.fullName || '', birthday: merged.birthday || '', birthYear: merged.birthYear || '', startDate: merged.startDate || '', avatar: merged.avatar || '' } });

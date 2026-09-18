@@ -5,6 +5,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe, normalizeEmail } from './_shared/auth.mjs';
+import { mergeIdentityProfile } from './_shared/profile-record.mjs'; // Deploy 237.153
 
 export default async (req) => {
   let payload = {};
@@ -13,27 +14,16 @@ export default async (req) => {
   const u = payload && payload.user;
   if (u && u.email) {
     try {
-      const meta = u.user_metadata || {};
-      const app  = u.app_metadata  || {};
-      const fullName =
-        meta.full_name || meta.fullName || meta.name ||
-        ((meta.firstName || '') + ' ' + (meta.lastName || '')).trim() || '';
-      const roles = Array.isArray(app.roles) ? app.roles
-                  : (app.roles ? [app.roles] : ['user']);
-
-      const profile = {
-        id: u.id,
-        email: normalizeEmail(u.email),
-        fullName,
-        roles,
-        confirmed_at: u.confirmed_at || new Date().toISOString(),
-        created_at: u.created_at || new Date().toISOString(),
-        last_seen_at: null,
-        user_metadata: meta,
-      };
-
+      // Deploy 237.153 — merge, don't overwrite: a profile can already exist
+      // before the first signup event (the team calendar seed fills start
+      // dates by name), and a blind write threw those away.
       const store = getStore({ name: 'profiles', consistency: 'strong' });
-      await store.setJSON(keySafe(profile.email), profile);
+      const key = keySafe(normalizeEmail(u.email));
+      let existing = null;
+      try { existing = await store.get(key, { type: 'json' }); } catch (_) { /* treat as new */ }
+      const profile = mergeIdentityProfile(existing, u, { lastSeen: false });
+      if (!profile.confirmed_at) profile.confirmed_at = new Date().toISOString();
+      await store.setJSON(key, profile);
     } catch (e) {
       console.warn('identity-signup profile write failed:', e);
     }
