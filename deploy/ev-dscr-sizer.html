@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Eastview DSCR Sizer — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="/sla-search.js"></script>
+  <script src="sla-notifications.js?v=237120"></script>
+  <script src="sla-chat.js"></script>
+  <script src="ev-pricing.js?v=237148"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --dark: #261a36; --bg: #f0ece5; --surface: #ffffff;
+      --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+    }
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    .page { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; }
+    .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+    h1 { font-family: 'Lora', Georgia, serif; font-size: 27px; font-weight: 600; }
+    .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .btn { background: var(--gold); color: #fff; border: none; border-radius: 7px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 20px; margin-bottom: 20px; }
+    .card h2 { font-family: 'Lora', Georgia, serif; font-size: 17px; font-weight: 600; margin-bottom: 3px; }
+    .card .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 15px 17px; }
+    .stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .stat .val { font-size: 23px; font-weight: 600; margin-top: 5px; font-family: 'DM Mono', monospace; }
+    .tw { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; padding: 0 12px 8px 0; white-space: nowrap; }
+    td { padding: 9px 12px 9px 0; border-top: 1px solid var(--border); vertical-align: top; }
+    td.num { font-family: 'DM Mono', monospace; white-space: nowrap; }
+    a { color: var(--gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+    .pill.warn { color: var(--warn); border-color: rgba(122,82,24,.4); background: rgba(122,82,24,.08); }
+    .pill.danger { color: var(--danger); border-color: rgba(124,31,31,.4); background: rgba(124,31,31,.08); }
+    .pill.ok { color: var(--success); border-color: rgba(37,105,64,.4); background: rgba(37,105,64,.08); }
+    .empty { color: var(--muted); font-size: 13px; padding: 14px 0; }
+    .err { color: var(--danger); font-size: 12px; padding: 8px 0; }
+    #auth-gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .gate-msg { text-align: center; color: var(--muted); font-size: 14px; }
+    .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+    /* Deploy 237.001: page-level nav CSS. sla-nav.js only injects the dropdown
+       (.nav-dd*) rules; the bar layout + logo size must live on each page
+       (same fix closed-loans needed in 236.611). Without it the logo renders at
+       native size and the links stack unstyled. */
+    :root { --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10); --gold-border: rgba(200,129,58,0.28); --muted: #7a7488; --border: #ddd8d0; }
+    .nav { max-width: 1280px; margin: 0 auto; padding: 1.5rem 22px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .nav img { height: 48px; width: auto; display: block; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .wrap2 { display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 20px; align-items: start; }
+    @media (max-width: 980px) { .wrap2 { grid-template-columns: 1fr; } }
+    .fld { margin-bottom: 10px; }
+    .fld label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
+    .fld input, .fld select { width: 100%; font: inherit; font-size: 13px; padding: 8px 9px; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: var(--text); }
+    .row2 { display: flex; gap: 10px; }
+    .row2 > * { flex: 1; min-width: 0; }
+    .grp { font-family: 'Lora', Georgia, serif; font-size: 14px; font-weight: 600; margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .grp:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+    .chk { display: flex; align-items: center; gap: 7px; font-size: 13px; margin-bottom: 7px; }
+    .chk input { width: auto; }
+    .big { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .big .stat .val { font-size: 20px; }
+    .price-card { background: var(--dark); color: #fff; border-radius: 11px; padding: 18px 20px; margin-bottom: 16px; }
+    .price-card .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #c8b6e0; }
+    .price-card .px { font-family: 'DM Mono', monospace; font-size: 34px; font-weight: 500; margin: 2px 0 4px; }
+    .price-card .sub { font-size: 13px; color: #d9d2e6; }
+    .price-card .warn2 { color: #ffd6a8; font-size: 12px; margin-top: 6px; }
+    .parts { margin-top: 12px; border-top: 1px solid rgba(255,255,255,.18); padding-top: 10px; font-size: 12px; }
+    .parts div { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; color: #e7e2ef; }
+    .parts .v { font-family: 'DM Mono', monospace; }
+    table.lad { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.lad th { text-align: right; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; padding: 0 10px 7px 0; }
+    table.lad th:first-child, table.lad td:first-child { text-align: left; padding-left: 8px; }
+    table.lad td { padding: 7px 10px 7px 0; border-top: 1px solid var(--border); text-align: right; font-family: 'DM Mono', monospace; }
+    table.lad tr.pick { cursor: pointer; }
+    table.lad tr.pick:hover td { background: #faf7f1; }
+    table.lad tr.sel td { background: rgba(200,129,58,.14); font-weight: 600; }
+    table.lad tr.bad td { color: #a09aab; }
+    .chk-list { font-size: 13px; }
+    .chk-list div { padding: 5px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; }
+    .chk-list div:first-child { border-top: none; }
+    .chk-list .x { color: var(--danger); font-weight: 600; }
+    .chk-list .ok { color: var(--success); }
+    .chk-list .d { color: var(--muted); margin-left: auto; font-size: 12px; }
+    .acts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+    .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9900; padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Eastview DSCR Sizer</h1>
+        <p id="evVersion">Eastview prices by coupon: pick the rate, read the exit price.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="resetForm()">Reset</button>
+        <button class="btn ghost" id="pdfBtn" onclick="makeTermSheet()">Term Sheet PDF</button>
+        <button class="btn" id="saveBtn" onclick="saveLoan()">★ Save Loan</button>
+      </div>
+    </div>
+
+    <div class="wrap2">
+      <div class="card">
+        <div class="grp">Borrower</div>
+        <div class="fld"><label>Borrower name</label><input id="borrowerName" placeholder="Jane Investor" oninput="calc()" /></div>
+        <div class="row2">
+          <div class="fld"><label>Email</label><input id="borrowerEmail" type="email" placeholder="jane@example.com" /></div>
+          <div class="fld"><label>Phone</label><input id="borrowerPhone" placeholder="(555) 555-5555" /></div>
+        </div>
+        <div class="row2">
+          <div class="fld"><label>Entity (vesting)</label><input id="entityName" placeholder="Jane Holdings LLC" /></div>
+          <div class="fld"><label>Qualifying FICO</label><input id="fico" value="740" oninput="calc()" placeholder="740 or FN" /></div>
+        </div>
+
+        <div class="grp">Property</div>
+        <div class="fld"><label>Address</label><input id="address" placeholder="123 Main St, Spokane, WA 99208" oninput="calc()" /></div>
+        <div class="row2">
+          <div class="fld"><label>Property type</label><select id="propType" onchange="calc()"></select></div>
+          <div class="fld"><label>Loan purpose</label><select id="purpose" onchange="calc()">
+            <option value="purchase">Purchase</option>
+            <option value="refi_rt">Refinance (no cash out)</option>
+            <option value="refi_co">Refinance (cash out)</option>
+          </select></div>
+        </div>
+        <div class="row2">
+          <div class="fld"><label>Purchase price</label><input id="purchasePrice" inputmode="decimal" value="450,000" oninput="calc()" /></div>
+          <div class="fld"><label>Underwritten value</label><input id="value" inputmode="decimal" value="450,000" oninput="calc()" /></div>
+        </div>
+        <div class="row2">
+          <div class="fld"><label>Closing costs (% of price)</label><input id="closingCostPct" inputmode="decimal" value="0" oninput="calc()" /></div>
+          <div class="fld"><label>Properties on the loan</label><input id="portfolioCount" inputmode="numeric" value="1" oninput="calc()" /></div>
+        </div>
+        <div class="fld"><label>Low-performance market</label><select id="lowPerf" onchange="calc()">
+          <option value="">None</option><option>Chicago</option><option>Detroit</option><option>Baltimore</option><option>Flint</option>
+        </select></div>
+        <label class="chk"><input type="checkbox" id="leased" checked onchange="calc()" /> Leased at closing</label>
+        <label class="chk"><input type="checkbox" id="recentReno" onchange="calc()" /> Recently renovated (waives the unleased refi hit)</label>
+        <label class="chk"><input type="checkbox" id="nonWarrantable" onchange="calc()" /> Non-warrantable condo</label>
+
+        <div class="grp">Income &amp; expenses (monthly)</div>
+        <div class="row2">
+          <div class="fld"><label>Qualifying rent</label><input id="rent" inputmode="decimal" value="6,500" oninput="calc()" /></div>
+          <div class="fld"><label>Taxes</label><input id="taxes" inputmode="decimal" value="1,000" oninput="calc()" /></div>
+        </div>
+        <div class="row2">
+          <div class="fld"><label>Hazard insurance</label><input id="insurance" inputmode="decimal" value="291.67" oninput="calc()" /></div>
+          <div class="fld"><label>Flood insurance</label><input id="flood" inputmode="decimal" value="83.33" oninput="calc()" /></div>
+        </div>
+        <div class="row2">
+          <div class="fld"><label>HOA</label><input id="hoa" inputmode="decimal" value="0" oninput="calc()" /></div>
+          <div class="fld"><label>Operating expenses (5-9 units)</label><input id="opex" inputmode="decimal" value="0" oninput="calc()" /></div>
+        </div>
+
+        <div class="grp">Loan structure</div>
+        <div class="row2">
+          <div class="fld"><label>Requested loan amount</label><input id="loanAmt" inputmode="decimal" placeholder="max" oninput="calc()" /></div>
+          <div class="fld"><label>&nbsp;</label><button class="btn ghost" style="width:100%" onclick="useMax()">Use max</button></div>
+        </div>
+        <div class="row2">
+          <div class="fld"><label>Rate type</label><select id="rateType" onchange="calc()">
+            <option>FIXED 30</option><option>5/1 ARM</option><option>7/1 ARM</option>
+          </select></div>
+          <div class="fld"><label>Amortization</label><select id="amort" onchange="calc()">
+            <option value="">Fully amortizing</option><option value="io">Interest only (10 years)</option>
+          </select></div>
+        </div>
+        <div class="fld"><label>Prepayment penalty</label><select id="prepay" onchange="calc()"></select></div>
+        <div class="row2">
+          <div class="fld"><label>Coupon (borrower rate)</label><select id="rate" onchange="calc()"></select></div>
+          <div class="fld"><label>Our origination points</label><input id="points" inputmode="decimal" value="1" oninput="calc()" /></div>
+        </div>
+        <div class="fld"><label>Target close date</label><input type="date" id="fundingDate" /></div>
+      </div>
+
+      <div>
+        <div class="big" id="stats"></div>
+        <div class="price-card" id="priceCard"></div>
+        <div class="card">
+          <h2>Rate ladder</h2>
+          <div class="sub">Every coupon Eastview publishes at this loan's adjustments. Click a row to quote it.</div>
+          <div class="tw"><table class="lad">
+            <thead><tr><th>Rate</th><th>Exit price</th><th>Premium</th><th>P&amp;I</th><th>DSCR</th><th>Note</th></tr></thead>
+            <tbody id="ladder"></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h2>Guideline checks</h2>
+          <div class="sub" id="checkSub"></div>
+          <div class="chk-list" id="checks"></div>
+        </div>
+        <div class="card">
+          <h2>Leverage &amp; liquidity</h2>
+          <div class="chk-list" id="lev"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+var EV = window.SLA_EV;
+var _last = null;
+var _investorId = '';
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[$,%\s]/g, '')); return isFinite(n) ? n : 0; }
+function money(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('en-US'); }
+function money2(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function pct(n, dp) { return (Number(n) || 0).toFixed(dp == null ? 2 : dp) + '%'; }
+function el(id) { return document.getElementById(id); }
+function val(id) { var e = el(id); return e ? e.value : ''; }
+function toast(msg, bad) {
+  var t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  t.style.background = bad ? '#7c1f1f' : '#256940';
+  document.body.appendChild(t);
+  setTimeout(function () { t.remove(); }, bad ? 5200 : 2400);
+}
+
+function fillSelects() {
+  var pt = el('propType');
+  pt.innerHTML = Object.keys(EV.PROP_LABELS).map(function (k) {
+    return '<option value="' + k + '">' + esc(EV.PROP_LABELS[k]) + '</option>';
+  }).join('');
+  var pp = el('prepay');
+  var L = EV.EASTVIEW.prepayLabels;
+  pp.innerHTML = Object.keys(L).map(function (k) {
+    return '<option value="' + k + '"' + (k === 'pp5' ? ' selected' : '') + '>' + esc(L[k]) + '</option>';
+  }).join('');
+  var r = el('rate');
+  r.innerHTML = EV.EASTVIEW.couponPrices.map(function (c) {
+    return '<option value="' + c.rate + '"' + (c.rate === 7.5 ? ' selected' : '') + '>' + c.rate.toFixed(3) + '%</option>';
+  }).join('');
+  // Selected-by-default options, set explicitly so a re-render can never leave them blank.
+  el('prepay').value = 'pp5';
+  el('rate').value = '7.5';
+  el('evVersion').textContent = 'Eastview prices by coupon: pick the rate, read the exit price. ' +
+    EV.EASTVIEW.tier + ' tier, sheet dated ' + EV.EASTVIEW.effectiveDate + ', guideline version ' + EV.EASTVIEW.guidelineVersion + '.';
+}
+
+function readForm() {
+  var st = '';
+  var m = /,\s*([A-Z]{2})(?:\s+\d{5})?\s*$/.exec(String(val('address')).trim().toUpperCase());
+  if (m) st = m[1];
+  return {
+    fico: val('fico'), purpose: val('purpose'), propType: val('propType'),
+    value: num(val('value')), purchasePrice: num(val('purchasePrice')), closingCostPct: num(val('closingCostPct')),
+    loanAmt: num(val('loanAmt')), rent: num(val('rent')), taxes: num(val('taxes')),
+    insurance: num(val('insurance')), flood: num(val('flood')), hoa: num(val('hoa')), opex: num(val('opex')),
+    rate: num(val('rate')), rateType: val('rateType'), interestOnly: val('amort') === 'io',
+    prepay: val('prepay'), leased: el('leased').checked, recentRenovation: el('recentReno').checked,
+    nonWarrantableCondo: el('nonWarrantable').checked, lowPerfMarket: !!val('lowPerf'),
+    portfolioCount: num(val('portfolioCount')) || 1, state: st,
+  };
+}
+
+function calc() {
+  var p = readForm();
+  var r = EV.priceEastview(p);
+  _last = { params: p, result: r };
+
+  el('stats').innerHTML =
+    stat('Max loan', r.sizing.maxLoan == null ? '—' : money(r.sizing.maxLoan)) +
+    stat('Loan amount', money(r.loan)) +
+    stat('As-is LTV', pct(r.ltv * 100)) +
+    stat('DSCR', r.dscr == null ? '—' : r.dscr.toFixed(2) + 'x') +
+    stat('PITIA', money2(r.pitia));
+
+  var s = r.selected;
+  var card = '<div class="lbl">Exit price at ' + (p.rate ? p.rate.toFixed(3) : '—') + '%</div>';
+  if (!s || s.price == null) {
+    card += '<div class="px">N/A</div><div class="sub">' + esc((s && s.blocked) || 'Pick a coupon') +
+      (s && s.blocked ? ' is not allowed at ' + esc(r.bandLabel) + '.' : '') + '</div>';
+  } else {
+    var prem = s.premiumDollars;
+    card += '<div class="px">' + (s.price * 100).toFixed(3) + '</div>' +
+      '<div class="sub">' + (prem >= 0 ? 'Premium ' : 'Discount ') + money2(Math.abs(prem)) +
+        ' (' + (s.premiumPct >= 0 ? '+' : '') + s.premiumPct.toFixed(3) + ' pts) on ' + money(r.loan) + '</div>';
+    if (s.capped) card += '<div class="warn2">Capped at the ' + (EV.EASTVIEW.maxPriceByPrepay[p.prepay] * 100).toFixed(2) + ' max price for this prepay option.</div>';
+    if (s.belowMin) card += '<div class="warn2">Below Eastview\'s ' + (EV.EASTVIEW.minPrice * 100).toFixed(2) + ' minimum price — this coupon will not clear.</div>';
+    card += '<div class="parts">' + s.parts.map(function (x) {
+      return '<div><span>' + esc(x.label) + '</span><span class="v">' + (x.value >= 0 ? '+' : '') + (x.value * 100).toFixed(3) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  el('priceCard').innerHTML = card;
+
+  el('ladder').innerHTML = r.ladder.map(function (row, i) {
+    var sel = Math.abs(row.rate - p.rate) < 1e-9;
+    var bad = row.price == null || row.belowMin;
+    var note = row.blocked ? 'Not allowed: ' + row.blocked : row.belowMin ? 'Below min price' : row.capped ? 'At max price' : '';
+    return '<tr class="pick' + (sel ? ' sel' : '') + (bad ? ' bad' : '') + '" onclick="pickRate(' + row.rate + ')">' +
+      '<td>' + row.rate.toFixed(3) + '%</td>' +
+      '<td>' + (row.price == null ? '—' : (row.price * 100).toFixed(3)) + '</td>' +
+      '<td>' + (row.price == null ? '—' : (row.premiumDollars >= 0 ? '+' : '−') + money(Math.abs(row.premiumDollars))) + '</td>' +
+      '<td>' + money2(row.pi) + '</td>' +
+      '<td>' + (row.dscr == null ? '—' : row.dscr.toFixed(2)) + '</td>' +
+      '<td style="text-align:left;font-family:inherit;color:var(--muted);font-size:12px">' + esc(note) + '</td></tr>';
+  }).join('');
+
+  var fails = r.checks.filter(function (c) { return !c.pass; }).length;
+  el('checkSub').innerHTML = fails
+    ? '<span style="color:var(--danger)">' + fails + ' check' + (fails === 1 ? '' : 's') + ' failing.</span>'
+    : '<span style="color:var(--success)">Every guideline check passes.</span>';
+  el('checks').innerHTML = r.checks.map(function (c) {
+    return '<div><span class="' + (c.pass ? 'ok' : 'x') + '">' + (c.pass ? '✓' : '✕') + '</span><span>' + esc(c.label) + '</span>' +
+      (c.detail ? '<span class="d">' + esc(c.detail) + '</span>' : '') + '</div>';
+  }).join('');
+
+  var sz = r.sizing;
+  var lev = [];
+  lev.push(['Leverage grid', sz.gridLabel || '—']);
+  lev.push(['Max as-is LTV', sz.maxLtvPre == null ? 'Not eligible' : pct(sz.maxLtvPre * 100, 0) + (sz.deductions ? ' → ' + pct(sz.maxLtv * 100, 0) : '')]);
+  if (sz.maxLtcPre != null) lev.push(['Max LTC', pct(sz.maxLtcPre * 100, 0) + (sz.deductions ? ' → ' + pct(sz.maxLtc * 100, 0) : '')]);
+  if (sz.deductionParts.length) lev.push(['Deductions', sz.deductionParts.join(', ')]);
+  if (sz.costBasis) lev.push(['Cost basis', money(sz.costBasis)]);
+  if (r.ltc != null) lev.push(['Loan to cost', pct(r.ltc * 100)]);
+  lev.push(['Liquidity required', money(r.liquidity.total) + ' (' + r.liquidity.paymentsRequired + ' payments' +
+    (r.liquidity.downPayment ? ' + ' + money(r.liquidity.downPayment) + ' down' : '') + ')']);
+  if (r.statePrepayLimit) lev.push(['State prepay limit', r.statePrepayLimit]);
+  el('lev').innerHTML = lev.map(function (x) {
+    return '<div><span>' + esc(x[0]) + '</span><span class="d">' + esc(x[1]) + '</span></div>';
+  }).join('');
+}
+function stat(l, v) { return '<div class="stat"><div class="lbl">' + esc(l) + '</div><div class="val">' + esc(v) + '</div></div>'; }
+function pickRate(r) { el('rate').value = String(r); calc(); }
+function useMax() {
+  var r = _last && _last.result;
+  if (r && r.sizing.maxLoan) { el('loanAmt').value = Math.round(r.sizing.maxLoan).toLocaleString('en-US'); calc(); }
+}
+function resetForm() {
+  ['borrowerName', 'borrowerEmail', 'borrowerPhone', 'entityName', 'address', 'loanAmt', 'fundingDate'].forEach(function (id) { el(id).value = ''; });
+  el('fico').value = '740'; el('purchasePrice').value = '450,000'; el('value').value = '450,000';
+  el('rent').value = '6,500'; el('taxes').value = '1,000'; el('insurance').value = '291.67';
+  el('flood').value = '83.33'; el('hoa').value = '0'; el('opex').value = '0'; el('points').value = '1';
+  el('portfolioCount').value = '1'; el('closingCostPct').value = '0';
+  el('leased').checked = true; el('recentReno').checked = false; el('nonWarrantable').checked = false;
+  el('lowPerf').value = ''; el('purpose').value = 'purchase'; el('propType').value = 'sfr';
+  el('rateType').value = 'FIXED 30'; el('amort').value = ''; el('prepay').value = 'pp5'; el('rate').value = '7.5';
+  calc();
+}
+
+// ── Save ────────────────────────────────────────────────────────────
+function saveLoan() {
+  var d = _last;
+  if (!d || !d.result.selected || d.result.selected.price == null) { toast('Pick a coupon that prices first.', true); return; }
+  var addr = String(val('address')).trim();
+  if (!addr) { toast('Enter the property address.', true); return; }
+  var name = String(val('borrowerName')).trim();
+  var email = String(val('borrowerEmail')).trim();
+  if (!email) { toast('A borrower email is needed to save the loan.', true); return; }
+  var r = d.result, p = d.params, s = r.selected;
+  var btn = el('saveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  var parts = name.split(/\s+/);
+  var premiumPts = Math.round(s.premiumPct * 100) / 100;
+  var loan = {
+    id: 'l_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    toolType: 'dscr', address: addr, status: 'active',
+    savedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    loanAmt: String(Math.round(r.loan)), rate: String(p.rate), points: String(num(val('points'))),
+    propValue: String(p.value), purchasePrice: p.purpose === 'purchase' ? String(p.purchasePrice) : '',
+    loanPurpose: p.purpose === 'purchase' ? 'purchase' : (p.purpose === 'refi_co' ? 'refi_co' : 'refi_rt'),
+    propType: p.propType, propTypeLabel: r.labels.propType,
+    fico: String(p.fico), ficoLabel: r.bucketLabel,
+    rent: String(p.rent), taxes: String(p.taxes), insurance: String(p.insurance), hoa: String(p.hoa),
+    dscr: r.dscr == null ? '' : String(r.dscr), isIO: p.interestOnly ? 'yes' : '',
+    prepay: EV.EASTVIEW.prepayLabels[p.prepay] || '', numUnits: String(r.units),
+    entityName: String(val('entityName')).trim(), fundingDate: val('fundingDate') || '',
+    // Eastview is the investor; the premium above par IS the TPO the Closing tab uses.
+    investorName: 'Eastview', investorId: _investorId || '',
+    tpo: premiumPts, _adminTpo: premiumPts,
+    pricedWithSheet: EV.EASTVIEW.effectiveDate,
+    _evSizer: { params: p, price: s.price, ladderAt: s.rate, sheet: EV.EASTVIEW.effectiveDate, tier: EV.EASTVIEW.tier },
+  };
+  SLA.Clients.saveFromSizer({
+    toolType: 'dscr', loan: loan,
+    borrower: { firstName: parts.slice(0, -1).join(' ') || parts[0] || '', lastName: parts.length > 1 ? parts[parts.length - 1] : '',
+      email: email, phone: String(val('borrowerPhone')).trim() },
+    editingClientId: window._editingClientId || null, editingLoanId: window._editingLoanId || null,
+  }).then(function (resp) {
+    if (resp && resp.clientId) window._editingClientId = resp.clientId;
+    if (resp && resp.loanId) window._editingLoanId = resp.loanId;
+    btn.disabled = false; btn.textContent = '✓ Saved';
+    toast('Saved to ' + (name || email) + '.');
+    setTimeout(function () { btn.textContent = '★ Save Loan'; }, 4000);
+  }).catch(function (e) {
+    btn.disabled = false; btn.textContent = '★ Save Loan';
+    toast('Save failed: ' + ((e && e.message) || 'unknown'), true);
+  });
+}
+
+// ── Term sheet ──────────────────────────────────────────────────────
+function makeTermSheet() {
+  var d = _last;
+  if (!d || !d.result.selected || d.result.selected.price == null) { toast('Pick a coupon that prices first.', true); return; }
+  var r = d.result, p = d.params, s = r.selected;
+  var jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!jsPDFctor) { toast('PDF library did not load — refresh and try again.', true); return; }
+  var doc = new jsPDFctor({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+  var W = 612, M = 54, y = 0;
+  doc.setFillColor(38, 26, 54); doc.rect(0, 0, W, 78, 'F');
+  doc.setTextColor(200, 129, 58); doc.setFont('helvetica', 'bold'); doc.setFontSize(17);
+  doc.text('SLA Capital', M, 34);
+  doc.setTextColor(255, 255, 255); doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text('DSCR Term Sheet', M, 54);
+  doc.setFontSize(9);
+  doc.text(new Date().toLocaleDateString('en-US'), W - M, 54, { align: 'right' });
+  y = 110;
+  doc.setTextColor(26, 21, 32);
+
+  function section(title) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(38, 26, 54);
+    doc.text(title, M, y); y += 6;
+    doc.setDrawColor(221, 216, 208); doc.line(M, y, W - M, y); y += 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(26, 21, 32);
+  }
+  function line(label, value) {
+    doc.setTextColor(122, 116, 136); doc.text(String(label), M, y);
+    doc.setTextColor(26, 21, 32); doc.text(String(value), W - M, y, { align: 'right' });
+    y += 16;
+  }
+  section('Borrower & Property');
+  line('Borrower', String(val('borrowerName')).trim() || '—');
+  if (String(val('entityName')).trim()) line('Vesting entity', String(val('entityName')).trim());
+  line('Property', String(val('address')).trim() || '—');
+  line('Property type', r.labels.propType + (r.units > 1 ? ' (' + r.units + ' units)' : ''));
+  line('Loan purpose', r.labels.purpose);
+  y += 8;
+
+  section('Loan Terms');
+  line('Loan amount', money(r.loan));
+  line('Note rate', p.rate.toFixed(3) + '%');
+  line('Rate type', p.rateType);
+  line('Amortization', p.interestOnly ? 'Interest only 10 years, then 20-year amortization' : '30-year fully amortizing');
+  line('Term', '30 years');
+  line('Origination points', num(val('points')).toFixed(2) + '% (' + money(num(val('points')) / 100 * r.loan) + ')');
+  line('Prepayment penalty', EV.EASTVIEW.prepayLabels[p.prepay] || '—');
+  if (p.rateType !== 'FIXED 30') {
+    line('Index / margin', EV.EASTVIEW.armIndex + ' + ' + (EV.EASTVIEW.armMargin * 100).toFixed(2) + '%');
+    line('Caps (first/periodic/life)', EV.EASTVIEW.armCaps[p.rateType] || '—');
+    line('Floor', (EV.EASTVIEW.armFloor * 100).toFixed(2) + '%');
+  }
+  if (val('fundingDate')) line('Target close date', val('fundingDate'));
+  y += 8;
+
+  section('Qualification');
+  line('As-is value', money(p.value));
+  if (p.purpose === 'purchase') line('Purchase price', money(p.purchasePrice));
+  line('As-is LTV', pct(r.ltv * 100));
+  if (r.ltc != null) line('Loan to cost', pct(r.ltc * 100));
+  line('Qualifying FICO', r.bucketLabel || String(p.fico));
+  line('Monthly rent', money2(p.rent));
+  line('Monthly taxes, insurance, HOA', money2(r.expenses));
+  line('Monthly P&I', money2(s.pi));
+  line('PITIA', money2(s.pitia));
+  line('DSCR', r.dscr == null ? '—' : r.dscr.toFixed(2) + 'x');
+  line('Liquidity required', money(r.liquidity.total));
+  y += 10;
+
+  doc.setFontSize(8); doc.setTextColor(122, 116, 136);
+  var disclaimer = 'This term sheet is an estimate for discussion only and is not a commitment to lend. Terms are subject to full underwriting, ' +
+    'appraisal or valuation, title review, insurance, and final investor approval. Rates and pricing may change until locked. ' +
+    'Sir Lends A Lot LLC dba SLA Capital.';
+  doc.text(doc.splitTextToSize(disclaimer, W - M * 2), M, Math.min(y, 720));
+  var fname = 'SLA Term Sheet - ' + (String(val('address')).split(',')[0] || 'DSCR') + '.pdf';
+  doc.save(fname);
+}
+
+// ── Auth + boot ─────────────────────────────────────────────────────
+// Senior LOs and admins only (Mike) while Eastview is being rolled out.
+window.netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  var roles = (window.SLA && SLA.getRoles) ? SLA.getRoles(user) : [];
+  var ok = roles.some(function (r) { return r === 'senior_lo' || r === 'admin' || r === 'super_admin'; });
+  if (!ok) { window.location.replace('/'); return; }
+  el('auth-gate').style.display = 'none';
+  el('appWrap').style.display = 'block';
+  fillSelects();
+  calc();
+  if (SLA.Investors && SLA.Investors.list) {
+    SLA.Investors.list().then(function (r) {
+      var list = (r && (r.investors || r.list)) || [];
+      for (var i = 0; i < list.length; i++) {
+        if (/eastview/i.test(String(list[i].name || '') + ' ' + String(list[i].company || ''))) { _investorId = list[i].id; break; }
+      }
+    }).catch(function () {});
+  }
+});
+</script>
+</body>
+</html>

@@ -128,6 +128,8 @@
         { label: 'GUC Sizer',              href: '/guc-sizer.html' },
         // Same gate as the MF sizer page itself (admin or Senior LO).
         { label: 'Multifamily DSCR Sizer', href: '/mf-dscr-sizer.html', requires: 'mf' },
+        // Deploy 237.148 (Mike) -- Eastview DSCR program, same gate: admin or Senior LO.
+        { label: 'Eastview DSCR Sizer',     href: '/ev-dscr-sizer.html', requires: 'seniorlo' },
         { label: 'Guidelines',             href: '/guidelines-hub.html' },
         { label: 'E-Sign',                 href: '/esign.html' },
       ],
@@ -238,6 +240,10 @@
     // Deploy 237.027 — MF sizer gate mirrors mf-dscr-sizer.html's own guard
     // (admin OR senior_lo).
     if (link.requires === 'mf') {
+      return hasRole(user, 'admin') || _rawRoles(user).some(function (r) { return r === 'senior_lo'; });
+    }
+    if (link.requires === 'seniorlo') {
+      // Deploy 237.148 -- admin or Senior LO, matching the Eastview sizer's own gate.
       return hasRole(user, 'admin') || _rawRoles(user).some(function (r) { return r === 'senior_lo'; });
     }
     if (link.requires === 'mail') {
