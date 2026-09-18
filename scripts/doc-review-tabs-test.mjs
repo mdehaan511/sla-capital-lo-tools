@@ -9,6 +9,10 @@
  * Statuses are Dan Austin's list (237.138): Outstanding / Received / Processor
  * Approved / PTD Condition / PTF Condition / Underwriter Approved.
  *
+ * Deploy 237.150 added Dan's four layout rules: no "Loan Documents" section, ONE
+ * "Other Documents" section at the bottom, Credit Authorization per guarantor, and
+ * an Underwriting tab that lists EVERY tray rather than only the reviewed ones.
+ *
  * Run: node scripts/doc-review-tabs-test.mjs
  */
 import fs from 'node:fs';
@@ -22,6 +26,8 @@ const cut = (from, to) => {
 };
 const code =
   cut('  var APP_SLUGS = {', '  var DOC_META = {') +
+  // _secOf calls _isOtherSlug, which lives much further down the file.
+  cut('  function _isOtherSlug(slug) {', '  function _fmtMoney(') +
   cut('  var _STATUSES = [', '  var STAGE_EMPTY = {');
 
 const ctx = {
@@ -29,6 +35,10 @@ const ctx = {
   DOC_META: {
     loan_application: { label: 'Loan Application', section: 'loan' },
     term_sheet: { label: 'Term Sheet', section: 'loan' },
+    // Deploy 237.150 -- the checklist still files these under 'loan'; the page folds
+    // that into Application & Terms rather than migrating any review data.
+    commitment_letter: { label: 'Loan Commitment Letter', section: 'loan' },
+    letter_of_intent: { label: 'Letter of Intent', section: 'loan' },
     appraisal: { label: 'Appraisal', section: 'collateral' },
     guarantor_id: { label: 'Guarantor ID', section: 'guarantor' },
     cpl: { label: 'CPL', section: 'closing' },
@@ -129,13 +139,138 @@ setDocs({ h1: { hidden: true }, h2: { hidden: true, hiddenConfirmedAt: '2026-09-
 check('an unconfirmed hide waits on the underwriter; a confirmed one leaves both tabs', [stage('h1'), stage('h2')], ['uw', 'hiddenDone']);
 
 // ── sections ─────────────────────────────────────────────────────────────
-setDocs({ loan_application: {}, term_sheet: {}, appraisal: {}, guarantor_id__g1: {}, cpl: {}, custom_1: { section: 'collateral' }, orphan: {} });
+setDocs({ loan_application: {}, term_sheet: {}, appraisal: {}, guarantor_id__g1: {}, cpl: {},
+          commitment_letter: {}, letter_of_intent: {}, custom_1: { section: 'collateral' }, other_zip_7: {},
+          marked: { isCustom: true, section: 'borrower' }, orphan: {} });
 check('Loan Application + Term Sheet get their own section, first in the list',
   [run('SECTIONS[0].key'), run('SECTIONS[0].label'), sec('loan_application'), sec('term_sheet')],
   ['application', 'Application & Terms', 'application', 'application']);
 check('every other tray keeps its checklist section (per-guarantor slugs resolve by base)',
-  ['appraisal', 'guarantor_id__g1', 'cpl', 'custom_1', 'orphan'].map(sec),
-  ['collateral', 'guarantor', 'closing', 'collateral', 'loan']);
+  ['appraisal', 'guarantor_id__g1', 'cpl'].map(sec),
+  ['collateral', 'guarantor', 'closing']);
+
+// ── Deploy 237.150 — Dan's layout rules ────────────────────────────────
+check('there is no "Loan Documents" section any more',
+  run('SECTIONS.filter(function(s){return s.key==="loan"}).length'), 0);
+check('what filed under it renders with the application (Dan: "move this up with those")',
+  ['commitment_letter', 'letter_of_intent'].map(sec), ['application', 'application']);
+check('the application leads the section and the term sheet follows it',
+  run('["term_sheet","loan_application"].sort(function(a,b){return (APP_SLUGS[a]||99)-(APP_SLUGS[b]||99)})'),
+  ['loan_application', 'term_sheet']);
+check('ONE Other Documents section, and it is last',
+  [run('SECTIONS[SECTIONS.length-1].key'), run('SECTIONS[SECTIONS.length-1].label'),
+   run('SECTIONS.filter(function(s){return s.key==="other"}).length')],
+  ['other', 'Other Documents', 1]);
+check('every non-checklist tray lands in it, whatever section it was filed under',
+  ['custom_1', 'other_zip_7', 'marked'].map(sec), ['other', 'other', 'other']);
+check('a tray with no section at all lands there too, not in the application',
+  sec('orphan'), 'other');
+
+// ── Dan: the UW sees every tray from one screen ─────────────────────────
+setDocs({
+  emptyTray:  { status: 'outstanding' },
+  collected:  { status: 'received', currentDocId: 'd1' },
+  procApp:    { status: 'processor_approved', currentDocId: 'd1' },
+  uwApp:      { status: 'uw_approved', currentDocId: 'd1' },
+  hidUnconf:  { hidden: true },
+  hidDone:    { hidden: true, hiddenConfirmedAt: '2026-09-18T00:00:00Z' },
+});
+const bucket = (vis, hid) => run('_bucketTabs(' + JSON.stringify(vis) + ',' + JSON.stringify(hid) + ')');
+const VIS = ['emptyTray', 'collected', 'procApp', 'uwApp'];
+check('Underwriting lists EVERY tray — including one the processor has not approved',
+  bucket(VIS, []).uw, VIS);
+check('…and the Processor tab stays the narrow one',
+  bucket(VIS, []).processor, ['emptyTray', 'collected']);
+check('an unconfirmed hide still rides along on Underwriting; a confirmed one is out of both',
+  [bucket(VIS, ['hidUnconf', 'hidDone']).uw.indexOf('hidUnconf') >= 0,
+   bucket(VIS, ['hidUnconf', 'hidDone']).uw.indexOf('hidDone') >= 0], [true, false]);
+check('bucketing never mutates the list it was handed', (function() {
+  const before = VIS.slice(); bucket(VIS, ['hidUnconf']); return JSON.stringify(VIS) === JSON.stringify(before);
+})(), true);
+
+// ── Deploy 237.150 — what actually renders ────────────────────────────
+// Three of Dan's four asks are about the LAYOUT, and _secOf cannot show any of them:
+// the section headers, the single Other block and the guarantor grouping are all built
+// in renderSections. So lift that too and read the HTML it returns. node --check would
+// not have caught a leftover reference to the per-section Other block it replaced.
+const rctx = {
+  console, String, Array, Object, JSON, RegExp, isFinite, parseFloat,
+  DOC_META: ctx.DOC_META,
+  _review: null,
+  _activeTab: 'processor',
+  _showHidden: {},
+  _activeCollateralProperty: 0,
+  _activeGuarantor: 0,
+  STAGE_EMPTY: { processor: 'nothing for the processor', uw: 'no trays', conditions: 'no conditions' },
+  escHtml: (v) => String(v == null ? '' : v),
+  escAttr: (v) => String(v == null ? '' : v),
+  escJs:   (v) => String(v == null ? '' : v),
+  // Marked so a tray is findable in the output without matching the real markup.
+  renderTray: (slug) => '<!--tray:' + slug + '-->',
+};
+vm.createContext(rctx);
+vm.runInContext(
+  cut('  var APP_SLUGS = {', '  var DOC_META = {') +
+  cut('  function _isOtherSlug(slug) {', '  function _fmtMoney(') +
+  cut('  var _STATUSES = [', '  var STAGE_EMPTY = {') +
+  cut('  function renderSections(slugs) {', '  // Deploy 236.501 \u2014 a slug is an'),
+  rctx);
+
+const render = (docs, tab) => {
+  rctx._review = { docs, guarantors: [], properties: [] };
+  rctx._activeTab = tab || 'processor';
+  return vm.runInContext('renderSections(' + JSON.stringify(Object.keys(docs)) + ')', rctx);
+};
+const headings = (html) => {
+  const out = []; const re = /<div class="section-title">([^<]*)<\/div>/g; let m;
+  while ((m = re.exec(html))) out.push(m[1]);
+  return out;
+};
+const trayOrder = (html) => {
+  const out = []; const re = /<!--tray:([^>]*)-->/g; let m;
+  while ((m = re.exec(html))) out.push(m[1]);
+  return out;
+};
+
+const FILE = {
+  loan_application: {}, term_sheet: {}, commitment_letter: {}, letter_of_intent: {},
+  bank_stmt_current: { section: 'borrower' },
+  guarantor_id: {}, appraisal: {}, cpl: {},
+  custom_1: { section: 'collateral', isCustom: true, label: 'Side letter' },
+  custom_2: { section: 'borrower', isCustom: true, label: 'Misc' },
+};
+ctx.DOC_META.bank_stmt_current = { label: 'Bank Statement', section: 'borrower' };
+rctx.DOC_META = ctx.DOC_META;
+const procHtml = render(FILE, 'processor');
+
+check('the page renders the new section order, with no "Loan Documents" heading',
+  headings(procHtml), ['Application & Terms', 'Borrower Documents', 'Guarantor Documents',
+    'Collateral Documents', 'Closing Documents', 'Other Documents']);
+check('the application and term sheet lead, then what used to be Loan Documents',
+  trayOrder(procHtml).slice(0, 4),
+  ['loan_application', 'term_sheet', 'commitment_letter', 'letter_of_intent']);
+check('BOTH custom trays render in the one Other section at the very bottom',
+  trayOrder(procHtml).slice(-2), ['custom_1', 'custom_2']);
+check('…and exactly one "Other Documents" heading exists (Dan saw two)',
+  headings(procHtml).filter((h) => h === 'Other Documents').length, 1);
+check('the retired per-section Other band is gone from the markup',
+  [procHtml.indexOf('dr-other-block'), procHtml.indexOf('dr-other-head')], [-1, -1]);
+check('"+ Add Category" survives, once, on the Other section',
+  (procHtml.match(/dr-add-doc-btn/g) || []).length, 1);
+
+// The Underwriting tab renders the same file with no Add button and no empty-state hint.
+const uwHtml = render(FILE, 'uw');
+check('Underwriting shows the same sections without the processor-only Add button',
+  [headings(uwHtml).length, (uwHtml.match(/dr-add-doc-btn/g) || []).length], [6, 0]);
+
+// An empty Other section still renders for the processor, so the button is reachable.
+const noOther = {}; Object.keys(FILE).forEach((k) => { if (!/^custom_/.test(k)) noOther[k] = FILE[k]; });
+const emptyOtherProc = render(noOther, 'processor');
+check('with nothing filed as Other, the section still shows for the processor',
+  [headings(emptyOtherProc).indexOf('Other Documents') >= 0, emptyOtherProc.indexOf('dr-other-empty') >= 0],
+  [true, true]);
+check('…and drops away entirely on Underwriting',
+  headings(render(noOther, 'uw')).indexOf('Other Documents'), -1);
 
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(failures ? 1 : 0);

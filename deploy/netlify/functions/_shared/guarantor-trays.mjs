@@ -32,24 +32,34 @@
  * (loan-review-sync-categories), from the nightly guarantor-trays cron and the
  * post-deploy backfill (guarantor-trays-backfill-background).
  */
-import { guarantorPersonEntries, GUARANTOR_PER_PERSON } from './loan-review-checklists.mjs';
+import { guarantorPersonEntries, GUARANTOR_PER_PERSON, stripTraySuffix } from './loan-review-checklists.mjs';
 
 const PER_PERSON = new Set(GUARANTOR_PER_PERSON);
+// Deploy 237.150 (Dan) -- per-guarantor trays whose document is COMMONLY one form
+// signed by every guarantor. The same PDF legitimately sits in each person's tray,
+// so their rubric must not tell the AI to reject it as misfiled.
+const SHARED_FORM = new Set(['credit_authorization']);
 
 export function isMultiGuarantorReview(review) {
   return !!(review && Array.isArray(review.guarantors) && review.guarantors.length > 1);
 }
 
-export function guarantorNote(name, label) {
-  return ' THIS TRAY IS FOR ONE GUARANTOR ONLY: ' + String(name || label || 'this guarantor') +
-    ' (' + String(label || 'Guarantor') + '). The document must belong to this person; a document for a different guarantor is filed in the wrong tray — flag it and name the person it actually belongs to.';
+// The note always opens with the same marker so adoptGuarantorsFromLoan can strip
+// and rewrite it when a guarantor is renamed.
+export function guarantorNote(name, label, slug) {
+  const who = String(name || label || 'this guarantor');
+  const head = ' THIS TRAY IS FOR ONE GUARANTOR ONLY: ' + who + ' (' + String(label || 'Guarantor') + '). ';
+  if (SHARED_FORM.has(stripTraySuffix(slug))) {
+    return head + 'This form is often a SINGLE authorization signed by every guarantor — that is acceptable here, and the same copy belongs in each guarantor\'s tray. Check only that ' + who + ' is named on it and has signed; flag it only if ' + who + ' is absent.';
+  }
+  return head + 'The document must belong to this person; a document for a different guarantor is filed in the wrong tray — flag it and name the person it actually belongs to.';
 }
 
 function _blankTray(item, g) {
   return {
     slug: item.slug + '__g' + g.index,
     label: item.label || item.slug,
-    conditions: (item.conditions || '') + guarantorNote(g.name, g.label),
+    conditions: (item.conditions || '') + guarantorNote(g.name, g.label, item.slug),
     section: 'guarantor',
     guarantorIndex: g.index,
     guarantorName: g.name || '',
@@ -100,7 +110,7 @@ export function adoptGuarantorsFromLoan(review, names) {
     if (tray.guarantorName !== g.name) {
       tray.guarantorName = g.name;
       tray.guarantorLabel = g.label;
-      tray.conditions = String(tray.conditions || '').replace(/ THIS TRAY IS FOR ONE GUARANTOR ONLY:.*$/, '') + guarantorNote(g.name, g.label);
+      tray.conditions = String(tray.conditions || '').replace(/ THIS TRAY IS FOR ONE GUARANTOR ONLY:.*$/, '') + guarantorNote(g.name, g.label, slug);
     }
   }
 
@@ -113,7 +123,7 @@ export function adoptGuarantorsFromLoan(review, names) {
       const gslug = slug + '__g0';
       if (review.docs[gslug]) continue;                    // would clobber — leave the base as a shared inbox
       const moved = { ...tray, slug: gslug, guarantorIndex: 0, guarantorName: g0.name, guarantorLabel: g0.label };
-      moved.conditions = String(tray.conditions || '') + guarantorNote(g0.name, g0.label);
+      moved.conditions = String(tray.conditions || '') + guarantorNote(g0.name, g0.label, slug);
       moved.history = Array.isArray(tray.history) ? tray.history.slice() : [];
       moved.history.push({ ts: new Date().toISOString(), action: 'guarantor_adopt',
         note: 'Loan has ' + next.length + ' guarantors; this tray now belongs to ' + g0.label + (g0.name ? ' (' + g0.name + ')' : '') + '.' });

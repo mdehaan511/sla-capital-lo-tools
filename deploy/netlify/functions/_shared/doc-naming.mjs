@@ -35,7 +35,7 @@
  * processor typed by hand (entry.nameManual) or an app-generated name
  * (entry.nameLocked) is never overwritten.
  */
-import { findCategory, SECTIONS } from './loan-review-checklists.mjs';
+import { findCategory, SECTIONS, displaySection } from './loan-review-checklists.mjs';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -315,9 +315,12 @@ export function applyCanonicalDocName(review, slug, docId, opts) {
 // ── ZIP layout ─────────────────────────────────────────────────────────────
 // Folders follow the Documents tab's own sections, numbered so a file browser
 // keeps the on-screen order; a guarantor's documents sit in their own folder.
-const SECTION_FOLDER = { borrower: 'Borrower Entity', guarantor: 'Guarantor', collateral: 'Collateral', loan: 'Loan', closing: 'Closing' };
+// Deploy 237.150 (Dan) -- 'loan' folds into Application & Terms and every
+// non-checklist tray into one Other folder, so the ZIP mirrors what the processor
+// sees on the page (displaySection is the single source for that mapping).
+const SECTION_FOLDER = { application: 'Application & Terms', borrower: 'Borrower Entity', guarantor: 'Guarantor', collateral: 'Collateral', closing: 'Closing', other: 'Other' };
 export function zipFolderFor(review, slug, docState, docId) {
-  const section = sectionOf(slug, docState);
+  const section = displaySection(sectionOf(slug, docState), slug);
   const idx = SECTIONS.findIndex((s) => s.key === section);
   if (idx < 0) return (SECTIONS.length + 1) + ' - Other';
   let folder = (idx + 1) + ' - ' + (SECTION_FOLDER[section] || section);

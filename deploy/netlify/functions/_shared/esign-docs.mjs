@@ -49,7 +49,7 @@ import { keySafe, normalizeEmail } from './auth.mjs';
 import { createStoreIndex } from './store-index.mjs';
 import { getOwnerReplyTo, logBorrowerSend } from './email.mjs';
 import { generateSignerToken } from './native-esign.mjs';
-import { DSCR_DOCS, RTL_DOCS, GUC_DOCS, SECTIONS } from './loan-review-checklists.mjs';
+import { DSCR_DOCS, RTL_DOCS, GUC_DOCS, SECTIONS, displaySection } from './loan-review-checklists.mjs';
 
 export const DOC_STATUSES = ['draft', 'sent', 'completed', 'cancelled'];
 export const FIELD_TYPES  = ['signature', 'initials', 'date', 'text', 'checkbox'];
@@ -647,7 +647,9 @@ export function docTypeOptions() {
   [].concat(DSCR_DOCS, RTL_DOCS, GUC_DOCS).forEach((d) => {
     if (!d || !d.slug || seen.has(d.slug)) return;
     seen.add(d.slug);
-    out.push({ slug: d.slug, label: d.label, section: d.section, sectionLabel: secLabel[d.section] || d.section });
+    // Deploy 237.150 -- same mapping the Documents tab uses (see displaySection).
+    const section = displaySection(d.section, d.slug);
+    out.push({ slug: d.slug, label: d.label, section, sectionLabel: secLabel[section] || section });
   });
   return out;
 }

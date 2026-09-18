@@ -32,14 +32,22 @@
   // Deploy 237.136 (Mike: "make the 2 top documents the Loan Application and Term
   // Sheet in their own section") -- a render-time section; the checklist still
   // files both slugs under 'loan' server-side (_secOf overrides for display).
-  var APP_SLUGS = { loan_application: 1, term_sheet: 1 };
+  // Deploy 237.150 -- the value is also the order INSIDE that section, so the
+  // application leads and the term sheet follows it whatever order the trays were
+  // created in.
+  var APP_SLUGS = { loan_application: 1, term_sheet: 2 };
+  // Deploy 237.150 (Dan) -- 'Loan Documents' is retired: once the application and
+  // term sheet moved to the top the only thing left in it was the commitment letter,
+  // so everything filed under 'loan' now renders with them. And the per-section
+  // "Other Documents" blocks became ONE 'other' section at the bottom. Keep this in
+  // step with SECTIONS in _shared/loan-review-checklists.mjs.
   var SECTIONS = [
     { key: 'application', label: 'Application & Terms' },
     { key: 'borrower',  label: 'Borrower Documents'  },
     { key: 'guarantor', label: 'Guarantor Documents' },
     { key: 'collateral',label: 'Collateral Documents'},
-    { key: 'loan',      label: 'Loan Documents'      },
     { key: 'closing',   label: 'Closing Documents'   },
+    { key: 'other',     label: 'Other Documents'     },
   ];
   var DOC_META = {
     // Deploy 237.074 (Mike) -- the Articles are the SOURCE of the LLC name; the item to find is the LLC name, not the guarantor.
@@ -283,11 +291,9 @@
       '.dr-modal .dr-modal-btns { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }',
       '.dr-modal button { padding:8px 14px; border-radius:6px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border,#E4DFD4); background:#fff; }',
       '.dr-modal button.primary { background:var(--gold-mid, #C8813A); border-color:var(--gold-mid, #C8813A); color:#fff; }',
-      // Deploy 236.501 — per-section "Other Documents" area: a subtle
-      // dashed-top band that separates catch-all docs from the checklist.
-      '.dr-root .dr-other-block { margin-top:14px; padding-top:12px; border-top:1px dashed var(--border); }',
-      '.dr-root .dr-other-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }',
-      '.dr-root .dr-other-title { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }',
+      // Deploy 236.501 — "Other Documents" catch-all. Deploy 237.150 (Dan) made it
+      // one real section at the bottom instead of a band inside every section, so the
+      // block/head/title rules went with it; only the empty-state line is left.
       '.dr-root .dr-other-empty { font-size:12px; color:var(--muted); font-style:italic; padding:6px 2px 2px; }',
       // Deploy 236.502 — auto-compressed badge (amber, informational).
       '.dr-root .dr-comp-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--gold-mid); background:rgba(200,129,58,0.10); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); border-radius:20px; padding:2px 9px; cursor:help; }',
@@ -836,13 +842,21 @@
     var st = _statusOf(slug);
     return (st === 'ptd_condition' || st === 'ptf_condition') && !(Array.isArray(d.conditions) && d.conditions.length);
   }
-  // The section a tray renders under (the Application & Terms override).
+  // The section a tray renders under. Mirrors displaySection() in
+  // _shared/loan-review-checklists.mjs -- the page, the loan-file ZIP and the e-sign
+  // picker have to agree, and no stored `section` is rewritten to do it.
   function _secOf(slug) {
     var base = String(slug || '').replace(/__[pg]\d+$/, '');
     if (APP_SLUGS[base]) return 'application';
+    // Deploy 237.150 (Dan) -- one Other Documents section at the very bottom.
+    if (_isOtherSlug(slug)) return 'other';
     var stored = (_review && _review.docs && _review.docs[slug]) || {};
     var meta = DOC_META[slug] || DOC_META[base] || {};
-    return meta.section || stored.section || 'loan';
+    var sec = meta.section || stored.section || '';
+    // Deploy 237.150 (Dan) -- 'loan' is retired; it renders under the application.
+    if (sec === 'loan') return 'application';
+    for (var i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].key === sec) return sec;
+    return 'other';
   }
   function _trayHasDoc(dd) {
     return !!(dd && (dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; }))));
@@ -854,9 +868,22 @@
     if (dd.hidden) return dd.hiddenConfirmedAt ? 'hiddenDone' : 'uw';
     return _UW_STATUS[_statusOf(slug)] ? 'uw' : 'processor';
   }
+  // Deploy 237.150 (Dan: "if a processor doesn't approve a document the empty tray
+  // still doesn't appear in the UW tab. I would like this to happen so that the UW
+  // can see which docs are ready to review from one screen") -- Underwriting lists
+  // EVERY tray whatever its status; the status chip says where each one stands. The
+  // Processor tab stays the narrow one: only what still needs a processor's call.
+  // _stageOf keeps its old meaning (whose desk is this on) for the Processor tab and
+  // for the hidden-tray hand-off.
+  function _bucketTabs(slugs, hidden) {
+    var out = { processor: [], uw: (slugs || []).slice() };
+    (slugs || []).forEach(function(s) { if (_stageOf(s) === 'processor') out.processor.push(s); });
+    (hidden || []).forEach(function(s) { if (_stageOf(s) === 'uw') out.uw.push(s); });
+    return out;
+  }
   var STAGE_EMPTY = {
     processor:  'Nothing waiting on the processor \u2014 every collected document has been reviewed. \uD83C\uDF89',
-    uw:         'Nothing has been reviewed by a processor yet.',
+    uw:         'No document trays on this loan yet.', // Deploy 237.150 -- this tab shows them all
     conditions: 'No open conditions on this loan.',
   };
   function _tabHtml(key, label, n) {
@@ -888,11 +915,12 @@
     var hidden = allSlugs.filter(function(s) { return docs[s] && docs[s].hidden; });
     // Deploy 237.136 -- two stages (see _stageOf); Conditions is a VIEW of uw.
     // Hidden trays awaiting the underwriter's confirmation ride along in Underwriting.
-    var stageSlugs = { processor: [], uw: [] };
-    slugs.forEach(function(s) { var st = _stageOf(s); if (stageSlugs[st]) stageSlugs[st].push(s); });
-    hidden.forEach(function(s) { if (_stageOf(s) === 'uw') stageSlugs.uw.push(s); });
+    var stageSlugs = _bucketTabs(slugs, hidden); // Deploy 237.150
     var condSlugs = slugs.filter(_onConditionsTab);
-    var reviewedSlugs = slugs.filter(function(s) { return _statusOf(s) === 'approved'; });
+    // Deploy 237.150 -- was _statusOf(s) === 'approved', a status that stopped
+    // existing in 237.138, so this stat had been stuck on 0. "Reviewed" means the
+    // processor has made a call on it, which is what _stageOf calls the uw stage.
+    var reviewedSlugs = slugs.filter(function(s) { return _stageOf(s) === 'uw'; });
 
     var amt = _review.loanAmount ? '$' + Number(_review.loanAmount).toLocaleString() : '—';
     var lo = _review.loEmail || '—';
@@ -1526,6 +1554,15 @@
       if (!bySection[sec]) bySection[sec] = [];
       bySection[sec].push(slug);
     });
+    // Deploy 237.150 -- Application & Terms now also holds what used to be "Loan
+    // Documents" (commitment letter, LOI, revised terms, exception request), so pin
+    // the application and term sheet to the top of it by APP_SLUGS order.
+    if (bySection.application) {
+      bySection.application.sort(function(a, b) {
+        return (APP_SLUGS[String(a).replace(/__[pg]\d+$/, '')] || 99) -
+               (APP_SLUGS[String(b).replace(/__[pg]\d+$/, '')] || 99);
+      });
+    }
     // Deploy 236.161 — section header now includes a "Show N hidden"
     // toggle when this section has any hidden trays. Hidden trays
     // are rendered below the visible ones, dimmed, with an "Unhide"
@@ -1543,7 +1580,10 @@
       // Deploy 237.111 (Mike) -- a 2+ guarantor review always shows the Guarantor section
       // (and every guarantor's group) on every tab, even when nothing is on the tab.
       var _multiG = Array.isArray(_review.guarantors) && _review.guarantors.length > 1;
-      if (!slugsInSec.length && !hiddenInSec.length && !(sec.key === 'guarantor' && _multiG)) return '';
+      // Deploy 237.150 -- the Other section stays on the Processor tab even when
+      // empty, because its header carries the "+ Add Category" button.
+      var _keepEmpty = (sec.key === 'guarantor' && _multiG) || (sec.key === 'other' && _activeTab === 'processor');
+      if (!slugsInSec.length && !hiddenInSec.length && !_keepEmpty) return '';
       var showHidden = _showHidden[sec.key] === true;
       var hiddenToggle = hiddenInSec.length
         ? '<button class="dr-section-toggle" onclick="dr_toggleHiddenInSection(\'' + escJs(sec.key) + '\')">' +
@@ -1554,8 +1594,9 @@
         ? hiddenInSec.map(renderTray).join('')
         : '';
       // Deploy 236.162 — "+ Add Document" creates a custom tray in this
-      // section. Deploy 236.501 — relabeled "+ Add Other Document" and
-      // moved into the per-section "Other Documents" area below.
+      // section. Deploy 237.150 — only the Other Documents section shows it now
+      // (a custom tray renders there wherever it is filed), plus each guarantor's
+      // own "+ Add" in the guarantor groups below.
       var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escJs(sec.key) + '\',\'' + escJs(sec.label) + '\')" title="Add a document category to this section — a type that isn\'t listed, or an additional version to review">+ Add Category</button>';
       // Deploy 236.164 — bulk "Approve all pending" per section.
       // Counts trays in this section that have a doc uploaded AND
@@ -1581,29 +1622,17 @@
             (_bulkUw ? 'UW approve ' : 'Approve ') + bulkable.length + '</button>'
         : '';
 
-      // Deploy 236.501 — split this section's visible slugs into standard
-      // checklist docs and "Other" (custom / uncategorized) docs so every
-      // category gets a standing "Other Documents" area. The Add button +
-      // empty-state hint only render on the Pending tab (the working view);
-      // on the Reviewed tab we still group any reviewed Other docs here.
-      var standardInSec = slugsInSec.filter(function(s) { return !_isOtherSlug(s); });
-      var otherInSec    = slugsInSec.filter(function(s) { return _isOtherSlug(s); });
-      var showOtherAdd  = (_activeTab === 'processor');
-      var otherBlock = '';
-      if (otherInSec.length || showOtherAdd) {
-        otherBlock =
-          '<div class="dr-other-block">' +
-            '<div class="dr-other-head">' +
-              '<span class="dr-other-title">Other Documents</span>' +
-              (showOtherAdd ? addBtn : '') +
-            '</div>' +
-            (otherInSec.length
-              ? otherInSec.map(renderTray).join('')
-              : (showOtherAdd
-                  ? '<div class="dr-other-empty">Nothing here yet. Use “+ Add Category” for a document type that isn’t on the checklist, or route uncategorized files here from an “Upload ZIP”.</div>'
-                  : '')) +
-          '</div>';
-      }
+      // Deploy 237.150 (Dan: "There seems to be two other documents sections. Just
+      // keep one at the very bottom of the doc list") -- the per-section "Other
+      // Documents" block is gone. Every non-checklist tray resolves to the 'other'
+      // section (see _secOf) and so renders in the one section at the bottom, with
+      // the same header, hidden toggle and Add button every other section has.
+      var standardInSec = slugsInSec;
+      var isOtherSec    = (sec.key === 'other');
+      var otherAddBtn   = (isOtherSec && _activeTab === 'processor') ? addBtn : '';
+      var otherEmpty    = (isOtherSec && !slugsInSec.length && _activeTab === 'processor')
+        ? '<div class="dr-other-empty">Nothing here yet. Use “+ Add Category” for a document type that isn’t on the checklist, or route uncategorized files here from an “Upload ZIP”.</div>'
+        : '';
 
       // Deploy 236.690 — Portfolio: the Collateral section gets a Property 1 / 2 /…
       // tab strip; each property has its OWN collateral trays (slug "<base>__p<i>",
@@ -1647,7 +1676,9 @@
         _propTabsHtml = _review.guarantors.map(function(g, i) {
           var list = _byG[i] || [];   // Deploy 237.111 -- empty groups still render (Mike)
           var have = list.filter(function(s) { var dd = _review.docs[s] || {}; return _trayHasDoc(dd) || dd.verdict === 'na'; }).length;
-          var ok = list.filter(function(s) { return _stageOf(s) === 'reviewed'; }).length;
+          // Deploy 237.150 -- was _stageOf(s) === 'reviewed', a stage that has not
+          // existed since 237.136, so this count was silently always 0.
+          var ok = list.filter(function(s) { return _statusOf(s) === 'uw_approved'; }).length;
           var title = (g.label || ('Guarantor ' + (i + 1))) + (g.name ? ' \u2014 ' + g.name : '');
           return '<div class="dr-gsec">' +
             '<div class="dr-gsec-head">' +
@@ -1685,11 +1716,11 @@
       return '<div class="dr-section">' +
         '<div class="section-title-row">' +
           '<div class="section-title">' + escHtml(sec.label) + '</div>' +
-          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + bulkBtn + hiddenToggle + '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + otherAddBtn + bulkBtn + hiddenToggle + '</div>' +
         '</div>' +
         _propTabsHtml +
         _stdToRender.map(renderTray).join('') +
-        otherBlock +
+        otherEmpty +
         hiddenHtml +
       '</div>';
     }).join('');
@@ -1700,7 +1731,8 @@
   // checklist slugs live in DOC_META; custom ones carry isCustom + a
   // custom_/other_ prefix.
   function _isOtherSlug(slug) {
-    var d = (_review.docs && _review.docs[slug]) || {};
+    // Deploy 237.150 -- _secOf calls this for every tray now, so guard _review too.
+    var d = (_review && _review.docs && _review.docs[slug]) || {};
     return d.isCustom === true || /^(custom_|other_)/.test(String(slug || ''));
   }
 
@@ -2092,7 +2124,6 @@
     }
     var verdict = d.verdict || 'pending';
     var hasDoc = !!d.currentDocId;
-    var _stage = _stageOf(slug);
     var _status = _statusOf(slug);           // Deploy 237.136
     var _openConds = _openCondCount(d);
     // Deploy 236.689 -- for a multi-doc tray the AI chip reflects the WORST live doc.
@@ -2194,7 +2225,9 @@
     }
     // Deploy 237.071 (item 5) -- on Ready for UW the AI review folds up so the
     // underwriter clicks through trays quickly; the summary line carries the verdict.
-    if (_stage === 'uw' && aiHtml && hasDoc && !d.hidden) {
+    // Deploy 237.150 -- keyed to the TAB now that Underwriting lists every tray,
+    // so the underwriter gets the same compact row for all of them.
+    if (_activeTab === 'uw' && aiHtml && hasDoc && !d.hidden) {
       var _aiSum = _trayAi === 'approved' ? '\u2713 AI: looks good' : _trayAi === 'issues' ? '\u26a0 AI: issues found' : _trayAi === 'needs_manual_review' ? '\u26a0 AI: needs manual review' : 'AI review';
       aiHtml = '<details class="dr-ai-collapse"><summary>' + escHtml(_aiSum) + ' — expand</summary>' + aiHtml + '</details>';
     }
@@ -2230,7 +2263,7 @@
     var conds = _renderDocConditions(d, slug);
 
     // Deploy 237.072 (item 3) -- what the underwriter should be checking, up top.
-    var verifyHtml = (_stage === 'uw' && !d.hidden) ? _renderVerifyPanel(slug, d, meta) : '';
+    var verifyHtml = (_activeTab === 'uw' && hasDoc && !d.hidden) ? _renderVerifyPanel(slug, d, meta) : ''; // Deploy 237.150
     // Deploy 237.136 (Mike) -- the stage buttons (Approve / N-A / UW Approve /
     // Conditions Pending / Send back) are gone: the status dropdown in the header is
     // the one control. What is left are the actions that are not a status.
@@ -3345,8 +3378,10 @@
     // a mis-bucketed doc can be filed anywhere — even a category not on this loan's
     // own checklist (the backend creates it with the right rubric). Plus the
     // review's existing custom/"Other" trays. Excludes the source + hidden trays.
-    var SEC_LABELS = { borrower: 'Borrower', guarantor: 'Guarantor', collateral: 'Collateral', loan: 'Loan', closing: 'Closing' };
-    var SEC_ORDER = ['borrower', 'guarantor', 'collateral', 'loan', 'closing'];
+    // Deploy 237.150 -- the checklist still files these under 'loan'; the picker
+    // shows them where the page does.
+    var SEC_LABELS = { loan: 'Application & Terms', borrower: 'Borrower', guarantor: 'Guarantor', collateral: 'Collateral', closing: 'Closing' };
+    var SEC_ORDER = ['loan', 'borrower', 'guarantor', 'collateral', 'closing'];
     var stdBySec = {}, cust = [];
     // Standard categories from the client checklist mirror.
     Object.keys(DOC_META).forEach(function(s) {
@@ -4078,7 +4113,7 @@
           var val = sel && sel.value;
           if (val === _OTHER_PICK) {
             var secSel = document.getElementById('dr-bulk-sec-' + i);
-            var section = (secSel && secSel.value) || 'loan';
+            var section = (secSel && secSel.value) || 'other'; // Deploy 237.150
             otherPicks.push({ it: it, section: section });
           } else if (val) {
             picked.push(Object.assign({}, it, { slug: val }));

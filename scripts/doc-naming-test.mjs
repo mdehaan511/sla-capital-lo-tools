@@ -92,14 +92,14 @@ check('the tray\'s OWN label wins over the cross-checklist lookup; a portfolio s
     [canonicalDocName(p, 'guarantor_id__g0', 'j'), canonicalDocName(p, 'guarantor_id__g0', 'dl')],
     ['Guarantor ID - Jeremy Wilson.pdf', 'Guarantor ID - Dilma Herrera Aguilar.pdf']);
   check('…and so does the ZIP folder', [zipFolderFor(p, 'guarantor_id__g0', p.docs.guarantor_id__g0, 'j'), zipFolderFor(p, 'guarantor_id__g0', p.docs.guarantor_id__g0, 'dl')],
-    ['2 - Guarantor/Jeremy Wilson', '2 - Guarantor/Dilma Herrera Aguilar']);
+    ['3 - Guarantor/Jeremy Wilson', '3 - Guarantor/Dilma Herrera Aguilar']);
   check('"LAST, FIRST" and middle names still find the roster member',
     [canonicalDocName(p, 'ofac_personal', 'd7', { entities: { borrowerName: 'WILSON, JEREMY' } }), canonicalDocName(p, 'ofac_personal', 'd7', { entities: { borrowerName: 'Herrera Aguilar, Dilma Leticia' } })],
     ['OFAC Check (Personal) - Jeremy Wilson.pdf', 'OFAC Check (Personal) - Dilma Herrera Aguilar.pdf']);
   p.docs.credit_authorization.documents[0].aiExtractedEntities = { borrowerName: 'Jeremy Wilson / Dilma Herrera Aguilar' };
   check('a joint document names both, and stays at the Guarantor root in the ZIP',
     [canonicalDocName(p, 'credit_authorization', 'd8'), zipFolderFor(p, 'credit_authorization', p.docs.credit_authorization, 'd8')],
-    ['Credit Authorization - Jeremy Wilson & Dilma Herrera Aguilar.pdf', '2 - Guarantor']);
+    ['Credit Authorization - Jeremy Wilson & Dilma Herrera Aguilar.pdf', '3 - Guarantor']);
   check('a name the roster does not know is used as read', canonicalDocName(p, 'ofac_personal', 'd7', { entities: { borrowerName: 'Pat Q Stranger' } }), 'OFAC Check (Personal) - Pat Q Stranger.pdf');
 }
 
@@ -133,9 +133,12 @@ check('the tray\'s OWN label wins over the cross-checklist lookup; a portfolio s
 // ── ZIP layout ────────────────────────────────────────────────────────────
 {
   const z = makeReview();
+  // Deploy 237.150 (Dan) -- Application & Terms leads, "Loan" is retired into it, and
+  // BOTH custom trays land in the one Other folder even though custom_1 was filed
+  // under Collateral. That last pair is the change: one Other area, at the bottom.
   check('folders = the tab\'s sections, numbered; a folder per guarantor; bank statements are NOT "Income"',
     ['bank_stmt_current', 'guarantor_id__g1', 'ofac_personal', 'psa', 'loan_application', 'cpl', 'custom_1', 'custom_2'].map((s) => zipFolderFor(z, s, z.docs[s])),
-    ['1 - Borrower Entity', '2 - Guarantor/Dilma Herrera Aguilar', '2 - Guarantor', '3 - Collateral', '4 - Loan', '5 - Closing', '3 - Collateral', '6 - Other']);
+    ['2 - Borrower Entity', '3 - Guarantor/Dilma Herrera Aguilar', '3 - Guarantor', '4 - Collateral', '1 - Application & Terms', '5 - Closing', '6 - Other', '6 - Other']);
   z.docs.bank_stmt_current.documents[0].documentDate = '2026-08-31';
   z.docs.bank_stmt_current.documents[0].aiExtractedEntities = { borrowerName: 'Jeremy Wilson' };
   check('zip names: a legacy raw upload name is canonical in the ZIP with no re-review',
@@ -154,9 +157,9 @@ check('the tray\'s OWN label wins over the cross-checklist lookup; a portfolio s
   p.docs.appraisal__p1 = tray('dp', 'appr.pdf');
   check('portfolio: a per-property tray is named + foldered for ITS property',
     [canonicalDocName(p, 'appraisal__p1', 'dp'), zipFolderFor(p, 'appraisal__p1', p.docs.appraisal__p1)],
-    ['Appraisal - 919 Mission Oaks Dr.pdf', '3 - Collateral/919 Mission Oaks Dr']);
+    ['Appraisal - 919 Mission Oaks Dr.pdf', '4 - Collateral/919 Mission Oaks Dr']);
   const solo = makeReview(); solo.guarantors = [{ index: 0, name: 'Jeremy Wilson' }]; solo.docs.guarantor_id = tray('dg', 'dl.png');
-  check('single guarantor: no per-person folder, shared tray names them', [zipFolderFor(solo, 'guarantor_id', solo.docs.guarantor_id), canonicalDocName(solo, 'guarantor_id', 'dg')], ['2 - Guarantor', 'Guarantor ID - Jeremy Wilson.png']);
+  check('single guarantor: no per-person folder, shared tray names them', [zipFolderFor(solo, 'guarantor_id', solo.docs.guarantor_id), canonicalDocName(solo, 'guarantor_id', 'dg')], ['3 - Guarantor', 'Guarantor ID - Jeremy Wilson.png']);
 }
 
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));

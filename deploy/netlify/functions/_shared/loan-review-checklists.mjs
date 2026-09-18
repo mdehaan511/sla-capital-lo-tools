@@ -23,13 +23,33 @@
  * override which docs are required from the loan settings.
  */
 
+// Deploy 237.150 (Dan) -- the on-screen sections. 'loan' is retired: the loan
+// application and term sheet already led the page, and once they moved up the only
+// thing left under "Loan Documents" was the commitment letter. Everything that
+// files under 'loan' now renders with them under Application & Terms. Checklist
+// entries still SAY section: 'loan' -- displaySection() below does the mapping, so
+// no review data has to be migrated.
 export const SECTIONS = [
+  { key: 'application', label: 'Application & Terms' },
   { key: 'borrower',  label: 'Borrower Documents'  },
   { key: 'guarantor', label: 'Guarantor Documents' },
   { key: 'collateral',label: 'Collateral Documents'},
-  { key: 'loan',      label: 'Loan Documents'      },
   { key: 'closing',   label: 'Closing Documents'   },
+  { key: 'other',     label: 'Other Documents'     },
 ];
+/**
+ * Deploy 237.150 -- the section a tray RENDERS under, given the section its
+ * checklist entry (or the tray itself) recorded. Legacy 'loan' folds into
+ * Application & Terms; a non-checklist tray goes to the single Other Documents
+ * section at the bottom. Keep this the one place that mapping lives -- the page,
+ * the loan-file ZIP and the e-sign picker all have to agree on it.
+ */
+export function displaySection(section, slug) {
+  if (/^(custom_|other_)/.test(String(slug || ''))) return 'other';
+  const s = String(section || '');
+  if (s === 'loan') return 'application';
+  return SECTIONS.some((x) => x.key === s) ? s : 'other';
+}
 
 // Deploy 236.212 — DSCR checklist rewritten to match Mike's list
 // derived from the Diya Underwriting Guidelines (Term - 2026.01.29).
@@ -452,11 +472,18 @@ export function portfolioCollateralEntries(loanType) {
 // "A separate tray for each guarantor when there are two, like Baseline."
 // On a review with 2+ guarantors these guarantor-section documents are
 // collected PER PERSON as "<slug>__g<i>" (i = index into review.guarantors,
-// 0 = the primary borrower). Credit Authorization stays a single tray — it
-// is one form signed by everyone. See _shared/guarantor-trays.mjs.
+// 0 = the primary borrower). See _shared/guarantor-trays.mjs.
+//
+// Deploy 237.150 (Dan: "All guarantors shared - Eliminate this section. It
+// currently has a credit auth doc in it and that's it ... I'd say keep this under
+// each individual guarantor") -- credit_authorization joined the list. It USED to
+// be deliberately shared because it is often one form everybody signs; that is
+// still true, so its per-guarantor rubric says a jointly-signed form is acceptable
+// in each person's tray (guarantorNote). With it moved, the "All guarantors —
+// shared" group is empty on a normal loan and stops rendering on its own.
 export const GUARANTOR_PER_PERSON = [
   'guarantor_id', 'proof_of_citizenship', 'credit_report', 'guarantor_background_check',
-  'ofac_personal', 'guarantor_loe', 'pfs',
+  'ofac_personal', 'guarantor_loe', 'pfs', 'credit_authorization',
 ];
 export function guarantorPersonEntries(loanType) {
   const own = getChecklist(loanType || '');

@@ -14,7 +14,7 @@ import { handleOptions, json, requireAuth, normalizeEmail, keySafe } from './_sh
 import { pgGet, LOAN_PICK_SELECT, loanRowToCandidate } from './_shared/mail-match.mjs';
 import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
 import { findReviewForLoan } from './_shared/loan-review-auto-attach.mjs';
-import { findCategory, SECTIONS } from './_shared/loan-review-checklists.mjs';
+import { findCategory, SECTIONS, displaySection } from './_shared/loan-review-checklists.mjs';
 import { docTypeOptions } from './_shared/esign-docs.mjs';
 
 export async function searchLoans(q) {
@@ -64,8 +64,11 @@ export default async (req, context) => {
         const slugs = Object.keys(review.docs).map((slug) => {
           const d = review.docs[slug] || {};
           const cat = findCategory(slug);
-          return { slug, label: d.label || (cat && cat.label) || slug, section: d.section || (cat && cat.section) || 'loan',
-            sectionLabel: secLabel[d.section || (cat && cat.section)] || '' };
+          // Deploy 237.150 -- 'loan' is retired; displaySection maps it (and any
+          // custom tray) to the section the Documents tab actually shows.
+          const section = displaySection(d.section || (cat && cat.section) || '', slug);
+          return { slug, label: d.label || (cat && cat.label) || slug, section,
+            sectionLabel: secLabel[section] || '' };
         }).sort((a, b) => a.section.localeCompare(b.section) || a.label.localeCompare(b.label));
         return json(200, { slugs, reviewId: review.id, hasReview: true });
       }
