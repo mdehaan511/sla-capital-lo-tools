@@ -39,6 +39,7 @@ import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
+import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.162
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -66,6 +67,7 @@ async function handle(req, context) {
   if (!review) return json(404, { error: 'Review not found' });
 
   const docState = review.docs && review.docs[body.slug];
+  const _costBefore = Number(review.aiCostCents || 0); // Deploy 237.162 — merge our delta, not the whole counter
   if (!docState) return json(400, { error: 'slug not on this review' });
   // Deploy 237.049 -- remember the Articles' previous extracted name so the
   // dependent-tray re-grade can tell "same name, already graded" from a change.
@@ -127,7 +129,7 @@ async function handle(req, context) {
     const _nr = { aiVerdict: 'needs_manual_review', aiNotes: 'No verification rubric is configured for this document type, so it could not be auto-reviewed — manual review required.', aiFindings: [], aiExtractedEntities: {}, aiReviewedAt: nrNow, aiError: '', aiSkippedNoRubric: true };
     Object.assign(docState, _nr);
     if (targetEntry && targetEntry !== docState) Object.assign(targetEntry, _nr);
-    await _saveReview(reviewStore, review, nrNow);
+    await _saveReview(reviewStore, review, nrNow, body.slug, _costBefore);
     return json(200, { ok: true, review });
   }
 
@@ -216,7 +218,7 @@ async function handle(req, context) {
     const _err = { aiVerdict: 'issues', aiNotes: 'AI review threw an exception: ' + (e && e.message || 'unknown'), aiFindings: [], aiExtractedEntities: {}, aiReviewedAt: now, aiError: (e && e.message) || 'unknown' };
     if (targetEntry) Object.assign(targetEntry, _err);
     if (isCurrentTarget) Object.assign(docState, _err);
-    await _saveReview(reviewStore, review, now);
+    await _saveReview(reviewStore, review, now, body.slug, _costBefore);
     return json(500, { error: 'AI review failed: ' + (e && e.message || 'unknown'), review });
   }
 
@@ -228,7 +230,7 @@ async function handle(req, context) {
     const _pending = { aiReviewing: true, aiVerdict: '', aiNotes: '', aiReviewedAt: '', aiError: '' };
     if (targetEntry) Object.assign(targetEntry, _pending);
     if (isCurrentTarget) Object.assign(docState, _pending);
-    await _saveReview(reviewStore, review, now);
+    await _saveReview(reviewStore, review, now, body.slug, _costBefore);
     try {
       const _base = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
       const _auth = (req.headers && typeof req.headers.get === 'function') ? (req.headers.get('authorization') || '') : '';
@@ -290,7 +292,7 @@ async function handle(req, context) {
     if (_felAlert !== null) docState.felonyAlert = _felAlert;
   }
 
-  await _saveReview(reviewStore, review, now);
+  await _saveReview(reviewStore, review, now, body.slug, _costBefore);
 
   // Deploy 237.049 -- Articles re-reviewed: re-grade the entity-name-dependent trays.
   if (body.slug === 'articles_of_organization' && isCurrentTarget) {
@@ -305,9 +307,23 @@ async function handle(req, context) {
   return json(200, { ok: true, review });
 }
 
-async function _saveReview(store, review, now) {
+// Deploy 237.162 — this used to setJSON the WHOLE review that was read before
+// the Claude call (~20s earlier), so an approval saved from another tab, or a
+// verdict written by a concurrent background re-grade, was silently reverted —
+// and review.aiCostCents lost the other run's spend. Re-read and merge only the
+// tray we touched, the same way loan-review-ai-background._saveTrayPatch does.
+// slug/costBefore are optional so the early-exit call sites keep working.
+async function _saveReview(store, review, now, slug, costBefore) {
   review.updatedAt = now;
-  await store.setJSON(keySafe(review.id), review);
+  const docState = slug && review.docs ? review.docs[slug] : null;
+  if (!docState) { await store.setJSON(keySafe(review.id), review); return; }
+  const delta = Number(review.aiCostCents || 0) - Number(costBefore || 0);
+  const merged = await saveTrayFresh(store, review.id, slug, docState, function (fresh) {
+    fresh.updatedAt = now;
+    if (delta) fresh.aiCostCents = Number(fresh.aiCostCents || 0) + delta;
+  });
+  if (merged) { for (const k of Object.keys(review)) delete review[k]; Object.assign(review, merged); }
+  else await store.setJSON(keySafe(review.id), review); // review deleted meanwhile — old behaviour
 }
 
 // Mirror of the helper in loan-review-doc-upload.mjs — small enough

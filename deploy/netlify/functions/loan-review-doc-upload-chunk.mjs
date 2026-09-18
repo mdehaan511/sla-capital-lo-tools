@@ -27,6 +27,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
+import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.162
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
@@ -183,7 +184,20 @@ async function handle(req, context) {
   review.updatedAt = now;
   review.lastEditedBy = normalizeEmail(user.email);
   review.lastEditedAt = now;
-  await reviewStore.setJSON(keySafe(body.reviewId), review);
+  // Deploy 237.162 — the fix 237.104 made to the single-shot uploader, which
+  // this path never got. It holds the review across the chunk reassembly (the
+  // BIGGEST file, so the LONGEST hold of any upload path); writing that stale
+  // copy back wiped every tray another upload or approval saved meanwhile.
+  // Re-read and merge only this tray, exactly like loan-review-doc-upload.
+  {
+    const _merged = await saveTrayFresh(reviewStore, body.reviewId, body.slug, docState, function (fresh) {
+      fresh.updatedAt = now;
+      fresh.lastEditedBy = normalizeEmail(user.email);
+      fresh.lastEditedAt = now;
+    });
+    if (_merged) { for (const k of Object.keys(review)) delete review[k]; Object.assign(review, _merged); }
+    else await reviewStore.setJSON(keySafe(body.reviewId), review); // review deleted meanwhile — old behaviour
+  }
   await syncReviewCountsToLoan(review); // Deploy 237.102
 
   // Best-effort chunk cleanup (the doc is already safely stored).

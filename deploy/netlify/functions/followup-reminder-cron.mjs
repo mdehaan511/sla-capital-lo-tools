@@ -214,10 +214,17 @@ export default async () => {
         for (const ck of Object.keys(byClient)) {
           const group = byClient[ck];
           const client = group[0].client;
+          // Deploy 237.162 — each candidate was read with its OWN clientsStore.get,
+          // so a borrower with two loans produced two separate client objects. The
+          // stamps went onto each item's own copy but only the first copy was
+          // written, so every loan after the first re-fired in the digest EVERY
+          // day. Stamp the loans inside the one record we are about to write.
+          const loans = Array.isArray(client.loans) ? client.loans : [];
           for (const it of group) {
-            it.loan.anniversaryNotified = Object.assign({}, it.loan.anniversaryNotified || {});
-            for (const d of it.due) { it.loan.anniversaryNotified[d.key] = nowIso; itemsSent++; }
-            it.loan.updatedAt = nowIso;
+            const target = loans.find((l) => l && l.id === it.loan.id) || it.loan;
+            target.anniversaryNotified = Object.assign({}, target.anniversaryNotified || {});
+            for (const d of it.due) { target.anniversaryNotified[d.key] = nowIso; itemsSent++; }
+            target.updatedAt = nowIso;
           }
           await writeClient(group[0].ownerKey, client, { clientsStore });
         }

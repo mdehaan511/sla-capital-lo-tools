@@ -309,8 +309,14 @@ function sumBy(list, f) { var t = 0; list.forEach(function (x) { t += Number(f(x
 // tabs") -- one status + verify cell, shared by every tab. Verification is stored
 // per LEDGER ROW, so the tabs reuse the same openVerify / unverify the All money tab
 // uses; the index is the row's position in _rows.
+// Deploy 237.162 (Mike) -- these buttons did nothing whenever a filter was set.
+// The row was addressed by its position in _rows, which render() replaces with
+// the FILTERED ledger, while the per-closing table reads the unfiltered
+// _data.rows: any row the filter excluded resolved to -1 and the handler threw.
+// The banner's own "Show them" button sets a filter, so it put people straight
+// into it. Address rows by their stable key instead of a position.
 function verifyCell(r) {
-  var i = _rows.indexOf(r);
+  var i = rowKeyArg(r);
   if (r.status === 'verified' || r.status === 'changed') {
     var v = r.verified || {};
     return (r.status === 'changed'
@@ -622,15 +628,15 @@ function rowHtml(r, i) {
       : '<span class="pill ok">Verified</span>') +
       '<div class="small">' + esc(mdy(v.date)) + ' · ' + esc(String(v.by || '').split('@')[0]) + '</div>' +
       (v.note ? '<div class="small">' + esc(v.note) + '</div>' : '');
-    action = (r.status === 'changed' ? '<button class="btn sm" onclick="openVerify(' + i + ')">Re-verify</button> ' : '') +
-      '<button class="link-btn" onclick="unverify(' + i + ')">Undo</button>';
+    action = (r.status === 'changed' ? '<button class="btn sm" onclick="openVerify(' + rowKeyArg(r) + ')">Re-verify</button> ' : '') +
+      '<button class="link-btn" onclick="unverify(' + rowKeyArg(r) + ')">Undo</button>';
   } else {
     status = r.status === 'settled' ? '<span class="pill ok" title="Paid on the settlement statement \u2014 no separate wire to match">Paid on HUD</span>' // Deploy 237.143
       : r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
       : r.status === 'due' ? '<span class="pill warn">Due today</span>'
       : '<span class="pill">' + (r.pipeline ? 'Forecast' : 'Upcoming') + '</span>';
     if (r.late24h) status += '<div class="small" style="color:var(--danger)">24h past closing — Mike &amp; Dan alerted</div>';
-    action = (r.status === 'settled' || (r.status === 'upcoming' && r.pipeline)) ? '' : '<button class="btn sm" onclick="openVerify(' + i + ')">Verify</button>';
+    action = (r.status === 'settled' || (r.status === 'upcoming' && r.pipeline)) ? '' : '<button class="btn sm" onclick="openVerify(' + rowKeyArg(r) + ')">Verify</button>';
   }
   if (r.kind === 'manual') {
     action += ' <button class="link-btn" onclick="openManual(' + i + ')">Edit</button>';
@@ -664,8 +670,17 @@ function closeModal() { document.getElementById('modalHost').innerHTML = ''; }
 function mErr(msg) { var e = document.getElementById('mErr'); if (e) e.textContent = msg || ''; }
 function busy(btn, on, label) { if (!btn) return; btn.disabled = on; if (label) btn.textContent = label; }
 
-function openVerify(i) {
-  var r = _rows[i];
+function rowKeyArg(r) { return "'" + esc(String((r && r.key) || '')) + "'"; }
+function rowByKey(k) {
+  var key = String(k);
+  var all = (_data && _data.rows) ? _data.rows : [];
+  for (var i = 0; i < all.length; i++) if (all[i] && String(all[i].key) === key) return all[i];
+  for (var j = 0; j < _rows.length; j++) if (_rows[j] && String(_rows[j].key) === key) return _rows[j];
+  return null;
+}
+function openVerify(k) {
+  var r = rowByKey(k);
+  if (!r) { toast('That row is no longer on screen — reload and try again.', true); return; }
   var who = r.kind === 'trade' ? r.buyer : (r.address || r.kindLabel);
   modal('Verify against the bank statement',
     '<div class="small" style="margin-bottom:12px">' + esc(r.kindLabel) + ' — ' + esc(who) + '<br>' +
@@ -685,8 +700,9 @@ function saveVerify(i) {
     closeModal(); toast('Verified.'); loadAll();
   }).catch(function (e) { busy(btn, false, 'Mark verified'); mErr(e.message); });
 }
-function unverify(i) {
-  var r = _rows[i];
+function unverify(k) {
+  var r = rowByKey(k);
+  if (!r) { toast('That row is no longer on screen — reload and try again.', true); return; }
   if (!confirm('Remove the verification on this item?')) return;
   update({ op: 'unverify', key: r.key }).then(function () { toast('Verification removed.'); loadAll(); })
     .catch(function (e) { toast(e.message, true); });

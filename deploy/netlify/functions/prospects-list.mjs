@@ -68,20 +68,23 @@ export default async (req, context) => {
         try {
           const qIdx = await quotesIndex.readIndex();
           const qOwners = (qIdx && qIdx.index && qIdx.index.byOwner) || {};
+          // Deploy 237.162 — keep the newest quote TIME per address, not just the
+          // address (see the LO path below for why).
           const workedByOwner = {};
           for (const o of Object.keys(qOwners)) {
-            const set = new Set();
+            const at = {};
             for (const q of qOwners[o]) {
-              if (q && q.address) set.add(normAddr(q.address));
+              if (!q || !q.address) continue;
+              const a = normAddr(q.address);
+              const t = Date.parse(q.updatedAt || q.savedAt || q.createdAt || 0) || 0;
+              if (!(a in at) || t > at[a]) at[a] = t;
             }
-            if (set.size) workedByOwner[o] = set;
+            if (Object.keys(at).length) workedByOwner[o] = at;
           }
           for (const owner of Object.keys(byOwner)) {
             const worked = workedByOwner[owner];
-            if (!worked || !worked.size) continue;
-            byOwner[owner] = byOwner[owner].filter(
-              (p) => !worked.has(normAddr(p.propAddress || ''))
-            );
+            if (!worked) continue;
+            byOwner[owner] = byOwner[owner].filter((p) => !_alreadyWorked(p, worked));
             if (!byOwner[owner].length) delete byOwner[owner];
           }
         } catch (e) {
@@ -139,14 +142,22 @@ export default async (req, context) => {
     try {
       const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
       const { blobs: qBlobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-      const workedAddrs = new Set();
+      const workedAt = {};
       await Promise.all(qBlobs.map(async ({ key }) => {
         const q = await quotesStore.get(key, { type: 'json' });
-        if (q && q.address) workedAddrs.add(normAddr(q.address));
+        if (!q || !q.address) return;
+        const a = normAddr(q.address);
+        const t = Date.parse(q.updatedAt || q.savedAt || q.createdAt || 0) || 0;
+        if (!(a in workedAt) || t > workedAt[a]) workedAt[a] = t;
       }));
-      if (workedAddrs.size) {
-        prospects = prospects.filter((p) => !workedAddrs.has(normAddr(p.propAddress || '')));
-      }
+      // Deploy 237.162 (Marianne) — this used to drop ANY prospect whose address
+      // matched a quote, so a brand-new application for a property the LO had
+      // already quoted vanished from their own New Application column while it
+      // stayed visible to admins (who dedupe from the quotes INDEX, which lags).
+      // "Chance sees my portfolio app on his end" was exactly this. Hide a lead
+      // only when the work happened AFTER it came in; a newer application is new
+      // business and has to be worked.
+      prospects = prospects.filter((p) => !_alreadyWorked(p, workedAt));
     } catch (e) {
       console.warn('prospects-list quote dedupe failed:', e);
     }
@@ -158,6 +169,18 @@ export default async (req, context) => {
     return json(500, { error: 'Failed to load prospects' });
   }
 };
+
+// Deploy 237.162 — a prospect counts as "already worked" only when a quote at
+// the same address is at least as new as the application itself. Without a
+// usable timestamp on either side we keep the old behaviour (hide it), so an
+// undated legacy record doesn't suddenly resurface.
+function _alreadyWorked(prospect, workedAt) {
+  const t = workedAt[normAddr((prospect && prospect.propAddress) || '')];
+  if (t === undefined) return false;
+  const sub = Date.parse((prospect && (prospect.submittedAt || prospect.savedAt || prospect.updatedAt)) || 0) || 0;
+  if (!sub || !t) return true;
+  return t >= sub;
+}
 
 // Deploy 236.799 (Mike) — this feeds the worked-address dedup that decides
 // whether a prospect is dropped from the admin all-LOs response because a quote

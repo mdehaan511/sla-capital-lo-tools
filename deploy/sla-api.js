@@ -2187,24 +2187,31 @@
   // a brokers.html admin page; Phase 5 migrates existing inline
   // brokerEmail data on loan records into proper broker entities.
   var Brokers = {
+    // Deploy 237.162 -- the two shapes used to share ONE cache slot: list({all:true})
+    // returns { byOwner: {...} }, list() returns { brokers: [...] }. E-Sign started
+    // calling the all=1 form for staff on every editor open (237.151), so the next
+    // sizer read that slot through listCached and found no .brokers -- an empty
+    // broker dropdown, no error. Split the key by shape, like Clients.list does.
     list: function (opts) {
       opts = opts || {};
       var qs = [];
       if (opts.all) qs.push('all=1');
       var path = '/api/brokers' + (qs.length ? '?' + qs.join('&') : '');
+      var cacheKey = opts.all ? 'brokers_all' : 'brokers';
       return api('GET', path).then(function (r) {
-        cache.set('brokers', r);
+        cache.set(cacheKey, r);
         return r;
       });
     },
     listCached: function (opts) {
-      var cached = cache.get('brokers');
+      opts = opts || {};
+      var cached = cache.get(opts.all ? 'brokers_all' : 'brokers');
       if (cached) return Promise.resolve(cached);
       return Brokers.list(opts);
     },
     save: function (broker) {
       return api('POST', '/api/brokers-save', broker).then(function (r) {
-        cache.clear('brokers');
+        cache.clear('brokers'); cache.clear('brokers_all'); // Deploy 237.162 -- both shapes
         return r;
       });
     },

@@ -139,14 +139,24 @@ async function handle(req, context) {
     const md = moving[i];
     movedIds[md.docId] = 1;
     to.documents = to.documents.filter((d) => !(d && d.docId === md.docId));
-    to.documents.unshift({
+    // Deploy 237.162 — the destination entry used to be rebuilt from six
+    // fields, dropping the naming flags; applyCanonicalDocName below reads
+    // exactly those flags to decide what it may rename, so a name a processor
+    // typed by hand was silently replaced on a Move (the comment there always
+    // claimed hand-typed names are kept). Carry them across.
+    const _moved = {
       docId:      md.docId,
       filename:   md.filename || '',
       size:       md.size || 0,
       mimeType:   md.mimeType || 'application/pdf',
       uploadedAt: md.uploadedAt || '',
       hidden:     false,
-    });
+    };
+    if (md.nameManual)  _moved.nameManual = true;
+    if (md.nameLocked)  _moved.nameLocked = true;
+    if (md.nameAuto)    _moved.nameAuto = md.nameAuto;
+    if (md.nameVersion) _moved.nameVersion = md.nameVersion;
+    to.documents.unshift(_moved);
   }
   const primary = to.documents[0];
   to.currentDocId      = primary.docId;

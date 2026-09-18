@@ -48,7 +48,7 @@ export default async (req, context) => {
       return json(403, { error: 'Not authorized' });
     }
     await store.setJSON(key, record);
-    quotesIndex.upsertRecord(ownerKey, record).catch(() => {});
+    await quotesIndex.upsertRecord(ownerKey, record).catch(() => {}); // Deploy 237.162 — awaited: the response returns on the next line
     return json(200, { ok: true, quote: record });
   } catch (e) {
     console.error('quotes-save error:', e);

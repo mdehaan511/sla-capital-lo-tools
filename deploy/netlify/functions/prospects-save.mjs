@@ -250,7 +250,7 @@ export default async (req, context) => {
 
   try {
     await store.setJSON(key, prospect);
-    prospectsIndex.upsertRecord(ownerKey, prospect).catch(() => {});
+    await prospectsIndex.upsertRecord(ownerKey, prospect).catch(() => {}); // Deploy 237.162 — await, or the Lambda can freeze before the lead reaches the board
   } catch (e) {
     console.error('prospects-save write error:', e);
     return json(500, { error: 'Failed to save application' });
@@ -276,7 +276,7 @@ export default async (req, context) => {
       prospect._duplicateOfClientId = ids.duplicateOfClientId || '';
       prospect._duplicateStatus = ids.duplicateStatus || '';
       await store.setJSON(key, prospect);
-      prospectsIndex.upsertRecord(ownerKey, prospect).catch(() => {});
+      await prospectsIndex.upsertRecord(ownerKey, prospect).catch(() => {}); // Deploy 237.162 — await, or the Lambda can freeze before the lead reaches the board
     } catch (e) { console.warn('prospects-save: duplicate stamp failed (non-fatal):', e && e.message); }
   }
 
@@ -849,8 +849,15 @@ async function notifyLO(prospect, ids) {
   const _ownerParam = prospect.loEmail
     ? `&owner=${encodeURIComponent(prospect.loEmail)}`
     : '';
-  const detailsLink = (ids && ids.loanId)
-    ? `https://portal.slacapital.ai/loan-details/${encodeURIComponent(ids.loanId)}?fresh=1${_ownerParam}`
+  // Deploy 237.162 (Marianne: "my email acknowledges the app but the email
+  // doesn't have a link in the bottom like a regular SFH deal, nor am I able to
+  // find it anywhere in our system"). When the re-submission guard suppresses a
+  // second loan, ids.loanId is null — so the LO got an acknowledgement with no
+  // way through to the deal at all. Link to the loan it MATCHED and say why.
+  const _dupLoanId = (ids && !ids.loanId && ids.duplicateOfLoanId) ? ids.duplicateOfLoanId : '';
+  const _linkLoanId = (ids && ids.loanId) || _dupLoanId || '';
+  const detailsLink = _linkLoanId
+    ? `https://portal.slacapital.ai/loan-details/${encodeURIComponent(_linkLoanId)}?fresh=1${_ownerParam}`
     : '';
 
   // Deploy 236.284 — build the plain-text body as an array of entries,
@@ -909,7 +916,8 @@ async function notifyLO(prospect, ids) {
   if (prospect.projectDescription) textLines.push(`Project:  ${prospect.projectDescription}`);
   if (detailsLink) {
     textLines.push('');
-    textLines.push(`Open Loan Details: ${detailsLink}`);
+    if (_dupLoanId) textLines.push('This property already has a loan on file, so no second loan was created — this application is filed against the existing deal.');
+    textLines.push(`${_dupLoanId ? 'Open the existing loan' : 'Open Loan Details'}: ${detailsLink}`);
   }
   const text = textLines.join('\n');
 
@@ -971,7 +979,10 @@ async function notifyLO(prospect, ids) {
     // Deploy 236.284 — CTA button. When we have IDs (client + loan), the
     // recipient can jump straight into Loan Details for this prospect.
     (detailsLink
-      ? `<p style="margin-top:22px"><a href="${detailsLink}" style="display:inline-block;background:#DA7238;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600;font-size:13px;font-family:Arial,sans-serif">Open Loan Details →</a></p>`
+      ? (_dupLoanId
+          ? '<p style="margin-top:20px;font-size:13px;color:#7c1f1f;font-family:Arial,sans-serif">This property already has a loan on file, so no second loan was created. The application is filed against the existing deal.</p>'
+          : '') +
+        `<p style="margin-top:${_dupLoanId ? 10 : 22}px"><a href="${detailsLink}" style="display:inline-block;background:#DA7238;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600;font-size:13px;font-family:Arial,sans-serif">${_dupLoanId ? 'Open the existing loan' : 'Open Loan Details'} →</a></p>`
       : '<p style="margin-top:20px;font-size:12px;color:#666">View in Prospects to import to a loan sizer.</p>') +
     '</div></div></body></html>';
 
