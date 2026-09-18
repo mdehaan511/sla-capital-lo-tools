@@ -213,7 +213,7 @@ export async function buildBrokerOnePager(rep = {}) {
     40, y, 9.5, reg, MUTED, 532);
 
   // ── Product cards (2 x 2) ─────────────────────────────────────
-  const M = 40, GUT = 14;
+  const M = 40, GUT = 10;
   const CW = (612 - M * 2 - GUT) / 2;
   // The rep ribbon costs 34pt, so the cards give it back rather than push the
   // why-strip into the footer.
@@ -240,7 +240,7 @@ export async function buildBrokerOnePager(rep = {}) {
   });
 
   // ── Lending footprint ─────────────────────────────────────────
-  const fpTop = top - 2 * (CH + GUT) - 4;
+  const fpTop = top - 2 * (CH + GUT) - 2;
   const fpH = 40;
   page.drawRectangle({ x: M, y: fpTop - fpH, width: 612 - M * 2, height: fpH, color: rgb(1, 0.965, 0.93), borderColor: PEACH, borderWidth: 1 });
   text(FOOTPRINT_LEAD, M + 12, fpTop - 16, 8.5, bold, ORANGE);
@@ -248,7 +248,7 @@ export async function buildBrokerOnePager(rep = {}) {
   wrap(FOOTPRINT, fpX, fpTop - 16, 8.2, reg, INK, 612 - M * 2 - 24 - (fpX - M - 12), 1.34);
 
   // ── Why partner strip, with the apply QR on the right ─────────
-  const wyTop = fpTop - fpH - 12;
+  const wyTop = fpTop - fpH - 9;
   const wyH = 92;
   page.drawRectangle({ x: M, y: wyTop - wyH, width: 612 - M * 2, height: wyH, color: WASH, borderColor: LINE, borderWidth: 1 });
   text('WHY BROKERS SEND US DEALS', M + 12, wyTop - 17, 8.5, bold, PLUM, { characterSpacing: 1.2 });
@@ -276,16 +276,16 @@ export async function buildBrokerOnePager(rep = {}) {
   }
 
   // ── Footer ────────────────────────────────────────────────────
-  const fy = 54;
-  page.drawLine({ start: { x: M, y: fy + 34 }, end: { x: 612 - M, y: fy + 34 }, thickness: 1, color: LINE });
+  const fy = 58;
+  page.drawLine({ start: { x: M, y: fy + 36 }, end: { x: 612 - M, y: fy + 36 }, thickness: 1, color: LINE });
   const contact = (repName ? repName + '  ·  ' : 'Submit a deal:  ') + email + '   ·   ' + phone + '   ·   ' + COMPANY.site;
-  text(contact, (612 - bold.widthOfTextAtSize(contact, 10)) / 2, fy + 18, 10, bold, PLUM);
-  text(COMPANY.legal1, (612 - reg.widthOfTextAtSize(COMPANY.legal1, 7.4)) / 2, fy + 2, 7.4, reg, MUTED);
-  text(COMPANY.legal2, (612 - reg.widthOfTextAtSize(COMPANY.legal2, 7.4)) / 2, fy - 9, 7.4, reg, MUTED);
+  text(contact, (612 - bold.widthOfTextAtSize(contact, 10)) / 2, fy + 16, 10, bold, PLUM);
+  text(COMPANY.legal1, (612 - reg.widthOfTextAtSize(COMPANY.legal1, 7.4)) / 2, fy - 2, 7.4, reg, MUTED);
+  text(COMPANY.legal2, (612 - reg.widthOfTextAtSize(COMPANY.legal2, 7.4)) / 2, fy - 13, 7.4, reg, MUTED);
   const asOf = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const disc = 'For business-purpose real estate loans only; not for consumer or owner-occupied use. Terms are indicative and subject to underwriting, '
     + 'valuation and final approval. This is not a commitment to lend. Rates and terms current as of ' + asOf + ' and subject to change.';
-  wrap(disc, M, fy - 24, 6.8, reg, MUTED, 612 - M * 2, 1.35);
+  wrap(disc, M, fy - 29, 6.8, reg, MUTED, 612 - M * 2, 1.35);
 
   return pdf.save();
 }
