@@ -27,6 +27,9 @@
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
+// Deploy 237.156 -- one-way import: credit-auth-split never imports this file back
+// (its attach is passed in), so there is no cycle for esbuild to trip over.
+import { fileCreditAuthPages } from './credit-auth-split.mjs';
 
 const LOAN_APP_SLUG   = 'loan_application';
 const RATE_SHEET_SLUG = 'term_sheet';
@@ -120,6 +123,32 @@ export async function attachSourceDocs({ ownerKey, clientId, loanId, address, re
         attachedSlugs.push(RATE_SHEET_SLUG);
       } catch (e) {
         console.warn('[auto-attach] doc-blob write failed for ' + RATE_SHEET_SLUG + ':', e && e.message);
+      }
+    }
+
+    // ── 1b. Each signer's prequal credit authorization → their own tray ──
+    // Deploy 237.156 (Mike: "Each guarantor should sign their own credit auth"). They
+    // already do -- the application writes one authorization page per signer -- but the
+    // pages only existed inside the application PDF, so every guarantor's tray had to be
+    // filled by hand. Zero-throw and self-limiting: no map (an older application), a page
+    // count that disagrees with the PDF, or a signer who matches no guarantor and it
+    // files nothing rather than guessing whose signature it is holding.
+    if (signedApp && signedApp.bytes && signedApp.authPages && signedApp.authPages.length) {
+      try {
+        const ca = await fileCreditAuthPages({
+          review, pdfBytes: signedApp.bytes, authPages: signedApp.authPages,
+          pageCount: signedApp.pageCount, stamp: signedApp.stamp,
+          actorEmail, attach: _attachToSlug,
+        });
+        if (ca && ca.filed) {
+          attached += ca.filed;
+          ca.slugs.forEach((s) => { if (attachedSlugs.indexOf(s) < 0) attachedSlugs.push(s); });
+        }
+        if (ca && ca.skipped && ca.skipped.length) {
+          console.log('[auto-attach] credit-auth split skipped: ' + ca.skipped.join(', '));
+        }
+      } catch (e) {
+        console.warn('[auto-attach] credit-auth split threw (ignored):', e && e.message);
       }
     }
 
@@ -346,7 +375,15 @@ async function _readSignedApp({ ownerKey, clientId, loanId }) {
     const key = ownerKey + '/' + keySafe(clientId) + '/' + keySafe(loanId);
     const rec = await store.get(key, { type: 'json' });
     if (rec && rec.pdfBase64) {
-      return { bytes: Buffer.from(rec.pdfBase64, 'base64') };
+      // Deploy 237.156 -- the per-signer prequal page map recorded by the render that
+      // produced these bytes (absent on applications signed before that deploy, in which
+      // case the credit-auth split simply does not run for them).
+      return {
+        bytes: Buffer.from(rec.pdfBase64, 'base64'),
+        authPages: Array.isArray(rec.authPages) ? rec.authPages : [],
+        pageCount: Number(rec.authPageCount) || null,
+        stamp: rec.updatedAt || rec.createdAt || '',
+      };
     }
   } catch (e) {
     console.warn('[auto-attach] signed app read failed:', e && e.message);

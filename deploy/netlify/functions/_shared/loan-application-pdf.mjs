@@ -78,7 +78,15 @@ function roleLabelFor(role) {
 // callers (loan-bundle-download, loan-application-pdf-unsigned,
 // signed-app-regenerate) pass it so LO-edits round-trip into the
 // re-generated PDF.
-export function renderSignedApplicationPDF({ record, client, signers, status, unsigned, enteredBy, loan }) {
+// Deploy 237.156 (Mike: "Each guarantor should sign their own credit auth") -- the
+// public entry point is unchanged and still resolves to a Buffer, so no existing
+// caller had to move. renderSignedApplicationWithPages resolves to
+// { buffer, authPages, pageCount } for the callers that persist the PDF and want to
+// be able to split each signer's prequal credit-auth page out of it later.
+export function renderSignedApplicationPDF(params) {
+  return renderSignedApplicationWithPages(params).then((r) => r.buffer);
+}
+export function renderSignedApplicationWithPages({ record, client, signers, status, unsigned, enteredBy, loan }) {
   signers = signers || [];
   status = status || 'complete';
   // Deploy 231 — `unsigned` mode renders the same document but with no
@@ -106,10 +114,24 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         },
       });
 
+      // Deploy 237.156 -- page tracking for the credit-auth split. pdfkit's
+      // constructor already made page 0 before we could listen, so the counter starts
+      // at 0 and every later 'pageAdded' (ours OR one pdfkit adds on overflow) moves
+      // it. _pageCount travels with the map and is re-checked against the real PDF
+      // before anything is extracted, so a pdfkit upgrade that shifted this by one
+      // makes the split refuse rather than file the wrong person's signature.
+      let _pageIdx = 0;
+      doc.on('pageAdded', () => { _pageIdx++; });
+      const authPages = [];
+
       // Collect output chunks
       const chunks = [];
       doc.on('data', (c) => chunks.push(c));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('end', () => resolve({
+        buffer: Buffer.concat(chunks),
+        authPages: authPages.slice(),
+        pageCount: _pageIdx + 1,
+      }));
       doc.on('error', reject);
 
       // Helpers
@@ -1054,10 +1076,26 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       signers.forEach((signer) => {
         doc.addPage();
         const role = roleLabelFor(signer.role);
+        const _start = _pageIdx;   // Deploy 237.156
         section(`Authorization to Conduct Prequal Credit & Background Checks — ${role}`);
         paragraph(PREQUAL_CREDIT_AUTH_TEXT);
         doc.moveDown(0.8);
         sigBlock(signer, role);
+        // The consent text can run onto a second page; record the whole range so the
+        // extracted document is the complete authorization, never half of it.
+        authPages.push({
+          role: signer.role || '',
+          roleLabel: role,
+          name: signer.name || '',
+          email: signer.email || '',
+          signed: !!signer.audit,
+          // The idempotency key downstream: re-rendering the application (a co-signer
+          // signs later) must not look like a NEW authorization for someone who
+          // already signed, or their tray collects a copy per render.
+          signedAt: (signer.audit && signer.audit.signedAt) || '',
+          start: _start,
+          end: _pageIdx,
+        });
       });
 
       // ── SECTION 4: AUTHORIZATION TO RELEASE INFORMATION ─────────

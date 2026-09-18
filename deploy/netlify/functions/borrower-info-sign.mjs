@@ -40,7 +40,7 @@ import {
   ESIGN_CONSENT_VERSION, hashFormData, sealAudit, getClientIp, getUserAgent,
   generateBorrower2Token,
 } from './_shared/esign.mjs';
-import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
+import { renderSignedApplicationWithPages } from './_shared/loan-application-pdf.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 // Deploy 236.626 — resolveOwnerEmail = robust LO-email resolution for the notify.
 import { getOwnerReplyTo, resolveOwnerEmail, logBorrowerSendFromResponse } from './_shared/email.mjs';
@@ -259,10 +259,13 @@ async function handle(req) {
   // page; in practice it now means "awaiting any secondary signer".
   const pdfStatus = hasB2 ? 'awaiting_borrower2' : 'complete';
   let pdfBuffer;
+  let _rendered = null; // Deploy 237.156 -- { buffer, authPages, pageCount }
   try {
     if (_pastDeadline()) return _deadlineAbort('before-pdf-render');
     _mark('pdf-render-start');
-    pdfBuffer = await renderSignedApplicationPDF({
+    // Deploy 237.156 -- ...WithPages also hands back which page each signer's prequal
+    // credit authorization landed on, stored below so it can be split out per guarantor.
+    _rendered = await renderSignedApplicationWithPages({
       record,
       client,
       status: pdfStatus,
@@ -283,6 +286,7 @@ async function handle(req) {
         }; }),
       ],
     });
+    pdfBuffer = _rendered.buffer; // Deploy 237.156
   } catch (e) {
     console.error('borrower-info-sign: PDF render failed:', e);
     return json(500, { error: 'Failed to generate signed PDF: ' + (e.message || 'unknown') });
@@ -539,6 +543,10 @@ async function handle(req) {
     borrower4: getSecondaryBlock(secondaryBlocks, 4),
     pdfBase64: pdfBuffer.toString('base64'),
     pdfSize: pdfBuffer.length,
+    // Deploy 237.156 -- the page map for THESE bytes. Written in the same object so
+    // the two can never drift; credit-auth-split re-checks the count before it cuts.
+    authPages: (_rendered && _rendered.authPages) || [],
+    authPageCount: (_rendered && _rendered.pageCount) || 0,
     createdAt: signedAt,
     updatedAt: signedAt,
   };

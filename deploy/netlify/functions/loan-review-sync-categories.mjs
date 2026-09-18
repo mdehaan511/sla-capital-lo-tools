@@ -317,8 +317,14 @@ async function handle(req, context) {
       const street = String(review.address || '').split(',')[0].trim() || 'loan';
       const heals = [];
       const la = review.docs.loan_application;
+      // Deploy 237.156 -- read the signed app once: the loan_application heal below and
+      // the per-guarantor credit-auth filing after it both want the same bytes, and a
+      // review with no loan_application tray can still have credit-auth trays to fill.
+      const _wantsCreditAuth = Object.keys(review.docs).some((k) => /^credit_authorization(__g\d+)?$/.test(k));
+      const app = (la || _wantsCreditAuth)
+        ? await readSignedApp({ ownerKey: keySafe(src.ownerKey), clientId: src.clientId, loanId: src.loanId })
+        : null;
       if (la) {
-        const app = await readSignedApp({ ownerKey: keySafe(src.ownerKey), clientId: src.clientId, loanId: src.loanId });
         // 236.863 (Mike) — the CURRENT signed application always files as the
         // tray's most recent item, even over an occupied tray (a re-signed
         // app supersedes whatever sits there; the old copy goes to history).
@@ -328,6 +334,26 @@ async function handle(req, context) {
             (!la.currentDocId || Number(la.currentSize || 0) !== app.bytes.length)) {
           heals.push({ slug: 'loan_application', bytes: app.bytes,
             filename: 'Signed Loan Application - ' + street + '.pdf', note: 'auto-attached on page open (signed_applications)' });
+        }
+      }
+      // Deploy 237.156 (Mike: "Each guarantor should sign their own credit auth") --
+      // lift each signer's own authorization page out of the signed application into
+      // their tray. Catches the guarantor added AFTER the app was signed, whose tray was
+      // minted empty. Keyed on each signer's signedAt, so opening the page twice is a
+      // no-op, and it refuses outright if the page map does not match the PDF.
+      if (app && app.bytes && Array.isArray(app.authPages) && app.authPages.length && _wantsCreditAuth) {
+        try {
+          const { fileCreditAuthPages } = await import('./_shared/credit-auth-split.mjs');
+          const ca = await fileCreditAuthPages({
+            review, pdfBytes: app.bytes, authPages: app.authPages, pageCount: app.pageCount,
+            stamp: app.stamp, actorEmail: user.email, attach: attachToSlug, docsStore,
+          });
+          if (ca && ca.filed) {
+            healed += ca.filed;
+            ca.slugs.forEach((sl) => markAiQueued(review, sl));
+          }
+        } catch (e) {
+          console.warn('[sync-categories] credit-auth split skipped:', e && e.message);
         }
       }
       const ts = review.docs.term_sheet;

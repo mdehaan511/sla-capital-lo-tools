@@ -26,7 +26,7 @@
  * loan's notesLog (audit log on Loan Details).
  */
 import { getStore } from '@netlify/blobs';
-import { renderSignedApplicationPDF } from './loan-application-pdf.mjs';
+import { renderSignedApplicationWithPages } from './loan-application-pdf.mjs';
 
 const SIGNED_STORE = 'signed_applications';
 const CLIENTS_STORE = 'clients';
@@ -98,14 +98,16 @@ export async function regenerateSignedApplicationPDF(record, editor) {
     : null;
 
   let pdfBuffer;
+  let _rendered = null; // Deploy 237.156 -- { buffer, authPages, pageCount }
   try {
-    pdfBuffer = await renderSignedApplicationPDF({
+    _rendered = await renderSignedApplicationWithPages({
       record,
       client,
       loan: _regenLoan,
       status: signedRecord.status || 'complete',
       signers,
     });
+    pdfBuffer = _rendered.buffer;
   } catch (e) {
     console.error('signed-app regen: PDF render failed:', e);
     return { ok: false, reason: 'render_failed: ' + (e && e.message) };
@@ -114,6 +116,9 @@ export async function regenerateSignedApplicationPDF(record, editor) {
   const now = new Date().toISOString();
   signedRecord.pdfBase64 = pdfBuffer.toString('base64');
   signedRecord.pdfSize = pdfBuffer.length;
+  // Deploy 237.156 -- refreshed WITH the bytes, never left describing the old ones.
+  signedRecord.authPages = (_rendered && _rendered.authPages) || [];
+  signedRecord.authPageCount = (_rendered && _rendered.pageCount) || 0;
   signedRecord.updatedAt = now;
   if (!Array.isArray(signedRecord.corrections)) signedRecord.corrections = [];
   signedRecord.corrections.push({

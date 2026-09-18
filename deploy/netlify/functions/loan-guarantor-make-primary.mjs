@@ -31,7 +31,7 @@ import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs'
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
-import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
+import { renderSignedApplicationWithPages } from './_shared/loan-application-pdf.mjs';
 import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
 import { revokeLoanAccess } from './_shared/loan-access-store.mjs';
 import { quotesIndex } from './_shared/quotes-index.mjs'; // Deploy 236.928
@@ -328,12 +328,18 @@ async function handle(req, context) {
           if (b) signers.push(b);
         }
         const destLoan = dest.loans.find((l) => l && l.id === body.loanId) || loan;
-        const pdfBuffer = await renderSignedApplicationPDF({
+        // Deploy 237.156 -- the signers are REORDERED here, so the page map must be
+        // rebuilt with the document. Each entry still carries that signer's own signedAt,
+        // so a guarantor whose signature was preserved is not re-filed as a new one.
+        const _rendered = await renderSignedApplicationWithPages({
           record: biRec, client: dest, loan: destLoan,
           status: signedRec.status || 'complete', signers,
         });
+        const pdfBuffer = _rendered.buffer;
         signedRec.pdfBase64 = pdfBuffer.toString('base64');
         signedRec.pdfSize = pdfBuffer.length;
+        signedRec.authPages = _rendered.authPages || [];
+        signedRec.authPageCount = _rendered.pageCount || 0;
         signedRec.updatedAt = now;
         if (!Array.isArray(signedRec.corrections)) signedRec.corrections = [];
         signedRec.corrections.push({ at: now, by: selfEmail, reason: 'primary_guarantor_switch' });

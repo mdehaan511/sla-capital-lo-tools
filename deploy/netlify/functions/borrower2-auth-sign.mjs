@@ -21,7 +21,7 @@ import { handleOptions, json, readJsonBody } from './_shared/auth.mjs';
 import {
   ESIGN_CONSENT_VERSION, hashFormData, sealAudit, getClientIp, getUserAgent,
 } from './_shared/esign.mjs';
-import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
+import { renderSignedApplicationWithPages } from './_shared/loan-application-pdf.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 // Deploy 236.642 — the co-signer verifies/completes their own info before
 // signing; SSN is encrypted at rest, mirroring borrower-info-save.mergeData.
@@ -189,6 +189,7 @@ async function handle(req) {
 
   // ── 5. Regenerate the PDF with the signatures we have so far ───
   let pdfBuffer;
+  let _rendered = null; // Deploy 237.156 -- { buffer, authPages, pageCount }
   try {
     // Build the signers list dynamically — b1 always, then each
     // secondary position that exists on the record. The one we just
@@ -217,12 +218,14 @@ async function handle(req) {
         });
       }
     }
-    pdfBuffer = await renderSignedApplicationPDF({
+    // Deploy 237.156 -- keep the page map in step with the bytes we are about to store.
+    _rendered = await renderSignedApplicationWithPages({
       record: biRecord,
       client,
       status: newStatus,
       signers,
     });
+    pdfBuffer = _rendered.buffer;
   } catch (e) {
     console.error('borrower2-auth-sign: PDF render failed:', e);
     return json(500, { error: 'Failed to generate signed PDF: ' + (e.message || 'unknown') });
@@ -237,6 +240,8 @@ async function handle(req) {
   rec['borrower' + pos] = bSelf;
   rec.pdfBase64 = pdfBuffer.toString('base64');
   rec.pdfSize = pdfBuffer.length;
+  rec.authPages = (_rendered && _rendered.authPages) || [];      // Deploy 237.156
+  rec.authPageCount = (_rendered && _rendered.pageCount) || 0;
   rec.updatedAt = signedAt;
   try {
     await store.setJSON(signedKey, rec);
