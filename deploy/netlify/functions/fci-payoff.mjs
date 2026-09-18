@@ -30,7 +30,8 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import {
   fciConfigured, fciPayoffValue, fciPayoffRequests, fciPendingPayoffDemands,
-  fciPayoffDemandStatus, fciInsertPayoff, PAYOFF_REASONS, fciNum,
+  fciPayoffDemandStatus, fciInsertPayoff, insertPayoffVerdict, fciConfirmPayoffFiled,
+  PAYOFF_REASONS, fciNum,
 } from './_shared/fci-api.mjs';
 import { recordLoanChanges } from './_shared/loan-change-log.mjs';
 
@@ -153,6 +154,19 @@ async function handle(req, context) {
   } catch (e) {
     return json(502, { error: 'FCI rejected the payoff request: ' + ((e && e.message) || 'unknown') });
   }
+  // Deploy 237.170 (Mike: "I have yet to see anything on our FCI portal") -- a clean
+  // HTTP 200 is NOT a receipt. insertPayoff can answer false / 0 / null without a
+  // GraphQL error, and until now nothing looked.
+  if (insertPayoffVerdict(fciResult) === 'no') {
+    return json(502, {
+      error: 'FCI declined the payoff request (it answered without creating one). ' +
+             'Nothing was filed \u2014 order it in the FCI portal, or try again.',
+      fci: fciResult,
+    });
+  }
+  // Anything else is unproven until FCI's own records show it. This is the check whose
+  // absence let 237.144 report a demand that never existed.
+  const confirm = await fciConfirmPayoffFiled(acct, payoffDate);
 
   // Record it on the loan so the Servicing tab shows the request even before
   // FCI's tracker catches up, and so the audit log has the actor.
@@ -167,6 +181,11 @@ async function handle(req, context) {
     // Deploy 237.144 -- insertPayoff's return type is undocumented and introspection
     // is off, so keep FCI's raw answer as the receipt for this filing.
     fciResponse: (function () { try { return JSON.stringify(fciResult).slice(0, 400); } catch (_) { return ''; } })(),
+    // Deploy 237.170 -- did FCI's OWN records show it a moment later? The page says
+    // "confirmed by FCI" or "not confirmed" off this, and never guesses.
+    confirmed: !!confirm.confirmed,
+    confirmChecked: !!confirm.checked,
+    confirmReason: confirm.reason || '',
   };
   loan.payoffRequests = Array.isArray(loan.payoffRequests) ? loan.payoffRequests : [];
   loan.payoffRequests.unshift(entry);
@@ -182,7 +201,8 @@ async function handle(req, context) {
     // FCI already has the demand; failing the response now would invite a
     // retry and a duplicate demand. Report success with a warning instead.
     console.error('fci-payoff: demand filed but local write failed:', e && e.message);
-    return json(200, { ok: true, filed: true, localWriteFailed: true, fci: fciResult });
+    return json(200, { ok: true, filed: true, localWriteFailed: true, fci: fciResult,
+      confirmed: !!confirm.confirmed, confirmReason: confirm.reason || '' }); // Deploy 237.170
   }
 
   recordLoanChanges({
@@ -191,7 +211,10 @@ async function handle(req, context) {
     changes: [{ field: 'payoffRequests', label: 'Payoff demand ordered', from: '', to: payoffDate + ' — ' + (args.reqCompany || 'no company') }],
   }).catch(() => {});
 
-  return json(200, { ok: true, filed: true, account: acct, entry, fci: fciResult });
+  // Deploy 237.170 -- `filed` means we sent it; `confirmed` means FCI's own records
+  // show it. The page must say which, because those are not the same thing.
+  return json(200, { ok: true, filed: true, account: acct, entry, fci: fciResult,
+    confirmed: !!confirm.confirmed, confirmChecked: !!confirm.checked, confirmReason: confirm.reason || '' });
 }
 
 /**

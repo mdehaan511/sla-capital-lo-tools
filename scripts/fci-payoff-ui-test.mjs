@@ -7,6 +7,11 @@
  * This LIFTS loadFciActivity + loadFciPayoff out of loan-details.js and runs them against
  * stubbed responses, so that class of bug fails here instead of in front of a processor.
  *
+ * Deploy 237.170: the box used to end "FCI accepted these", which we had not
+ * earned -- insertPayoff can answer without a GraphQL error and without creating
+ * anything. Each demand now carries whether FCI's OWN records confirmed it, and these
+ * checks pin that the page says which.
+ *
  * Run: node scripts/fci-payoff-ui-test.mjs
  */
 import fs from 'node:fs';
@@ -77,10 +82,12 @@ const filedOnly = {
 nextJson = filedOnly;
 run('loadFciPayoff(true)');
 await tick(); await tick();
-check('a filed demand FCI has not listed yet is shown, with who ordered it', () => {
+check('a demand FCI has not listed yet is shown, with who ordered it', () => {
   const h = els.fciPayoffBody.innerHTML || '';
-  return h.indexOf('Filed by us') > 0 && h.indexOf('10/15/2026') > 0 && h.indexOf('mike') > 0 || 'filed demand not shown';
+  return h.indexOf('Ordered by us') > 0 && h.indexOf('10/15/2026') > 0 && h.indexOf('mike') > 0 || 'demand not shown';
 });
+check('the page NEVER claims FCI accepted it', () =>
+  (els.fciPayoffBody.innerHTML || '').indexOf('FCI accepted') < 0 || 'the page still asserts FCI accepted it');
 check('and it says what to do if it lingers', () => (els.fciPayoffBody.innerHTML || '').indexOf('call it in') > 0 || 'no guidance');
 
 nextJson = Object.assign({}, filedOnly, {
@@ -90,15 +97,36 @@ run('loadFciPayoff(true)');
 await tick(); await tick();
 check('once FCI lists the same demand it stops being duplicated as pending', () => {
   const h = els.fciPayoffBody.innerHTML || '';
-  return h.indexOf('Demand History') > 0 && h.indexOf('Filed by us') < 0 || 'still double-listed';
+  return h.indexOf('Demand History') > 0 && h.indexOf('Ordered by us') < 0 || 'still double-listed';
 });
+
+// Deploy 237.170 -- the three states of a demand we sent.
+nextJson = { ok: true, serviced: true, account: '399653858', value: null, requests: null, filed: [
+  { at: '2026-09-18T02:50:04.706Z', by: 'mike@slacapital.com', payoffDate: '2026-10-15', company: 'A', confirmed: true },
+  { at: '2026-09-18T02:51:04.706Z', by: 'mike@slacapital.com', payoffDate: '2026-11-15', company: 'B', confirmed: false },
+  { at: '2026-09-18T02:52:04.706Z', by: 'mike@slacapital.com', payoffDate: '2026-12-15', company: 'C' },
+] };
+run('loadFciPayoff(true)');
+await tick(); await tick();
+check('confirmed, not confirmed and unknown are each named on the row', () => {
+  const h = els.fciPayoffBody.innerHTML || '';
+  return (h.indexOf('>confirmed<') > 0 && h.indexOf('not confirmed') > 0 && h.indexOf('unknown') > 0)
+    || 'the three states are not distinguished';
+});
+check('a demand from BEFORE this deploy carries no flag and must read unknown \u2014 not confirmed', () => {
+  const h = els.fciPayoffBody.innerHTML || '';
+  // three rows, exactly one 'unknown' (the flagless one)
+  return (h.match(/unknown/g) || []).length === 1 || 'a flagless demand was not reported as unknown';
+});
+check('the footnote tells you what to do about an unconfirmed one', () =>
+  (els.fciPayoffBody.innerHTML || '').indexOf('check the FCI portal') > 0 || 'no guidance for an unconfirmed demand');
 
 nextJson = { ok: true, serviced: true, account: '399653858', value: null, requests: null, filed: [] };
 run('loadFciPayoff(true)');
 await tick(); await tick();
-check('a loan with nothing filed renders the plain empty state', () => {
+check('a loan with nothing ordered renders the plain empty state', () => {
   const h = els.fciPayoffBody.innerHTML || '';
-  return h.indexOf('No live payoff figure') > 0 && h.indexOf('Filed by us') < 0 || 'empty state broken';
+  return h.indexOf('No live payoff figure') > 0 && h.indexOf('Ordered by us') < 0 || 'empty state broken';
 });
 
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));

@@ -3974,19 +3974,28 @@ function loadFciPayoff(force) {
     list.forEach(function (r) { var d = _fciDay(r.payoffDate); if (d) fciDates[d] = 1; });
     var pendingFiled = filed.filter(function (f) { return !fciDates[_fciDay(f.payoffDate)]; });
     if (pendingFiled.length) {
-      h += '<div style="margin-top:16px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Filed by us \u2014 not yet listed by FCI</div>' +
+      h += '<div style="margin-top:16px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Ordered by us \u2014 not yet listed by FCI</div>' +
         '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
-        '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px 4px 0">Ordered</th><th style="padding:4px 8px 4px 0">Payoff Date</th><th style="padding:4px 8px 4px 0">Requested for</th><th style="padding:4px 0">By</th></tr>';
+        '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px 4px 0">Ordered</th><th style="padding:4px 8px 4px 0">Payoff Date</th><th style="padding:4px 8px 4px 0">Requested for</th><th style="padding:4px 8px 4px 0">By</th><th style="padding:4px 0">At FCI</th></tr>';
       pendingFiled.slice(0, 5).forEach(function (f) {
+        // Deploy 237.170 -- an entry filed before that deploy has no `confirmed` flag at
+        // all; it is reported as unknown rather than quietly assumed good.
+        var _cf = (f.confirmed === true) ? '<span style="color:#166534;font-weight:600">confirmed</span>'
+          : (f.confirmed === false ? '<span style="color:#b3261e;font-weight:600">not confirmed</span>'
+          : '<span style="color:var(--muted)">unknown</span>');
         h += '<tr style="border-top:1px solid var(--line)">' +
           '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(f.at)) + '</td>' +
           '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(f.payoffDate)) + '</td>' +
           '<td style="padding:5px 8px 5px 0">' + escH(f.company || f.contact || '\u2014') + '</td>' +
-          '<td style="padding:5px 0">' + escH(String(f.by || '').split('@')[0]) + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(String(f.by || '').split('@')[0]) + '</td>' +
+          '<td style="padding:5px 0">' + _cf + '</td>' +
         '</tr>';
       });
       h += '</table></div>' +
-        '<div style="font-size:11px;color:var(--muted);margin-top:6px">FCI accepted these. They usually appear in the Demand History above once FCI processes them \u2014 if one is still here after a business day, call it in.</div></div>';
+        // Deploy 237.170 (Mike: "I have yet to see anything on our FCI portal") -- this
+        // line used to read "FCI accepted these", which we did not know. A demand is
+        // only confirmed when FCI's OWN records list it; anything else needs a human.
+        '<div style="font-size:11px;color:var(--muted);margin-top:6px">A demand marked <strong>not confirmed</strong> was sent to FCI but does NOT appear in their records \u2014 check the FCI portal and re-order or call it in. Confirmed ones usually move into the Demand History above.</div></div>';
     }
     box.innerHTML = h;
   }).catch(function (e) {

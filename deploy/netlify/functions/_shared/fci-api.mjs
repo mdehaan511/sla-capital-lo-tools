@@ -209,6 +209,50 @@ export async function fciPayoffValue(account) {
 }
 
 /** Demand history + tracking for one loan. */
+/**
+ * Deploy 237.170 -- did insertPayoff actually create anything?
+ *
+ * Its return type is undocumented and FCI has introspection off, so we cannot know
+ * what "yes" looks like. We CAN recognise the answers that are plainly "no": false,
+ * 0, null, ''. Anything else is 'unknown' and has to be confirmed by reading the
+ * demand back -- an absent error is not a receipt.
+ * @returns 'no' | 'unknown'
+ */
+export function insertPayoffVerdict(result) {
+  const v = result && Object.prototype.hasOwnProperty.call(result, 'insertPayoff')
+    ? result.insertPayoff : undefined;
+  if (v === false || v === 0 || v === null || v === '') return 'no';
+  if (typeof v === 'string' && /^(false|0|error|fail(ed)?)$/i.test(v.trim())) return 'no';
+  return 'unknown';
+}
+
+/**
+ * Deploy 237.170 -- is the demand we just sent actually on the loan at FCI?
+ * Matches on the payoff date, which is the one field we control and FCI echoes back.
+ * Zero-throw: a failed read-back means UNCONFIRMED, never a false positive.
+ * @returns { confirmed, checked, reason }
+ */
+export async function fciConfirmPayoffFiled(account, payoffDate) {
+  try {
+    const rec = await fciPayoffRequests(account);
+    if (!rec) return { confirmed: false, checked: true, reason: 'FCI lists no payoff requests on this loan' };
+    const want = usDate(payoffDate, '/') || '';
+    const all = [].concat(
+      Array.isArray(rec.requests) ? rec.requests : [],
+      rec.latestRequest ? [rec.latestRequest] : []
+    );
+    const hit = all.some((r) => {
+      const got = usDate(String((r && r.payoffDate) || ''), '/') || String((r && r.payoffDate) || '');
+      return got && want && got === want;
+    });
+    return hit
+      ? { confirmed: true, checked: true, reason: '' }
+      : { confirmed: false, checked: true, reason: 'FCI did not list a demand for ' + (payoffDate || 'that date') };
+  } catch (e) {
+    return { confirmed: false, checked: false, reason: 'read-back failed: ' + ((e && e.message) || 'unknown') };
+  }
+}
+
 export async function fciPayoffRequests(account) {
   const acct = fciAccount(account);
   if (!acct) return null;
