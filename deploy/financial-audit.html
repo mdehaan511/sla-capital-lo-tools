@@ -19,7 +19,9 @@
       --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
     }
     body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); }
-    .page { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; }
+    /* Deploy 237.142 (Mike) -- this page is a wide spreadsheet view, so it uses the
+       whole window instead of the 1280px column the other pages use. */
+    .page { max-width: none; margin: 0; padding: 28px 24px 60px; }
     .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
     h1 { font-family: 'Lora', Georgia, serif; font-size: 27px; font-weight: 600; }
     .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
@@ -53,7 +55,7 @@
        (same fix closed-loans needed in 236.611). Without it the logo renders at
        native size and the links stack unstyled. */
     :root { --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10); --gold-border: rgba(200,129,58,0.28); --muted: #7a7488; --border: #ddd8d0; }
-    .nav { max-width: 1280px; margin: 0 auto; padding: 1.5rem 22px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .nav { max-width: none; margin: 0; padding: 1.5rem 24px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .nav img { height: 48px; width: auto; display: block; }
     .nav-left { display: flex; align-items: center; gap: 12px; }
     .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -106,6 +108,14 @@
     .fa-grp { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted, #7a7488); background: rgba(200,129,58,0.08); text-align: center; }
     .fa-num { text-align: right; font-family: 'DM Mono', monospace; font-size: 12px; white-space: nowrap; }
     .fa-tot td { font-weight: 700; border-top: 2px solid var(--border, #ddd8d0); background: #faf8f5; }
+    /* Deploy 237.142 -- the closing sheet packs a lot of columns; tighter cells and a
+       smaller numeric font keep it on one screen. */
+    .fa-wide table { font-size: 12px; }
+    .fa-wide th { padding: 0 8px 8px 0; font-size: 10px; }
+    .fa-wide td { padding: 7px 8px 7px 0; vertical-align: middle; }
+    .fa-wide .fa-num { font-size: 11.5px; }
+    .fa-net { color: #a9a3b5; }
+    .fa-net .tagn { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #a9a3b5; margin-left: 3px; }
     .fa-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
     .fa-note { font-size: 12px; color: var(--muted, #7a7488); line-height: 1.5; }
     @media (max-width: 700px) { .page { padding: 18px 12px 40px; } }
@@ -289,6 +299,58 @@ function closingMatches(c) {
 function n2(v) { var x = Number(v) || 0; return x ? money(x) : ''; }
 function sumBy(list, f) { var t = 0; list.forEach(function (x) { t += Number(f(x)) || 0; }); return t; }
 
+// Deploy 237.142 (Mike: "I also dont see a way to mark things off on the different
+// tabs") -- one status + verify cell, shared by every tab. Verification is stored
+// per LEDGER ROW, so the tabs reuse the same openVerify / unverify the All money tab
+// uses; the index is the row's position in _rows.
+function verifyCell(r) {
+  var i = _rows.indexOf(r);
+  if (r.status === 'verified' || r.status === 'changed') {
+    var v = r.verified || {};
+    return (r.status === 'changed'
+        ? '<span class="pill warn" title="The expected amount changed after this was verified">Changed</span>'
+        : '<span class="pill ok">Verified</span>') +
+      '<div class="small">' + esc(mdy(v.date)) + ' \u00b7 ' + esc(String(v.by || '').split('@')[0]) +
+      ' \u00b7 <a class="link-btn" onclick="unverify(' + i + ')">Undo</a></div>';
+  }
+  var pill = r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
+    : r.status === 'due' ? '<span class="pill warn">Due today</span>'
+    : '<span class="pill">' + (r.pipeline ? 'Forecast' : 'Upcoming') + '</span>';
+  if (r.status === 'upcoming' && r.pipeline) return pill;
+  return pill + ' <button class="btn sm" onclick="openVerify(' + i + ')">Verify</button>';
+}
+// Every ledger row belonging to one closing (the wire, the fees, a broker fee, the
+// KAF assignment). A closing is "marked off" when all of them are.
+function loanLedgerRows(loanId) {
+  return (_data && _data.rows ? _data.rows : []).filter(function (r) {
+    return r.loanId === loanId && r.kind !== 'draw' && r.kind !== 'draw_reimb' && r.kind !== 'trade';
+  });
+}
+function closingVerifyCell(c) {
+  var list = loanLedgerRows(c.loanId);
+  if (!list.length) return '<span class="small">\u2014</span>';
+  var done = list.filter(function (r) { return r.status === 'verified'; }).length;
+  var all = done === list.length;
+  return '<button class="btn sm' + (all ? ' ghost' : '') + '" onclick="openClosingVerify(\'' + esc(c.loanId) + '\')" ' +
+    'title="Mark off the money for this closing">' + (all ? '\u2713 ' : '') + done + '/' + list.length + '</button>';
+}
+// One closing's rows, each with the same verify control. Verifying from here opens
+// the normal verify box, so the amount / date / note people already type is unchanged.
+function openClosingVerify(loanId) {
+  var list = loanLedgerRows(loanId);
+  var c = (_data.closings || []).filter(function (x) { return x.loanId === loanId; })[0] || {};
+  var body = '<div class="fa-note" style="margin-bottom:10px">' + esc(c.address || '') +
+    (c.slaNumber ? ' \u00b7 ' + esc(c.slaNumber) : '') + ' \u00b7 ' + esc(c.fundingLabel || '') + '</div>' +
+    '<div class="tw"><table><tbody>' +
+    list.map(function (r) {
+      return '<tr><td style="white-space:nowrap">' + esc(mdy(r.date)) + '</td>' +
+        '<td><strong>' + esc(r.kindLabel || r.kind) + '</strong><div class="small">' + esc(r.detail || '') + '</div></td>' +
+        '<td class="fa-num">' + (r.flow === 'in' ? '+' : r.flow === 'out' ? '\u2212' : '\u21c4 ') + money(r.amount) + '</td>' +
+        '<td style="text-align:right">' + verifyCell(r) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+  modal('Mark off this closing', body, '<button class="btn" onclick="closeModal()">Done</button>');
+}
+
 function renderTab() {
   var host = document.getElementById('viewOther');
   if (_tab === 'closings') host.innerHTML = closingsHtml();
@@ -305,18 +367,19 @@ function tabHead(title, note, csvTab) {
 function closingsHtml() {
   var list = tabRows('closings');
   var head = tabHead('Closings',
-    'One row per closing. Prepaid interest is only collected at the table on SLA and KAF funded loans \u2014 on everything else it is net funded, so it is shown greyed and left out of Total Collected. Impounds are not on the loan record yet.',
+    'One row per closing. Prepaid interest is only collected at the table on SLA and KAF funded loans \u2014 on everything else it is marked "net" and left out of Total Collected, because it is net funded. Impounds are not on the loan record yet. "Marked off" counts the money for that closing you have verified against the bank \u2014 click it to tick them off.',
     'closings');
   if (!list.length) return head + '<div class="card" style="padding:14px 16px"><div class="empty">No closings in this window.</div></div>';
   var anyKaf = list.some(function (c) { return c.kaf; });
-  var h = '<div class="card" style="padding:14px 16px"><div class="tw"><table>';
+  var h = '<div class="card fa-wide" style="padding:14px 16px"><div class="tw"><table>';
   if (anyKaf) {
-    h += '<thead><tr><th colspan="10"></th><th class="fa-grp" colspan="6">Trades to KAF</th></tr>';
+    h += '<thead><tr><th colspan="10"></th><th class="fa-grp" colspan="6">Trades to KAF</th><th></th></tr>';
   } else { h += '<thead>'; }
   h += '<tr><th style="padding-left:10px">Close Date</th><th>SLA Loan #</th><th>Property Address</th><th>Loan Type - Funding Source</th>' +
     '<th class="fa-num">Origination Fee</th><th class="fa-num">Other Fees</th><th class="fa-num">Pre-paid interest</th>' +
     '<th class="fa-num">Rehab Funds</th><th class="fa-num">Impounds</th><th class="fa-num">Total Collected</th>' +
     (anyKaf ? '<th class="fa-num">UPB</th><th class="fa-num">Remaining Holdback</th><th class="fa-num">Fees</th><th class="fa-num">PPI</th><th class="fa-num">Total</th><th>Transfer Date</th>' : '') +
+    '<th style="text-align:right">Marked off</th>' + // Deploy 237.142
     '</tr></thead><tbody>';
   list.forEach(function (c) {
     var k = c.kaf || {};
@@ -327,13 +390,19 @@ function closingsHtml() {
       '<td style="white-space:nowrap">' + esc(c.fundingLabel || '') + '</td>' +
       '<td class="fa-num">' + n2(c.originationFee) + '</td>' +
       '<td class="fa-num">' + n2(c.otherFees) + '</td>' +
-      '<td class="fa-num"' + (c.ppiCollected ? '' : ' style="color:#a9a3b5" title="Net funded on this funding type \u2014 not collected at the table"') + '>' + n2(c.prepaidInterest) + '</td>' +
+      // Deploy 237.142 (Mike asked why some are grey) -- a "net" tag on the number
+      // itself, not just a tooltip: on these funding types the prepaid interest is
+      // net funded, so it is not collected at the table and not in Total Collected.
+      '<td class="fa-num' + (c.ppiCollected ? '' : ' fa-net') + '"' +
+        (c.ppiCollected ? '' : ' title="Net funded on a ' + esc(c.fundingLabel || 'loan like this') + ' \u2014 not collected at the closing table, so it is not in Total Collected"') +
+        '>' + n2(c.prepaidInterest) + (c.ppiCollected || !Number(c.prepaidInterest) ? '' : '<span class="tagn">net</span>') + '</td>' +
       '<td class="fa-num">' + n2(c.rehabFunds) + '</td>' +
       '<td class="fa-num">' + n2(c.impounds) + '</td>' +
       '<td class="fa-num"><strong>' + n2(c.totalCollected) + '</strong></td>' +
       (anyKaf ? ('<td class="fa-num">' + n2(k.upb) + '</td><td class="fa-num">' + n2(k.remainingHoldback) + '</td>' +
         '<td class="fa-num">' + n2(k.fees) + '</td><td class="fa-num">' + n2(k.ppi) + '</td>' +
         '<td class="fa-num">' + n2(k.total) + '</td><td style="white-space:nowrap">' + esc(k.transferDate ? mdy(k.transferDate) : '') + '</td>') : '') +
+      '<td style="text-align:right;white-space:nowrap">' + closingVerifyCell(c) + '</td>' + // Deploy 237.142
       '</tr>';
   });
   h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="4">' + list.length + ' closing' + (list.length === 1 ? '' : 's') + '</td>' +
@@ -343,7 +412,7 @@ function closingsHtml() {
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.rehabFunds; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.impounds; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.totalCollected; })) + '</td>' +
-    (anyKaf ? '<td colspan="6"></td>' : '') + '</tr>';
+    (anyKaf ? '<td colspan="6"></td>' : '') + '<td></td></tr>';
   return head + h + '</tbody></table></div></div>';
 }
 
@@ -360,7 +429,7 @@ function tradesHtml() {
       '<td>' + esc(r.buyer || '') + '</td><td>' + esc((r.to && r.to.label) || '') + '</td>' +
       '<td>' + loans.length + ' loan' + (loans.length === 1 ? '' : 's') + '</td>' +
       '<td class="fa-num">' + money(r.amount) + '</td>' +
-      '<td>' + esc(r.status || '') + '</td></tr>';
+      '<td>' + verifyCell(r) + '</td></tr>'; // Deploy 237.142
     loans.forEach(function (x) {
       h += '<tr><td></td><td colspan="2" style="font-size:12px;color:#7a7488">\u21b3 <a href="' + esc(loanHref(x.loanId, x.owner)) + '">' + esc(x.address || '') + '</a></td>' +
         '<td style="font-size:12px;color:#7a7488">' + esc(x.slaId || '') + '</td>' +
@@ -390,7 +459,7 @@ function drawsHtml() {
       '<td style="font-size:12px">' + esc(r.kind === 'draw_reimb' ? 'Reimbursement' : (r.detail || '')) + '</td>' +
       '<td style="font-size:12px;color:#7a7488">' + esc(((r.from && r.from.label) || '') + ' \u2192 ' + ((r.to && r.to.label) || '')) + '</td>' +
       '<td class="fa-num">' + money(r.amount) + '</td>' +
-      '<td>' + esc(r.status || '') + '</td></tr>';
+      '<td>' + verifyCell(r) + '</td></tr>'; // Deploy 237.142
   });
   h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="4">' + out.length + ' draw' + (out.length === 1 ? '' : 's') + ' out \u00b7 ' + back.length + ' reimbursement' + (back.length === 1 ? '' : 's') + ' back</td>' +
     '<td class="fa-num">' + money(sumBy(out, function (r) { return r.amount; })) + ' / ' + money(sumBy(back, function (r) { return r.amount; })) + '</td><td></td></tr>';
@@ -410,7 +479,7 @@ function simpleHtml(tab, title, note) {
         (r.slaId ? '<div style="font-size:11px;color:#7a7488">' + esc(r.slaId) + '</div>' : '') + '</td>' +
       '<td style="font-size:12px;color:#7a7488">' + esc(((r.from && r.from.label) || '') + ' \u2192 ' + ((r.to && r.to.label) || '')) + '</td>' +
       '<td class="fa-num">' + money(r.amount) + '</td>' +
-      '<td>' + esc(r.status || '') + '</td></tr>';
+      '<td>' + verifyCell(r) + '</td></tr>'; // Deploy 237.142
   });
   h += '<tr class="fa-tot"><td style="padding-left:10px" colspan="3">' + list.length + ' item' + (list.length === 1 ? '' : 's') + '</td>' +
     '<td class="fa-num">' + money(sumBy(list, function (r) { return r.amount; })) + '</td><td></td></tr>';
