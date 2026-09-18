@@ -5010,7 +5010,9 @@ function ldDrawsLoad(force){
   var pane = document.getElementById('ldPaneDraws');
   if (!pane || _ldDrawsState === 'loading') return;
   if (_ldDrawsState === 'ready' && !force) { ldDrawsRender(); return; }
-  var num = String((_loan && _loan.slaDisplayId) || (_loan && _deriveSlaLoanIdClient(_loan)) || '').trim().toUpperCase();
+  var num = (window.SLA && typeof SLA.slaLoanNumber === 'function')
+    ? SLA.slaLoanNumber(_loan)   // Deploy 237.157 — shared with the Closed Loans Draws tab
+    : String((_loan && _loan.slaDisplayId) || (_loan && _deriveSlaLoanIdClient(_loan)) || '').trim().toUpperCase();
   if (!num) { _ldDrawsState = 'error'; _ldDrawsErr = 'This loan has no SLA loan number to match against Sitewire.'; ldDrawsRender(); return; }
   _ldDrawsState = 'loading'; _ldDrawsErr = '';
   ldDrawsRender();
@@ -5145,6 +5147,10 @@ function ldDrawMetaSave(drawId, field, el){
 // the same SLA-... value.
 function _deriveSlaLoanIdClient(loan) {
   if (!loan) return '';
+  // Deploy 237.157 — the same rule now lives in sla-api.js (SLA.deriveSlaLoanNumber)
+  // so Closed Loans matches Sitewire on the number THIS page displays. Delegate
+  // when it's loaded; the body below stays as the no-sla-api fallback.
+  if (window.SLA && typeof SLA.deriveSlaLoanNumber === 'function') return SLA.deriveSlaLoanNumber(loan);
   var stamp;
   function compact(s) { return String(s || '').slice(0, 10).replace(/-/g, ''); }
   if (loan.fundingDate)      stamp = compact(loan.fundingDate);

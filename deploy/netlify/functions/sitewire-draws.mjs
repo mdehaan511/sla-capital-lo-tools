@@ -32,6 +32,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody,
   isAdmin, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { slaLoanNumber } from './_shared/loan-number.mjs';
 
 const SW_BASE = 'https://app.sitewire.co/api/v2';
 const CACHE_KEY = 'org-draws-v1';
@@ -148,8 +149,16 @@ async function handle(req, context) {
           const c = await clientsStore.get(key, { type: 'json' }).catch(() => null);
           const loans = (c && Array.isArray(c.loans)) ? c.loans : [];
           for (const l of loans) {
-            const n = l && l.slaDisplayId ? normLoanNumber(l.slaDisplayId) : '';
-            if (n) own.push(n);
+            // Deploy 237.157 (Mike) — a portal-originated loan has no stored
+            // slaDisplayId; its number is derived, and that derived number is
+            // what is on the Sitewire property. Scanning the stored field alone
+            // made every such loan invisible to its own LO (staff were fine --
+            // they skip this scan), so accept both forms.
+            if (!l) continue;
+            const stored = l.slaDisplayId ? normLoanNumber(l.slaDisplayId) : '';
+            if (stored) own.push(stored);
+            const derived = normLoanNumber(slaLoanNumber(l));
+            if (derived && derived !== stored) own.push(derived);
           }
         }
         try { await cacheStore.setJSON(ownCacheKey, { fetchedAt: new Date().toISOString(), numbers: own }); } catch (_) {}

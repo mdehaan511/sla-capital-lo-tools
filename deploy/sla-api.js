@@ -3081,6 +3081,39 @@
   function dscrDesktopAnalysisFee(investorName) { return isDiyaInvestor(investorName) ? 200 : 120; }
   function dscrFlatFees(investorName) { return 995 + 700 + 500 + dscrDesktopAnalysisFee(investorName); }
 
+  // Deploy 237.157 (Mike: Sitewire draws missing on Closed Loans) — THE SLA loan
+  // number. Only Baseline-imported loans (and hand edits, 237.102) carry a
+  // stored loan.slaDisplayId; a loan originated in the portal has none and is
+  // shown a number DERIVED from its id + funding date. That derived number is
+  // what the LO sees on Loan Details and types into Sitewire, so any code that
+  // matches a loan to an outside system by its number must use the same rule --
+  // Closed Loans matched on the stored field alone and so skipped every native
+  // loan. Keep deriveSlaLoanNumber byte-identical to loan-details.js's
+  // _deriveSlaLoanIdClient and _shared/loan-number.mjs (gate:
+  // scripts/sitewire-loan-number-test.mjs).
+  function deriveSlaLoanNumber(loan) {
+    if (!loan) return '';
+    function compact(s) { return String(s || '').slice(0, 10).replace(/-/g, ''); }
+    var stamp;
+    if (loan.fundingDate)    stamp = compact(loan.fundingDate);
+    else if (loan.createdAt) stamp = compact(loan.createdAt);
+    else stamp = '';
+    if (!/^\d{8}$/.test(stamp)) {
+      var d = new Date();
+      stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    }
+    var s = String(loan.id || '');
+    var hash = 0;
+    for (var i = 0; i < s.length; i++) hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+    return 'SLA-' + stamp + '-' + String(Math.abs(hash) % 10000).padStart(4, '0');
+  }
+  // What the loan is CALLED: the stored number when it has one, else the derived
+  // one. Uppercased + trimmed, which is the form Sitewire is matched on.
+  function slaLoanNumber(loan) {
+    var stored = String((loan && loan.slaDisplayId) || '').trim();
+    return (stored || deriveSlaLoanNumber(loan)).toUpperCase();
+  }
+
   window.SLA = {
     api: api,
     // Deploy 236.474 — expose the auth-agnostic token getter (Supabase session
@@ -3165,6 +3198,8 @@
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
     isDiyaInvestor: isDiyaInvestor,                 // Deploy 237.065
+    slaLoanNumber: slaLoanNumber,                   // Deploy 237.157
+    deriveSlaLoanNumber: deriveSlaLoanNumber,       // Deploy 237.157
     dscrDesktopAnalysisFee: dscrDesktopAnalysisFee, // Deploy 237.065
     dscrFlatFees: dscrFlatFees,                     // Deploy 237.065
     isSeniorLo: isSeniorLo, // Deploy 236.831
