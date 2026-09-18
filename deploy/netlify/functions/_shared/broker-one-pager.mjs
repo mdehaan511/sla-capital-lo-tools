@@ -73,12 +73,13 @@ export const PRODUCTS = [
     blurb: 'Long-term rental financing qualified on the property’s income, not the borrower’s.',
     rows: [
       ['Rates', 'From 6.75%'],
-      ['Leverage', 'Up to 80% LTV purchase and rate/term, 75% cash-out'],
+      ['Leverage', 'Up to 80% LTV purchase and rate/term'],
       ['Credit', '660+ FICO, 660-679 by pre-approval'],
       ['Structures', '30-yr fixed, 5-yr IO, 5/1 ARM, 7/1 ARM'],
       ['Qualifying', '1.00 DSCR minimum, no lease required'],
       ['Cash-out', 'Up to 75% LTV, 6-month seasoning'],
-      ['Loan size', '$100K - $3M, portfolios of 2-10 on one note'],
+      ['Portfolio', 'Up to 10 properties on a single DSCR loan'],
+      ['Loan size', '$100K - $3M'],
     ] },
   { name: 'Multifamily DSCR', tag: '5+ units',
     blurb: 'Stabilized 5-30 unit apartments, underwritten on in-place net cash flow.',
@@ -202,7 +203,11 @@ export async function buildBrokerOnePager(rep = {}) {
   if (repName) {
     const ribbon = 'Your Loan Officer is ' + repName + '!';
     const rs = bold.widthOfTextAtSize(ribbon, 11.5) > 300 ? 10 : 11.5;
-    text(ribbon, 612 - 40 - bold.widthOfTextAtSize(ribbon, rs), 792 - 82, rs, bold, ORANGE);
+    text(ribbon, 612 - 40 - bold.widthOfTextAtSize(ribbon, rs), 792 - 80, rs, bold, ORANGE);
+    // Their own application link, spelled out under the name -- the same link
+    // the QR encodes, for anyone reading a printed copy.
+    const pretty = applyUrl.replace(/^https?:\/\//, '');
+    text('Apply: ' + pretty, 612 - 40 - reg.widthOfTextAtSize('Apply: ' + pretty, 9), 792 - 95, 9, reg, PEACH);
   }
 
   let y = 792 - H - 30;
@@ -265,7 +270,8 @@ export async function buildBrokerOnePager(rep = {}) {
     // A QR needs a 4-module quiet zone or scanners will not find it at all.
     const px = qrBox / (qr.size + 8);
     const quiet = px * 4;
-    const qx = 612 - M - 12 - qrBox + quiet, qy = wyTop - wyH + 11 + quiet;
+    // Centred in the strip rather than sitting on its floor.
+    const qx = 612 - M - 12 - qrBox + quiet, qy = wyTop - wyH + (wyH - qrBox) / 2 + quiet;
     page.drawRectangle({ x: qx - quiet, y: qy - quiet, width: qrBox, height: qrBox, color: WHITE });
     for (let gy = 0; gy < qr.size; gy++) {
       for (let gx = 0; gx < qr.size; gx++) {
