@@ -303,6 +303,9 @@ export function buildLedger(loans, draws, state, now) {
         loanAmount: amt,
         originationFee: _orig + _dscrTpo, otherFees: _other,
         prepaidInterest: _ppi, ppiCollected: _ppiIn,
+        // Deploy 237.143 (Mike) -- what actually funded at the table. The Loan Terms
+        // field wins when it is filled in; otherwise the loan less the rehab holdback.
+        initialAdvance: num(l.initialAdvance) || round2(amt - _hb),
         rehabFunds: _hb, impounds: 0,
         totalCollected: round2(_orig + _dscrTpo + _other + (_ppiIn ? _ppi : 0)),
         // "Trades to KAF" on the sheet: what KAF wires SLA when the loan is assigned.
@@ -360,6 +363,9 @@ export function buildLedger(loans, draws, state, now) {
     if (bf > 0) {
       push(Object.assign({}, base, atClose, {
         key: l.id + ':broker', kind: 'broker', amount: bf,
+        // Deploy 237.143 (Mike) -- paid on the HUD: settled at closing, so it is not a
+        // separate wire out of SLA and there is nothing to match in the bank.
+        canHud: true, onHud: !!ov.brokerOnHud, settled: !!ov.brokerOnHud,
         fromSpec: { entity: 'sla', role: 'broker' }, toSpec: { label: l.brokerName || 'Broker' },
         detail: (num(l.brokerFee) <= 10 ? num(l.brokerFee).toFixed(2) + ' pts' : 'flat') + ' broker fee',
       }));
@@ -454,7 +460,8 @@ export function buildLedger(loans, draws, state, now) {
     if (v) {
       r.verified = v;
       r.status = (v.expected != null && Math.abs(num(v.expected) - r.amount) > 1) ? 'changed' : 'verified';
-    } else if (r.date > today) r.status = 'upcoming';
+    } else if (r.settled) r.status = 'settled'; // Deploy 237.143 -- nothing to match
+    else if (r.date > today) r.status = 'upcoming';
     else if (r.date === today) r.status = 'due';
     else r.status = 'overdue';
     if (r.kind === 'assign' && !v && r.alertDue && r.alertDue < nowMs) r.late24h = true;
@@ -500,7 +507,7 @@ export async function mutateState(fn) {
 // ── Loans from Postgres ─────────────────────────────────────────────────
 const EXTRA_KEYS = ['fundingSource', 'assignedToEntity', 'investorName', 'finalLoanAmount', 'closingFees',
   'brokerFee', 'brokerName', 'disposition', 'soldDate', 'upb', 'payoffDate', 'payoffAmount', 'closedAt',
-  'tpo', 'tpoSpread', 'tpoPremium', '_baselineRaw'];
+  'tpo', 'tpoSpread', 'tpoPremium', 'initialAdvance', '_baselineRaw']; // Deploy 237.143
 export const LOAN_SELECT = 'id,client_id,owner_email,address,status,processing_stage,tool_type,loan_type,loan_amt,points,' +
   'rehab_budget,funding_date,sla_display_id,rate,fdRehabBudget:form_data->>rehabBudget,' +
   EXTRA_KEYS.map((k) => k + ':extra->>' + k).join(',') +

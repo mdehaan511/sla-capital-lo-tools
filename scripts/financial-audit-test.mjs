@@ -33,6 +33,13 @@ let fund = find(rows, 'L1:fund');
 ok(fund && fund.amount === 150000 && fund.flow === 'out' && fund.from.accountId === 'a1', 'closing wire = loan - holdback, out of SLA Funding');
 ok(find(rows, 'L1:fees').amount === 5000 && find(rows, 'L1:fees').to.accountId === 'a2', 'points + fees = 4000 + 1000 into SLA Operating');
 ok(find(rows, 'L1:broker').amount === 2000 && find(rows, 'L1:broker').to.label === 'Bob', 'broker fee 1 pt = 2000');
+ok(find(rows, 'L1:broker').canHud && !find(rows, 'L1:broker').onHud, 'a broker fee offers the paid-on-HUD box, off by default'); // Deploy 237.143
+{
+  const hudSt = normalizeState({ accounts, loanOverrides: { L1: { brokerOnHud: true } } });
+  const hud = find(buildLedger([base({ id: 'L1', brokerFee: '1', brokerName: 'Bob' })], null, hudSt, NOW).rows, 'L1:broker');
+  ok(hud.onHud && hud.status === 'settled', 'paid on HUD: settled at closing, nothing to match in the bank');
+  ok(hud.amount === 2000, 'the fee still shows \u2014 marking it off the HUD does not hide what was paid');
+}
 ok(find(rows, 'L1:fund').status === 'overdue', 'past + unverified = overdue');
 
 // Net funded toggle
@@ -120,6 +127,9 @@ let built = buildLedger([base({ id: 'C1', fundingSource: 'sla_capital', rate: 10
 let c1 = built.closings[0];
 ok(built.closings.length === 1 && c1.slaNumber === 'SLA-1' && c1.fundingLabel === 'RTL - SLA', 'one closing row per closed loan');
 ok(c1.originationFee === 4000 && c1.otherFees === 1000 && c1.rehabFunds === 50000, 'origination = points in dollars, other fees + rehab split out');
+ok(c1.initialAdvance === 150000, 'initial advance = loan less the rehab holdback');
+ok(buildLedger([base({ id: 'C1b', initialAdvance: '142500' })], null, st, NOW).closings[0].initialAdvance === 142500,
+   'an initial advance entered on the Loan Terms tab wins over the derived one');
 ok(c1.ppiCollected && c1.prepaidInterest === 1260 && c1.totalCollected === 6260,
    'SLA funded: Total Collected = origination + other fees + PPI');
 built = buildLedger([base({ id: 'C2', fundingSource: 'stride', rate: 10.95, closingFees: '1000' })], null, st, NOW);

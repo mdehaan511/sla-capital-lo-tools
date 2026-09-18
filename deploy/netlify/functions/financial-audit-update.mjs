@@ -71,8 +71,10 @@ export default async (req, context) => {
             if (b.fundingType) cur.fundingType = b.fundingType; else delete cur.fundingType;
           }
           if ('net' in b) { if (b.net) cur.net = true; else delete cur.net; }
+          // Deploy 237.143 (Mike) -- the broker fee came off the HUD at closing.
+          if ('brokerOnHud' in b) { if (b.brokerOnHud) cur.brokerOnHud = true; else delete cur.brokerOnHud; }
           cur.updatedAt = at; cur.updatedBy = by;
-          if (!cur.fundingType && !cur.net) delete s.loanOverrides[id]; else s.loanOverrides[id] = cur;
+          if (!cur.fundingType && !cur.net && !cur.brokerOnHud) delete s.loanOverrides[id]; else s.loanOverrides[id] = cur;
           return;
         }
         case 'manual.save': {

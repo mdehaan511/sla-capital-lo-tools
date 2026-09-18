@@ -83,8 +83,14 @@
     .netbox { font-size: 11px; color: var(--muted); margin-left: 6px; white-space: nowrap; cursor: pointer; }
     .btn.sm { padding: 5px 10px; font-size: 12px; }
     .link-btn { background: none; border: none; color: var(--gold); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
-    .trade-list { margin-top: 4px; font-size: 12px; }
-    .trade-list div { display: flex; justify-content: space-between; gap: 10px; }
+    /* Deploy 237.143 (Mike) -- the per-loan UPB sits in this cell, so the list is
+       bounded: on a full-width page a space-between row would throw the number to
+       the far side of the screen, away from the address it belongs to. */
+    .trade-list { margin-top: 4px; font-size: 12px; max-width: 560px; }
+    .trade-list div { display: flex; justify-content: space-between; gap: 14px; }
+    .trade-list div > a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Same reason: the loan and movement columns no longer sprawl on a wide monitor. */
+    #ledger td:nth-child(2), #ledger td:nth-child(3) { max-width: 560px; }
     .banner { background: rgba(200,129,58,.1); border: 1px solid rgba(200,129,58,.35); border-radius: 9px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
     .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 16px; }
     .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
@@ -313,10 +319,11 @@ function verifyCell(r) {
       '<div class="small">' + esc(mdy(v.date)) + ' \u00b7 ' + esc(String(v.by || '').split('@')[0]) +
       ' \u00b7 <a class="link-btn" onclick="unverify(' + i + ')">Undo</a></div>';
   }
-  var pill = r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
+  var pill = r.status === 'settled' ? '<span class="pill ok" title="Paid on the settlement statement">Paid on HUD</span>'
+    : r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
     : r.status === 'due' ? '<span class="pill warn">Due today</span>'
     : '<span class="pill">' + (r.pipeline ? 'Forecast' : 'Upcoming') + '</span>';
-  if (r.status === 'upcoming' && r.pipeline) return pill;
+  if (r.status === 'settled' || (r.status === 'upcoming' && r.pipeline)) return pill;
   return pill + ' <button class="btn sm" onclick="openVerify(' + i + ')">Verify</button>';
 }
 // Every ledger row belonging to one closing (the wire, the fees, a broker fee, the
@@ -373,11 +380,11 @@ function closingsHtml() {
   var anyKaf = list.some(function (c) { return c.kaf; });
   var h = '<div class="card fa-wide" style="padding:14px 16px"><div class="tw"><table>';
   if (anyKaf) {
-    h += '<thead><tr><th colspan="10"></th><th class="fa-grp" colspan="6">Trades to KAF</th><th></th></tr>';
+    h += '<thead><tr><th colspan="11"></th><th class="fa-grp" colspan="6">Trades to KAF</th><th></th></tr>';
   } else { h += '<thead>'; }
   h += '<tr><th style="padding-left:10px">Close Date</th><th>SLA Loan #</th><th>Property Address</th><th>Loan Type - Funding Source</th>' +
     '<th class="fa-num">Origination Fee</th><th class="fa-num">Other Fees</th><th class="fa-num">Pre-paid interest</th>' +
-    '<th class="fa-num">Rehab Funds</th><th class="fa-num">Impounds</th><th class="fa-num">Total Collected</th>' +
+    '<th class="fa-num">Initial Advance</th><th class="fa-num">Rehab Funds</th><th class="fa-num">Impounds</th><th class="fa-num">Total Collected</th>' +
     (anyKaf ? '<th class="fa-num">UPB</th><th class="fa-num">Remaining Holdback</th><th class="fa-num">Fees</th><th class="fa-num">PPI</th><th class="fa-num">Total</th><th>Transfer Date</th>' : '') +
     '<th style="text-align:right">Marked off</th>' + // Deploy 237.142
     '</tr></thead><tbody>';
@@ -396,6 +403,7 @@ function closingsHtml() {
       '<td class="fa-num' + (c.ppiCollected ? '' : ' fa-net') + '"' +
         (c.ppiCollected ? '' : ' title="Net funded on a ' + esc(c.fundingLabel || 'loan like this') + ' \u2014 not collected at the closing table, so it is not in Total Collected"') +
         '>' + n2(c.prepaidInterest) + (c.ppiCollected || !Number(c.prepaidInterest) ? '' : '<span class="tagn">net</span>') + '</td>' +
+      '<td class="fa-num">' + n2(c.initialAdvance) + '</td>' + // Deploy 237.143
       '<td class="fa-num">' + n2(c.rehabFunds) + '</td>' +
       '<td class="fa-num">' + n2(c.impounds) + '</td>' +
       '<td class="fa-num"><strong>' + n2(c.totalCollected) + '</strong></td>' +
@@ -409,6 +417,7 @@ function closingsHtml() {
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.originationFee; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.otherFees; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.ppiCollected ? c.prepaidInterest : 0; })) + '</td>' +
+    '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.initialAdvance; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.rehabFunds; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.impounds; })) + '</td>' +
     '<td class="fa-num">' + n2(sumBy(list, function (c) { return c.totalCollected; })) + '</td>' +
@@ -494,11 +503,11 @@ function csvCell(v) {
 function exportCsv(tab) {
   var rows = [], list = tabRows(tab);
   if (tab === 'closings') {
-    rows.push(['Close Date', 'SLA Loan #', 'Property Address', 'Loan Type - Funding Source', 'Origination Fee', 'Other Fees', 'Pre-paid interest', 'Rehab Funds', 'Impounds', 'Total Collected', 'UPB', 'Remaining Holdback', 'Fees', 'PPI', 'Total', 'Transfer Date']);
+    rows.push(['Close Date', 'SLA Loan #', 'Property Address', 'Loan Type - Funding Source', 'Origination Fee', 'Other Fees', 'Pre-paid interest', 'Initial Advance', 'Rehab Funds', 'Impounds', 'Total Collected', 'UPB', 'Remaining Holdback', 'Fees', 'PPI', 'Total', 'Transfer Date']);
     list.forEach(function (c) {
       var k = c.kaf || {};
       rows.push([mdy(c.closeDate), c.slaNumber || '', c.address || '', c.fundingLabel || '',
-        c.originationFee || '', c.otherFees || '', c.prepaidInterest || '', c.rehabFunds || '', c.impounds || '', c.totalCollected || '',
+        c.originationFee || '', c.otherFees || '', c.prepaidInterest || '', c.initialAdvance || '', c.rehabFunds || '', c.impounds || '', c.totalCollected || '',
         k.upb || '', k.remainingHoldback || '', k.fees || '', k.ppi || '', k.total || '', k.transferDate ? mdy(k.transferDate) : '']);
     });
   } else {
@@ -589,6 +598,10 @@ function rowHtml(r, i) {
   if (r.fundingType) {
     mv += ' <button class="ftype' + (r.fundingTypeOverridden ? ' ovr' : '') + '" title="How this loan was funded — click to change" onclick="openFundingType(' + i + ')">' + esc(r.fundingTypeLabel) + '</button>';
   }
+  if (r.canHud) {
+    // Deploy 237.143 (Mike) -- broker fee paid on the HUD at closing.
+    mv += '<label class="netbox" title="The broker fee was paid on the settlement statement at closing, so SLA never wires it separately"><input type="checkbox"' + (r.onHud ? ' checked' : '') + ' onchange="setBrokerHud(' + i + ', this.checked)" /> paid on HUD</label>';
+  }
   if (r.canNet) {
     mv += '<label class="netbox" title="Points and fees came out of the closing wire instead of coming back separately"><input type="checkbox"' + (r.net ? ' checked' : '') + ' onchange="setNet(' + i + ', this.checked)" /> net funded</label>';
   }
@@ -612,11 +625,12 @@ function rowHtml(r, i) {
     action = (r.status === 'changed' ? '<button class="btn sm" onclick="openVerify(' + i + ')">Re-verify</button> ' : '') +
       '<button class="link-btn" onclick="unverify(' + i + ')">Undo</button>';
   } else {
-    status = r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
+    status = r.status === 'settled' ? '<span class="pill ok" title="Paid on the settlement statement \u2014 no separate wire to match">Paid on HUD</span>' // Deploy 237.143
+      : r.status === 'overdue' ? '<span class="pill danger">Not verified</span>'
       : r.status === 'due' ? '<span class="pill warn">Due today</span>'
       : '<span class="pill">' + (r.pipeline ? 'Forecast' : 'Upcoming') + '</span>';
     if (r.late24h) status += '<div class="small" style="color:var(--danger)">24h past closing — Mike &amp; Dan alerted</div>';
-    action = r.status === 'upcoming' && r.pipeline ? '' : '<button class="btn sm" onclick="openVerify(' + i + ')">Verify</button>';
+    action = (r.status === 'settled' || (r.status === 'upcoming' && r.pipeline)) ? '' : '<button class="btn sm" onclick="openVerify(' + i + ')">Verify</button>';
   }
   if (r.kind === 'manual') {
     action += ' <button class="link-btn" onclick="openManual(' + i + ')">Edit</button>';
@@ -676,6 +690,12 @@ function unverify(i) {
   if (!confirm('Remove the verification on this item?')) return;
   update({ op: 'unverify', key: r.key }).then(function () { toast('Verification removed.'); loadAll(); })
     .catch(function (e) { toast(e.message, true); });
+}
+// Deploy 237.143 (Mike) -- same shape as setNet: one override on the loan.
+function setBrokerHud(i, on) {
+  var r = _rows[i];
+  update({ op: 'loan.set', loanId: r.loanId, brokerOnHud: !!on }).then(function () { loadAll(); })
+    .catch(function (e) { toast(e.message, true); loadAll(); });
 }
 function setNet(i, on) {
   var r = _rows[i];
