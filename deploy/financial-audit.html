@@ -310,6 +310,16 @@ function sumBy(list, f) { var t = 0; list.forEach(function (x) { t += Number(f(x
 // per LEDGER ROW, so the tabs reuse the same openVerify / unverify the All money tab
 // uses; the index is the row's position in _rows.
 // Deploy 237.162 (Mike) -- these buttons did nothing whenever a filter was set.
+// (Defined here, beside their only callers, so the page gate script that lifts
+// this section keeps covering them.)
+function rowKeyArg(r) { return "'" + esc(String((r && r.key) || '')) + "'"; }
+function rowByKey(k) {
+  var key = String(k);
+  var all = (_data && _data.rows) ? _data.rows : [];
+  for (var i = 0; i < all.length; i++) if (all[i] && String(all[i].key) === key) return all[i];
+  for (var j = 0; j < _rows.length; j++) if (_rows[j] && String(_rows[j].key) === key) return _rows[j];
+  return null;
+}
 // The row was addressed by its position in _rows, which render() replaces with
 // the FILTERED ledger, while the per-closing table reads the unfiltered
 // _data.rows: any row the filter excluded resolved to -1 and the handler threw.
@@ -670,14 +680,6 @@ function closeModal() { document.getElementById('modalHost').innerHTML = ''; }
 function mErr(msg) { var e = document.getElementById('mErr'); if (e) e.textContent = msg || ''; }
 function busy(btn, on, label) { if (!btn) return; btn.disabled = on; if (label) btn.textContent = label; }
 
-function rowKeyArg(r) { return "'" + esc(String((r && r.key) || '')) + "'"; }
-function rowByKey(k) {
-  var key = String(k);
-  var all = (_data && _data.rows) ? _data.rows : [];
-  for (var i = 0; i < all.length; i++) if (all[i] && String(all[i].key) === key) return all[i];
-  for (var j = 0; j < _rows.length; j++) if (_rows[j] && String(_rows[j].key) === key) return _rows[j];
-  return null;
-}
 function openVerify(k) {
   var r = rowByKey(k);
   if (!r) { toast('That row is no longer on screen — reload and try again.', true); return; }
