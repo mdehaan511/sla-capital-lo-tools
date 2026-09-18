@@ -139,6 +139,12 @@
         <div class="vm-field full"><label>Buy-Box / Criteria</label><textarea id="imCriteria" placeholder="What they buy — product types, LTV/DSCR limits, states, min/max loan, etc."></textarea></div>
         <div class="vm-field full"><label>Notes</label><textarea id="imNotes" placeholder="Anything else worth remembering"></textarea></div>
       </div>
+      <!-- Deploy 237.167 (Mike) -- executed e-sign documents on this investor.
+           Hidden for a brand-new investor: there is no record to ask about yet. -->
+      <div id="imDocsWrap" style="display:none;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:1rem">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px">Signed Documents</label>
+        <div id="imDocs" style="font-size:13px"></div>
+      </div>
       <div class="vm-status" id="imStatus"></div>
       <div class="vm-actions">
         <button onclick="closeInvestorModal()">Cancel</button>
@@ -297,8 +303,52 @@ function openInvestorModal(inv) {
   document.getElementById('imNotes').value     = inv ? (inv.notes   || '') : '';
   document.getElementById('imClosingFees').value = inv ? (inv.closingFees || '') : '';
   var st = document.getElementById('imStatus'); st.textContent = ''; st.className = 'vm-status';
+  loadInvestorDocs(inv && inv.id);   // Deploy 237.167
   document.getElementById('invModalBg').style.display = 'flex';
 }
+// Deploy 237.167 (Mike) -- every EXECUTED e-sign document linked to this investor:
+// ones their contact signed, plus any filed to them by hand from the E-Sign tool.
+// Zero-throw -- the investor record must stay editable even if this cannot load.
+function loadInvestorDocs(id) {
+  var wrap = document.getElementById('imDocsWrap');
+  var box  = document.getElementById('imDocs');
+  if (!wrap || !box) return;
+  if (!id) { wrap.style.display = 'none'; box.innerHTML = ''; return; }
+  wrap.style.display = '';
+  box.innerHTML = '<div style="color:var(--muted);font-size:12px">Loading\u2026</div>';
+  SLA.api('GET', '/api/esign-docs-for-person?kind=investor&id=' + encodeURIComponent(id))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      var docs = (j && j.docs) || [];
+      if (!docs.length) {
+        box.innerHTML = '<div style="color:var(--muted);font-size:12px;font-style:italic">' +
+          'Nothing signed yet. Link one from the E-Sign tool, or it appears here once their contact signs.</div>';
+        return;
+      }
+      box.innerHTML = docs.map(function (d) {
+        var when = d.completedAt ? new Date(d.completedAt).toLocaleDateString() : '';
+        var loan = (d.loan && d.loan.loanId)
+          ? ' \u00b7 <a href="/loan-details/' + encodeURIComponent(d.loan.loanId) +
+            (d.loan.ownerKey ? '?owner=' + encodeURIComponent(d.loan.ownerKey) : '') +
+            '" style="color:var(--gold);text-decoration:none">' +
+            escH(d.loan.slaNumber || d.loan.address || 'loan') + '</a>'
+          : '';
+        return '<div style="padding:6px 0;border-top:1px solid var(--border)">' +
+          '<a href="/esign.html#doc=' + encodeURIComponent(d.id) + '" style="color:var(--text);font-weight:600;text-decoration:none">' +
+            escH(d.title) + '</a>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
+            (when ? 'Completed ' + escH(when) : '') +
+            (d.via === 'linked' ? ' \u00b7 filed here' : '') + loan +
+          '</div>' +
+        '</div>';
+      }).join('');
+    })
+    .catch(function (e) {
+      console.warn('investor documents load failed:', e && e.message);
+      box.innerHTML = '<div style="color:var(--muted);font-size:12px;font-style:italic">Could not load documents.</div>';
+    });
+}
+
 function openInvestorModalById(id) {
   var inv = _investors.find(function (x) { return x.id === id; });
   if (inv) openInvestorModal(inv);

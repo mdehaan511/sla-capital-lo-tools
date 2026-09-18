@@ -107,6 +107,15 @@ export function projectDoc(d) {
     // Deploy 237.029 — the loan this document was started from (Loan Details
     // "E-Sign a Document" button). Lets Loan Details list its documents.
     loan: d.loan && d.loan.loanId ? { clientId: d.loan.clientId, loanId: d.loan.loanId, ownerKey: d.loan.ownerKey, address: d.loan.address || '' } : null,
+    // Deploy 237.167 (Mike) — profiles this document was filed to BY HAND. The
+    // common case needs nothing here: a person's profile derives its documents from
+    // the signer list (see _shared/esign-people.mjs). This carries the ones a signer
+    // list cannot describe, and it must live on the INDEX because that is what the
+    // profile pages read.
+    people: (Array.isArray(d.people) ? d.people : []).map((p) => ({
+      kind: p.kind, id: p.id, name: p.name || '', email: p.email || '',
+      ownerKey: p.ownerKey || '', at: p.at || '', byName: p.byName || '',
+    })),
   };
 }
 export function normalizeLoanRef(raw) {
@@ -121,7 +130,9 @@ export const esignIndex = createStoreIndex({
   indexStoreName:   'esign-docs-index',
   primaryStoreName: 'esign-docs',
   project:          projectDoc,
-  version:          1,
+  // Deploy 237.167 -- bumped with the projection (people[]). A stale index would
+  // simply never show a hand-filed link; rebuilding is cheap and happens once.
+  version:          2,
 });
 
 /** Read every summary (all owners). Rebuilds when the index is missing or stale. */

@@ -554,14 +554,89 @@ function render() {
       '</div>';
   }
 
+  // Deploy 237.167 (Mike: e-signed documents "should be able to be ... seen in their
+  // profiles as documents") -- every EXECUTED e-sign document this person signed, plus
+  // any filed to them by hand. Derived from the signer list server-side, so nothing has
+  // to be maintained here and correcting a signer's email fixes which profile it shows
+  // on. Placeholder now, filled by refreshSignedDocs() after paint.
+  html +=
+    '<div class="section">' +
+      '<div class="section-head">' +
+        '<h2>Signed Documents <span id="signedDocsCount" style="font-size:13px;font-weight:400;color:var(--muted);margin-left:6px"></span></h2>' +
+        '<a href="/esign.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none">Open E-Sign \u2192</a>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><div id="signedDocsList">' +
+        '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading\u2026</div>' +
+      '</div></div>' +
+    '</div>';
+
   document.getElementById('pageContent').innerHTML = html;
   if (guarantorBackrefs.length) refreshGuarantorOnLoans(guarantorBackrefs);
   if (c._isBroker) refreshBrokeredDeals(c.id);
+  refreshSignedDocs(c);   // Deploy 237.167
   // Re-bind sla-forms behaviors (autocomplete, masks, money) on the rendered subtree
   if (window.SLAForms && SLAForms.reformatExisting) {
     SLAForms.reformatExisting(document.getElementById('pageContent'));
   }
   loadPortalInviteStatus(); // Deploy 236.538 — persistent "invited / last login" line
+}
+
+// Deploy 237.167 (Mike) -- the person's executed e-sign documents. The server decides
+// which are theirs (signed it, or filed to them by hand) and what this viewer may see;
+// this just draws the answer. Zero-throw: a profile must never fail to render because
+// the e-sign index is having a bad day.
+function refreshSignedDocs(c) {
+  var container = document.getElementById('signedDocsList');
+  if (!container || !c || !c.id) return;
+  var kind = c._isBroker ? 'broker' : 'client';
+  var q = '/api/esign-docs-for-person?kind=' + encodeURIComponent(kind) + '&id=' + encodeURIComponent(c.id);
+  if (_loEmail) q += '&owner=' + encodeURIComponent(_loEmail);
+  SLA.api('GET', q).then(function(r) { return r.json(); }).then(function(j) {
+    var docs = (j && j.docs) || [];
+    var countEl = document.getElementById('signedDocsCount');
+    if (countEl) countEl.textContent = docs.length ? String(docs.length) : '';
+    if (!docs.length) {
+      container.innerHTML = '<div style="padding:1rem 1.25rem;color:var(--muted);font-size:13px;font-style:italic">' +
+        'Nothing signed yet. A document shows here once every signer has completed it.</div>';
+      return;
+    }
+    container.innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+        '<tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em">' +
+          '<th style="padding:8px 10px 8px 1.25rem;font-weight:700">Document</th>' +
+          '<th style="padding:8px 10px;font-weight:700">Completed</th>' +
+          '<th style="padding:8px 10px;font-weight:700">Signers</th>' +
+          '<th style="padding:8px 1.25rem 8px 10px;font-weight:700">Loan</th>' +
+        '</tr>' +
+      docs.map(function(d) {
+        var when = d.completedAt ? new Date(d.completedAt).toLocaleDateString() : '\u2014';
+        var who = (d.signers || []).map(function(s) { return escH(s.name || s.email || ''); }).join(', ') || '\u2014';
+        // "Filed here" earns a badge; "they signed it" is the unremarkable case.
+        var badge = d.via === 'linked'
+          ? '<span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7a5a1f;background:rgba(200,129,58,0.12);border:1px solid rgba(200,129,58,0.3);border-radius:20px;padding:1px 7px">Filed here</span>'
+          : '';
+        var loanCell = '\u2014';
+        if (d.loan && d.loan.loanId) {
+          var href = '/loan-details/' + encodeURIComponent(d.loan.loanId) +
+            (d.loan.ownerKey ? '?owner=' + encodeURIComponent(d.loan.ownerKey) : '');
+          loanCell = '<a href="' + href + '" style="color:var(--gold-mid, #b5712d);text-decoration:none">' +
+            escH(d.loan.slaNumber || d.loan.address || d.loan.loanId) + '</a>' +
+            (d.loan.slugLabel ? '<div style="font-size:11px;color:var(--muted)">' + escH(d.loan.slugLabel) + '</div>' : '');
+        }
+        return '<tr style="border-top:1px solid var(--border, #e4dfd4)">' +
+          '<td style="padding:10px 10px 10px 1.25rem"><a href="/esign.html#doc=' + encodeURIComponent(d.id) + '" ' +
+            'style="color:var(--text);font-weight:600;text-decoration:none">' + escH(d.title) + '</a>' + badge + '</td>' +
+          '<td style="padding:10px">' + escH(when) + '</td>' +
+          '<td style="padding:10px;color:var(--muted)">' + who + '</td>' +
+          '<td style="padding:10px 1.25rem 10px 10px">' + loanCell + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</table>';
+  }).catch(function(err) {
+    console.warn('signed documents load failed:', err && err.message);
+    container.innerHTML = '<div style="padding:1rem 1.25rem;color:var(--muted);font-size:13px;font-style:italic">' +
+      'Could not load signed documents.</div>';
+  });
 }
 
 function _isValidClientEmail(s) {

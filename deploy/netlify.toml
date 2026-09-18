@@ -2463,6 +2463,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/esign-doc-link-person"
+  to = "/.netlify/functions/esign-doc-link-person"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-docs-for-person"
+  to = "/.netlify/functions/esign-docs-for-person"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/esign-loan-search"
   to = "/.netlify/functions/esign-loan-search"
   status = 200
