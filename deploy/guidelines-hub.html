@@ -179,7 +179,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
          scripts/broker-one-pager.mjs; re-run it after a rate change and the file
          here updates in place. Numbers come from the marketing site (the authority
          for external claims), NOT from the portal pricing engines. -->
-    <a class="guide-card" href="/api/broker-one-pager">
+    <a class="guide-card" href="/guides/SLA_Broker_Product_Guide.pdf" download="SLA_Broker_Product_Guide.pdf" onclick="return onePagerDownload(event)">
       <div class="guide-card-icon">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 3v10m0 0l-4-4m4 4l4-4" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17h14" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round"/></svg>
       </div>
@@ -222,6 +222,42 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 </div>
 
 <script>
+// Deploy 237.182 (Mike: "need to make sure no old links are breaking") — the
+// one-pager card. /api/broker-one-pager returns the copy personalized to the
+// signed-in rep, but it authenticates with a bearer token that a plain <a>
+// cannot send. So the href stays on the static generic PDF (still public, still
+// the URL anyone was already given) and this handler upgrades the click.
+// Any failure falls through to the static file rather than leaving a dead card.
+function onePagerDownload(e) {
+  if (!(window.SLA && SLA.getToken)) return true;   // no api helper: let the href win
+  e.preventDefault();
+  var card = e.currentTarget, arrow = card.querySelector('.card-arrow');
+  var orig = arrow ? arrow.textContent : '';
+  if (arrow) arrow.textContent = 'Building…';
+  var done = function (txt) { if (arrow) { arrow.textContent = txt || orig; if (txt) setTimeout(function () { arrow.textContent = orig; }, 2500); } };
+  SLA.getToken().then(function (tok) {
+    return fetch('/api/broker-one-pager', { headers: { Authorization: 'Bearer ' + tok } });
+  }).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var name = 'SLA-Capital-Product-Guide.pdf';
+    var cd = r.headers.get('Content-Disposition') || '';
+    var m = /filename="([^"]+)"/.exec(cd);
+    if (m) name = m[1];
+    return r.blob().then(function (b) {
+      var u = URL.createObjectURL(b);
+      var a = document.createElement('a');
+      a.href = u; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+      done('Downloaded ✓');
+    });
+  }).catch(function (err) {
+    console.warn('[one-pager] personalized build failed, falling back to the generic copy:', err && err.message);
+    done('');
+    window.location.href = card.getAttribute('href');
+  });
+  return false;
+}
 
 netlifyIdentity.on('init', function(u){
   if(!u) netlifyIdentity.open();
