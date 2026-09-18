@@ -70,11 +70,11 @@ const PRODUCTS = [
     blurb: 'Long-term rental financing qualified on the property’s income, not the borrower’s.',
     rows: [
       ['Rates', 'From 6.75%'],
-      ['Leverage', 'Up to 80% LTV purchase and rate/term'],
+      ['Leverage', 'Up to 80% LTV purchase and rate/term, 75% cash-out'],
       ['Credit', '660+ FICO, 660-679 by pre-approval'],
       ['Structures', '30-yr fixed, 5-yr IO, 5/1 ARM, 7/1 ARM'],
       ['Qualifying', '1.00 DSCR minimum, no lease required'],
-      ['Cash-out', '6-month seasoning'],
+      ['Cash-out', 'Up to 75% LTV, 6-month seasoning'],
       ['Loan size', '$100K - $3M, portfolios of 2-10 on one note'],
     ],
   },
