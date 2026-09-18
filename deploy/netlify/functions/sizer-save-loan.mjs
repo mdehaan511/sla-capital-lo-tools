@@ -68,7 +68,8 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs'; // Deploy 237.074
-import { applyDscrDefaults } from './_shared/dscr-defaults.mjs'; // Deploy 237.084
+import { applyDscrDefaults } from './_shared/dscr-defaults.mjs';
+import { appendFundingLog } from './_shared/funding-log.mjs'; // Deploy 237.157 // Deploy 237.084
 import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
@@ -603,6 +604,10 @@ async function handle(req, context) {
   // (blank fields only; see _shared/dscr-defaults.mjs).
   try { const _dd = await applyDscrDefaults(loanRecord); if (_dd.length) console.log('[sizer-save-loan] DSCR defaults applied:', _dd.join(','), loanRecord.id); }
   catch (e) { console.warn('sizer-save-loan: DSCR defaults failed (non-fatal):', e && e.message); }
+
+  // Deploy 237.157 (Mike) -- an Admin Mode TPO / investor pick moves the loan
+  // between investors just like the Funding Plan does; log it the same way.
+  if (_beforeSizerLoan) appendFundingLog(loanRecord, _beforeSizerLoan, { actor: normalizeEmail(user.email), source: 'Sizer' });
 
   try {
     await _writeClient(clientsStore, ownerKey, client);

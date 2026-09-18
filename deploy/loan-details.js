@@ -1956,7 +1956,13 @@ function render() {
     var _fpo = _fpSrcOpts[_fpi];
     _fpSrcOptHtml += '<option value="' + _fpo[0] + '"' + (_fpo[0] === _fpSrc ? ' selected' : '') + '>' + escH(_fpo[1]) + '</option>';
   }
-  var _fpAssigned = String(l.assignedToEntity || ''); // Deploy 236.978
+  // Deploy 237.157 (Mike) -- "Company On Docs" is the entity on the note. It was
+  // called Assigned To (236.978), whose value never actually saved (the field was
+  // missing from loan-fields-save's allowlist), so fall back to the old key for
+  // anything that did land, and to the funding source for KAF-funded loans.
+  var _fpOnDocs = String(l.companyOnDocs || l.assignedToEntity || '');
+  var _fpAssignedDate = String(l.assignedDate || '').slice(0, 10);
+  var _fpLog = Array.isArray(l.fundingLog) ? l.fundingLog : [];
   var _fpPriceLabel = isDscr ? 'TPO (points)' : 'Buy Rate (%)';
   // Deploy 236.672 — the Baseline migration stored TPO on loan.tpoPremium; the
   // Funding Plan's own field is loan.tpo. Fall back to tpoPremium so migrated DSCRs
@@ -1978,13 +1984,13 @@ function render() {
         '<div class="field"><label>Funding Source</label>' +
           '<select id="fp-fundingSource" onchange="onFundingSourceChange()">' + _fpSrcOptHtml + '</select>' +
         '</div>' +
-        '<div class="field"><label>Assigned To</label>' +
-          '<select id="fp-assignedTo">' +
-            '<option value=""' + (!_fpAssigned ? ' selected' : '') + '>— Select —</option>' +
-            '<option value="Sir Lends A Lot LLC"' + (_fpAssigned === 'Sir Lends A Lot LLC' ? ' selected' : '') + '>Sir Lends A Lot LLC</option>' +
-            '<option value="King Arthur Fund 1"' + (_fpAssigned === 'King Arthur Fund 1' ? ' selected' : '') + '>King Arthur Fund 1</option>' +
-            (_fpAssigned && _fpAssigned !== 'Sir Lends A Lot LLC' && _fpAssigned !== 'King Arthur Fund 1'
-              ? '<option value="' + escAttr(_fpAssigned) + '" selected>' + escH(_fpAssigned) + '</option>' : '') +
+        '<div class="field"><label>Company On Docs</label>' +
+          '<select id="fp-companyOnDocs">' +
+            '<option value=""' + (!_fpOnDocs ? ' selected' : '') + '>— Select —</option>' +
+            '<option value="Sir Lends A Lot LLC"' + (_fpOnDocs === 'Sir Lends A Lot LLC' ? ' selected' : '') + '>Sir Lends A Lot LLC</option>' +
+            '<option value="King Arthur Fund 1 LLC"' + (/king\s*arthur/i.test(_fpOnDocs) ? ' selected' : '') + '>King Arthur Fund 1 LLC</option>' +
+            (_fpOnDocs && _fpOnDocs !== 'Sir Lends A Lot LLC' && !/king\s*arthur/i.test(_fpOnDocs)
+              ? '<option value="' + escAttr(_fpOnDocs) + '" selected>' + escH(_fpOnDocs) + '</option>' : '') +
           '</select>' +
         '</div>' +
         '<div class="field" id="fp-otherWrap"' + (_fpSrc === 'other' ? '' : ' style="display:none"') + '><label>Other Source (one-time)</label>' +
@@ -1994,19 +2000,28 @@ function render() {
           '<input type="text" id="fp-pricing" value="' + escAttr(String(_fpPriceVal)) + '" placeholder="0" inputmode="decimal" />' +
           '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
         '</div>' +
-        '<div class="field"><label>Investor</label>' +
-          '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '"' + ((isDscr && !l.investorId) ? ' data-default-diya="1"' : '') + '>' + // Deploy 237.116
+        // Deploy 237.157 (Mike) -- "Assigned" is the investor the loan is assigned
+        // to (the whole investors book); changing it stamps the Assigned Date.
+        '<div class="field"><label>Assigned</label>' +
+          '<select id="fp-investorId" onchange="onAssignedChange()" data-current="' + escAttr(String(l.investorId || '')) + '"' + ((isDscr && !l.investorId) ? ' data-default-diya="1"' : '') + '>' + // Deploy 237.116
             '<option value="">— None —</option>' +
             // Seed the current selection so it shows before the async book
             // loads; populateFundingPlanInvestors() replaces these options.
             (l.investorId ? '<option value="' + escAttr(String(l.investorId)) + '" selected>' + escH(l.investorName || 'Selected investor') + '</option>' : '') +
           '</select>' +
         '</div>' +
+        '<div class="field"><label>Assigned Date</label>' +
+          '<input type="date" id="fp-assignedDate" value="' + escAttr(_fpAssignedDate) + '" />' +
+        '</div>' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="saveFundingPlan()">Save Funding Plan</button>' +
         '<span id="fundingPlanStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
       '</div>' +
+      // Deploy 237.157 (Mike) -- the chain of custody: every funder / investor
+      // move, newest first. Written server-side by _shared/funding-log.mjs from
+      // the Funding Plan, the sizer and the servicing screens alike.
+      _fpLogHtml(_fpLog) +
     '</div>' +
   '</div>';
 
@@ -8467,6 +8482,44 @@ function populateServicingInvestors() {
 // RTL stores buyRate; the "Other" free-text is only kept when Other is
 // the selected source. investorName is snapshotted from the picked
 // option so it survives the investor being removed from the book.
+// Deploy 237.157 (Mike) -- assignment history under the Funding Plan box.
+function _fpLogHtml(entries) {
+  if (!entries || !entries.length) {
+    return '<div style="margin-top:14px;font-size:12px;color:var(--muted)">No funder or investor moves recorded yet.</div>';
+  }
+  var rows = entries.map(function(e) {
+    var when = e.at ? _fmtDateTime(e.at) : '';
+    var who = String(e.by || '').split('@')[0];
+    return '<div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-top:1px solid var(--border);font-size:12.5px">' +
+      '<span style="white-space:nowrap;color:var(--muted);font-size:11.5px;min-width:120px">' + escH(when) + '</span>' +
+      '<span><strong>' + escH(e.label || e.field || '') + '</strong> ' +
+        (e.from ? escH(e.from) + ' &rarr; ' : 'set to ') + '<strong>' + escH(e.to || '') + '</strong></span>' +
+      '<span style="margin-left:auto;color:var(--muted);white-space:nowrap;font-size:11.5px">' +
+        escH(who) + (e.source ? ' · ' + escH(e.source) : '') + '</span>' +
+    '</div>';
+  }).join('');
+  return '<details style="margin-top:14px">' +
+    '<summary style="cursor:pointer;font-size:12px;color:var(--muted)">Assignment history (' + entries.length + ')</summary>' +
+    '<div style="margin-top:6px">' + rows + '</div></details>';
+}
+function _fmtDateTime(iso) {
+  var d = new Date(iso);
+  if (isNaN(d)) return String(iso || '');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ', ' +
+    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+// Changing who the loan is assigned to stamps today's date when the box is
+// empty or still shows the date of the previous assignment.
+function onAssignedChange() {
+  var sel = document.getElementById('fp-investorId');
+  var dateEl = document.getElementById('fp-assignedDate');
+  if (!sel || !dateEl) return;
+  var prior = String((_loan && _loan.investorId) || '');
+  if (sel.value && sel.value !== prior) {
+    var d = new Date();
+    dateEl.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+}
 function saveFundingPlan() {
   if (!_loan || !_client) return;
   var srcEl   = document.getElementById('fp-fundingSource');
@@ -8491,8 +8544,12 @@ function saveFundingPlan() {
   var fields = {
     fundingSource:      src,
     fundingSourceOther: (src === 'other' && otherEl) ? otherEl.value.trim() : '',
-    // Deploy 236.978 — which SLA entity holds the note.
-    assignedToEntity:   (document.getElementById('fp-assignedTo') || {}).value || '',
+    // Deploy 237.157 (Mike) — Company On Docs = the entity on the note. Mirrored
+    // to the legacy assignedToEntity key so the Financial Audit and anything
+    // else still reading it keeps working.
+    companyOnDocs:      (document.getElementById('fp-companyOnDocs') || {}).value || '',
+    assignedToEntity:   (document.getElementById('fp-companyOnDocs') || {}).value || '',
+    assignedDate:       (document.getElementById('fp-assignedDate') || {}).value || '',
     investorId:         invEl ? invEl.value : '',
     investorName:       invName,
   };
