@@ -3978,7 +3978,7 @@ function loadFciPayoff(force) {
         '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
         '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px 4px 0">Ordered</th><th style="padding:4px 8px 4px 0">Payoff Date</th><th style="padding:4px 8px 4px 0">Requested for</th><th style="padding:4px 8px 4px 0">By</th><th style="padding:4px 0">At FCI</th></tr>';
       pendingFiled.slice(0, 5).forEach(function (f) {
-        // Deploy 237.170 -- an entry filed before that deploy has no `confirmed` flag at
+        // Deploy 237.171 -- an entry filed before that deploy has no `confirmed` flag at
         // all; it is reported as unknown rather than quietly assumed good.
         var _cf = (f.confirmed === true) ? '<span style="color:#166534;font-weight:600">confirmed</span>'
           : (f.confirmed === false ? '<span style="color:#b3261e;font-weight:600">not confirmed</span>'
@@ -3992,7 +3992,7 @@ function loadFciPayoff(force) {
         '</tr>';
       });
       h += '</table></div>' +
-        // Deploy 237.170 (Mike: "I have yet to see anything on our FCI portal") -- this
+        // Deploy 237.171 (Mike: "I have yet to see anything on our FCI portal") -- this
         // line used to read "FCI accepted these", which we did not know. A demand is
         // only confirmed when FCI's OWN records list it; anything else needs a human.
         '<div style="font-size:11px;color:var(--muted);margin-top:6px">A demand marked <strong>not confirmed</strong> was sent to FCI but does NOT appear in their records \u2014 check the FCI portal and re-order or call it in. Confirmed ones usually move into the Demand History above.</div></div>';

@@ -7,7 +7,7 @@
  * This LIFTS loadFciActivity + loadFciPayoff out of loan-details.js and runs them against
  * stubbed responses, so that class of bug fails here instead of in front of a processor.
  *
- * Deploy 237.170: the box used to end "FCI accepted these", which we had not
+ * Deploy 237.171: the box used to end "FCI accepted these", which we had not
  * earned -- insertPayoff can answer without a GraphQL error and without creating
  * anything. Each demand now carries whether FCI's OWN records confirmed it, and these
  * checks pin that the page says which.
@@ -100,7 +100,7 @@ check('once FCI lists the same demand it stops being duplicated as pending', () 
   return h.indexOf('Demand History') > 0 && h.indexOf('Ordered by us') < 0 || 'still double-listed';
 });
 
-// Deploy 237.170 -- the three states of a demand we sent.
+// Deploy 237.171 -- the three states of a demand we sent.
 nextJson = { ok: true, serviced: true, account: '399653858', value: null, requests: null, filed: [
   { at: '2026-09-18T02:50:04.706Z', by: 'mike@slacapital.com', payoffDate: '2026-10-15', company: 'A', confirmed: true },
   { at: '2026-09-18T02:51:04.706Z', by: 'mike@slacapital.com', payoffDate: '2026-11-15', company: 'B', confirmed: false },

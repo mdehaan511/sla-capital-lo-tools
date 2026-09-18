@@ -210,7 +210,7 @@ export async function fciPayoffValue(account) {
 
 /** Demand history + tracking for one loan. */
 /**
- * Deploy 237.170 -- did insertPayoff actually create anything?
+ * Deploy 237.171 -- did insertPayoff actually create anything?
  *
  * Its return type is undocumented and FCI has introspection off, so we cannot know
  * what "yes" looks like. We CAN recognise the answers that are plainly "no": false,
@@ -227,7 +227,7 @@ export function insertPayoffVerdict(result) {
 }
 
 /**
- * Deploy 237.170 -- is the demand we just sent actually on the loan at FCI?
+ * Deploy 237.171 -- is the demand we just sent actually on the loan at FCI?
  * Matches on the payoff date, which is the one field we control and FCI echoes back.
  * Zero-throw: a failed read-back means UNCONFIRMED, never a false positive.
  * @returns { confirmed, checked, reason }
