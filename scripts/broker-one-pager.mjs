@@ -42,12 +42,12 @@ const PRODUCTS = [
     blurb: 'Purchase plus rehab on one short-term note, with the full rehab budget financed.',
     rows: [
       ['Rates', '9.5% - 12%, 1-4 points'],
-      ['Leverage', 'Up to 100% LTC for premier repeat borrowers'],
-      ['Rehab', '100% financed, drawn after inspection'],
+      ['Leverage', 'Up to 92.5% LTC and 75% of ARV'],
+      ['Credit', '680+ FICO, better terms at 700 and 740'],
+      ['Rehab', '100% of the budget, drawn after inspection'],
       ['Term', '6 - 18 months'],
       ['Loan size', '$100K - $3M'],
       ['Speed', 'Close in as little as 72 hours'],
-      ['Experience', 'First-timers welcome, LTC scales with track record'],
     ],
   },
   {
@@ -57,11 +57,11 @@ const PRODUCTS = [
     rows: [
       ['Rates', 'From 10%'],
       ['Leverage', '85% of land + 85% of construction costs'],
+      ['Credit', '680+ FICO'],
       ['Interest', 'Non-Dutch - you pay only on drawn funds'],
       ['Term', '18 or 24 months'],
       ['Loan size', '$100K - $7.5M'],
       ['Approval', 'Unpermitted land is eligible'],
-      ['Draws', 'Same-day approvals on clean photos and invoices'],
     ],
   },
   {
@@ -71,11 +71,11 @@ const PRODUCTS = [
     rows: [
       ['Rates', 'From 6.75%'],
       ['Leverage', 'Up to 80% LTV purchase and rate/term'],
+      ['Credit', '660+ FICO, 660-679 by pre-approval'],
       ['Structures', '30-yr fixed, 5-yr IO, 5/1 ARM, 7/1 ARM'],
       ['Qualifying', '1.00 DSCR minimum, no lease required'],
       ['Cash-out', '6-month seasoning'],
       ['Loan size', '$100K - $3M, portfolios of 2-10 on one note'],
-      ['Fees', '1 point origination, no junk fees'],
     ],
   },
   {
@@ -85,14 +85,22 @@ const PRODUCTS = [
     rows: [
       ['Rates', 'Ask your rep for current pricing'],
       ['Leverage', 'Up to 74.99% LTV purchase and refinance'],
+      ['Credit', '700+ FICO'],
       ['Qualifying', '1.20x NCF DSCR in top and standard markets'],
       ['Structures', '30-yr fixed and ARM, interest-only available'],
       ['Loan size', '$350K - $5M'],
       ['Property', '5-30 units, $500K min value, $75K avg / unit'],
-      ['Cash-out', 'Up to $500K, more with pre-approval'],
     ],
   },
 ];
+
+// Licensing exclusions are company-wide (guidelines.html "Eligible States &
+// Licensing"); IL / Newark are the Colchis RTL + GUC overlay, and Idaho is
+// excluded on Multifamily only (guidelines-mf.html).
+const FOOTPRINT_LEAD = 'Where we lend:';
+const FOOTPRINT = 'Nationwide except AZ, CA, MN, ND, NV, SD, UT, VT and US territories.  '
+  + 'Fix & Flip and New Construction also exclude IL, the city of Newark NJ, and rural (RUCA) properties.  '
+  + 'Multifamily 5+ also excludes ID.';
 
 const WHY = [
   ['Term sheet in minutes', 'Our sizer prices the deal up front - rate, points, leverage and reserves.'],
@@ -153,7 +161,7 @@ const main = async () => {
   // ── Product cards (2 x 2) ─────────────────────────────────────
   const M = 40, GUT = 14;
   const CW = (612 - M * 2 - GUT) / 2;
-  const CH = 200;
+  const CH = 182;
   const top = 792 - H - 78;
   PRODUCTS.forEach((p, i) => {
     const col = i % 2, row = Math.floor(i / 2);
@@ -178,9 +186,17 @@ const main = async () => {
     });
   });
 
+  // ── Lending footprint ─────────────────────────────────────────
+  const fpTop = top - 2 * (CH + GUT) - 4;
+  const fpH = 40;
+  page.drawRectangle({ x: M, y: fpTop - fpH, width: 612 - M * 2, height: fpH, color: rgb(1, 0.965, 0.93), borderColor: PEACH, borderWidth: 1 });
+  text(FOOTPRINT_LEAD, M + 12, fpTop - 16, 8.5, bold, ORANGE);
+  const fpX = M + 12 + bold.widthOfTextAtSize(FOOTPRINT_LEAD, 8.5) + 6;
+  wrap(FOOTPRINT, fpX, fpTop - 16, 8.2, reg, INK, 612 - M * 2 - 24 - (fpX - M - 12), 1.34);
+
   // ── Why partner strip ─────────────────────────────────────────
-  const wyTop = top - 2 * (CH + GUT) - 2;
-  const wyH = 86;
+  const wyTop = fpTop - fpH - 12;
+  const wyH = 80;
   page.drawRectangle({ x: M, y: wyTop - wyH, width: 612 - M * 2, height: wyH, color: WASH, borderColor: LINE, borderWidth: 1 });
   text('WHY BROKERS SEND US DEALS', M + 12, wyTop - 17, 8.5, bold, PLUM, { characterSpacing: 1.2 });
   const colW = (612 - M * 2 - 24) / 4;
@@ -191,7 +207,7 @@ const main = async () => {
   });
 
   // ── Footer ────────────────────────────────────────────────────
-  const fy = 66;
+  const fy = 60;
   page.drawLine({ start: { x: M, y: fy + 34 }, end: { x: 612 - M, y: fy + 34 }, thickness: 1, color: LINE });
   const contact = 'Submit a deal:  apply@slacapital.com   ·   (509) 846-7349   ·   slacapital.ai';
   text(contact, (612 - bold.widthOfTextAtSize(contact, 10)) / 2, fy + 18, 10, bold, PLUM);
