@@ -1775,6 +1775,9 @@
     },
     create: function (data) { return api('POST', '/api/esign-docs', data); },
     save: function (data) { return api('POST', '/api/esign-doc-save', data); },
+    // Deploy 237.168 — page surgery on a draft: add another PDF's pages, or
+    // rebuild the page order (a page left out of `order` is deleted).
+    pages: function (data) { return api('POST', '/api/esign-doc-pages', data); },
     send: function (id, opts) {
       opts = opts || {};
       return api('POST', '/api/esign-doc-send', { id: id, owner: opts.owner, skipEmail: !!opts.skipEmail, signerId: opts.signerId });

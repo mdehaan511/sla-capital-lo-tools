@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>E-Sign — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js?v=237162"></script>
+  <script src="sla-api.js?v=237168"></script>
   <script src="sla-nav.js"></script>
   <script src="sla-notifications.js?v=237120"></script>
   <script src="sla-chat.js"></script>
@@ -224,6 +224,7 @@
         <span class="ed-save" id="edSaveState"></span>
         <span class="zoom" title="Zoom (re-renders the pages sharply)"><button type="button" onclick="setZoom(_zoom / 1.25)">−</button><span class="pct" id="zoomPct">100%</span><button type="button" onclick="setZoom(_zoom * 1.25)">+</button><button type="button" onclick="setZoom(1)" style="width:auto;padding:0 8px;font-size:11px;font-weight:600">Fit</button></span>
         <button class="btn ghost sm" onclick="saveDraft(true)">Save</button>
+        <button class="btn ghost sm" onclick="openAddPages()" title="Combine another PDF into this document">+ Add pages</button>
         <button class="btn ghost sm" onclick="saveAsTemplate()">Save as template</button>
         <button class="btn sm" onclick="openSend()">Send for signature →</button>
       </div>
@@ -319,6 +320,25 @@
     <div class="actions">
       <button class="btn ghost" onclick="closeNewDoc()">Cancel</button>
       <button class="btn" id="newGo" onclick="createDoc()">Create draft</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add pages modal — Deploy 237.168 (Mike: combine multiple PDFs) -->
+<div class="modal-bg" id="addPagesModal" style="display:none" onclick="if(event.target===this)closeAddPages()">
+  <div class="modal">
+    <h2>Add pages</h2>
+    <p class="sub">Combine another PDF into this document. Fields you have already placed stay on their own pages.</p>
+    <div class="drop" id="addDrop" onclick="document.getElementById('addPagesFile').click()">
+      <strong>Drop a PDF here or click to choose</strong>
+      <span id="addDropSub">Up to <span id="addMaxMb">4.5</span> MB per file.</span>
+      <input type="file" id="addPagesFile" accept="application/pdf,.pdf" style="display:none" onchange="onAddPagesFile(this.files)">
+    </div>
+    <div class="field"><label>Where do these pages go?</label><select id="addPagesAt"></select></div>
+    <div class="hint" id="addPagesRoom" style="margin-top:2px"></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeAddPages()">Cancel</button>
+      <button class="btn" id="addPagesGo" onclick="doAddPages()">Add pages</button>
     </div>
   </div>
 </div>
@@ -467,7 +487,7 @@ function route() {
 }
 function showView(v) {
   // Hash navigation keeps the page alive, so close any modal left open by the previous view.
-  ['newModal', 'signerModal', 'sendModal', 'linksModal'].forEach(function (id) { var m = document.getElementById(id); if (m) m.style.display = 'none'; });
+  ['newModal', 'signerModal', 'sendModal', 'linksModal', 'addPagesModal'].forEach(function (id) { var m = document.getElementById(id); if (m) m.style.display = 'none'; });
   document.getElementById('viewList').style.display = v === 'list' ? '' : 'none';
   document.getElementById('viewEditor').style.display = v === 'edit' ? '' : 'none';
   document.getElementById('viewDetail').style.display = v === 'doc' ? '' : 'none';
@@ -1291,6 +1311,84 @@ function onDragUp() {
 }
 
 // Templates from the editor
+// ── Add pages (Deploy 237.168, Mike: "combine multiple PDFs") ──────────
+// Pages go in a FILE AT A TIME rather than uploading one pre-combined PDF: a
+// request body is capped near 6MB by the gateway, so appending is what lets an
+// assembled document grow past what a single upload could carry.
+var _addPagesFile = null, _addingPages = false;
+function openAddPages() {
+  if (!_doc) return;
+  _addPagesFile = null;
+  var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
+  document.getElementById('addMaxMb').textContent = String(Math.round(max / 1024 / 1024 * 10) / 10);
+  document.getElementById('addDrop').querySelector('strong').textContent = 'Drop a PDF here or click to choose';
+  document.getElementById('addPagesFile').value = '';
+  var n = (_doc.pdf && _doc.pdf.pageCount) || 1;
+  var opts = '<option value="">At the end (after page ' + n + ')</option>';
+  for (var i = 1; i <= n; i++) opts += '<option value="' + i + '">Before page ' + i + '</option>';
+  document.getElementById('addPagesAt').innerHTML = opts;
+  document.getElementById('addPagesRoom').textContent =
+    'This document is ' + _mb((_doc.pdf && _doc.pdf.size) || 0) + ' of a ' + _mb((_meta && _meta.maxDocBytes) || 12 * 1024 * 1024) + ' limit.';
+  var go = document.getElementById('addPagesGo'); go.disabled = false; go.textContent = 'Add pages';
+  document.getElementById('addPagesModal').style.display = 'flex';
+}
+function closeAddPages() { document.getElementById('addPagesModal').style.display = 'none'; _addPagesFile = null; }
+function _mb(n) {
+  n = Number(n) || 0;
+  // Under a megabyte, "0 MB" reads like nothing is there — show KB.
+  if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
+  return (Math.round(n / 1024 / 1024 * 10) / 10) + ' MB';
+}
+function onAddPagesFile(files) {
+  var f = files && files[0];
+  if (!f) return;
+  if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') { showToast('Please choose a PDF file', 'err'); return; }
+  var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
+  if (f.size > max) { showToast('That PDF is ' + _mb(f.size) + ' — a single file can be at most ' + _mb(max) + '. Add it in smaller pieces.', 'err'); return; }
+  _addPagesFile = f;
+  document.getElementById('addDrop').querySelector('strong').textContent = f.name + ' (' + (f.size / 1024).toFixed(0) + ' KB)';
+}
+(function wireAddDrop() {
+  var d = document.getElementById('addDrop');
+  if (!d) return;
+  d.addEventListener('dragover', function (e) { e.preventDefault(); d.classList.add('over'); });
+  d.addEventListener('dragleave', function () { d.classList.remove('over'); });
+  d.addEventListener('drop', function (e) { e.preventDefault(); d.classList.remove('over'); onAddPagesFile(e.dataTransfer.files); });
+})();
+function doAddPages() {
+  if (!_doc || _addingPages) return;
+  if (!_addPagesFile) { showToast('Choose a PDF first', 'err'); return; }
+  var at = document.getElementById('addPagesAt').value;
+  var go = document.getElementById('addPagesGo');
+  _addingPages = true; go.disabled = true; go.textContent = 'Adding\u2026';
+  // Flush anything unsaved FIRST. The server remaps the field list it holds,
+  // so a field placed a second ago but not yet saved would otherwise be
+  // re-saved afterwards carrying its old page number.
+  clearTimeout(_saveTimer);
+  var ready = (_dirty || _saving) ? saveDraft(false) : Promise.resolve();
+  ready.then(function () {
+    return readAsBase64(_addPagesFile).then(function (b64) {
+      return SLA.ESign.pages(ownerBody({
+        id: _doc.id, at: at ? Number(at) : undefined,
+        add: { filename: _addPagesFile.name, pdfBase64: b64 },
+      }));
+    });
+  }).then(function (r) {
+    // Adopt the server's copy wholesale: its fields carry the new page numbers.
+    _doc = r.doc; _selField = null; _dirty = false;
+    document.getElementById('propPanel').style.display = 'none';
+    closeAddPages();
+    setSaveState('Saved');
+    showToast('Added ' + r.addedCount + ' page' + (r.addedCount === 1 ? '' : 's') + ' — ' + r.pageCount + ' total', 'ok');
+    // Cache-bust so the viewer re-fetches the rebuilt PDF, not the old bytes.
+    return renderPdf('/api/esign-doc-pdf?id=' + encodeURIComponent(_doc.id) + ownerQs() + '&v=' + Date.now())
+      .then(function () { renderSigners(); renderAllFields(); });
+  }).catch(function (e) {
+    showToast(e.message || 'Could not add those pages', 'err');
+    go.disabled = false; go.textContent = 'Add pages';
+  }).then(function () { _addingPages = false; });
+}
+
 function saveAsTemplate() {
   if (!_doc) return;
   var p = saveDraft(false);

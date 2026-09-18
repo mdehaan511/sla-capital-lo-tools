@@ -2425,6 +2425,13 @@
   status = 200
   force = true
 
+# Deploy 237.168 — combine PDFs / re-order pages on a draft (Mike).
+[[redirects]]
+  from = "/api/esign-doc-pages"
+  to = "/.netlify/functions/esign-doc-pages"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/esign-doc-send"
   to = "/.netlify/functions/esign-doc-send"

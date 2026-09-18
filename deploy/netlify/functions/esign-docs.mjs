@@ -19,7 +19,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import {
-  MAX_PDF_BYTES, TOKEN_TTL_DAYS, docTypeOptions, listSummaries, readDoc, writeDoc, sanitizeDoc,
+  MAX_PDF_BYTES, MAX_DOC_BYTES, TOKEN_TTL_DAYS, docTypeOptions, listSummaries, readDoc, writeDoc, sanitizeDoc,
   newId, docKey, docPdfStore, tplStore, tplPdfStore, inspectPdf, pushHistory, fullName, baseUrl,
   SIGNER_COLORS, normalizeLoanRef,
 } from './_shared/esign-docs.mjs';
@@ -41,6 +41,7 @@ export default async (req, context) => {
           docTypes: docTypeOptions(),
           consentVersion: TERMSHEET_CONSENT_VERSION,
           maxPdfBytes: MAX_PDF_BYTES,
+          maxDocBytes: MAX_DOC_BYTES,   // Deploy 237.168 — ceiling on an assembled document
           tokenTtlDays: TOKEN_TTL_DAYS,
           isStaff: staff(user),
           signerColors: SIGNER_COLORS,

@@ -58,6 +58,12 @@ export const FIELD_TYPES  = ['signature', 'initials', 'date', 'text', 'checkbox'
 export const SIGNER_KINDS = ['borrower', 'user', 'broker', 'other'];
 export const TOKEN_TTL_DAYS = 30;
 export const MAX_PDF_BYTES = 4.5 * 1024 * 1024; // Netlify gateway caps a function body at ~6MB; base64 inflates 33%
+// Deploy 237.168 (Mike) — an ASSEMBLED document may grow past what one upload
+// can carry, because pages are added a file at a time: each request stays
+// under MAX_PDF_BYTES while the document itself keeps growing. This is the
+// ceiling on the result, chosen so the finished PDF still opens quickly for a
+// borrower on a phone and the stamper can hold it in memory.
+export const MAX_DOC_BYTES = 12 * 1024 * 1024;
 export const MAX_SIGNERS = 10;
 export const MAX_FIELDS = 300;
 export const SIGNER_COLORS = ['#C8813A', '#2563eb', '#256940', '#7c1f1f', '#7a5218', '#4a7a8a', '#6d28d9', '#b45309', '#0f766e', '#9d174d'];
@@ -338,6 +344,81 @@ export async function inspectPdf(base64) {
     pageCount: pages.length,
     pages,
   };
+}
+
+// ── Page assembly (Deploy 237.168) ─────────────────────────────────
+//
+// Mike: "PandaDoc can combine multiple PDFs or move around the page order."
+// Both are the same operation to pdf-lib — build a document out of pages
+// copied from the old one(s) — and both are DRAFT-ONLY. Once a document is
+// sent we have sealed its SHA-256 into every signer's audit record and printed
+// it on the certificate page, so the bytes a signer saw can never change.
+//
+// Fields survive because they are stored as a page NUMBER plus fractions of
+// that page's own size: moving a page only changes which number a field points
+// at, never where it sits on the paper. Each helper returns the new bytes AND
+// the page mapping, and the caller applies that mapping to the fields, so the
+// two can never drift apart.
+
+/** Insert `addBytes` before 1-based page `at` (pageCount+1 = append). */
+export async function insertPdfPages(baseBytes, addBytes, at) {
+  const base = await PDFDocument.load(baseBytes, { ignoreEncryption: true });
+  const add  = await PDFDocument.load(addBytes,  { ignoreEncryption: true });
+  const baseCount = base.getPageCount(), addCount = add.getPageCount();
+  if (!addCount) throw new Error('That PDF has no pages');
+  const where = Math.max(1, Math.min(baseCount + 1, parseInt(at, 10) || (baseCount + 1)));
+  const copied = await base.copyPages(add, add.getPageIndices());
+  // insertPage takes a 0-based index; copying in order keeps the added pages
+  // in their original sequence.
+  copied.forEach((pg, i) => base.insertPage(where - 1 + i, pg));
+  return {
+    bytes: Buffer.from(await base.save()),
+    pageCount: baseCount + addCount,
+    addedCount: addCount,
+    at: where,
+    remap: (page) => (page >= where ? page + addCount : page),   // old 1-based -> new 1-based
+  };
+}
+
+/**
+ * Rebuild the document from `order`, a list of 1-based page numbers of the
+ * CURRENT document. Pages left out are dropped; a repeat is ignored.
+ * remap returns 0 for a page that is gone.
+ */
+export async function reorderPdfPages(baseBytes, order) {
+  const base = await PDFDocument.load(baseBytes, { ignoreEncryption: true });
+  const count = base.getPageCount();
+  const seen = new Set();
+  const list = (Array.isArray(order) ? order : []).map((n) => parseInt(n, 10)).filter((n) => {
+    if (!(n >= 1 && n <= count) || seen.has(n)) return false;
+    seen.add(n); return true;
+  });
+  if (!list.length) throw new Error('A document needs at least one page');
+  const out = await PDFDocument.create();
+  const copied = await out.copyPages(base, list.map((n) => n - 1));
+  copied.forEach((pg) => out.addPage(pg));
+  const map = {};
+  list.forEach((oldPage, i) => { map[oldPage] = i + 1; });
+  return {
+    bytes: Buffer.from(await out.save()),
+    pageCount: list.length,
+    dropped: count - list.length,
+    remap: (page) => map[page] || 0,
+  };
+}
+
+/**
+ * Apply a page remap to a document's fields, in place. A field whose page
+ * disappeared is removed and counted, so the caller can tell the user exactly
+ * what deleting a page cost them.
+ */
+export function remapFieldPages(doc, remap) {
+  const before = (doc.fields || []).length;
+  doc.fields = (doc.fields || []).map((f) => {
+    const p = remap(f.page || 1);
+    return p ? Object.assign({}, f, { page: p }) : null;
+  }).filter(Boolean);
+  return before - doc.fields.length;
 }
 
 // ── Stamper ───────────────────────────────────────────────────────
