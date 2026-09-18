@@ -1225,6 +1225,15 @@
 # Deploy 236.803 — payoffs. GET (per loan / ?demands=1) reads FCI; POST FILES A
 # REAL DEMAND on the servicer, so it is only ever called from a button.
 # Deploy 237.135 (Mike) -- Financial Audit ledger (admins + processors).
+# Deploy 237.181 (Mike) -- the broker product one-pager, personalized to the
+# signed-in rep (name in the header, their contact in the footer, their apply
+# QR). Generated per request, so it is never cached or stale.
+[[redirects]]
+  from = "/api/broker-one-pager"
+  to = "/.netlify/functions/broker-one-pager"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/financial-audit-list"
   to = "/.netlify/functions/financial-audit-list"

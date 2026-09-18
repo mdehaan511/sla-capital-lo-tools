@@ -217,6 +217,11 @@
         <span class="apply-link-url" id="applyUrl">Loading…</span>
         <button class="copy-btn" id="copyApplyBtn" onclick="copyApply()">Copy link</button>
       </div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">
+        Short enough to text or say out loud &mdash; it opens the application already routed to you, and it is the
+        same link the QR code on the broker one-pager uses.<br>
+        Full form: <span id="applyUrlLong" style="font-family:'DM Mono',monospace"></span>
+      </div>
     </div>
   </div>
 
@@ -601,8 +606,16 @@ function initProfile() {
     // Sales Managers, everyone else is a Loan Officer.
     role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager' : 'Loan Officer';
 
+  // Deploy 237.181 (Mike: "an easier way to send an apply link that defaults to
+  // them without having to send the long custom link"). slacapital.ai/a/<name>
+  // redirects to /apply/?lo=<email> -- short enough to text or say out loud, and
+  // it is the same link the QR on the broker one-pager encodes.
+  var mailbox = String(_user.email || '').split('@')[0].toLowerCase();
+  var shortUrl = mailbox ? 'https://slacapital.ai/a/' + mailbox : '';
   var url = (window.location.origin || '') + '/apply.html?lo=' + encodeURIComponent(_user.email);
-  document.getElementById('applyUrl').textContent = url;
+  document.getElementById('applyUrl').textContent = shortUrl || url;
+  var longEl = document.getElementById('applyUrlLong');
+  if (longEl) longEl.textContent = url;
 }
 
 function saveProfile() {
