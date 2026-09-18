@@ -15,9 +15,13 @@
  *
  *   2. Credit Authorization became a per-guarantor tray. The risk is not the mint,
  *      it is the MIGRATION: an existing shared tray holding a signed form must move
- *      to Guarantor 1 with its documents, not be dropped or duplicated. And its
- *      rubric must stop telling the AI that a form naming two people is misfiled,
- *      because one form signed by everybody is exactly what this document usually is.
+ *      to Guarantor 1 with its documents, not be dropped or duplicated.
+ *
+ *      Deploy 237.152 (Mike: "Each guarantor should sign their own credit auth"):
+ *      237.150 had exempted this slug so a jointly-signed form passed in everyone's
+ *      tray. It does not. The application already writes one prequal-credit-auth page
+ *      PER SIGNER and emails each guarantor their own link, so the tray rule and what
+ *      the app produces now say the same thing -- which is what these checks pin.
  *
  * Run: node scripts/doc-sections-test.mjs
  */
@@ -98,15 +102,28 @@ check('…and the rest of the list is unchanged',
   ['guarantor_id', 'proof_of_citizenship', 'credit_report', 'guarantor_background_check',
    'ofac_personal', 'guarantor_loe', 'pfs']);
 
-const note = guarantorNote('Jane Doe', 'Guarantor 2', 'credit_authorization__g1');
-assert('its rubric accepts ONE form signed by every guarantor',
-  /SINGLE authorization signed by every guarantor/.test(note) && /Jane Doe/.test(note), note);
-assert('…while an ID in the wrong tray is still a flag',
-  /wrong tray/.test(guarantorNote('Jane Doe', 'Guarantor 2', 'guarantor_id__g1')), 'note went soft for IDs too');
-assert('both notes keep the marker adoptGuarantorsFromLoan strips on a rename',
-  [note, guarantorNote('A', 'Guarantor 1', 'guarantor_id')]
-    .every((n) => n.indexOf(' THIS TRAY IS FOR ONE GUARANTOR ONLY: ') === 0));
+const note = guarantorNote('Jane Doe', 'Guarantor 2');
+assert('a guarantor\'s tray wants THAT guarantor\'s document — no shared-form exemption',
+  /wrong tray/.test(note) && /Jane Doe/.test(note) && !/SINGLE authorization/.test(note), note);
+assert('every per-person slug gets the same note, credit auth included',
+  [guarantorNote('Jane Doe', 'Guarantor 2'), guarantorNote('A', 'Guarantor 1')]
+    .every((n) => n.indexOf(' THIS TRAY IS FOR ONE GUARANTOR ONLY: ') === 0 && /wrong tray/.test(n)));
 check('the note is keyed off the base slug, suffix or not', stripTraySuffix('credit_authorization__g1'), 'credit_authorization');
+
+// The rubric the AI grades against must say the same thing as the application.
+const caRubric = (getChecklist('dscr').find((d) => d.slug === 'credit_authorization') || {}).conditions || '';
+assert('the checklist no longer says "signed by all guarantors"',
+  !/by all guarantors|by every guarantor/i.test(caRubric), caRubric);
+assert('…it says each guarantor signs their own',
+  /signs their OWN authorization/.test(caRubric) && /signature from one guarantor does not cover another/i.test(caRubric), caRubric);
+// The rubrics are copied across three files as single-quoted literals, so an apostrophe
+// in one is a parse error, not a typo (237.152 hit exactly that). Keep them plain.
+assert('no apostrophe can sneak back into the credit-auth rubric',
+  caRubric.indexOf("'") < 0, caRubric);
+assert('RTL says it too', (() => {
+  const r = (getChecklist('rtl').find((d) => d.slug === 'credit_authorization') || {}).conditions || '';
+  return r === caRubric;
+})(), 'the two checklists disagree on the credit-auth rubric');
 
 // A real review that already holds a signed credit auth in the shared tray.
 const r = {
@@ -136,8 +153,10 @@ assert('guarantor 2 gets their own credit auth tray', added.includes('credit_aut
 check('the minted tray is filed to the right person',
   [r.docs['credit_authorization__g1'].guarantorIndex, r.docs['credit_authorization__g1'].guarantorName],
   [1, 'Jane Doe']);
-assert('…with the shared-form rubric, not the wrong-tray one',
-  /SINGLE authorization signed by every guarantor/.test(r.docs['credit_authorization__g1'].conditions));
+assert('…carrying the per-person rubric, naming her',
+  /THIS TRAY IS FOR ONE GUARANTOR ONLY: Jane Doe/.test(r.docs['credit_authorization__g1'].conditions) &&
+  /signs their OWN authorization/.test(r.docs['credit_authorization__g1'].conditions),
+  r.docs['credit_authorization__g1'].conditions);
 assert('a re-run adds nothing (idempotent — it runs on every page open)',
   expandGuarantorTrays(r).length === 0);
 check('nothing is left in the shared bucket, so the "All guarantors — shared" group stops rendering',

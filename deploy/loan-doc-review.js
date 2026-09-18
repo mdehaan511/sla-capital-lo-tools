@@ -68,7 +68,7 @@
 
     // Deploy 237.075 (Mike) -- one per guarantor; names must match the ID incl. middle name.
     guarantor_background_check:{ label: 'Guarantor Background Check', section: 'guarantor', conditions: 'One per guarantor. Run on the full legal name per the ID plus DOB. No bankruptcies, liens, or judgements. Criminal report < 90 days old.' },
-    credit_authorization:     { label: 'Credit Authorization', section: 'guarantor', conditions: 'Signed by all guarantors.' },
+    credit_authorization:     { label: 'Credit Authorization', section: 'guarantor', conditions: 'Signed and dated by the guarantor this tray belongs to. Deploy 237.152 (Mike): each guarantor signs their OWN authorization — a signature from one guarantor does not cover another, so a form naming a different person is the wrong document for this tray. The signed loan application carries one "Authorization to Conduct Prequal Credit & Background Checks" page per signer; that page for THIS guarantor is what belongs here.' },
     credit_report:            { label: 'Credit Report', section: 'guarantor', conditions: 'One per guarantor. Name is the full legal name per the ID. Middle score above 690? Any lates or past-due accounts? Report is < 90 days old?' },
     guarantor_id:             { label: 'Guarantor ID (Driver’s License or Passport)', section: 'guarantor', conditions: 'Unexpired government photo ID for EACH guarantor. Full legal name incl. middle name as printed. Every other document must match it (no nicknames). Birth date matches the application.' },
     ofac_personal:            { label: 'OFAC Check (Personal)', section: 'guarantor', conditions: 'One per guarantor. Name searched is the full legal name per the ID incl. middle name. No unresolved matches.' },
@@ -1956,8 +1956,10 @@
     [/^operating_agreement$/, ['entity', 'members']],
     // Deploy 237.075 (Mike) -- every guarantor listed; legal name per the ID (incl. middle name, no
     // nicknames); per-guarantor trays show which guarantors have a copy on file.
-    [/^(guarantor_id|proof_of_citizenship|guarantor_background_check|ofac_personal|pfs)$/, ['guarantorsAll', 'legalName', 'copies']],
-    [/^(credit_authorization|guarantor_loe|borrower_loe|track_record|track_record_reo|vom|voh_corrfirst)$/, ['guarantorsAll', 'legalName']],
+    // Deploy 237.152 (Mike) -- credit_authorization moved up into the per-person group:
+    // each guarantor signs their own, so the panel shows WHICH guarantors have one on file.
+    [/^(guarantor_id|proof_of_citizenship|guarantor_background_check|ofac_personal|pfs|credit_authorization)$/, ['guarantorsAll', 'legalName', 'copies']],
+    [/^(guarantor_loe|borrower_loe|track_record|track_record_reo|vom|voh_corrfirst)$/, ['guarantorsAll', 'legalName']],
     [/^credit_report$/, ['guarantorsAll', 'legalName', 'copies', 'fico', 'fresh']],
     [/^bank_stmt_(current|previous)$/, ['holder', 'liquidity', 'fresh']],
     [/^(voided_check|voided_check_ach|executed_ach_form|draw_wire_form)$/, ['holderOnly']], // Deploy 237.074 -- entity (per Articles) or any guarantor

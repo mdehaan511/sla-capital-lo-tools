@@ -32,13 +32,15 @@
  * (loan-review-sync-categories), from the nightly guarantor-trays cron and the
  * post-deploy backfill (guarantor-trays-backfill-background).
  */
-import { guarantorPersonEntries, GUARANTOR_PER_PERSON, stripTraySuffix } from './loan-review-checklists.mjs';
+import { guarantorPersonEntries, GUARANTOR_PER_PERSON } from './loan-review-checklists.mjs';
 
 const PER_PERSON = new Set(GUARANTOR_PER_PERSON);
-// Deploy 237.150 (Dan) -- per-guarantor trays whose document is COMMONLY one form
-// signed by every guarantor. The same PDF legitimately sits in each person's tray,
-// so their rubric must not tell the AI to reject it as misfiled.
-const SHARED_FORM = new Set(['credit_authorization']);
+// Deploy 237.152 (Mike: "Each guarantor should sign their own credit auth") -- 237.150
+// carved out a SHARED_FORM exemption here so a jointly-signed credit authorization
+// would pass in every guarantor's tray. That is not the model, and it is not what the
+// application produces: renderSignedApplicationPDF writes one prequal-credit-auth page
+// PER SIGNER and borrower-info-sign emails guarantors 2-4 their own link, so every
+// guarantor already signs their own. There is no exemption -- one note, for everyone.
 
 export function isMultiGuarantorReview(review) {
   return !!(review && Array.isArray(review.guarantors) && review.guarantors.length > 1);
@@ -46,20 +48,17 @@ export function isMultiGuarantorReview(review) {
 
 // The note always opens with the same marker so adoptGuarantorsFromLoan can strip
 // and rewrite it when a guarantor is renamed.
-export function guarantorNote(name, label, slug) {
+export function guarantorNote(name, label) {
   const who = String(name || label || 'this guarantor');
-  const head = ' THIS TRAY IS FOR ONE GUARANTOR ONLY: ' + who + ' (' + String(label || 'Guarantor') + '). ';
-  if (SHARED_FORM.has(stripTraySuffix(slug))) {
-    return head + 'This form is often a SINGLE authorization signed by every guarantor — that is acceptable here, and the same copy belongs in each guarantor\'s tray. Check only that ' + who + ' is named on it and has signed; flag it only if ' + who + ' is absent.';
-  }
-  return head + 'The document must belong to this person; a document for a different guarantor is filed in the wrong tray — flag it and name the person it actually belongs to.';
+  return ' THIS TRAY IS FOR ONE GUARANTOR ONLY: ' + who +
+    ' (' + String(label || 'Guarantor') + '). The document must belong to this person; a document for a different guarantor is filed in the wrong tray — flag it and name the person it actually belongs to.';
 }
 
 function _blankTray(item, g) {
   return {
     slug: item.slug + '__g' + g.index,
     label: item.label || item.slug,
-    conditions: (item.conditions || '') + guarantorNote(g.name, g.label, item.slug),
+    conditions: (item.conditions || '') + guarantorNote(g.name, g.label),
     section: 'guarantor',
     guarantorIndex: g.index,
     guarantorName: g.name || '',
@@ -110,7 +109,7 @@ export function adoptGuarantorsFromLoan(review, names) {
     if (tray.guarantorName !== g.name) {
       tray.guarantorName = g.name;
       tray.guarantorLabel = g.label;
-      tray.conditions = String(tray.conditions || '').replace(/ THIS TRAY IS FOR ONE GUARANTOR ONLY:.*$/, '') + guarantorNote(g.name, g.label, slug);
+      tray.conditions = String(tray.conditions || '').replace(/ THIS TRAY IS FOR ONE GUARANTOR ONLY:.*$/, '') + guarantorNote(g.name, g.label);
     }
   }
 
@@ -123,7 +122,7 @@ export function adoptGuarantorsFromLoan(review, names) {
       const gslug = slug + '__g0';
       if (review.docs[gslug]) continue;                    // would clobber — leave the base as a shared inbox
       const moved = { ...tray, slug: gslug, guarantorIndex: 0, guarantorName: g0.name, guarantorLabel: g0.label };
-      moved.conditions = String(tray.conditions || '') + guarantorNote(g0.name, g0.label, slug);
+      moved.conditions = String(tray.conditions || '') + guarantorNote(g0.name, g0.label);
       moved.history = Array.isArray(tray.history) ? tray.history.slice() : [];
       moved.history.push({ ts: new Date().toISOString(), action: 'guarantor_adopt',
         note: 'Loan has ' + next.length + ' guarantors; this tray now belongs to ' + g0.label + (g0.name ? ' (' + g0.name + ')' : '') + '.' });
