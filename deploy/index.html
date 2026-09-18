@@ -404,6 +404,23 @@
               <span class="tool-arrow">→</span>
             </a>
 
+            <!-- Eastview DSCR Sizer — Deploy 237.149 (Mike). Admin + Senior LO, same
+                 gate as the page and the Tools menu. -->
+            <a class="tool-card" href="ev-dscr-sizer.html" data-role-required="seniorlo" style="display:none">
+              <div class="tool-icon">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M3 15l4-5 3 3 3-6 4 8" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M3 3v14h14" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="tool-body">
+                <span class="tool-badge">Loan sizing</span>
+                <div class="tool-name">Eastview DSCR Sizer <span style="font-size:10px;font-weight:700;color:#2563eb;letter-spacing:0.05em;background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.25);border-radius:4px;padding:1px 5px;vertical-align:middle;margin-left:4px">PILOT</span></div>
+                <div class="tool-desc">Price 1-9 unit DSCR loans off Eastview's coupon ladder — exit price and premium per rate.</div>
+              </div>
+              <span class="tool-arrow">→</span>
+            </a>
+
             <!-- GUC Sizer — Deploy 236.729: pilot opened to all LOs. -->
             <a class="tool-card" href="guc-sizer.html">
               <div class="tool-icon">
@@ -555,7 +572,10 @@
       // placeholder if it's still up.
       try { var _p = document.getElementById('oauthPendingMsg'); if (_p) _p.remove(); } catch (_) {}
       // Reveal role-gated tool cards.
-      var roleChecks = { processor: isProcessor, admin: isAdmin, super_admin: isSuperAdmin };
+      // Deploy 237.149 (Mike) -- `seniorlo` = admin or Senior LO, the same gate the
+      // Eastview sizer page and the Tools menu use.
+      function isSeniorLo(u) { return isAdmin(u) || getRoles(u).some(function (r) { return r === 'senior_lo'; }); }
+      var roleChecks = { processor: isProcessor, admin: isAdmin, super_admin: isSuperAdmin, seniorlo: isSeniorLo };
       var gated = document.querySelectorAll('.tool-card[data-role-required]');
       for (var i = 0; i < gated.length; i++) {
         var req = gated[i].getAttribute('data-role-required');
