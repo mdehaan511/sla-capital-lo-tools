@@ -1763,6 +1763,25 @@ function submitNewLoan() {
 // "Name · Role" badge), so the card shows the full team at a glance rather than
 // just the primary processor. `excludeEmail` drops one member (used to avoid
 // duplicating the processor already shown in the assign <select> for editors).
+// Deploy 237.160 (Chance, via Mike: "make the loan officer more visible") — the LO
+// rides at the FRONT of the same pill row as the processing team. 236.94 pulled
+// the LO name off the tile on the grounds that the board's LO filter covered
+// attribution, but 236.695 repurposed that filter to PROCESSOR ("All
+// Processors"), leaving the board no way at all to see whose loan it is. So this
+// is a deliberate re-add, not a regression of 236.94 — same pill treatment as
+// the processing team, tinted gold so the LO reads first.
+function _loPillHtml(it) {
+  var ownerKey = (it && it.ownerKey) || '';
+  if (!ownerKey) return '';
+  var nm = loDisplay(ownerKey);
+  if (!nm) return '';
+  // loDisplay's own fallback turns every underscore into a space, which mangles
+  // an email; rebuild the address from the key for the hover text instead.
+  var email = String(ownerKey).replace(/_at_/g, '@').replace(/_dot_/g, '.');
+  var txt = nm + ' · Loan Officer';
+  var title = 'Loan Officer: ' + nm + ((email && email.toLowerCase() !== String(nm).toLowerCase()) ? ' (' + email + ')' : '');
+  return '<span class="card-team-badge lo" title="' + escAttr(title) + '" style="font-size:10px;font-weight:700;background:rgba(200,129,58,0.16);color:#8a5a1a;border-radius:8px;padding:1px 6px">\u{1F464} ' + escH(txt) + '</span>';
+}
 function _teamPillsHtml(it, excludeEmail) {
   var arr = (it.loan && Array.isArray(it.loan.assignedProcessors)) ? it.loan.assignedProcessors : [];
   var ex = String(excludeEmail || '').toLowerCase();
@@ -1771,8 +1790,13 @@ function _teamPillsHtml(it, excludeEmail) {
     if (ex && String(p.email || '').toLowerCase() === ex) return false;
     return true;
   });
-  if (!members.length) return '';
+  var loPill = _loPillHtml(it); // Deploy 237.160
+  // Deploy 237.160 — the row renders for the LO alone now: an unassigned loan used to
+  // drop the whole block, and that is exactly the card that most needs to say
+  // whose it is.
+  if (!members.length && !loPill) return '';
   return '<div class="card-team-extras" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' +
+    loPill +
     members.map(function (p) {
       var role = p.role || 'processor';
       var lbl = role === 'closer' ? 'Closer' : (role === 'manager' ? 'Mgr' : (role === 'processor' ? 'Processor' : role));
