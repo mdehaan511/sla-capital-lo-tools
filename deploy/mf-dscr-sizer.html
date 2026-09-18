@@ -710,6 +710,10 @@ var getFICOMin = SLA_DSCR.getFICOMin;
           <select id="propType">
             <option value="multi" selected>5+ Unit Multifamily</option>
           </select>
+          <!-- Deploy 237.154 (Mike) -- the way out when an application came in
+               as 5+ but the property is really 1-4. Carries the loan across and
+               tells the 1-4 sizer to drop the MF marker on save. -->
+          <div style="font-size:11px;margin-top:4px"><a href="#" onclick="switchTo14();return false" style="color:var(--gold)">Not a 5+ unit property? Open this loan in the 1-4 DSCR sizer</a></div>
         </div>
       </div>
       <div class="field">
@@ -4287,6 +4291,13 @@ function overlayMfLoanFields(loan, fd) {
   return fd;
 }
 
+// Deploy 237.154 (Mike) -- hand the loan to the 1-4 sizer and let it clear
+// the MF marker on the next save (force1to4).
+function switchTo14() {
+  var qs = new URLSearchParams(window.location.search);
+  qs.set('force1to4', '1');
+  window.location.href = '/dscr-sizer.html?' + qs.toString();
+}
 function loadQuoteIntoForm(formData) {
   if (!formData) return;
   // Deploy 236.659 — Portfolio: the per-property data holds the real numbers

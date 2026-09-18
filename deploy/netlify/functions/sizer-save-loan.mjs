@@ -373,7 +373,11 @@ async function handle(req, context) {
     }
     // MF program marker + NCF operating-statement fields: a save from a
     // sizer that doesn't collect them must not strip them.
-    if (!merged.mfProgram && existingLoan.mfProgram) merged.mfProgram = existingLoan.mfProgram;
+    // Deploy 237.154 (Mike) -- the 1-4 sizer posts clearMfProgram when the LO
+    // deliberately converts a mis-filed 5+ application (its "not a 5+ property"
+    // link). Every other save still keeps the marker: a sizer without MF inputs
+    // must never strip it by omission.
+    if (!merged.mfProgram && existingLoan.mfProgram && body.clearMfProgram !== true) merged.mfProgram = existingLoan.mfProgram;
     const MF_PRESERVE = ['numUnits', 'unitsOccupied', 'otherIncomeMo', 'vacancyPct',
       'opexTaxes', 'opexInsurance', 'opexFlood', 'opexUtilities', 'opexRepairs',
       'opexMgmt', 'opexHOA', 'opexLandscaping'];

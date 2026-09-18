@@ -34,6 +34,10 @@ var _clientId = null;
 var _loanId = null;
 var _client = null;
 var _loan = null;
+// Deploy 237.154 (Mike) -- true when the loan's parent client is the BROKER who
+// submitted it, so the guarantor roster skips them and numbers the real
+// borrowers from 1 (see the Guarantor Info section).
+var _ldPrimaryIsBroker = false;
 var _loEmail = null;
 
 function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -2282,6 +2286,18 @@ function render() {
   var _bwGuarantorIds = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
   var _bwHasMultiple  = _bwGuarantorIds.length > 0;
   var _bwPrimaryName  = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Guarantor 1';
+  // Deploy 237.154 (Mike) -- on a BROKER-submitted application the parent client
+  // IS the broker (prospects-save files the loan under the broker and links the
+  // real borrower as a guarantor client). The broker is not a guarantor: they
+  // already have the Broker section, so listing them as "Guarantor 1 (Primary)"
+  // showed the same person twice and pushed the actual borrower to Guarantor 2.
+  // Only fires when the parent really is this loan's broker, so a normal
+  // borrower who happens to broker their own deals is untouched.
+  var _bwPrimaryEmail = String(c.email || '').toLowerCase().trim();
+  var _bwBrokerEmail  = String(l.brokerEmail || '').toLowerCase().trim();
+  var _bwPrimaryIsBroker = !!(c && c._isBroker) &&
+    (!!l._isBrokerLoan || (!!_bwBrokerEmail && _bwBrokerEmail === _bwPrimaryEmail));
+  _ldPrimaryIsBroker = _bwPrimaryIsBroker;
 
   // Deploy 236.126 — Vesting LLC Info section (above Guarantor Info).
   // Deploy 236.130 — auto-fill source widened to the long loan
@@ -2364,26 +2380,43 @@ function render() {
     // button; primary's data is in the main signed loan app.
     _renderEditGuarantorButton(c.id, true);
 
+  // Deploy 237.154 -- with a broker parent the guarantors start at 1 and the
+  // broker gets no tab at all; pane ids keep their existing offsets so the
+  // async fill (refreshBorrowerInfoPanes) is unchanged.
   var _bwTabsHtml = '';
-  if (_bwHasMultiple) {
-    _bwTabsHtml = '<div class="bw-tabs" id="bwTabs">' +
-      '<button type="button" class="bw-tab active" onclick="switchBorrowerTab(0)" data-bw-idx="0">' +
-        '<span class="bw-tab-label">' + escH(_bwPrimaryName) + '</span>' +
-        '<span class="bw-tab-sub">Guarantor 1 (Primary)</span>' +
-      '</button>';
+  var _bwShowTabs = _bwPrimaryIsBroker ? _bwGuarantorIds.length > 1 : _bwHasMultiple;
+  if (_bwShowTabs) {
+    _bwTabsHtml = '<div class="bw-tabs" id="bwTabs">';
+    if (!_bwPrimaryIsBroker) {
+      _bwTabsHtml +=
+        '<button type="button" class="bw-tab active" onclick="switchBorrowerTab(0)" data-bw-idx="0">' +
+          '<span class="bw-tab-label">' + escH(_bwPrimaryName) + '</span>' +
+          '<span class="bw-tab-sub">Guarantor 1 (Primary)</span>' +
+        '</button>';
+    }
     _bwGuarantorIds.forEach(function(gid, i) {
       _bwTabsHtml +=
-        '<button type="button" class="bw-tab" onclick="switchBorrowerTab(' + (i + 1) + ')" data-bw-idx="' + (i + 1) + '" id="bw-tab-' + (i + 1) + '">' +
-          '<span class="bw-tab-label">Guarantor ' + (i + 2) + '</span>' +
+        '<button type="button" class="bw-tab' + ((_bwPrimaryIsBroker && i === 0) ? ' active' : '') + '" onclick="switchBorrowerTab(' + (i + 1) + ')" data-bw-idx="' + (i + 1) + '" id="bw-tab-' + (i + 1) + '">' +
+          '<span class="bw-tab-label">Guarantor ' + (i + (_bwPrimaryIsBroker ? 1 : 2)) + '</span>' +
           '<span class="bw-tab-sub">Loading…</span>' +
         '</button>';
     });
     _bwTabsHtml += '</div>';
   }
-  var _bwPanesHtml = '<div class="bw-pane active" id="bw-pane-0">' + _bwPrimaryHtml + '</div>';
+  var _bwPanesHtml = '';
+  if (_bwPrimaryIsBroker && !_bwGuarantorIds.length) {
+    // Broker submission with no borrower linked yet: say so instead of
+    // presenting the broker as the guarantor.
+    _bwPanesHtml = '<div class="bw-pane active" id="bw-pane-0"><div style="font-size:13px;color:var(--muted);padding:6px 2px">' +
+      'Submitted by ' + escH(_bwPrimaryName || 'the broker') + ' on behalf of a borrower. No guarantor is linked to this loan yet — ' +
+      'add Guarantor 1 below before advancing to In Processing.</div>' +
+      _renderEditGuarantorButton(c.id, true) + '</div>';
+  } else if (!_bwPrimaryIsBroker) {
+    _bwPanesHtml = '<div class="bw-pane active" id="bw-pane-0">' + _bwPrimaryHtml + '</div>';
+  }
   _bwGuarantorIds.forEach(function(gid, i) {
     _bwPanesHtml +=
-      '<div class="bw-pane loading" id="bw-pane-' + (i + 1) + '" data-client-id="' + escAttr(gid) + '">Loading guarantor info…</div>';
+      '<div class="bw-pane' + ((_bwPrimaryIsBroker && i === 0) ? ' active' : '') + ' loading" id="bw-pane-' + (i + 1) + '" data-client-id="' + escAttr(gid) + '">Loading guarantor info…</div>';
   });
   // Deploy 236.355 — Guarantor Info section:
   //   - Removed the "Editable" pill: name / contact fields on the
@@ -3276,7 +3309,7 @@ function refreshBorrowerInfoPanes() {
         var lbl = tab.querySelector('.bw-tab-label');
         var sub2 = tab.querySelector('.bw-tab-sub');
         if (lbl) lbl.textContent = name;
-        if (sub2) sub2.textContent = 'Guarantor ' + (idx + 1);
+        if (sub2) sub2.textContent = 'Guarantor ' + (idx + (_ldPrimaryIsBroker ? 0 : 1)); // Deploy 237.154
       }
     });
   }).catch(function(err) {

@@ -4047,8 +4047,13 @@ function saveCurrentQuote() {
           if (_pd && _pd.id) _prospectId = _pd.id;
         } catch (_) {}
       }
+      // Deploy 237.154 -- converting a mis-filed MF loan to 1-4: say so
+      // explicitly, or sizer-save-loan keeps the mfProgram marker alive.
+      var _force14 = new URLSearchParams(window.location.search).get('force1to4') === '1';
+      if (_force14) loanRecord.mfProgram = '';
       var _payload = {
         toolType: 'dscr',
+        clearMfProgram: _force14,
         loan:     loanRecord,
         borrower: {
           firstName: nameParts.slice(0, -1).join(' ') || nameParts[0] || '',
@@ -4194,6 +4199,24 @@ function saveCurrentQuote() {
   }
 }
 
+// Deploy 237.154 (Mike) -- a 5+ unit MF loan must not be edited in the 1-4
+// sizer. It used to load here happily: the LO could switch Property Type to a
+// 1-4 type and save, but sizer-save-loan preserves mfProgram, so the loan
+// stayed MF, Loan Details kept reopening the MF sizer and the work was lost.
+// Now the loan bounces to the MF sizer. ?force1to4=1 (the MF sizer's own
+// "not a 5+ property" link) is the deliberate conversion and is let through.
+function _mfWrongSizerRedirect(loanRec) {
+  try {
+    if (!loanRec) return false;
+    var qs = new URLSearchParams(window.location.search);
+    if (qs.get('force1to4') === '1') return false;
+    var isMf = !!(loanRec.mfProgram || (loanRec.formData && loanRec.formData.mfProgram));
+    if (!isMf) return false;
+    console.log('[sizer] MF 5+ loan ' + (loanRec.id || '') + ' -> Multifamily sizer');
+    window.location.replace('/mf-dscr-sizer.html' + window.location.search);
+    return true;
+  } catch (e) { return false; }
+}
 function loadQuoteIntoForm(formData) {
   if (!formData) return;
   // Deploy 236.659 — Portfolio: the per-property data holds the real numbers
@@ -4825,6 +4848,7 @@ netlifyIdentity.on('init', function(user) {
               return !!found;
             });
           }
+          if (_mfWrongSizerRedirect(found)) return;   // Deploy 237.154
           if (found && found.loanAmtLocked && found.loanAmt) {
             console.log('[sizer] Applying LO override: loanAmt = ' + found.loanAmt + ' (locked)');
             fd = Object.assign({}, fd, { loanAmt: found.loanAmt, _loanAmtLocked: true });
@@ -5159,6 +5183,7 @@ netlifyIdentity.on('init', function(user) {
           // edits don't show up in loan details" — without it, a sizer
           // save with a slightly different address string would create a
           // duplicate loan and orphan the loan-details page.
+          if (_mfWrongSizerRedirect(found)) return;   // Deploy 237.154
           window._editingLoanId = found.id || loanIdP || null;
           // Deploy 236.253 — ALSO set _editingClientId so the Save's
           // hasDirectIds check at line ~3365 evaluates true and routes
