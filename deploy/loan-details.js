@@ -4066,9 +4066,13 @@ function submitPayoffOrder() {
     .then(function (res) {
       if (!res.ok || !res.j || !res.j.ok) throw new Error((res.j && res.j.error) || 'Failed');
       var bg = document.getElementById('poModalBg'); if (bg) bg.remove();
-      showToast(res.j.localWriteFailed
-        ? 'Demand filed with FCI (local copy did not save)'
-        : 'Payoff demand filed with FCI');
+      // Deploy 237.171 (Mike: "I have yet to see anything on our FCI portal") -- say
+      // whether FCI's OWN records show it. "Filed" on its own is what sent him
+      // looking for a demand that was never there.
+      showToast(res.j.confirmed
+        ? ('Payoff demand confirmed with FCI' + (res.j.localWriteFailed ? ' (local copy did not save)' : ''))
+        : ('Sent to FCI, but NOT confirmed \u2014 ' + (res.j.confirmReason || 'it is not in their records yet') +
+           '. Check the FCI portal before relying on it.'));
       loadFciPayoff(true);
     }).catch(function (e) {
       if (btn) { btn.disabled = false; btn.textContent = 'File Demand with FCI'; }
