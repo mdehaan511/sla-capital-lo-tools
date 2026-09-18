@@ -42,7 +42,9 @@ export async function backfillGuarantorTrays({ budgetMs = 24000, onlyInProgress 
       if (names.length) review.guarantorNames = names;
       const a = adoptGuarantorsFromLoan(review, names);
       const added = expandGuarantorTrays(review);
-      if (a.adopted || a.migrated.length || a.renamed || added.length) {
+      // Deploy 237.159 -- removals and restorations count as changes to save.
+      if (a.adopted || a.migrated.length || a.renamed || added.length ||
+          (a.removed && a.removed.length) || (a.restored && a.restored.length)) {
         review.updatedAt = new Date().toISOString();
         await store.setJSON(keySafe(review.id), review);
         stats.updated++; stats.addedTrays += added.length; stats.updatedIds.push(review.id);

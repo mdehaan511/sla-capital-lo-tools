@@ -20,7 +20,10 @@ const ONE_SHOT_JOBS = [
   // Deploy 237.150 -- bumped to v2 so the sweep re-runs for Credit Authorization,
   // which became a per-guarantor tray. Idempotent (the nightly cron runs the same
   // function), so a re-run only migrates what has not moved yet.
-  { key: 'guarantor-trays-backfill-v2', fn: 'guarantor-trays-backfill-background', sig: 'guarantor-trays' },
+  // Deploy 237.159 -- v3 so the sweep re-runs and folds away the trays of guarantors
+  // already off their loans (Jessy's 621 Stewart Ave). Documents are kept; the trays
+  // are hidden, reachable from the section's "Show N hidden".
+  { key: 'guarantor-trays-backfill-v3', fn: 'guarantor-trays-backfill-background', sig: 'guarantor-trays' },
   // Deploy 237.118 (Mike, "run a blanks only backfill") -- DIYA / TPO 1 onto pipeline
   // DSCR loans that predate the 237.084 save-time rule (blanks only; report in
   // settings/dscr_defaults_backfill_last).

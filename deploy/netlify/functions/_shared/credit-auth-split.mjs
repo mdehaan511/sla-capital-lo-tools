@@ -62,11 +62,15 @@ function lastOf(s) {
  * because a wrong answer here is worse than no answer.
  */
 export function guarantorIndexFor(signer, roster, position) {
-  const list = Array.isArray(roster) ? roster : [];
-  if (list.length < 2) return 0;
+  // Deploy 237.159 -- the roster keeps everyone who has EVER been a guarantor, so a
+  // departed one is blanked out here: a signer can never resolve to them. Their trays
+  // keep the documents they already had and simply get no new ones.
+  const all = Array.isArray(roster) ? roster : [];
+  const list = all.map((g) => (g && g.removed) ? null : g);
+  if (all.length < 2) return 0;
   const want = normName(signer && signer.name);
   if (want) {
-    let hit = list.findIndex((g) => normName(g && g.name) === want);
+    let hit = list.findIndex((g) => g && normName(g.name) === want);
     if (hit >= 0) return hit;
     // Compare the SET of name words. "WILSON, JEREMY" is the same person as
     // "Jeremy Wilson" (order), and "Jeremy A Wilson" contains them (middle name),
@@ -84,7 +88,9 @@ export function guarantorIndexFor(signer, roster, position) {
   // Position fallback: role 'borrower2' is guarantor index 1. Only trusted when that
   // guarantor has no name on the roster to contradict it.
   const pos = Number(position);
-  if (isFinite(pos) && pos >= 0 && pos < list.length && !normName(list[pos] && list[pos].name)) return pos;
+  // Deploy 237.159 -- list[pos] is null for a removed guarantor, and a null slot must
+  // not read as "nameless, so position wins".
+  if (isFinite(pos) && pos >= 0 && pos < list.length && list[pos] && !normName(list[pos].name)) return pos;
   return -1;
 }
 
@@ -159,9 +165,12 @@ export async function splitAuthPages(pdfBytes, authPages, recordedPageCount) {
 /** The tray this signer's page belongs in, or '' when there isn't a safe one. */
 export function slugForSigner(review, gi) {
   const docs = (review && review.docs) || {};
+  const all = (review && Array.isArray(review.guarantors)) ? review.guarantors : [];
+  // Deploy 237.159 -- nothing is filed to a guarantor who is off the loan.
+  if (all[gi] && all[gi].removed) return '';
   const per = BASE_SLUG + '__g' + gi;
   if (docs[per]) return per;
-  const roster = (review && Array.isArray(review.guarantors)) ? review.guarantors : [];
+  const roster = all.filter((g) => g && !g.removed);
   // The base tray is only right when nobody has been split out — on a multi-guarantor
   // review it is the shared bucket we just spent 237.150/.152 emptying.
   if (roster.length < 2 && docs[BASE_SLUG]) return BASE_SLUG;

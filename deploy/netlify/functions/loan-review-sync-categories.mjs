@@ -421,7 +421,11 @@ async function handle(req, context) {
     console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
   }
 
-  if (added.length || relabeled || healed || healQueue.length || portfolio.adopted || guarantors.adopted || guarantors.migrated.length || guarantors.renamed) {
+  // Deploy 237.159 -- a guarantor LEAVING is a change too: without it the trays got
+  // re-hidden on every page open and the result was never written down.
+  const _gChanged = guarantors.adopted || guarantors.migrated.length || guarantors.renamed ||
+    (guarantors.removed && guarantors.removed.length) || (guarantors.restored && guarantors.restored.length);
+  if (added.length || relabeled || healed || healQueue.length || portfolio.adopted || _gChanged) {
     review.updatedAt = new Date().toISOString();
     await reviewStore.setJSON(keySafe(review.id), review);
   }
