@@ -62,7 +62,7 @@ function lastOf(s) {
  * because a wrong answer here is worse than no answer.
  */
 export function guarantorIndexFor(signer, roster, position) {
-  // Deploy 237.159 -- the roster keeps everyone who has EVER been a guarantor, so a
+  // Deploy 237.160 -- the roster keeps everyone who has EVER been a guarantor, so a
   // departed one is blanked out here: a signer can never resolve to them. Their trays
   // keep the documents they already had and simply get no new ones.
   const all = Array.isArray(roster) ? roster : [];
@@ -88,7 +88,7 @@ export function guarantorIndexFor(signer, roster, position) {
   // Position fallback: role 'borrower2' is guarantor index 1. Only trusted when that
   // guarantor has no name on the roster to contradict it.
   const pos = Number(position);
-  // Deploy 237.159 -- list[pos] is null for a removed guarantor, and a null slot must
+  // Deploy 237.160 -- list[pos] is null for a removed guarantor, and a null slot must
   // not read as "nameless, so position wins".
   if (isFinite(pos) && pos >= 0 && pos < list.length && list[pos] && !normName(list[pos].name)) return pos;
   return -1;
@@ -166,7 +166,7 @@ export async function splitAuthPages(pdfBytes, authPages, recordedPageCount) {
 export function slugForSigner(review, gi) {
   const docs = (review && review.docs) || {};
   const all = (review && Array.isArray(review.guarantors)) ? review.guarantors : [];
-  // Deploy 237.159 -- nothing is filed to a guarantor who is off the loan.
+  // Deploy 237.160 -- nothing is filed to a guarantor who is off the loan.
   if (all[gi] && all[gi].removed) return '';
   const per = BASE_SLUG + '__g' + gi;
   if (docs[per]) return per;

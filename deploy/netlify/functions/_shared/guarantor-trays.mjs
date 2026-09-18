@@ -43,7 +43,7 @@ const PER_PERSON = new Set(GUARANTOR_PER_PERSON);
 // guarantor already signs their own. There is no exemption -- one note, for everyone.
 
 export function isMultiGuarantorReview(review) {
-  // Deploy 237.159 -- ACTIVE guarantors. A loan back down to one person stops showing
+  // Deploy 237.160 -- ACTIVE guarantors. A loan back down to one person stops showing
   // per-person groups; the departed guarantor's trays stay on the review, hidden.
   return activeGuarantors(review).length > 1;
 }
@@ -80,7 +80,7 @@ function _nameKey(s) {
 }
 
 /**
- * Deploy 237.159 -- reconcile the stored roster against the loan's CURRENT guarantors.
+ * Deploy 237.160 -- reconcile the stored roster against the loan's CURRENT guarantors.
  * Slots never move: a name keeps its index for the life of the review, so the trays and
  * documents filed under "<slug>__g<i>" always belong to the same person.
  *
@@ -192,12 +192,12 @@ export function adoptGuarantorsFromLoan(review, names) {
   const have = Array.isArray(review.guarantors) ? review.guarantors : [];
   out.from = have.length;
   if (roster.length < 2 && have.length < 2) return out;   // single guarantor: nothing to split
-  // Deploy 237.159 -- an EMPTY roster is never "everyone was removed": resolveGuarantorNames
+  // Deploy 237.160 -- an EMPTY roster is never "everyone was removed": resolveGuarantorNames
   // is zero-throw and hands back [] when a client read fails, and acting on that would hide
   // every guarantor tray on the loan. A loan always has at least the primary borrower.
   if (!roster.length) return out;
 
-  // Deploy 237.159 (Jessy) -- match by NAME and keep every slot for good, so a guarantor
+  // Deploy 237.160 (Jessy) -- match by NAME and keep every slot for good, so a guarantor
   // who leaves keeps their trays and documents and comes back to the same ones.
   const rec = _reconcileRoster(have, roster);
   const next = rec.next;
@@ -257,7 +257,7 @@ export function expandGuarantorTrays(review) {
   for (const item of guarantorPersonEntries(review.loanType || '')) {
     if (!item || !item.slug) continue;
     for (const g of review.guarantors) {
-      // Deploy 237.159 -- a guarantor who is off the loan gets no new trays; the ones
+      // Deploy 237.160 -- a guarantor who is off the loan gets no new trays; the ones
       // they already have stay, hidden, with their documents.
       if (g.removed) continue;
       const gslug = item.slug + '__g' + g.index;

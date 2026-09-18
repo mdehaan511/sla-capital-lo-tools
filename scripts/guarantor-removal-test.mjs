@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/guarantor-removal-test.mjs — Deploy 237.159
+ * scripts/guarantor-removal-test.mjs — Deploy 237.160
  *
  * Jessy: "Loan ID - SLA-20260930-4291 (621 Stewart Ave). 2nd guarantor (Marcus P.) has
  * been removed but still shows guarantor doc trays in documents."
