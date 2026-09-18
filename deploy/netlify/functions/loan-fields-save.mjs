@@ -53,6 +53,8 @@ const FIELDS = {
   // on this allowlist, so it silently never saved. Kept + mirrored so older
   // records and the Financial Audit keep reading.
   companyOnDocs: 1, assignedToEntity: 1, assignedDate: 1,
+  // Deploy 237.159 (Mike) -- the Assignment Chain rows (array; sanitized below).
+  assignmentChain: 1,
   // Deploy 236.941 — SIZER base rate for LO comp on legacy overridden RTLs
   // (the sizer's own _pricingOverrideOriginal wins when present; this is the
   // hand-entered fallback). Deliberately separate from buyRate: investor buy
@@ -187,6 +189,33 @@ async function handle(req, context) {
       if (!isFinite(pc) || pc < 0) pc = 0;
       if (pc > 10) pc = 10;
       loan.propertyCount = pc; applied[k] = pc; return;
+    }
+    // Deploy 237.159 (Mike) -- Assignment Chain: who the note was assigned to
+    // and when, in the order it moved. The first link (company on docs at
+    // closing) is derived on the page, so only the real assignments are stored.
+    if (k === 'assignmentChain') {
+      const arr = Array.isArray(fields[k]) ? fields[k] : [];
+      const prior = Array.isArray(loan.assignmentChain) ? loan.assignmentChain : [];
+      // The shared "now" is declared after this loop -- take our own stamp.
+      const _acNow = new Date().toISOString();
+      loan.assignmentChain = arr.slice(0, 25).map((r) => {
+        r = (r && typeof r === 'object') ? r : {};
+        const id = String(r.id || '').slice(0, 40) || ('ac_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+        const was = prior.find((x) => x && x.id === id);
+        return {
+          id,
+          investorId:   String(r.investorId   || '').slice(0, 60),
+          investorName: String(r.investorName || '').slice(0, 120),
+          date:         String(r.date || '').slice(0, 10),
+          note:         String(r.note || '').slice(0, 200),
+          // Who added the link, kept from the original entry so an edit
+          // elsewhere in the chain can't rewrite authorship.
+          at: (was && was.at) || _acNow,
+          by: (was && was.by) || selfEmail,
+        };
+      }).filter((r) => r.investorName || r.investorId);
+      applied[k] = loan.assignmentChain;
+      return;
     }
     if (k === 'properties') {
       const arr = Array.isArray(fields[k]) ? fields[k] : [];

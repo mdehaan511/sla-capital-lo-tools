@@ -1961,8 +1961,6 @@ function render() {
   // missing from loan-fields-save's allowlist), so fall back to the old key for
   // anything that did land, and to the funding source for KAF-funded loans.
   var _fpOnDocs = String(l.companyOnDocs || l.assignedToEntity || '');
-  var _fpAssignedDate = String(l.assignedDate || '').slice(0, 10);
-  var _fpLog = Array.isArray(l.fundingLog) ? l.fundingLog : [];
   var _fpPriceLabel = isDscr ? 'TPO (points)' : 'Buy Rate (%)';
   // Deploy 236.672 — the Baseline migration stored TPO on loan.tpoPremium; the
   // Funding Plan's own field is loan.tpo. Fall back to tpoPremium so migrated DSCRs
@@ -2000,28 +1998,22 @@ function render() {
           '<input type="text" id="fp-pricing" value="' + escAttr(String(_fpPriceVal)) + '" placeholder="0" inputmode="decimal" />' +
           '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
         '</div>' +
-        // Deploy 237.158 (Mike) -- "Assigned" is the investor the loan is assigned
-        // to (the whole investors book); changing it stamps the Assigned Date.
-        '<div class="field"><label>Assigned</label>' +
-          '<select id="fp-investorId" onchange="onAssignedChange()" data-current="' + escAttr(String(l.investorId || '')) + '"' + ((isDscr && !l.investorId) ? ' data-default-diya="1"' : '') + '>' + // Deploy 237.116
+        '<div class="field"><label>Investor</label>' +
+          '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '"' + ((isDscr && !l.investorId) ? ' data-default-diya="1"' : '') + '>' + // Deploy 237.116
             '<option value="">— None —</option>' +
             // Seed the current selection so it shows before the async book
             // loads; populateFundingPlanInvestors() replaces these options.
             (l.investorId ? '<option value="' + escAttr(String(l.investorId)) + '" selected>' + escH(l.investorName || 'Selected investor') + '</option>' : '') +
           '</select>' +
         '</div>' +
-        '<div class="field"><label>Assigned Date</label>' +
-          '<input type="date" id="fp-assignedDate" value="' + escAttr(_fpAssignedDate) + '" />' +
-        '</div>' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="saveFundingPlan()">Save Funding Plan</button>' +
         '<span id="fundingPlanStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
       '</div>' +
-      // Deploy 237.158 (Mike) -- the chain of custody: every funder / investor
-      // move, newest first. Written server-side by _shared/funding-log.mjs from
-      // the Funding Plan, the sizer and the servicing screens alike.
-      _fpLogHtml(_fpLog) +
+      // Deploy 237.159 (Mike) -- the Assignment Chain: where the note has lived,
+      // starting from the company on the docs at closing.
+      _acHtml(l, _fpOnDocs) +
     '</div>' +
   '</div>';
 
@@ -8488,43 +8480,121 @@ function populateServicingInvestors() {
 // RTL stores buyRate; the "Other" free-text is only kept when Other is
 // the selected source. investorName is snapshotted from the picked
 // option so it survives the investor being removed from the book.
-// Deploy 237.158 (Mike) -- assignment history under the Funding Plan box.
-function _fpLogHtml(entries) {
-  if (!entries || !entries.length) {
-    return '<div style="margin-top:14px;font-size:12px;color:var(--muted)">No funder or investor moves recorded yet.</div>';
-  }
-  var rows = entries.map(function(e) {
-    var when = e.at ? _fmtDateTime(e.at) : '';
-    var who = String(e.by || '').split('@')[0];
-    return '<div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-top:1px solid var(--border);font-size:12.5px">' +
-      '<span style="white-space:nowrap;color:var(--muted);font-size:11.5px;min-width:120px">' + escH(when) + '</span>' +
-      '<span><strong>' + escH(e.label || e.field || '') + '</strong> ' +
-        (e.from ? escH(e.from) + ' &rarr; ' : 'set to ') + '<strong>' + escH(e.to || '') + '</strong></span>' +
-      '<span style="margin-left:auto;color:var(--muted);white-space:nowrap;font-size:11.5px">' +
-        escH(who) + (e.source ? ' · ' + escH(e.source) : '') + '</span>' +
+// ── Deploy 237.159 (Mike) — Assignment Chain ─────────────────────────
+// "A lower section that defaults at closing to show the Company on Docs and
+// the Closing Date, then has the ability to select an investor and a date of
+// assignment as the loan is assigned/sold along the way."
+//
+// The first link is DERIVED, never stored: whoever is on the docs held the
+// note from the closing date. Everything after it is a row the LO/processor
+// adds (loan.assignmentChain), so the chain is a deliberate record rather
+// than a by-product of editing fields.
+function _acRows(l) {
+  return (Array.isArray(l.assignmentChain) ? l.assignmentChain : [])
+    .slice()
+    .sort(function(a, b) { return String(a.date || '').localeCompare(String(b.date || '')); });
+}
+function _acHtml(l, onDocs) {
+  var rows = _acRows(l);
+  var closeDate = String(l.fundingDate || l.closedAt || '').slice(0, 10);
+  var line = function(who, when, whenLabel, right) {
+    return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border);font-size:13px">' +
+      '<span style="min-width:110px;color:var(--muted);font-size:12px;white-space:nowrap">' + escH(when ? _fmtDay(when) : '—') + '</span>' +
+      '<span><strong>' + escH(who) + '</strong>' + (whenLabel ? ' <span style="color:var(--muted);font-size:12px">' + escH(whenLabel) + '</span>' : '') + '</span>' +
+      '<span style="margin-left:auto">' + (right || '') + '</span></div>';
+  };
+  var html = '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">' +
+    '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px">' +
+      '<h3 style="font-size:13px;font-weight:600;margin:0">Assignment Chain</h3>' +
+      '<button type="button" class="link-like" onclick="acShowAdd()" style="margin-left:auto;background:none;border:none;color:var(--gold);font:inherit;font-size:12px;cursor:pointer">+ Add assignment</button>' +
     '</div>';
-  }).join('');
-  return '<details style="margin-top:14px">' +
-    '<summary style="cursor:pointer;font-size:12px;color:var(--muted)">Assignment history (' + entries.length + ')</summary>' +
-    '<div style="margin-top:6px">' + rows + '</div></details>';
-}
-function _fmtDateTime(iso) {
-  var d = new Date(iso);
-  if (isNaN(d)) return String(iso || '');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ', ' +
-    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-}
-// Changing who the loan is assigned to stamps today's date when the box is
-// empty or still shows the date of the previous assignment.
-function onAssignedChange() {
-  var sel = document.getElementById('fp-investorId');
-  var dateEl = document.getElementById('fp-assignedDate');
-  if (!sel || !dateEl) return;
-  var prior = String((_loan && _loan.investorId) || '');
-  if (sel.value && sel.value !== prior) {
-    var d = new Date();
-    dateEl.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  // Link 1 — the company on the docs, from the closing date.
+  if (onDocs || closeDate) {
+    html += line(onDocs || 'Company on docs not set', closeDate, closeDate ? 'at closing' : 'closing date not set', '');
+  } else {
+    html += '<div style="font-size:12px;color:var(--muted);padding:6px 0">Set Company On Docs and a closing date to start the chain.</div>';
   }
+  rows.forEach(function(r) {
+    var who = r.investorName || 'Investor';
+    var by = r.by ? String(r.by).split('@')[0] : '';
+    html += line(who, r.date, 'assigned' + (r.note ? ' · ' + r.note : ''),
+      '<span style="color:var(--muted);font-size:11.5px;margin-right:8px">' + escH(by) + '</span>' +
+      '<button type="button" title="Remove this assignment" onclick="acRemove(\'' + escAttr(r.id) + '\')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1">&times;</button>');
+  });
+  html += '<div id="acAddRow" style="display:none;margin-top:10px;gap:8px;align-items:flex-end;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:170px"><label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px">Assigned to</label>' +
+        '<select id="acInvestor" style="width:100%"><option value="">— Select investor —</option></select></div>' +
+      '<div><label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px">Date of assignment</label>' +
+        '<input type="date" id="acDate" /></div>' +
+      '<button type="button" class="save-app-btn" onclick="acAdd()" id="acAddBtn">Add</button>' +
+      '<button type="button" onclick="acHideAdd()" style="background:none;border:none;color:var(--muted);font:inherit;font-size:12px;cursor:pointer">Cancel</button>' +
+    '</div>' +
+  '</div>';
+  return html;
+}
+function _fmtDay(d) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ''));
+  if (!m) return String(d || '');
+  var dt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+function acShowAdd() {
+  var row = document.getElementById('acAddRow');
+  if (!row) return;
+  row.style.display = 'flex';
+  // Reuse the Funding Plan's investor list so both boxes read the same book.
+  var src = document.getElementById('fp-investorId');
+  var sel = document.getElementById('acInvestor');
+  if (src && sel && sel.options.length <= 1) {
+    Array.prototype.forEach.call(src.options, function(o) {
+      if (!o.value) return;
+      var opt = document.createElement('option');
+      opt.value = o.value;
+      opt.text = o.text;
+      opt.setAttribute('data-name', o.getAttribute('data-name') || o.text);
+      sel.appendChild(opt);
+    });
+  }
+  var d = document.getElementById('acDate');
+  if (d && !d.value) {
+    var n = new Date();
+    d.value = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+  }
+}
+function acHideAdd() {
+  var row = document.getElementById('acAddRow');
+  if (row) row.style.display = 'none';
+}
+function _acSave(chain, btn, okMsg) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  return SLA.Loans.saveFields(_clientId, _loanId, { assignmentChain: chain }, _ldOwnerOverride()).then(function() {
+    _ldMergeLoan({ assignmentChain: chain });
+    showToast(okMsg);
+    render();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add'; }
+    showToast('Could not save the assignment: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+function acAdd() {
+  if (!_loan) return;
+  var sel = document.getElementById('acInvestor');
+  var dateEl = document.getElementById('acDate');
+  if (!sel || !sel.value) { showToast('Pick the investor this loan was assigned to'); return; }
+  if (!dateEl || !dateEl.value) { showToast('Enter the date of the assignment'); return; }
+  var opt = sel.options[sel.selectedIndex];
+  var entry = {
+    id: 'ac_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    investorId: sel.value,
+    investorName: (opt.getAttribute('data-name') || opt.text || '').replace(/ \(removed\)$/, ''),
+    date: dateEl.value,
+  };
+  _acSave(_acRows(_loan).concat([entry]), document.getElementById('acAddBtn'), 'Assignment added');
+}
+function acRemove(id) {
+  if (!_loan) return;
+  if (!confirm('Remove this assignment from the chain?')) return;
+  _acSave(_acRows(_loan).filter(function(r) { return r.id !== id; }), null, 'Assignment removed');
 }
 function saveFundingPlan() {
   if (!_loan || !_client) return;
@@ -8555,7 +8625,6 @@ function saveFundingPlan() {
     // else still reading it keeps working.
     companyOnDocs:      (document.getElementById('fp-companyOnDocs') || {}).value || '',
     assignedToEntity:   (document.getElementById('fp-companyOnDocs') || {}).value || '',
-    assignedDate:       (document.getElementById('fp-assignedDate') || {}).value || '',
     investorId:         invEl ? invEl.value : '',
     investorName:       invName,
   };
