@@ -1,5 +1,5 @@
 /**
- * _shared/pricing-announce.mjs — Deploy 237.146 (Mike)
+ * _shared/pricing-announce.mjs — Deploy 237.089 (Mike)
  *
  * "When we update pricing a notice is posted in Slack for everyone to see so
  * we know they all know."
@@ -47,7 +47,7 @@ function effectiveOf(engine) {
   return (h[0] && h[0].effective) || (engine && engine.DIYA && engine.DIYA.effectiveDate) || '';
 }
 const fmtRate = (n) => (isFinite(n) ? n.toFixed(3) + '%' : '—');
-// Deploy 237.142 (Mike): "for the rate alerts, instead of saying like 0.050 say
+// Deploy 237.146 (Mike): "for the rate alerts, instead of saying like 0.050 say
 // bps — that is more our language." Base rates are percentage points, so the
 // move is × 100: a 6.825 → 6.875 sheet is 5 bps, an eighth is 12.5 bps. Same
 // convention the commission plans use (50 bps = 0.50%). Trailing zeros dropped.

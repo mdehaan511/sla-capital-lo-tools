@@ -1,5 +1,5 @@
 /**
- * scripts/pricing-announce-bps-test.mjs — Deploy 237.142
+ * scripts/pricing-announce-bps-test.mjs — Deploy 237.146
  *
  * Mike: "for the armory alerts for rates, instead of saying like 0.050 say bps.
  * That is more our language."
