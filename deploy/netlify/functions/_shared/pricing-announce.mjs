@@ -1,5 +1,5 @@
 /**
- * _shared/pricing-announce.mjs — Deploy 237.089 (Mike)
+ * _shared/pricing-announce.mjs — Deploy 237.146 (Mike)
  *
  * "When we update pricing a notice is posted in Slack for everyone to see so
  * we know they all know."
@@ -47,7 +47,14 @@ function effectiveOf(engine) {
   return (h[0] && h[0].effective) || (engine && engine.DIYA && engine.DIYA.effectiveDate) || '';
 }
 const fmtRate = (n) => (isFinite(n) ? n.toFixed(3) + '%' : '—');
-const fmtDelta = (n) => Math.abs(n).toFixed(3);
+// Deploy 237.142 (Mike): "for the rate alerts, instead of saying like 0.050 say
+// bps — that is more our language." Base rates are percentage points, so the
+// move is × 100: a 6.825 → 6.875 sheet is 5 bps, an eighth is 12.5 bps. Same
+// convention the commission plans use (50 bps = 0.50%). Trailing zeros dropped.
+const fmtBps = (n) => {
+  const bps = Math.round(Math.abs(Number(n) || 0) * 10000) / 100;   // 0.075 → 7.5, not 7.500000000000001
+  return String(bps) + ' bps';
+};
 
 export function currentPricing() {
   const out = {};
@@ -87,11 +94,11 @@ export function buildMessage(cur, prev) {
 
   let head;
   if ((up || down) && sameAmount) {
-    head = `<!channel> ${who} rates have ${up ? 'increased' : 'decreased'} by ${fmtDelta(moves[0].dFixed)}. Floor rate is now `
+    head = `<!channel> ${who} rates have ${up ? 'increased' : 'decreased'} by ${fmtBps(moves[0].dFixed)}. Floor rate is now `
       + (sameRates ? floor(moves[0]) + '.' : moves.map((m) => m.label + ': ' + floor(m)).join('; ') + '.');
   } else {
     head = `<!channel> DSCR pricing has changed:\n` + moves.map((m) =>
-      `• ${m.label}: 30Y/10-6 ${m.dFixed >= 0 ? '+' : '−'}${fmtDelta(m.dFixed)}, 7/6 & 5/6 ${m.dArm >= 0 ? '+' : '−'}${fmtDelta(m.dArm)} — floor now ${floor(m)}`).join('\n');
+      `• ${m.label}: 30Y/10-6 ${m.dFixed >= 0 ? '+' : '−'}${fmtBps(m.dFixed)}, 7/6 & 5/6 ${m.dArm >= 0 ? '+' : '−'}${fmtBps(m.dArm)} — floor now ${floor(m)}`).join('\n');
   }
   const tail = down
     ? 'Loans not locked will price at the new lower rates. Existing locks are unaffected — check with leadership before re-locking a loan at the lower pricing.'
