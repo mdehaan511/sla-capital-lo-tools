@@ -329,15 +329,40 @@
     );
   }
 
-  // ── Dropdown styles ─────────────────────────────────────────────
+  // ── Nav styles ──────────────────────────────────────────────────
   // Injected once on first render so pages don't need their own CSS.
-  // Kept namespaced (`.nav-dd*`) so it can't collide with existing
-  // page-level dropdowns (filter chips, etc.).
+  //
+  // Deploy 237.165 (Mike, "several pages with this different header or even no
+  // header at all — I want all pages to have the same header"): the BAR itself
+  // is canonical here now, not just the `.nav-dd*` dropdowns. Before this, every
+  // page carried its own copy of the bar layout + logo size (Deploy 237.001 made
+  // that explicit) and the copies drifted: lo-commissions had a sticky 34px-logo
+  // bar, loans / users-admin / the guidelines pages had no nav CSS at all.
+  //
+  // Selectors are deliberately over-specific (`nav.nav`, `nav.nav a.nav-tool-link`)
+  // so they beat a page's leftover `.nav` / `.nav a` rules without !important and
+  // without having to strip 40 hand-written style blocks. Colors go through
+  // var(--x, fallback) so a page's own palette still applies, and a page that
+  // never defined the brand vars still renders correctly.
   function injectStyles() {
     if (document.getElementById('slaNavStyles')) return;
     var s = document.createElement('style');
     s.id = 'slaNavStyles';
     s.textContent =
+      // The bar.
+      'nav.nav{position:static;max-width:1280px;margin:0 auto;padding:1.5rem 22px 0;display:flex;align-items:center;justify-content:space-between;' +
+        'gap:12px;flex-wrap:wrap;background:transparent;border:none;box-shadow:none;backdrop-filter:none}' +
+      'nav.nav img{height:48px;width:auto;display:block}' +
+      'nav.nav .nav-left,nav.nav .nav-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}' +
+      // Pill links + the Tools button.
+      'nav.nav a.nav-tool-link,nav.nav button.nav-tool-link{font-family:inherit;font-size:12px;font-weight:600;color:var(--muted,#7a7488);text-decoration:none;' +
+        'padding:5px 12px;border-radius:20px;border:1px solid var(--border,#ddd8d0);background:transparent;transition:all .15s;cursor:pointer;line-height:1.5}' +
+      'nav.nav a.nav-tool-link:hover,nav.nav button.nav-tool-link:hover{border-color:var(--gold,#C8813A);color:var(--gold,#C8813A);background:transparent}' +
+      'nav.nav a.nav-tool-link.current,nav.nav button.nav-tool-link.current{background:var(--dark,#261a36);border-color:var(--dark,#261a36);color:#fff}' +
+      'nav.nav a.nav-tools-btn,nav.nav button.nav-tools-btn{display:inline-block;font-family:inherit;padding:6px 14px;border:1px solid var(--gold-border,rgba(200,129,58,0.28));' +
+        'background:var(--gold-light,rgba(200,129,58,0.10));color:var(--gold-mid,#b5712d);border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer}' +
+      'nav.nav a.nav-tools-btn:hover,nav.nav button.nav-tools-btn:hover{background:var(--gold,#C8813A);color:#fff;border-color:var(--gold,#C8813A)}' +
+      '@media (max-width:700px){nav.nav{padding:1rem 14px 0}nav.nav img{height:38px}}' +
       '.nav-dd{position:relative;display:inline-block}' +
       '.nav-dd-trigger{cursor:pointer;font:inherit;background:transparent;display:inline-flex;align-items:center;gap:6px}' +
       '.nav-dd-trigger .nav-dd-caret{font-size:9px;opacity:0.7;transition:transform .15s}' +
@@ -430,7 +455,16 @@
     // normally.
     var user = opts && opts.user;
     if (_redirectBorrowerIfNeeded(user)) return;
+    // Deploy 237.165 -- a page that loads this script but never declared
+    // <nav id="slaNav"> (users-admin.html) rendered no header at all. Give it
+    // one rather than making every page remember the markup.
     var host = document.getElementById('slaNav');
+    if (!host && document.body) {
+      host = document.createElement('nav');
+      host.className = 'nav';
+      host.id = 'slaNav';
+      document.body.insertBefore(host, document.body.firstChild);
+    }
     if (!host) return;
     injectStyles();
     host.innerHTML = buildHTML(opts || {});
