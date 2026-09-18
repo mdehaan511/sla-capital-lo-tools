@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>E-Sign — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js?v=237173"></script>
+  <script src="sla-api.js?v=237178"></script>
   <script src="sla-nav.js"></script>
   <script src="sla-notifications.js?v=237120"></script>
   <script src="sla-chat.js"></script>
@@ -87,7 +87,10 @@
     /* Page rail (Deploy 237.173) — thumbnails you drag to re-order, with a + to
        combine another PDF in. Every action applies straight away, like PandaDoc. */
     .pgrail { position: sticky; top: 66px; max-height: calc(100vh - 80px); display: flex; flex-direction: column;
-              flex: 0 0 158px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+              flex: 0 0 214px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    /* Deploy 237.178 (Mike: "a little bit bigger so the preview is more legible") —
+       rail 158 -> 214px and the thumbnail tall enough to hold a whole portrait
+       page, so the headings on a page are readable rather than just its shape. */
     .pgrail.collapsed { flex-basis: 34px; }
     .pgr-head { display: flex; align-items: center; gap: 4px; padding: 8px 6px 8px 10px; border-bottom: 1px solid var(--border);
                 font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
@@ -102,7 +105,7 @@
     .pgr-tile.active { border-left-color: var(--gold); background: var(--gold-light); }
     .pgr-tile.dragging { opacity: .35; }
     .pgr-tile.over { box-shadow: 0 -2px 0 var(--gold); }
-    .pgr-shot { height: 112px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; }
+    .pgr-shot { height: 238px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; }
     .pgr-shot img { max-width: 100%; max-height: 100%; display: block; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
     .pgr-lab { font-size: 11px; color: var(--muted); text-align: center; padding-top: 4px; }
     .pgr-lab b { color: var(--ink, #261a36); }
@@ -1477,6 +1480,7 @@ function doAddPages() {
 // Thumbnails come from the pdf.js document the editor already has open. After
 // an action the cache is re-keyed by the order we just sent rather than
 // thrown away, so the rail redraws instantly instead of re-rasterizing.
+var RAIL_THUMB_W = 184;     // Deploy 237.178 — CSS width of a rail thumbnail
 var _pmShots = {};          // current 1-based page -> data URL
 var _railDrag = null, _railBusy = false, _railActive = 1;
 
@@ -1515,11 +1519,18 @@ function railShoot() {
     if (_pmShots[n]) return;
     jobs.push(_pdfDoc.getPage(n).then(function (pg) {
       var v1 = pg.getViewport({ scale: 1 });
-      var vp = pg.getViewport({ scale: 132 / v1.width });
+      // Deploy 237.178 — rasterize at DEVICE resolution, not CSS pixels: a 184px
+      // bitmap shown at 184px is soft on a retina screen, which is most of what
+      // "hard to read" was. JPEG because a long document's worth of bigger
+      // thumbnails is real memory, and a page preview has no transparency.
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      var vp = pg.getViewport({ scale: (RAIL_THUMB_W * dpr) / v1.width });
       var c = document.createElement('canvas');
       c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
-      return pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function () {
-        _pmShots[n] = c.toDataURL('image/png');
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);   // JPEG has no alpha
+      return pg.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+        _pmShots[n] = c.toDataURL('image/jpeg', 0.82);
       });
     }).catch(function () { _pmShots[n] = ''; }));
   })(i);
