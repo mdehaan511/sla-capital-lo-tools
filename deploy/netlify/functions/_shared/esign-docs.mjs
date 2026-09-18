@@ -53,7 +53,9 @@ import { DSCR_DOCS, RTL_DOCS, GUC_DOCS, SECTIONS, displaySection } from './loan-
 
 export const DOC_STATUSES = ['draft', 'sent', 'completed', 'cancelled'];
 export const FIELD_TYPES  = ['signature', 'initials', 'date', 'text', 'checkbox'];
-export const SIGNER_KINDS = ['borrower', 'user', 'other'];
+// Deploy 237.151 (Mike, "it is not finding brokers") -- brokers are their own
+// kind so the picker can filter to them and the stamp names them correctly.
+export const SIGNER_KINDS = ['borrower', 'user', 'broker', 'other'];
 export const TOKEN_TTL_DAYS = 30;
 export const MAX_PDF_BYTES = 4.5 * 1024 * 1024; // Netlify gateway caps a function body at ~6MB; base64 inflates 33%
 export const MAX_SIGNERS = 10;
@@ -443,7 +445,7 @@ export async function stampDocument({ pdfBase64, doc, sigs }) {
 
   for (const s of signed) {
     if (cursorY < 190) { page = pdf.addPage([PAGE_W, PAGE_H]); header(); cursorY = PAGE_H - 100; }
-    const kindLabel = s.kind === 'user' ? 'SLA Capital' : (s.kind === 'borrower' ? 'Borrower' : 'Signer');
+    const kindLabel = s.kind === 'user' ? 'SLA Capital' : (s.kind === 'borrower' ? 'Borrower' : (s.kind === 'broker' ? 'Broker' : 'Signer'));
     page.drawText(kindLabel + ' — ' + (s.name || s.email), { x: MARGIN, y: cursorY, size: 10, font: helvBold, color: GOLD });
     page.drawLine({ start: { x: MARGIN, y: cursorY - 4 }, end: { x: PAGE_W - MARGIN, y: cursorY - 4 }, thickness: 0.5, color: GOLD });
     cursorY -= 18;

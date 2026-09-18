@@ -179,7 +179,7 @@
     .suggest .row:first-child { border-top: 0; } .suggest .row:hover, .suggest .row.hl { background: rgba(200,129,58,.08); }
     .suggest .row .m { color: var(--muted); font-size: 11px; }
     .kbadge { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
-    .kbadge.borrower { background: rgba(200,129,58,.14); color: var(--gold-mid); } .kbadge.user { background: rgba(38,26,54,.1); color: var(--dark); } .kbadge.other { background: rgba(122,116,136,.14); color: var(--muted); }
+    .kbadge.borrower { background: rgba(200,129,58,.14); color: var(--gold-mid); } .kbadge.user { background: rgba(38,26,54,.1); color: var(--dark); } .kbadge.broker { background: rgba(37,99,235,.12); color: #2563eb; } .kbadge.other { background: rgba(122,116,136,.14); color: var(--muted); }
     #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 20px; border-radius: 24px; background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,.18); opacity: 0; transition: opacity .2s; z-index: 5000; pointer-events: none; max-width: min(90vw, 560px); text-align: center; }
     #toast.show { opacity: 1; }
     #toast.err { background: var(--danger); } #toast.ok { background: var(--success); }
@@ -334,7 +334,7 @@
          suggestions: team member → SLA users only, borrower → borrowers only,
          other → anyone. -->
     <div class="row2">
-      <div class="field"><label>Who is this</label><select id="sKind" onchange="signerSuggest(document.activeElement && document.activeElement.id === 'sEmail' ? document.getElementById('sEmail') : document.getElementById('sName'))"><option value="borrower">Borrower / guarantor</option><option value="user">SLA team member</option><option value="other">Other (title, broker, …)</option></select></div>
+      <div class="field"><label>Who is this</label><select id="sKind" onchange="signerSuggest(document.activeElement && document.activeElement.id === 'sEmail' ? document.getElementById('sEmail') : document.getElementById('sName'))"><option value="borrower">Borrower / guarantor</option><option value="user">SLA team member</option><option value="broker">Broker</option><option value="other">Other (title company, attorney, …)</option></select></div>
       <div class="field"><label>Signing order</label><input type="number" id="sOrder" min="1" max="10" value="1"></div>
     </div>
     <div class="field pos-rel"><label>Name</label><input type="text" id="sName" autocomplete="off" oninput="signerSuggest(this)" onfocus="signerSuggest(this)" onkeydown="suggestKey(event,this)" placeholder="Jane Doe"><div class="suggest" id="sugName"></div></div>
@@ -1017,7 +1017,11 @@ function commitSigner() {
   closeAddSigner(); renderSigners(); renderAllFields(); markDirty();
 }
 
-// People picker: borrowers (clients) + SLA users
+// People picker: borrowers (clients) + SLA users + BROKERS.
+// Deploy 237.151 (Mike) -- brokers were skipped entirely (the clients pass
+// drops _isBroker records), so every broker signer had to be typed by hand.
+// They come from the brokers book, which already merges broker clients with
+// the legacy `brokers` store, and are deduped against the pool by email.
 function primePeople() {
   if (_peoplePool) return;
   _peoplePool = [];
@@ -1038,6 +1042,26 @@ function primePeople() {
       _peoplePool.push({ name: u.name || u.email, email: String(u.email).toLowerCase(), kind: 'user', meta: (u.roles || []).join(', ') });
     });
   }).catch(function () {});
+  if (SLA.Brokers && SLA.Brokers.list) {
+    SLA.Brokers.list(_isStaff ? { all: true } : {}).then(function (r) {
+      var rows = [];
+      if (r && r.byOwner) Object.keys(r.byOwner).forEach(function (k) { (r.byOwner[k] || []).forEach(function (b) { rows.push(b); }); });
+      else rows = (r && (r.brokers || r.clients)) || [];
+      var seen = {};
+      _peoplePool.forEach(function (p) { seen[p.email] = true; });
+      rows.forEach(function (b) {
+        if (!b || !b.email) return;
+        var email = String(b.email).toLowerCase().trim();
+        if (!email || seen[email]) return;
+        seen[email] = true;
+        // Broker records come from three shapes (client blob, PG row, legacy store),
+        // so take whichever name/company fields this one carries.
+        var person = (((b.firstName || '') + ' ' + (b.lastName || '')).trim()) || b.name || b.displayName || '';
+        var company = b.company || b._brokerCompany || b.brokerCompany || b.entityName || '';
+        _peoplePool.push({ name: person || company || email, email: email, kind: 'broker', meta: person && company ? company : (company || 'Broker') });
+      });
+    }).catch(function () {});
+  }
 }
 function signerSuggest(input) {
   if (!input || (input.id !== 'sName' && input.id !== 'sEmail')) return;
@@ -1050,6 +1074,7 @@ function signerSuggest(input) {
   var rows = _peoplePool.filter(function (p) {
     if (kind === 'user' && p.kind !== 'user') return false;
     if (kind === 'borrower' && p.kind !== 'borrower') return false;
+    if (kind === 'broker' && p.kind !== 'broker') return false;
     return p.name.toLowerCase().indexOf(q) >= 0 || p.email.indexOf(q) >= 0;
   }).slice(0, 8);
   if (!rows.length) return;

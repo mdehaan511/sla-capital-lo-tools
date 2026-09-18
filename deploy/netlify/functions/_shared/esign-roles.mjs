@@ -20,7 +20,7 @@
  */
 import { getStore } from '@netlify/blobs';
 
-export const ROLE_KINDS = ['borrower', 'user', 'other'];
+export const ROLE_KINDS = ['borrower', 'user', 'broker', 'other']; // Deploy 237.151 -- broker kind
 export const MAX_ROLES = 40;
 const LIB_KEY = 'library';
 
@@ -28,7 +28,7 @@ export const DEFAULT_ROLES = [
   { id: 'esr_borrower',  name: 'Borrower',       kind: 'borrower', order: 1 },
   { id: 'esr_guarantor', name: 'Guarantor',      kind: 'borrower', order: 1 },
   { id: 'esr_sla',       name: 'SLA Signer',     kind: 'user',     order: 2 },
-  { id: 'esr_broker',    name: 'Broker',         kind: 'other',    order: 1 },
+  { id: 'esr_broker',    name: 'Broker',         kind: 'broker',   order: 1 },
   { id: 'esr_title',     name: 'Title / Escrow', kind: 'other',    order: 1 },
 ];
 
