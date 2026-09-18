@@ -172,7 +172,7 @@ async function handle(req, context) {
   });
 }
 
-// Deploy 237.182 (Mike: "Any AI errors shouldnt be appearing in the borrower
+// Deploy 237.183 (Mike: "Any AI errors shouldnt be appearing in the borrower
 // portal") -- see _shared/borrower-ai-feedback.mjs. The switch was already false and
 // the UPLOAD endpoint honoured it; this one, which builds the card on every page load,
 // read the reviewer's own words straight out of the tray.
@@ -181,7 +181,7 @@ function _itemState(d) {
   const liveDocs = Array.isArray(d.documents) ? d.documents.filter((x) => x && !x.hidden) : [];
   const uploaded = !!(d.currentDocId || liveDocs.length);
   const uploadedCount = liveDocs.length || (d.currentDocId ? 1 : 0);
-  // Deploy 237.182 -- AI findings are processor-facing. They are only ever handed to
+  // Deploy 237.183 -- AI findings are processor-facing. They are only ever handed to
   // a borrower when the feedback switch is ON, and it is off.
   const findings = BORROWER_AI_FEEDBACK
     ? (Array.isArray(d.aiFindings) ? d.aiFindings : [])
@@ -195,7 +195,7 @@ function _itemState(d) {
   // the borrower sees WHAT was flagged and is prompted to re-submit.
   if (d.verdict === 'issues') {
     return { status: 'needs_fix', accepted: false, uploaded, uploadedCount,
-      // Deploy 237.182 -- end the processor's sentence for them; a reason rarely
+      // Deploy 237.183 -- end the processor's sentence for them; a reason rarely
       // arrives with its own full stop and ran straight into the next sentence.
       message: (d.flagReason
         ? 'Your loan team flagged an issue: ' + String(d.flagReason).replace(/\s*$/, '').replace(/([^.!?])$/, '$1.')
@@ -210,7 +210,7 @@ function _itemState(d) {
   if (!uploaded) {
     return { status: 'todo', accepted: false, uploaded: false, uploadedCount: 0, message: '', findings: [] };
   }
-  // Deploy 237.182 -- an AI FAILURE (timeout, fetch error) is not a finding about the
+  // Deploy 237.183 -- an AI FAILURE (timeout, fetch error) is not a finding about the
   // borrower's document and must never read as one. This is the "AI review timed out
   // after 22s — upload a corrected version" card Mike was sent.
   if (isAiFailure(d)) {

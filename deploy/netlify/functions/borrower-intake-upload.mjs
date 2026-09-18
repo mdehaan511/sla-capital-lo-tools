@@ -41,7 +41,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 // still RUNS and its verdict/notes are stored for the team (visible in the internal
 // Doc Review tool); the borrower just sees a neutral "received" receipt, not the AI's
 // approve/issues take. Flip back to true once the review quality is verified.
-// Deploy 237.182 -- the switch moved to _shared/borrower-ai-feedback.mjs so the
+// Deploy 237.183 -- the switch moved to _shared/borrower-ai-feedback.mjs so the
 // STATUS endpoint reads the SAME one. It only honoured it here, and the page is built
 // by the other endpoint, which is how the AI reached a borrower anyway.
 
@@ -242,7 +242,7 @@ async function handle(req, context) {
         loanContext: _loanContext(review), investor: review.investor || '',
         extractFields: _extractFields,
       });
-      // Deploy 237.182 -- reviewDocument RETURNS a timeout / fetch failure as
+      // Deploy 237.183 -- reviewDocument RETURNS a timeout / fetch failure as
       // verdict:'issues' with the error text as the summary; it does not throw, so the
       // catch below never saw it and the failure was stored as a defect in the
       // borrower's document. A failed review says nothing about their file.
