@@ -107,6 +107,10 @@ async function handle(req, context) {
     ]);
     return json(200, {
       ok: true, serviced: true, account: acct,
+      // Deploy 237.144 (Mike: "I dont believe it went through") -- the demands WE
+      // filed, so the page can show one the moment it is accepted instead of waiting
+      // for FCI's tracker to list it.
+      filed: Array.isArray(found.loan.payoffRequests) ? found.loan.payoffRequests.slice(0, 10) : [],
       value: value && value._err ? null : value,
       valueError: value && value._err ? value._err : null,
       requests: requests && requests._err ? null : requests,
@@ -160,6 +164,9 @@ async function handle(req, context) {
     email: args.reqEmail, phone: args.reqPhone,
     requestedBy: args.requestedBy,
     source: body.source || 'loan-details',
+    // Deploy 237.144 -- insertPayoff's return type is undocumented and introspection
+    // is off, so keep FCI's raw answer as the receipt for this filing.
+    fciResponse: (function () { try { return JSON.stringify(fciResult).slice(0, 400); } catch (_) { return ''; } })(),
   };
   loan.payoffRequests = Array.isArray(loan.payoffRequests) ? loan.payoffRequests : [];
   loan.payoffRequests.unshift(entry);

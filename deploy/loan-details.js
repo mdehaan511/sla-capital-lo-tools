@@ -3852,12 +3852,16 @@ function loadFciActivity() {
     var pays = Array.isArray(r.rows) ? r.rows.slice(0, 6) : [];
     var fmt = function (d) { return d ? fmtDate(d) : '—'; };
     var html = '';
-    html += '<div style="font-weight:600;color:var(--text);margin-bottom:4px">FCI notes' + (notes.length ? ' (' + notes.length + ')' : '') + '</div>';
+    // Deploy 237.144 (Mike) -- the notes are long and rarely the reason you opened the
+    // loan, so they fold away. Closed by default; the count is on the summary line.
+    html += '<details class="fci-notes"><summary style="cursor:pointer;font-weight:600;color:var(--text);margin-bottom:4px;list-style:revert">FCI notes' +
+      (notes.length ? ' (' + notes.length + ')' : '') + '</summary><div style="margin-top:4px">';
     if (!notes.length) html += '<div>No notes from FCI on this loan' + (r.notes && r.notes.error ? ' (' + escH(r.notes.error) + ')' : '') + '.</div>';
     else html += notes.slice(0, 8).map(function (n) {
       return '<div style="padding:6px 0;border-bottom:1px solid var(--border,#eee)"><span style="color:var(--text)">' + escH(fmt(n.date)) + '</span>' + (n.subject ? ' · <strong>' + escH(n.subject) + '</strong>' : '') + (n.rep ? ' · ' + escH(n.rep) : '') +
         '<div style="white-space:pre-wrap;color:var(--text)">' + escH(n.text || '') + '</div></div>';
     }).join('') + (notes.length > 8 ? '<div style="margin-top:4px">+ ' + (notes.length - 8) + ' older on Closed Loans → Servicing</div>' : '');
+    html += '</div></details>'; // Deploy 237.144
     html += '<div style="font-weight:600;color:var(--text);margin:12px 0 4px">Latest payments</div>';
     html += !pays.length ? '<div>No payments on record at FCI.</div>' :
       '<table style="border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase"><th style="text-align:left;padding:3px 10px 3px 0">Due</th><th style="text-align:left;padding:3px 10px 3px 0">Received</th><th style="text-align:right;padding:3px 10px 3px 0">Amount</th><th style="text-align:left">Type</th></tr></thead><tbody>' +
@@ -3921,6 +3925,28 @@ function loadFciPayoff(force) {
         '</tr>';
       }
       h += '</table></div></div>';
+    }
+    // Deploy 237.144 (Mike) -- demands WE filed, listed first and marked until FCI's
+    // own tracker reports them. Without this the box looked identical after ordering,
+    // which is why a filed demand read as a failure.
+    var filed = (j.filed || []).slice();
+    var fciDates = {};
+    list.forEach(function (r) { var d = _fciDay(r.payoffDate); if (d) fciDates[d] = 1; });
+    var pendingFiled = filed.filter(function (f) { return !fciDates[_fciDay(f.payoffDate)]; });
+    if (pendingFiled.length) {
+      h += '<div style="margin-top:16px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Filed by us \u2014 not yet listed by FCI</div>' +
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px 4px 0">Ordered</th><th style="padding:4px 8px 4px 0">Payoff Date</th><th style="padding:4px 8px 4px 0">Requested for</th><th style="padding:4px 0">By</th></tr>';
+      pendingFiled.slice(0, 5).forEach(function (f) {
+        h += '<tr style="border-top:1px solid var(--line)">' +
+          '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(f.at)) + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(f.payoffDate)) + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(f.company || f.contact || '\u2014') + '</td>' +
+          '<td style="padding:5px 0">' + escH(String(f.by || '').split('@')[0]) + '</td>' +
+        '</tr>';
+      });
+      h += '</table></div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:6px">FCI accepted these. They usually appear in the Demand History above once FCI processes them \u2014 if one is still here after a business day, call it in.</div></div>';
     }
     box.innerHTML = h;
   }).catch(function (e) {
