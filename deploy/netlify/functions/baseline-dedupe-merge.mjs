@@ -42,6 +42,7 @@ import { IMPORT_OWNER_KEY, setNativeLink, getNativeLink } from './_shared/baseli
 // orphaned PG rows. writeClient mirrors blob+PG; deleteClientStrict removes the
 // client + its loans from PG transactionally.
 import { writeClient } from './_shared/client-write.mjs';
+import { isFrozenLoanNumber } from './_shared/loan-number.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 // Fields pulled from the import copy onto the native loan during a merge.
@@ -173,7 +174,14 @@ async function handle(req, context) {
           const entry = { ownerKey, clientId, clientKey: key, loan, client };
           allEntries.push(entry);
           const disp = loan && loan.slaDisplayId;
-          if (disp) {
+          // Deploy 237.164 (Mike) — a number this app FROZE onto a closed native
+          // loan (see _shared/loan-number.mjs) is not an identity claim: it is
+          // a hash of the loan id on its funding date, so it can coincide with
+          // a real Baseline Id by chance. Pass 1 merges a native into an import
+          // copy on a number match and DELETES the copy, so such a coincidence
+          // would destroy a record. Frozen numbers stay out of this index; a
+          // genuine duplicate still matches by address in pass 2.
+          if (disp && !isFrozenLoanNumber(loan)) {
             if (!idIndex.has(disp)) idIndex.set(disp, []);
             idIndex.get(disp).push(entry);
           }

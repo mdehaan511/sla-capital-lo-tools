@@ -28,6 +28,14 @@ const ONE_SHOT_JOBS = [
   // DSCR loans that predate the 237.084 save-time rule (blanks only; report in
   // settings/dscr_defaults_backfill_last).
   { key: 'dscr-defaults-backfill-v1', fn: 'dscr-defaults-backfill-background', sig: 'dscr-defaults' },
+  // Deploy 237.164 (Mike, "freeze the loan numbers after closing") -- stamps the
+  // displayed SLA number onto closed loans that never had one stored, so it
+  // stops being derived from a funding date that can still be edited (237.158:
+  // that is what silently unhooks a loan from its Sitewire property). Blanks
+  // only, closed only, value unchanged from what the loan already shows; report
+  // in settings/freeze_loan_numbers_last. New closes are frozen at write time
+  // by _shared/client-write.mjs, so this is a one-shot for the back catalogue.
+  { key: 'freeze-loan-numbers-v1', fn: 'freeze-loan-numbers-background', sig: 'freeze-loan-numbers' },
 ];
 async function runOneShotJobs() {
   const out = [];

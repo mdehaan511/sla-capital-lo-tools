@@ -36,11 +36,28 @@
 import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
 import { mirror as pgMirror } from './pg-mirror.mjs';
+import { freezeClientLoanNumbers } from './loan-number.mjs';
 
 export async function writeClient(ownerKey, client, opts) {
   opts = opts || {};
   if (!ownerKey || !client || !client.id) {
     throw new Error('writeClient: ownerKey and client.id required');
+  }
+
+  // Deploy 237.164 (Mike) — freeze the SLA loan number once a loan closes. A loan
+  // originated in the portal has no stored number and is shown a DERIVED one
+  // built from its funding date, so editing that date later moves the number
+  // and breaks anything keyed to it outside this app (Sitewire draws, most
+  // visibly). Stamping the already-displayed number changes nothing anyone can
+  // see and makes it permanent.
+  //
+  // It sits HERE, in the one write path every mutation funnels through, rather
+  // than in each of the several endpoints that can close a loan — the whole
+  // point is that no close route can miss it, including ones added later. It is
+  // in-memory only, writes nothing that was not already blank, and is wrapped
+  // so a fault in it can never fail a client save.
+  try { freezeClientLoanNumbers(client); } catch (e) {
+    console.warn('[client-write] loan-number freeze skipped:', e && e.message);
   }
 
   // 1. Postgres — the authority. Throws before any mirror mutates.
