@@ -3081,7 +3081,7 @@
   function dscrDesktopAnalysisFee(investorName) { return isDiyaInvestor(investorName) ? 200 : 120; }
   function dscrFlatFees(investorName) { return 995 + 700 + 500 + dscrDesktopAnalysisFee(investorName); }
 
-  // Deploy 237.157 (Mike: Sitewire draws missing on Closed Loans) — THE SLA loan
+  // Deploy 237.158 (Mike: Sitewire draws missing on Closed Loans) — THE SLA loan
   // number. Only Baseline-imported loans (and hand edits, 237.102) carry a
   // stored loan.slaDisplayId; a loan originated in the portal has none and is
   // shown a number DERIVED from its id + funding date. That derived number is
@@ -3198,8 +3198,8 @@
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
     isDiyaInvestor: isDiyaInvestor,                 // Deploy 237.065
-    slaLoanNumber: slaLoanNumber,                   // Deploy 237.157
-    deriveSlaLoanNumber: deriveSlaLoanNumber,       // Deploy 237.157
+    slaLoanNumber: slaLoanNumber,                   // Deploy 237.158
+    deriveSlaLoanNumber: deriveSlaLoanNumber,       // Deploy 237.158
     dscrDesktopAnalysisFee: dscrDesktopAnalysisFee, // Deploy 237.065
     dscrFlatFees: dscrFlatFees,                     // Deploy 237.065
     isSeniorLo: isSeniorLo, // Deploy 236.831

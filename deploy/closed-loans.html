@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Closed Loans — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js?v=237157"></script>
+  <script src="sla-api.js?v=237158"></script>
   <script src="sla-nav.js"></script>
   <script src="/sla-search.js"></script>
   <script src="sla-notifications.js?v=237120"></script>
@@ -479,7 +479,7 @@ function moneySigned(v){ var n = Math.round(num(v)); return (n<0?'-$':'$') + Mat
 // arrive as integer cents (Sitewire's unit) and are converted here.
 var _sitewire = null, _sitewireState = '', _sitewireFetchedAt = '', _sitewireErr = '';
 function swNorm(v){ return String(v==null?'':v).trim().toUpperCase(); }
-// Deploy 237.157 (Mike) — a loan's SLA number is its STORED slaDisplayId or, for a
+// Deploy 237.158 (Mike) — a loan's SLA number is its STORED slaDisplayId or, for a
 // loan originated in the portal (which never gets one stamped), the derived
 // number Loan Details displays and the LO puts on the Sitewire property. This
 // page matched on the stored field alone, so every native loan fell through:
@@ -563,7 +563,7 @@ function loadSitewire(force){
   var nums = [];
   _closed.forEach(function(it){
     if (!isRtl(it.loan) || dispositionOf(it.loan)==='paid_off') return;
-    var n = swLoanNumber(it.loan);           // Deploy 237.157 — stored OR derived
+    var n = swLoanNumber(it.loan);           // Deploy 237.158 — stored OR derived
     if (n) nums.push(n);
   });
   // Deploy 236.762 — if the LOANS haven't arrived yet (cold cache + a fast

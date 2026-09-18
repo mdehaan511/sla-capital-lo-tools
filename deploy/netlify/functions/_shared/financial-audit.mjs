@@ -197,7 +197,9 @@ export function fundingTypeOf(l, override) {
   if (override && FUNDING_TYPES[override]) return override;
   if (!isRtlLike(l)) return 'dscr';
   const src = String(l.fundingSource || '').toLowerCase();
-  const heldByKaf = holderOfName(l.assignedToEntity) === 'kaf' || holderOfName(l.investorName) === 'kaf';
+  // Deploy 237.157 -- companyOnDocs is the current name for the entity on the
+  // note; assignedToEntity is the pre-237.157 key (kept on older records).
+  const heldByKaf = holderOfName(l.companyOnDocs || l.assignedToEntity) === 'kaf' || holderOfName(l.investorName) === 'kaf';
   if (src === 'king_arthur') return 'kaf';
   if (src === 'stride') return 'stride';
   if (src === 'correspondent' || src === 'other') return 'table';
@@ -505,7 +507,7 @@ export async function mutateState(fn) {
 }
 
 // ── Loans from Postgres ─────────────────────────────────────────────────
-const EXTRA_KEYS = ['fundingSource', 'assignedToEntity', 'investorName', 'finalLoanAmount', 'closingFees',
+const EXTRA_KEYS = ['fundingSource', 'companyOnDocs', 'assignedToEntity', 'investorName', 'finalLoanAmount', 'closingFees',
   'brokerFee', 'brokerName', 'disposition', 'soldDate', 'upb', 'payoffDate', 'payoffAmount', 'closedAt',
   'tpo', 'tpoSpread', 'tpoPremium', 'initialAdvance', '_baselineRaw']; // Deploy 237.143
 export const LOAN_SELECT = 'id,client_id,owner_email,address,status,processing_stage,tool_type,loan_type,loan_amt,points,' +

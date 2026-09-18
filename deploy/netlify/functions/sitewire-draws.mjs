@@ -149,7 +149,7 @@ async function handle(req, context) {
           const c = await clientsStore.get(key, { type: 'json' }).catch(() => null);
           const loans = (c && Array.isArray(c.loans)) ? c.loans : [];
           for (const l of loans) {
-            // Deploy 237.157 (Mike) — a portal-originated loan has no stored
+            // Deploy 237.158 (Mike) — a portal-originated loan has no stored
             // slaDisplayId; its number is derived, and that derived number is
             // what is on the Sitewire property. Scanning the stored field alone
             // made every such loan invisible to its own LO (staff were fine --

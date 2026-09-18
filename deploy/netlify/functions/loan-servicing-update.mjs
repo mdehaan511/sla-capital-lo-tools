@@ -29,6 +29,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
+import { appendFundingLog } from './_shared/funding-log.mjs'; // Deploy 237.157
 
 // Whitelist — only these loan fields may be set here.
 // Field names align with the existing 236.339 Servicing Info section on Loan
@@ -180,6 +181,9 @@ async function handle(req, context) {
     loan.dispositionAt = now;
     loan.dispositionBy = selfEmail;
   }
+  // Deploy 237.157 (Mike) -- selling / re-assigning a closed loan is a move
+  // between investors: same chain-of-custody entry as the Funding Plan.
+  appendFundingLog(loan, _alBefore, { actor: selfEmail, source: 'Servicing' });
   loan.servicingUpdatedAt = now;
   loan.servicingUpdatedBy = selfEmail;
   loan.updatedAt = now;

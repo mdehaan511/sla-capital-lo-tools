@@ -31,6 +31,7 @@ import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs'; // Deploy 237.074
+import { appendFundingLog } from './_shared/funding-log.mjs'; // Deploy 237.157
 
 const FIELDS = {
   // Terms
@@ -46,6 +47,12 @@ const FIELDS = {
   // which dropped these — now saved deterministically here). tpo = the manual TPO
   // premium (points) the Funding Plan reads; buyRate = RTL yield.
   fundingSource: 1, fundingSourceOther: 1, investorId: 1, investorName: 1, tpo: 1, buyRate: 1,
+  // Deploy 237.157 (Mike) -- Company On Docs (which of our entities is on the
+  // note) + the assignment date. assignedToEntity is the pre-237.157 name for
+  // Company On Docs: the Funding Plan posted it from 236.978 but it was never
+  // on this allowlist, so it silently never saved. Kept + mirrored so older
+  // records and the Financial Audit keep reading.
+  companyOnDocs: 1, assignedToEntity: 1, assignedDate: 1,
   // Deploy 236.941 — SIZER base rate for LO comp on legacy overridden RTLs
   // (the sizer's own _pricingOverrideOriginal wins when present; this is the
   // hand-entered fallback). Deliberately separate from buyRate: investor buy
@@ -207,6 +214,10 @@ async function handle(req, context) {
     applied[k] = loan[k];
   });
   if (!Object.keys(applied).length) return json(400, { error: 'No recognized loan fields' });
+
+  // Deploy 237.157 (Mike) -- chain of custody: record every funder / investor
+  // move BEFORE the write so the entry lands in the same save.
+  appendFundingLog(loan, _beforeLoan, { actor: selfEmail, source: 'Funding Plan' });
 
   const now = new Date().toISOString();
   loan.updatedAt = now;
