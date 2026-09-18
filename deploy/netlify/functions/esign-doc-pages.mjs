@@ -13,9 +13,12 @@
  *       would fail where appending the same pages one by one succeeds.
  *
  *   { id, owner?, order: [3, 1, 2] }
- *       Rebuild the document in that page order. A page left out of the list
- *       is deleted. Any field on a deleted page goes with it, and the response
- *       says how many, so the UI can warn before and confirm after.
+ *   { id, owner?, order: [{ page: 3, rotate: 90 }, 1, 2] }
+ *       Rebuild the document in that page order, optionally turning a page by
+ *       a right angle (Deploy 237.169 — scanned exhibits arrive sideways). A
+ *       page left out of the list is deleted. Any field on a deleted page goes
+ *       with it, and the response says how many, so the UI can warn before and
+ *       confirm after.
  *
  * Draft-only, like every other edit: a sent document's SHA-256 is sealed into
  * each signer's audit record and printed on the certificate page, so its bytes
@@ -99,7 +102,10 @@ export default async (req, context) => {
     } else if (Array.isArray(body.order)) {
       try { result = await reorderPdfPages(currentBytes, body.order); }
       catch (e) { return json(400, { error: 'Could not re-arrange the pages: ' + ((e && e.message) || 'unknown') }); }
-      note = 'Page order changed' + (result.dropped ? ' — ' + result.dropped + ' page' + (result.dropped === 1 ? '' : 's') + ' removed' : '');
+      const bits = [];
+      if (result.dropped) bits.push(result.dropped + ' page' + (result.dropped === 1 ? '' : 's') + ' removed');
+      if (result.rotated) bits.push(result.rotated + ' page' + (result.rotated === 1 ? '' : 's') + ' rotated');   // Deploy 237.169
+      note = 'Pages re-arranged' + (bits.length ? ' — ' + bits.join(', ') : '');
 
     } else {
       return json(400, { error: 'Nothing to do — send add:{pdfBase64} or order:[…]' });
@@ -130,6 +136,7 @@ export default async (req, context) => {
       addedCount: result.addedCount || 0,
       at: result.at || 0,
       droppedPages: result.dropped || 0,
+      rotatedPages: result.rotated || 0,
       droppedFields,
       bytes: result.bytes.length,
       maxDocBytes: MAX_DOC_BYTES,

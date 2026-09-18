@@ -44,7 +44,7 @@
  */
 import crypto from 'node:crypto';
 import { getStore } from '@netlify/blobs';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import { keySafe, normalizeEmail } from './auth.mjs';
 import { createStoreIndex } from './store-index.mjs';
 import { getOwnerReplyTo, logBorrowerSend } from './email.mjs';
@@ -382,27 +382,44 @@ export async function insertPdfPages(baseBytes, addBytes, at) {
 
 /**
  * Rebuild the document from `order`, a list of 1-based page numbers of the
- * CURRENT document. Pages left out are dropped; a repeat is ignored.
+ * CURRENT document. Pages left out are dropped; a repeat is ignored. An entry
+ * may also be { page, rotate } to turn that page by 90 / 180 / 270 degrees
+ * (Deploy 237.169 — scanned exhibits arrive sideways), applied on top of
+ * whatever rotation the page already carries.
  * remap returns 0 for a page that is gone.
  */
 export async function reorderPdfPages(baseBytes, order) {
   const base = await PDFDocument.load(baseBytes, { ignoreEncryption: true });
   const count = base.getPageCount();
   const seen = new Set();
-  const list = (Array.isArray(order) ? order : []).map((n) => parseInt(n, 10)).filter((n) => {
-    if (!(n >= 1 && n <= count) || seen.has(n)) return false;
-    seen.add(n); return true;
-  });
+  const list = [];
+  for (const raw of (Array.isArray(order) ? order : [])) {
+    const n = parseInt((raw && typeof raw === 'object') ? raw.page : raw, 10);
+    if (!(n >= 1 && n <= count) || seen.has(n)) continue;
+    seen.add(n);
+    let rot = parseInt((raw && typeof raw === 'object') ? raw.rotate : 0, 10) || 0;
+    rot = ((rot % 360) + 360) % 360;
+    if (rot % 90) rot = 0;                       // only right angles; anything else is a no-op
+    list.push({ page: n, rotate: rot });
+  }
   if (!list.length) throw new Error('A document needs at least one page');
   const out = await PDFDocument.create();
-  const copied = await out.copyPages(base, list.map((n) => n - 1));
-  copied.forEach((pg) => out.addPage(pg));
+  const copied = await out.copyPages(base, list.map((e) => e.page - 1));
+  copied.forEach((pg, i) => {
+    const turn = list[i].rotate;
+    if (turn) {
+      const now = pg.getRotation().angle || 0;
+      pg.setRotation(degrees((((now + turn) % 360) + 360) % 360));
+    }
+    out.addPage(pg);
+  });
   const map = {};
-  list.forEach((oldPage, i) => { map[oldPage] = i + 1; });
+  list.forEach((e, i) => { map[e.page] = i + 1; });
   return {
     bytes: Buffer.from(await out.save()),
     pageCount: list.length,
     dropped: count - list.length,
+    rotated: list.filter((e) => e.rotate).length,
     remap: (page) => map[page] || 0,
   };
 }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>E-Sign — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js?v=237168"></script>
+  <script src="sla-api.js?v=237169"></script>
   <script src="sla-nav.js"></script>
   <script src="sla-notifications.js?v=237120"></script>
   <script src="sla-chat.js"></script>
@@ -84,6 +84,24 @@
     .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
     .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 30px; text-align: center; color: var(--muted); font-size: 13px; cursor: pointer; }
     .drop:hover, .drop.over { border-color: var(--gold); background: var(--gold-light); }
+    /* Page manager (Deploy 237.169) — thumbnails you drag to re-order. */
+    .pm-wrap { max-height: 56vh; overflow: auto; padding: 4px 2px; }
+    .pm-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .pm-tile { width: 122px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 6px; cursor: grab; position: relative; }
+    .pm-tile.dragging { opacity: .4; }
+    .pm-tile.over { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-light); }
+    .pm-tile.removed { opacity: .45; border-style: dashed; }
+    .pm-shot { height: 140px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; border-radius: 6px; }
+    .pm-shot img { max-width: 100%; max-height: 100%; display: block; transition: transform .12s; }
+    .pm-shot img.r90, .pm-shot img.r270 { max-width: 140px; max-height: 108px; }
+    .pm-foot { display: flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 11px; color: var(--muted); }
+    .pm-no { font-weight: 700; color: var(--ink, #261a36); }
+    .pm-act { margin-left: auto; display: flex; gap: 2px; }
+    .pm-act button { border: 1px solid var(--border); background: var(--surface); border-radius: 6px; width: 22px; height: 20px; font-size: 11px; line-height: 1; cursor: pointer; padding: 0; }
+    .pm-act button:hover { border-color: var(--gold); }
+    .pm-act button.danger:hover { border-color: #7c1f1f; color: #7c1f1f; }
+    .pm-summary { font-size: 12px; color: var(--muted); margin-top: 10px; }
+    .pm-summary b { color: #7c1f1f; }
     .drop strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
     .field { margin-top: 12px; }
     .field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
@@ -225,6 +243,7 @@
         <span class="zoom" title="Zoom (re-renders the pages sharply)"><button type="button" onclick="setZoom(_zoom / 1.25)">−</button><span class="pct" id="zoomPct">100%</span><button type="button" onclick="setZoom(_zoom * 1.25)">+</button><button type="button" onclick="setZoom(1)" style="width:auto;padding:0 8px;font-size:11px;font-weight:600">Fit</button></span>
         <button class="btn ghost sm" onclick="saveDraft(true)">Save</button>
         <button class="btn ghost sm" onclick="openAddPages()" title="Combine another PDF into this document">+ Add pages</button>
+        <button class="btn ghost sm" onclick="openPageManager()" title="Re-order, rotate or delete pages">Organize pages</button>
         <button class="btn ghost sm" onclick="saveAsTemplate()">Save as template</button>
         <button class="btn sm" onclick="openSend()">Send for signature →</button>
       </div>
@@ -339,6 +358,20 @@
     <div class="actions">
       <button class="btn ghost" onclick="closeAddPages()">Cancel</button>
       <button class="btn" id="addPagesGo" onclick="doAddPages()">Add pages</button>
+    </div>
+  </div>
+</div>
+
+<!-- Organize pages — Deploy 237.169 (Mike: move around the page order) -->
+<div class="modal-bg" id="pagesModal" style="display:none" onclick="if(event.target===this)closePageManager()">
+  <div class="modal" style="width:min(860px,96vw)">
+    <h2>Organize pages</h2>
+    <p class="sub">Drag a page to move it. Use ↻ to turn a sideways scan, or × to take a page out. Nothing changes until you apply.</p>
+    <div class="pm-wrap"><div class="pm-grid" id="pmGrid"><div class="loading">Rendering pages…</div></div></div>
+    <div class="pm-summary" id="pmSummary"></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closePageManager()">Cancel</button>
+      <button class="btn" id="pmGo" onclick="applyPageManager()">Apply changes</button>
     </div>
   </div>
 </div>
@@ -487,7 +520,7 @@ function route() {
 }
 function showView(v) {
   // Hash navigation keeps the page alive, so close any modal left open by the previous view.
-  ['newModal', 'signerModal', 'sendModal', 'linksModal', 'addPagesModal'].forEach(function (id) { var m = document.getElementById(id); if (m) m.style.display = 'none'; });
+  ['newModal', 'signerModal', 'sendModal', 'linksModal', 'addPagesModal', 'pagesModal'].forEach(function (id) { var m = document.getElementById(id); if (m) m.style.display = 'none'; });
   document.getElementById('viewList').style.display = v === 'list' ? '' : 'none';
   document.getElementById('viewEditor').style.display = v === 'edit' ? '' : 'none';
   document.getElementById('viewDetail').style.display = v === 'doc' ? '' : 'none';
@@ -1387,6 +1420,144 @@ function doAddPages() {
     showToast(e.message || 'Could not add those pages', 'err');
     go.disabled = false; go.textContent = 'Add pages';
   }).then(function () { _addingPages = false; });
+}
+
+// ── Organize pages (Deploy 237.169, Mike: "move around the page order") ──
+// Thumbnails come from the pdf.js document the editor already has open, so
+// opening this costs no network. Everything is staged in _pmItems and nothing
+// reaches the server until Apply — the whole re-arrangement goes up as ONE
+// order list, which is also what keeps the field remap a single atomic step.
+var _pmItems = null;      // [{ page: <original 1-based>, rotate: 0|90|180|270, removed: bool }]
+var _pmShots = {};        // original page number -> data URL (rasterized once)
+var _pmDrag = null, _pmBusy = false;
+
+function openPageManager() {
+  if (!_doc || !_pdfDoc) { showToast('Give the document a moment to finish loading', 'err'); return; }
+  _pmItems = [];
+  for (var i = 1; i <= _pdfDoc.numPages; i++) _pmItems.push({ page: i, rotate: 0, removed: false });
+  document.getElementById('pmGrid').innerHTML = '<div class="loading">Rendering pages\u2026</div>';
+  document.getElementById('pagesModal').style.display = 'flex';
+  var go = document.getElementById('pmGo'); go.disabled = false; go.textContent = 'Apply changes';
+  pmShoot().then(renderPageManager);
+}
+function closePageManager() { document.getElementById('pagesModal').style.display = 'none'; _pmItems = null; _pmDrag = null; }
+
+// Rasterize each page once, small. Cached across opens of the same document.
+function pmShoot() {
+  var jobs = _pmItems.map(function (it) {
+    if (_pmShots[it.page]) return Promise.resolve();
+    return _pdfDoc.getPage(it.page).then(function (pg) {
+      var v1 = pg.getViewport({ scale: 1 });
+      var scale = 150 / v1.width;
+      var vp = pg.getViewport({ scale: scale });
+      var c = document.createElement('canvas');
+      c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      return pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function () {
+        _pmShots[it.page] = c.toDataURL('image/png');
+      });
+    }).catch(function () { _pmShots[it.page] = ''; });
+  });
+  return Promise.all(jobs);
+}
+function renderPageManager() {
+  if (!_pmItems) return;
+  var pos = 0;
+  document.getElementById('pmGrid').innerHTML = _pmItems.map(function (it, i) {
+    if (!it.removed) pos++;
+    var label = it.removed ? 'removed' : String(pos);
+    var shot = _pmShots[it.page];
+    var img = shot
+      ? '<img src="' + shot + '" class="r' + it.rotate + '" style="transform:rotate(' + it.rotate + 'deg)" alt="Page ' + it.page + '">'
+      : '<span style="font-size:11px;color:var(--muted)">page ' + it.page + '</span>';
+    return '<div class="pm-tile' + (it.removed ? ' removed' : '') + '" draggable="' + (it.removed ? 'false' : 'true') + '" data-i="' + i + '"' +
+        ' ondragstart="pmDragStart(event,' + i + ')" ondragend="pmDragEnd(event)"' +
+        ' ondragover="pmDragOver(event,' + i + ')" ondragleave="pmDragLeave(event)" ondrop="pmDrop(event,' + i + ')">' +
+        '<div class="pm-shot">' + img + '</div>' +
+        '<div class="pm-foot"><span class="pm-no">' + label + '</span>' +
+          '<span style="font-size:10px">was ' + it.page + '</span>' +
+          '<span class="pm-act">' +
+            (it.removed
+              ? '<button type="button" title="Put this page back" onclick="pmRestore(' + i + ')">\u21a9</button>'
+              : '<button type="button" title="Rotate 90\u00b0" onclick="pmRotate(' + i + ')">\u21bb</button>' +
+                '<button type="button" class="danger" title="Remove this page" onclick="pmRemove(' + i + ')">\u00d7</button>') +
+          '</span>' +
+        '</div>' +
+      '</div>';
+  }).join('');
+  pmSummary();
+}
+function pmSummary() {
+  var keep = _pmItems.filter(function (x) { return !x.removed; });
+  var gone = _pmItems.filter(function (x) { return x.removed; }).map(function (x) { return x.page; });
+  var turned = keep.filter(function (x) { return x.rotate; }).length;
+  // How many placed fields sit on pages that are about to disappear.
+  var lost = (_doc.fields || []).filter(function (f) { return gone.indexOf(f.page || 1) >= 0; }).length;
+  var bits = [keep.length + ' page' + (keep.length === 1 ? '' : 's')];
+  if (gone.length) bits.push(gone.length + ' removed');
+  if (turned) bits.push(turned + ' rotated');
+  var html = bits.join(' \u00b7 ');
+  if (lost) html += ' \u2014 <b>' + lost + ' placed field' + (lost === 1 ? '' : 's') + ' will be deleted with those pages</b>';
+  document.getElementById('pmSummary').innerHTML = html;
+  document.getElementById('pmGo').disabled = !keep.length;
+}
+function pmRotate(i) { var it = _pmItems[i]; it.rotate = (it.rotate + 90) % 360; renderPageManager(); }
+function pmRemove(i) { _pmItems[i].removed = true; renderPageManager(); }
+function pmRestore(i) { _pmItems[i].removed = false; renderPageManager(); }
+function pmDragStart(e, i) {
+  _pmDrag = i;
+  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); } catch (_) {}
+  e.currentTarget.classList.add('dragging');
+}
+function pmDragEnd(e) { e.currentTarget.classList.remove('dragging'); _pmDrag = null; pmClearOver(); }
+function pmDragOver(e, i) { if (_pmDrag === null || _pmDrag === i) return; e.preventDefault(); e.currentTarget.classList.add('over'); }
+function pmDragLeave(e) { e.currentTarget.classList.remove('over'); }
+function pmClearOver() { Array.prototype.forEach.call(document.querySelectorAll('.pm-tile.over'), function (t) { t.classList.remove('over'); }); }
+function pmDrop(e, i) {
+  e.preventDefault(); pmClearOver();
+  var from = _pmDrag; if (from === null || from === i) return;
+  var moved = _pmItems.splice(from, 1)[0];
+  _pmItems.splice(i, 0, moved);
+  _pmDrag = null;
+  renderPageManager();
+}
+function applyPageManager() {
+  if (!_doc || !_pmItems || _pmBusy) return;
+  var keep = _pmItems.filter(function (x) { return !x.removed; });
+  if (!keep.length) { showToast('A document needs at least one page', 'err'); return; }
+  var unchanged = keep.length === _pmItems.length && keep.every(function (x, i) { return x.page === i + 1 && !x.rotate; });
+  if (unchanged) { closePageManager(); return; }
+  var gone = _pmItems.filter(function (x) { return x.removed; }).map(function (x) { return x.page; });
+  var lost = (_doc.fields || []).filter(function (f) { return gone.indexOf(f.page || 1) >= 0; }).length;
+  if (gone.length && !confirm('Remove ' + gone.length + ' page' + (gone.length === 1 ? '' : 's') +
+      (lost ? ' and the ' + lost + ' field' + (lost === 1 ? '' : 's') + ' placed on them' : '') + '?')) return;
+
+  var go = document.getElementById('pmGo');
+  _pmBusy = true; go.disabled = true; go.textContent = 'Applying\u2026';
+  // Flush unsaved edits first, same reason as Add pages: the server remaps the
+  // field list IT holds, so a field placed seconds ago would otherwise be
+  // re-saved afterwards still carrying its old page number.
+  clearTimeout(_saveTimer);
+  var ready = (_dirty || _saving) ? saveDraft(false) : Promise.resolve();
+  ready.then(function () {
+    return SLA.ESign.pages(ownerBody({
+      id: _doc.id,
+      order: keep.map(function (x) { return x.rotate ? { page: x.page, rotate: x.rotate } : x.page; }),
+    }));
+  }).then(function (r) {
+    _doc = r.doc; _selField = null; _dirty = false; _pmShots = {};
+    document.getElementById('propPanel').style.display = 'none';
+    closePageManager();
+    setSaveState('Saved');
+    var msg = r.pageCount + ' page' + (r.pageCount === 1 ? '' : 's');
+    if (r.droppedPages) msg += ' \u00b7 ' + r.droppedPages + ' removed';
+    if (r.droppedFields) msg += ' \u00b7 ' + r.droppedFields + ' field' + (r.droppedFields === 1 ? '' : 's') + ' deleted';
+    showToast('Pages updated \u2014 ' + msg, 'ok');
+    return renderPdf('/api/esign-doc-pdf?id=' + encodeURIComponent(_doc.id) + ownerQs() + '&v=' + Date.now())
+      .then(function () { renderSigners(); renderAllFields(); });
+  }).catch(function (e) {
+    showToast(e.message || 'Could not re-arrange the pages', 'err');
+    go.disabled = false; go.textContent = 'Apply changes';
+  }).then(function () { _pmBusy = false; });
 }
 
 function saveAsTemplate() {

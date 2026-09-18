@@ -134,6 +134,43 @@ console.log('\nRe-ordering and deleting pages');
   else fail('second pass wrong: ' + w.join(','));
 }
 
+// ── Rotation (Deploy 237.169): scanned exhibits arrive sideways ──
+console.log('\nRotating pages');
+async function angles(bytes) {
+  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  return pdf.getPages().map((p) => p.getRotation().angle || 0);
+}
+{
+  const r = await reorderPdfPages(A, [1, { page: 2, rotate: 90 }, { page: 3, rotate: 180 }]);
+  const a = await angles(r.bytes);
+  if (String(a) === String([0, 90, 180]) && r.rotated === 2) ok('pages turn without moving: ' + a.join(','));
+  else fail('rotation wrong: ' + a.join(',') + ' (rotated ' + r.rotated + ')');
+}
+{
+  // Turning twice adds up: a page already rotated keeps its own angle as the base.
+  const once  = await reorderPdfPages(A, [{ page: 1, rotate: 90 }, 2, 3]);
+  const twice = await reorderPdfPages(once.bytes, [{ page: 1, rotate: 90 }, 2, 3]);
+  const a = await angles(twice.bytes);
+  if (a[0] === 180) ok('a second quarter turn lands on 180');
+  else fail('rotation did not accumulate: ' + a.join(','));
+}
+{
+  const r = await reorderPdfPages(A, [{ page: 1, rotate: 45 }, { page: 2, rotate: -90 }, { page: 3, rotate: 720 }]);
+  const a = await angles(r.bytes);
+  if (String(a) === String([0, 270, 0])) ok('odd angles ignored, negatives normalized: ' + a.join(','));
+  else fail('angle normalization wrong: ' + a.join(','));
+}
+{
+  // Re-order, rotate and delete in one pass, with the fields following.
+  const r = await reorderPdfPages(A, [{ page: 3, rotate: 90 }, 1]);
+  const w = await widths(r.bytes), a = await angles(r.bytes);
+  const doc = { fields: [field('f1', 1), field('f2', 2), field('f3', 3)] };
+  const dropped = remapFieldPages(doc, r.remap);
+  if (String(w) === String([103, 101]) && String(a) === String([90, 0]) && pagesOf(doc) === 'f1@2 f3@1' && dropped === 1) {
+    ok('re-order + rotate + delete in one pass keeps fields straight');
+  } else fail('combined pass wrong: ' + w.join(',') + ' / ' + a.join(',') + ' / ' + pagesOf(doc));
+}
+
 console.log('');
 if (failed) { console.log(failed + ' check(s) FAILED'); process.exit(1); }
 console.log('✓ pages and fields move together');
