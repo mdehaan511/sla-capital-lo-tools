@@ -155,6 +155,25 @@ function renderReady() {
     '<div class="consent card" id="consentCard" style="margin-top:14px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Electronic signature consent</div>' +
       '<div class="consent-box">' + esc(info.consent.text) + '</div>' +
       '<label><input type="checkbox" id="consentChk" onchange="updateBar()"><span>' + esc(info.consent.checkboxLabel) + '</span></label></div>';
+  // Deploy 237.166 (Mike, signing his first document): "this was unclear and I
+  // was scrolling looking for what to do next." When the last field is filled the
+  // signer now gets this modal instead of having to hunt for the consent box.
+  // It shares state with #consentChk so there is still ONE consent checkbox.
+  document.body.insertAdjacentHTML('beforeend',
+    '<div class="modal-bg" id="consentModal" style="display:none" onclick="if(event.target===this)closeConsentModal()">' +
+      '<div class="modal">' +
+        '<h3>Consent to E-sign and Submit</h3>' +
+        '<div class="sub">Every field is complete. Read the consent below, tick the box, and submit your signature.</div>' +
+        '<div class="consent-box" style="max-height:200px">' + esc(info.consent.text) + '</div>' +
+        '<label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;margin-top:12px;cursor:pointer">' +
+          '<input type="checkbox" id="consentChkModal" style="margin-top:3px;width:18px;height:18px" onchange="consentSync(this.checked)">' +
+          '<span>' + esc(info.consent.checkboxLabel) + '</span></label>' +
+        '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">' +
+          '<button type="button" class="btn ghost" onclick="closeConsentModal()">Review the document</button>' +
+          '<button type="button" class="btn" id="consentSubmitBtn" onclick="consentSubmit()" disabled>Consent &amp; Sign</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>');
   document.body.insertAdjacentHTML('beforeend', '<div class="bar"><div class="inner"><div class="prog" id="prog"></div><span class="zoom" title="Zoom"><button type="button" onclick="setZoom(_zoom / 1.25)">−</button><span class="pct" id="zoomPct">100%</span><button type="button" onclick="setZoom(_zoom * 1.25)">+</button></span><button class="btn ghost sm" id="nextBtn" onclick="gotoNext()">Next field ↓</button><button class="btn" id="finishBtn" onclick="finish()" disabled>Finish &amp; sign</button></div></div>');
   renderPdf().then(function () { renderAllFields(); updateBar(); }).catch(function (e) {
     document.getElementById('pages').innerHTML = card('<p style="color:var(--danger)">Could not render the PDF: ' + esc(e.message) + '. <a href="/api/esign-sign-pdf?t=' + encodeURIComponent(TOKEN) + '">Open it directly</a> and contact the sender.</p>');
@@ -286,22 +305,69 @@ function renderField(f) {
   if (input) {
     input.addEventListener('input', function () { f.value = input.value; el.classList.toggle('done', isDone(f)); updateBar(); });
     input.addEventListener('focus', function () { el.classList.add('focus'); });
-    input.addEventListener('blur', function () { el.classList.remove('focus'); });
+    input.addEventListener('blur', function () { el.classList.remove('focus'); setTimeout(maybePromptConsent, 80); }); // Deploy 237.166
   }
   pe.ov.appendChild(el);
+}
+// Deploy 237.166 — the consent prompt. Opened once, automatically, when the
+// last field is filled; after that the signer reaches it from Finish & sign.
+var _consentPrompted = false;
+function _typingInField() {
+  var el = document.activeElement;
+  if (!el || el.tagName !== 'INPUT') return false;
+  while (el) { if (el.className && String(el.className).indexOf('fld') >= 0) return true; el = el.parentNode; }
+  return false;
+}
+function maybePromptConsent() {
+  if (_consentPrompted || !_mine.length) return;
+  if (_mine.filter(isDone).length !== _mine.length) return;
+  var chk = document.getElementById('consentChk');
+  if (chk && chk.checked) return;          // already consented — nothing to ask
+  if (_typingInField()) return;            // mid-keystroke; the blur handler will call back
+  _consentPrompted = true;
+  openConsentModal();
+}
+function openConsentModal() {
+  var m = document.getElementById('consentModal'); if (!m) return;
+  var chk = document.getElementById('consentChk');
+  var mchk = document.getElementById('consentChkModal');
+  if (mchk) mchk.checked = !!(chk && chk.checked);
+  var btn = document.getElementById('consentSubmitBtn');
+  if (btn) btn.disabled = !(mchk && mchk.checked);
+  m.style.display = 'flex';
+}
+function closeConsentModal() {
+  var m = document.getElementById('consentModal'); if (m) m.style.display = 'none';
+}
+function consentSync(on) {
+  var chk = document.getElementById('consentChk'); if (chk) chk.checked = !!on;  // one source of truth
+  var btn = document.getElementById('consentSubmitBtn'); if (btn) btn.disabled = !on;
+  updateBar();
+}
+function consentSubmit() {
+  var mchk = document.getElementById('consentChkModal');
+  if (!mchk || !mchk.checked) return;
+  closeConsentModal();
+  finish();
 }
 function updateBar() {
   var done = _mine.filter(isDone).length;
   var prog = document.getElementById('prog'); if (!prog) return;
   var allDone = done === _mine.length;
-  prog.innerHTML = '<strong>' + done + ' of ' + _mine.length + '</strong> field' + (_mine.length === 1 ? '' : 's') + ' complete' + (allDone ? ' — check the consent box, then Finish.' : '');
+  prog.innerHTML = '<strong>' + done + ' of ' + _mine.length + '</strong> field' + (_mine.length === 1 ? '' : 's') + ' complete' + (allDone ? ' — press Finish & sign.' : '');
   var consent = document.getElementById('consentChk');
-  document.getElementById('finishBtn').disabled = !(allDone && consent && consent.checked);
+  var mchk = document.getElementById('consentChkModal');
+  if (mchk) mchk.checked = !!(consent && consent.checked);
+  // Deploy 237.166 — enabled as soon as the fields are done: the button now
+  // OPENS the consent step rather than staying dead until the box is ticked
+  // somewhere off screen.
+  document.getElementById('finishBtn').disabled = !allDone;
   document.getElementById('nextBtn').style.display = allDone ? 'none' : '';
+  if (allDone) setTimeout(maybePromptConsent, 400);
 }
 function gotoNext() {
   var f = _mine.filter(function (x) { return !isDone(x); })[0];
-  if (!f) { document.getElementById('consentCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (!f) { openConsentModal(); return; }   // Deploy 237.166 — was: scroll to the consent card
   var el = document.querySelector('.fld[data-id="' + f.id + '"]');
   if (!el) return;
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -397,7 +463,9 @@ function finish() {
   var btn = document.getElementById('finishBtn');
   var missing = _mine.filter(function (f) { return !isDone(f); });
   if (missing.length) { gotoNext(); return; }
-  if (!document.getElementById('consentChk').checked) { document.getElementById('consentCard').scrollIntoView({ behavior: 'smooth' }); return; }
+  // Deploy 237.166 — no consent yet: ask for it right here instead of scrolling
+  // the signer down the page to find a checkbox.
+  if (!document.getElementById('consentChk').checked) { _consentPrompted = true; openConsentModal(); return; }
   btn.disabled = true; btn.textContent = 'Signing…';
   var values = {};
   _mine.forEach(function (f) { if (f.type === 'text' || f.type === 'date' || f.type === 'checkbox') values[f.id] = f.value; });
