@@ -24,6 +24,7 @@ import { borrowerSlugSet, borrowerItem } from './_shared/borrower-intake-checkli
 // Deploy 236.918 — uploads may also target a tray the borrower added.
 import { isBorrowerVisibleTray } from './_shared/borrower-intake-custom.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
+import { BORROWER_AI_FEEDBACK } from './_shared/borrower-ai-feedback.mjs';
 // Deploy 236.980 (Mike) — borrower uploads extract UW/Lightning fields too.
 // This path reviewed docs but never passed extractFields, so everything a
 // BORROWER uploaded (bank statements, EIN letters, insurance, the signed
@@ -40,7 +41,9 @@ const MAX_BYTES = 25 * 1024 * 1024;
 // still RUNS and its verdict/notes are stored for the team (visible in the internal
 // Doc Review tool); the borrower just sees a neutral "received" receipt, not the AI's
 // approve/issues take. Flip back to true once the review quality is verified.
-const BORROWER_AI_FEEDBACK = false;
+// Deploy 237.182 -- the switch moved to _shared/borrower-ai-feedback.mjs so the
+// STATUS endpoint reads the SAME one. It only honoured it here, and the page is built
+// by the other endpoint, which is how the AI reached a borrower anyway.
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -239,12 +242,25 @@ async function handle(req, context) {
         loanContext: _loanContext(review), investor: review.investor || '',
         extractFields: _extractFields,
       });
+      // Deploy 237.182 -- reviewDocument RETURNS a timeout / fetch failure as
+      // verdict:'issues' with the error text as the summary; it does not throw, so the
+      // catch below never saw it and the failure was stored as a defect in the
+      // borrower's document. A failed review says nothing about their file.
+      if (ai && ai.error) {
+        docState.aiVerdict = 'needs_manual_review';
+        docState.aiNotes = 'Auto-check did not complete (' + ai.error + '); a processor will review it.';
+        docState.aiFindings = [];
+        docState.aiExtractedEntities = {};
+        docState.aiReviewedAt = now;
+        docState.aiError = ai.error;
+      } else {
       docState.aiVerdict = ai.verdict;
       docState.aiNotes = ai.summary || '';
       docState.aiFindings = ai.findings || [];
       docState.aiExtractedEntities = ai.extractedEntities || {};
       docState.aiReviewedAt = now;
-      docState.aiError = ai.error || '';
+      docState.aiError = '';
+      }
       // Deploy 236.980 — keep only fields the AI actually FOUND (found:true,
       // non-empty); "not on this document" must never overwrite a value.
       const _ef = ai.extractedFields || {};

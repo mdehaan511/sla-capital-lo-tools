@@ -27,6 +27,7 @@ import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
 // Deploy 236.918 — trays the borrower added themselves (+ the old portal's
 // ad-hoc uploads) show on their list alongside the checklist.
 import { borrowerVisibleEntries } from './_shared/borrower-intake-custom.mjs';
+import { BORROWER_AI_FEEDBACK, BORROWER_RECEIVED_MSG, isAiFailure } from './_shared/borrower-ai-feedback.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -171,13 +172,21 @@ async function handle(req, context) {
   });
 }
 
+// Deploy 237.182 (Mike: "Any AI errors shouldnt be appearing in the borrower
+// portal") -- see _shared/borrower-ai-feedback.mjs. The switch was already false and
+// the UPLOAD endpoint honoured it; this one, which builds the card on every page load,
+// read the reviewer's own words straight out of the tray.
 function _itemState(d) {
   if (!d) return { status: 'todo', accepted: false, uploaded: false, uploadedCount: 0, message: '', findings: [] };
   const liveDocs = Array.isArray(d.documents) ? d.documents.filter((x) => x && !x.hidden) : [];
   const uploaded = !!(d.currentDocId || liveDocs.length);
   const uploadedCount = liveDocs.length || (d.currentDocId ? 1 : 0);
-  const findings = (Array.isArray(d.aiFindings) ? d.aiFindings : [])
-    .filter((f) => f && f.status === 'not_met').map((f) => f.detail || f.condition).filter(Boolean).slice(0, 3);
+  // Deploy 237.182 -- AI findings are processor-facing. They are only ever handed to
+  // a borrower when the feedback switch is ON, and it is off.
+  const findings = BORROWER_AI_FEEDBACK
+    ? (Array.isArray(d.aiFindings) ? d.aiFindings : [])
+        .filter((f) => f && f.status === 'not_met').map((f) => f.detail || f.condition).filter(Boolean).slice(0, 3)
+    : [];
 
   if (d.verdict === 'approved') {
     return { status: 'accepted', accepted: true, uploaded: true, uploadedCount, message: 'Accepted ✓', findings: [] };
@@ -186,8 +195,10 @@ function _itemState(d) {
   // the borrower sees WHAT was flagged and is prompted to re-submit.
   if (d.verdict === 'issues') {
     return { status: 'needs_fix', accepted: false, uploaded, uploadedCount,
+      // Deploy 237.182 -- end the processor's sentence for them; a reason rarely
+      // arrives with its own full stop and ran straight into the next sentence.
       message: (d.flagReason
-        ? 'Your loan team flagged an issue: ' + d.flagReason
+        ? 'Your loan team flagged an issue: ' + String(d.flagReason).replace(/\s*$/, '').replace(/([^.!?])$/, '$1.')
         : 'Your loan team flagged an issue with this document.')
         + ' Please upload a corrected version.',
       findings: [] };
@@ -199,15 +210,31 @@ function _itemState(d) {
   if (!uploaded) {
     return { status: 'todo', accepted: false, uploaded: false, uploadedCount: 0, message: '', findings: [] };
   }
+  // Deploy 237.182 -- an AI FAILURE (timeout, fetch error) is not a finding about the
+  // borrower's document and must never read as one. This is the "AI review timed out
+  // after 22s — upload a corrected version" card Mike was sent.
+  if (isAiFailure(d)) {
+    return { status: 'submitted', accepted: false, uploaded: true, uploadedCount,
+      message: BORROWER_RECEIVED_MSG, findings: [] };
+  }
   if (d.aiVerdict === 'issues') {
+    // With borrower AI feedback off, an AI-only issue is NOT shown as the borrower's
+    // problem: it waits for a processor, who flags it in their own words if it really
+    // needs redoing (the verdict === 'issues' + flagReason branch above).
+    if (!BORROWER_AI_FEEDBACK) {
+      return { status: 'submitted', accepted: false, uploaded: true, uploadedCount,
+        message: BORROWER_RECEIVED_MSG, findings: [] };
+    }
     return { status: 'needs_fix', accepted: false, uploaded: true, uploadedCount,
       message: (d.aiNotes || 'We spotted a possible issue.') + ' Upload a corrected version, or request a manual review.', findings };
   }
   if (d.aiVerdict === 'needs_manual_review') {
     return { status: 'submitted', accepted: false, uploaded: true, uploadedCount,
-      message: 'Received — a processor will review it.', findings: [] };
+      message: BORROWER_RECEIVED_MSG, findings: [] };
   }
   // approved-by-AI (but not yet processor-accepted) or plain submitted
   return { status: 'submitted', accepted: false, uploaded: true, uploadedCount,
-    message: d.aiVerdict === 'approved' ? 'Looks good ✓ — submitted for review.' : 'Submitted for review.', findings: [] };
+    message: (BORROWER_AI_FEEDBACK && d.aiVerdict === 'approved')
+      ? 'Looks good ✓ — submitted for review.'
+      : 'Submitted for review.', findings: [] };
 }
