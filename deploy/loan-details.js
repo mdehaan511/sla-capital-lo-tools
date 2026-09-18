@@ -5692,7 +5692,11 @@ function _populateGuarantorSelect() {
   // primary's email as the borrower grant, so inviting them here is the same as
   // the "Invite Borrower" button.
   var primaryOpt = '';
-  if (_client && _client.email) {
+  // Deploy 237.155 (Mike) -- when the parent client is the BROKER who submitted
+  // the application they are not a guarantor, and they already have their own
+  // “Invite Broker” button; listing them here as “(Primary)” was the same
+  // double-billing as the guarantor roster.
+  if (_client && _client.email && !_ldPrimaryIsBroker) {
     var pname = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() || _client.email;
     primaryOpt = '<option value="' + escAttr(_client.email) + '">' + escH(pname) + ' — ' + escH(_client.email) + ' (Primary)</option>';
   }
