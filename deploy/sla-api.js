@@ -1951,6 +1951,9 @@
       if (opts.sendEmail) body.sendEmail = true;
       if (opts.email)     body.email = opts.email;
       if (opts._owner)    body._owner = opts._owner;
+      // Deploy 237.190 — reminder sends the same link with nudge copy
+      // (Chance asked for a resend/reminder button on the loan app).
+      if (opts.reminder)  body.reminder = true;
       return api('POST', '/api/borrower-info-request', body);
     },
     list: function (opts) {

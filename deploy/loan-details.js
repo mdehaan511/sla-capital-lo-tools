@@ -7172,6 +7172,74 @@ function _copySigningLink(url) {
   }
 }
 
+// ── Deploy 237.190: resend / reminder on the loan app ───────────────
+// Chance: "is there anyway we can get a 'resend' or reminder button for the
+// loan app as well?" -- the E-Sign entries in this same feed already carry
+// Copy link / Resend email, and the long app didn't. These two buttons ride
+// on the MOST RECENT "App sent" entry (older ones stay a plain record).
+//
+// Neither button rotates the token: borrower-info-request has reused a live
+// token since 236.414, so every link ever emailed for this application keeps
+// working and nothing the borrower already typed is lost.
+var _ldLongAppStatus = '';   // 'pending' | 'in_progress' | 'complete' | ''
+function _appSentActionsHtml(e) {
+  var email = (e && e.meta && e.meta.borrowerEmail) || '';
+  var acts = _esignBtn('onclick="appCopyLongAppLink(this)"', '🔗 Copy link',
+    'Copies the application link the borrower already has -- text it to them. No new link is generated.');
+  if (_ldLongAppStatus !== 'complete') {
+    acts += _esignBtn('onclick="appSendReminder(this)" data-email="' + escAttr(email) + '"', '↻ Send reminder',
+      'Emails ' + (email || 'the borrower') + ' a reminder with the SAME link. Anything they have already filled in is kept.');
+  }
+  return '<div style="margin-top:6px">' + acts + '</div>';
+}
+function appCopyLongAppLink(btn) {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var opts = { loanId: _loanId };
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+  var orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = 'Fetching…';
+  SLA.BorrowerInfo.status(_client.id, opts).then(function(r) {
+    btn.disabled = false; btn.innerHTML = orig;
+    var url = r && r.link;
+    if (!url) { showToast('No live application link — use Send Full Loan Application to generate one'); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() {
+        showToast('Application link copied — text it to the borrower');
+      }).catch(function() { window.prompt('Copy this application link:', url); });
+    } else {
+      window.prompt('Copy this application link:', url);
+    }
+  }).catch(function(err) {
+    btn.disabled = false; btn.innerHTML = orig;
+    showToast('Could not fetch the link: ' + ((err && err.message) || 'unknown'));
+  });
+}
+function appSendReminder(btn) {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var email = btn.getAttribute('data-email') || (_client && _client.email) || '';
+  if (!email) { showToast('No recipient on this entry — use Send Full Loan Application'); return; }
+  if (!window.confirm('Email a reminder to ' + email + '?\n\nThe link they already have keeps working, and nothing they have filled in is lost.')) return;
+  var orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = 'Sending…';
+  var opts = { loanId: _loanId, sendEmail: true, email: email, reminder: true };
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+  SLA.BorrowerInfo.request(_client.id, opts).then(function(resp) {
+    btn.disabled = false; btn.innerHTML = orig;
+    showToast(resp && resp.emailed
+      ? '✓ Reminder sent to ' + email
+      : 'Reminder did not send — copy the link and text it instead');
+    if (SLA.cache && SLA.cache.clear) { try { SLA.cache.clear('clients'); } catch (_) {} }
+    if (resp && resp.entry) {
+      if (!Array.isArray(_loan.notesLog)) _loan.notesLog = [];
+      _loan.notesLog.push(resp.entry);
+    }
+    renderNotesLog();
+  }).catch(function(err) {
+    btn.disabled = false; btn.innerHTML = orig;
+    showToast('Reminder failed: ' + ((err && err.message) || 'unknown'));
+  });
+}
+
 function renderNotesLog() {
   var inner = document.getElementById('notesListInner');
   if (!inner) return;
@@ -7223,6 +7291,15 @@ function renderNotesLog() {
   // wrapper + 📌 tag, and staff get a Pin/Unpin control on every entry
   // that has an id (legacy notes have none to key the toggle on).
   var _canPin = !!(window.SLA && SLA.isProcessor && _user && SLA.isProcessor(_user));
+  // Deploy 237.190 — only the newest "App sent" entry carries the Copy link /
+  // Send reminder buttons; the older ones are history.
+  var _latestAppSentId = '';
+  var _latestAppSentTs = '';
+  for (var ai = 0; ai < all.length; ai++) {
+    var ae = all[ai];
+    if (!ae || ae.kind !== 'app_sent' || !ae.id) continue;
+    if (String(ae.ts || '') >= _latestAppSentTs) { _latestAppSentTs = String(ae.ts || ''); _latestAppSentId = ae.id; }
+  }
   // Deploy 236.818 — free-form (manual) notes are editable by their author or
   // by staff. System/status entries stay immutable (they're the audit record).
   var _selfEmail = String((_user && _user.email) || '').toLowerCase();
@@ -7257,7 +7334,10 @@ function renderNotesLog() {
           '<span class="note-entry-kind nk-' + escH(e.kind || 'manual') + '">' + escH(kindLabel) + '</span>' +
           ctrls +
         '</div>' +
-        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + (e.html ? e.html : _noteTextHtml(e)) + editedMark + '</div>' + // 236.967 -- esign entries carry markup
+        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + (e.html ? e.html : _noteTextHtml(e)) + editedMark +
+          // 237.190 -- resend/reminder controls on the newest App sent entry
+          ((e.kind === 'app_sent' && e.id && e.id === _latestAppSentId) ? _appSentActionsHtml(e) : '') +
+        '</div>' + // 236.967 -- esign entries carry markup
       '</div>';
   }
   var html = '';
@@ -12856,6 +12936,12 @@ function refreshBorrowerInfoStatus() {
     if (!r) return;
     btn.classList.remove('complete','in-progress');
     var s = r.status;
+    // Deploy 237.190 — the notes feed hides "Send reminder" once the
+    // application is in, so re-render when that answer changes.
+    if (String(s || '') !== _ldLongAppStatus) {
+      _ldLongAppStatus = String(s || '');
+      if (typeof renderNotesLog === 'function') renderNotesLog();
+    }
     var reviewBtn = document.getElementById('reviewAppBtn');
     var canReview = (s === 'complete' || s === 'in_progress');
     if (reviewBtn) reviewBtn.disabled = !canReview;

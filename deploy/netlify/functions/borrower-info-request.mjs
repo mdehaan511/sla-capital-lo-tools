@@ -223,6 +223,11 @@ async function handle(req, context) {
   // client shell has no email of its own).
   let emailed = false;
   const recipientEmail = bodyEmail || client.email || brokerEmail;
+  // Deploy 237.190 — a reminder is the same send with nudge copy. It only
+  // counts as one when there was already a record to nudge about; asking for
+  // a reminder on a first send just sends the normal invitation.
+  const isReminder = !!body.reminder && !!existing;
+  const hasStarted = !!(existing && existing.data && Object.keys(existing.data).length > 0);
   if (body.sendEmail) {
     try {
       emailed = await sendBorrowerEmail({
@@ -232,6 +237,8 @@ async function handle(req, context) {
         loEmail: owner,
         link,
         ownerKey,
+        reminder: isReminder,
+        started: hasStarted,
         propertyAddress: (loan && loan.address) || (client.loans && client.loans[0] && client.loans[0].address) || '',
       });
     } catch (e) {
@@ -243,18 +250,22 @@ async function handle(req, context) {
   // append an "app_sent" entry to the loan's audit log. We only fire on
   // explicit sends so that LOs regenerating the link without emailing
   // (e.g., to copy/paste it) don't pollute the log. Best-effort.
+  // Deploy 237.190 — handed back so the Notes & Activity feed can show the
+  // entry immediately after a one-click reminder, the way loan-note-add does.
+  let noteEntry = null;
   if (body.sendEmail) {
     try {
       const matchIdx = (client.loans || []).findIndex((l) => l && l.id === body.loanId);
       if (matchIdx >= 0) {
         const umeta = (user && user.user_metadata) || {};
         const authorName = umeta.full_name || umeta.fullName || user.email || '';
-        appendNoteEntry(client.loans[matchIdx], {
+        noteEntry = appendNoteEntry(client.loans[matchIdx], {
           kind:        'app_sent',
-          text:        'Sent long-form loan application to ' + recipientEmail + (emailed ? '' : ' (email failed — link generated)'),
+          text:        (isReminder ? 'Sent a reminder about the long-form loan application to ' : 'Sent long-form loan application to ') +
+                       recipientEmail + (emailed ? '' : ' (email failed — link generated)'),
           author:      authorName,
           authorEmail: user.email || '',
-          meta:        { borrowerEmail: recipientEmail, emailed: !!emailed },
+          meta:        { borrowerEmail: recipientEmail, emailed: !!emailed, reminder: isReminder },
         });
         client.loans[matchIdx].updatedAt = new Date().toISOString();
         // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
@@ -273,6 +284,8 @@ async function handle(req, context) {
     expiresAt,
     emailed,
     borrowerEmail: recipientEmail,
+    reminder: isReminder,
+    entry: noteEntry,        // 237.190 — for the feed's optimistic append
   });
 }
 
@@ -358,7 +371,12 @@ function buildPrefill(client, loan, loInfo) {
   return pf;
 }
 
-async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, propertyAddress, ownerKey }) {
+// Deploy 237.190 (Chance: "is there anyway we can get a 'resend' or reminder
+// button for the loan app as well?"). `reminder` swaps the first-contact copy
+// for a nudge — same link, same record, softer subject line — and `started`
+// says whether the borrower has already answered something, so the nudge can
+// say "pick up where you left off" instead of "please get started".
+async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, propertyAddress, ownerKey, reminder, started }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.warn('RESEND_API_KEY not set — cannot send borrower-info email');
@@ -366,14 +384,35 @@ async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, prope
   }
 
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const subject = propertyAddress
-    ? `Action needed: complete your loan application for ${propertyAddress}`
-    : 'Action needed: complete your SLA Capital loan application';
+  const forProp = propertyAddress ? ` for ${propertyAddress}` : '';
+  const subject = reminder
+    ? (propertyAddress
+        ? `Reminder: your loan application for ${propertyAddress} is still open`
+        : 'Reminder: your SLA Capital loan application is still open')
+    : (propertyAddress
+        ? `Action needed: complete your loan application for ${propertyAddress}`
+        : 'Action needed: complete your SLA Capital loan application');
+
+  // The one paragraph that differs between a first send and a nudge.
+  const leadText = reminder
+    ? (started
+        ? `A quick reminder from ${loName} at SLA Capital — your loan application${forProp} is still open. You've already started it, and everything you entered is saved.`
+        : `A quick reminder from ${loName} at SLA Capital — we still need your borrower information before we can finalize your loan application${forProp}.`)
+    : `${loName} at SLA Capital has requested that you complete your borrower information so we can finalize your loan application${forProp}.`;
+  const leadHtml = reminder
+    ? (started
+        ? `A quick reminder from <strong>${esc(loName)}</strong> at SLA Capital — your loan application${propertyAddress ? ' for <strong>' + esc(propertyAddress) + '</strong>' : ''} is still open. You've already started it, and everything you entered is saved.`
+        : `A quick reminder from <strong>${esc(loName)}</strong> at SLA Capital — we still need your borrower information before we can finalize your loan application${propertyAddress ? ' for <strong>' + esc(propertyAddress) + '</strong>' : ''}.`)
+    : `<strong>${esc(loName)}</strong> at SLA Capital has requested that you complete your borrower information so we can finalize your loan application${propertyAddress ? ' for <strong>' + esc(propertyAddress) + '</strong>' : ''}.`;
+  const ctaLabel = (reminder && started) ? 'Pick Up Where You Left Off' : 'Complete Borrower Information';
+  const bannerLabel = reminder
+    ? 'SLA Capital — Loan Application Reminder'
+    : 'SLA Capital — Borrower Information Request';
 
   const text = [
     `Hi ${toName},`,
     '',
-    `${loName} at SLA Capital has requested that you complete your borrower information so we can finalize your loan application${propertyAddress ? ' for ' + propertyAddress : ''}.`,
+    leadText,
     '',
     `Click the link below to securely fill in the remaining details. Your progress saves automatically — you can close the page and come back any time within the next 14 days.`,
     '',
@@ -387,12 +426,12 @@ async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, prope
   const html =
     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
     '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
-      '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — Borrower Information Request</h1></div>' +
+      `<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">${bannerLabel}</h1></div>` +
       '<div style="padding:24px">' +
         `<p style="font-size:14px;line-height:1.6;color:#1a1520">Hi ${esc(toName)},</p>` +
-        `<p style="font-size:14px;line-height:1.6;color:#1a1520"><strong>${esc(loName)}</strong> at SLA Capital has requested that you complete your borrower information so we can finalize your loan application${propertyAddress ? ' for <strong>' + esc(propertyAddress) + '</strong>' : ''}.</p>` +
+        `<p style="font-size:14px;line-height:1.6;color:#1a1520">${leadHtml}</p>` +
         `<p style="font-size:14px;line-height:1.6;color:#1a1520">Click the button below to securely fill in the remaining details. Your progress saves automatically — you can close the page and come back any time within the next <strong>14 days</strong>.</p>` +
-        `<div style="text-align:center;margin:28px 0"><a href="${link}" style="display:inline-block;padding:14px 28px;background:#C8813A;color:#fff;font-family:'DM Sans',sans-serif;font-weight:600;font-size:14px;border-radius:24px;text-decoration:none">Complete Borrower Information</a></div>` +
+        `<div style="text-align:center;margin:28px 0"><a href="${link}" style="display:inline-block;padding:14px 28px;background:#C8813A;color:#fff;font-family:'DM Sans',sans-serif;font-weight:600;font-size:14px;border-radius:24px;text-decoration:none">${ctaLabel}</a></div>` +
         `<p style="font-size:12px;color:#7a7488;line-height:1.5">If the button doesn't work, copy and paste this link into your browser:<br><span style="word-break:break-all;color:#1a1520">${link}</span></p>` +
         `<p style="font-size:13px;color:#7a7488;margin-top:24px">Questions? Reply to this email or contact ${esc(loName)} at <a href="mailto:${esc(loEmail)}" style="color:#C8813A">${esc(loEmail)}</a>.</p>` +
       '</div>' +
