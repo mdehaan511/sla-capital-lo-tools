@@ -346,6 +346,19 @@ async function handle(req, context) {
   }
   catch (e) { return json(500, { error: 'Failed to save review: ' + (e && e.message || 'unknown') }); }
 
+  // Deploy 237.195 (Beth: "is there a way for us to receive notifications when a
+  // borrower uploads or sends new documents?" ... "only show notifications for the
+  // loans we're working on") -- the bell rings for the LO and the assigned processors
+  // on THIS loan, nobody else. Zero-throw: a courtesy must not fail an upload.
+  try {
+    const { notifyBorrowerUpload } = await import('./_shared/borrower-upload-notify.mjs');
+    await notifyBorrowerUpload({
+      review, docLabel: (docState && docState.label) || slug,
+      uploaderEmail: normalizeEmail(user.email),
+      uploaderName: _uploaderName(user),
+    });
+  } catch (e) { console.warn('[borrower-intake-upload] notify failed (non-fatal):', e && e.message); }
+
   return json(200, {
     ok: true, reviewId: review.id, slug, docId, filename: finalName,
     // Deploy 236.673 — while borrower AI feedback is paused, the response carries a
@@ -353,6 +366,15 @@ async function handle(req, context) {
     verdict: BORROWER_AI_FEEDBACK ? verdict : 'received',
     borrowerStatus, borrowerMessage, findings,
   });
+}
+
+// Deploy 237.195 -- the name on the notification. A borrower signs in with their
+// email, so prefer whatever real name the account carries.
+function _uploaderName(user) {
+  const u = user || {};
+  const meta = u.user_metadata || {};
+  const n = String(meta.full_name || meta.name || u.name || '').replace(/\s+/g, ' ').trim();
+  return n;
 }
 
 // Minimal loan context for the AI cross-checks (borrower/entity/address/amount).

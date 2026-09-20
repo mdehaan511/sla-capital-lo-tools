@@ -398,7 +398,9 @@
     // Deploy 237.050 -- @-mentions first: someone is waiting on you by name.
     if (mentions.length) {
       var _hasSvc = mentions.some(function(m){ return m.kind && m.kind !== 'mention'; }); // Deploy 237.072 -- servicing + full-file alerts
-      html += '<div class="sla-notif-hdr"><span>' + (_hasSvc ? 'Mentions & alerts' : 'Mentions') + '</span><span class="count">' + mentions.length + '</span></div>';
+      // Deploy 237.195 -- with borrower uploads in here, "Mentions" undersells it.
+      var _onlyUp = mentions.length && mentions.every(function(m){ return m.kind === 'borrower_upload'; });
+      html += '<div class="sla-notif-hdr"><span>' + (_onlyUp ? 'New documents' : (_hasSvc ? 'Mentions & alerts' : 'Mentions')) + '</span><span class="count">' + mentions.length + '</span></div>';
       mentions.forEach(function(m){ html += renderMentionItem(m); });
     }
     if (mailN) {
@@ -459,6 +461,20 @@
           '<div class="body">' +
             '<div class="title">\u26A0\uFE0F ' + esc(m.title || 'Servicing alert') + '</div>' +
             '<div class="meta">' + esc(m.text || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+          '</div>' +
+        '</a>' +
+        '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+      '</div>';
+    }
+    // Deploy 237.195 (Beth) -- a borrower sent in a document on a loan THIS person is
+    // working. Links straight to the loan's Documents tab, where they would act on it.
+    if (m.kind === 'borrower_upload') {
+      return '<div class="sla-notif-item due">' +
+        '<a href="' + esc(m.href || href) + '" class="sla-notif-link">' +
+          '<div class="pin"></div>' +
+          '<div class="body">' +
+            '<div class="title">\uD83D\uDCE5 ' + esc(m.title || 'A document arrived') + '</div>' +
+            '<div class="meta">' + esc(m.text || m.address || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
           '</div>' +
         '</a>' +
         '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +

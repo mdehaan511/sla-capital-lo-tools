@@ -204,6 +204,18 @@ async function handle(req, context) {
   // Deploy 237.072 (Mike, item 8) -- a borrower upload can complete the file too.
   try { await checkFullFile(review.id); } catch (_) {}
 
+  // Deploy 237.195 (Beth) -- same bell, same audience as the checklist path: the LO
+  // and the assigned processors on THIS loan. Zero-throw.
+  try {
+    const { notifyBorrowerUpload } = await import('./_shared/borrower-upload-notify.mjs');
+    await notifyBorrowerUpload({
+      review,
+      docLabel: (review.docs && review.docs[slug] && review.docs[slug].label) || finalName || slug,
+      uploaderEmail: normalizeEmail(user.email),
+      uploaderName: '',
+    });
+  } catch (e) { console.warn('[borrower-doc-upload] notify failed (non-fatal):', e && e.message); }
+
   return json(200, {
     ok:       true,
     reviewId: review.id,
