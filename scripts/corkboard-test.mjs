@@ -77,17 +77,29 @@ console.log('page wiring');
 {
   const html = readFileSync('deploy/armory.html', 'utf8');
   const js = readFileSync('deploy/armory-board.js', 'utf8');
-  check('the four house cards are on the board', ['sys_bell', 'sys_crier', 'sys_cele', 'sys_herald']
+  // 237.193 — only the Crier and Celebrations are pinned to the cork; the
+  // Bell and the Herald hang on the WALL either side of it.
+  check('the Crier and Celebrations are pinned to the cork', ['sys_crier', 'sys_cele']
     .every((id) => html.indexOf('id="pin_' + id + '" data-id="' + id + '"') >= 0));
+  check('the Bell and the Herald are NOT pins any more',
+    html.indexOf('id="pin_sys_bell"') < 0 && html.indexOf('id="pin_sys_herald"') < 0);
+  check('they are posters on the wall, left and right',
+    /<div class="wall-poster left" id="wallBell">/.test(html) &&
+    /<div class="wall-poster right" id="wallHerald">/.test(html));
+  check('the wall row scrolls rather than clipping a poster',
+    /class="board-scroll"/.test(html) && /\.board-scroll \{ overflow-x: auto/.test(html));
   check('their original ids survived, so the existing renderers still work',
     ['id="bellList"', 'id="crierBox"', 'id="celeList"', 'id="evList"', 'id="holidayList"', 'id="celeMine"', 'id="evAdmin"']
       .every((s) => html.indexOf(s) >= 0));
-  check('each poster hangs from a cord (237.192: no drag grips)', (html.match(/class="poster-cord"/g) || []).length === 4 && !/pin-grip/.test(html));
+  check('the two pinned cards hang from a cord, the two wall posters from a nail',
+    (html.match(/class="poster-cord"/g) || []).length === 2 &&
+    (html.match(/class="wall-nail"/g) || []).length === 2 && !/pin-grip/.test(html));
   check('the cork, the pin holder and the phone fallback all exist',
     /id="cork"/.test(html) && /id="corkPins"/.test(html) && /id="boardList"/.test(html));
-  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237192/.test(html));
+  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237193/.test(html));
   check('the tab is Company & Team News', /Company &amp; Team News/.test(html));
-  check('the board is booted with the caller and their admin flag', /CorkBoard\.init\(\{ user: _user, isAdmin: !!_state\.isAdmin \}\)/.test(html));
+  check('the board is booted with the caller, their admin flag and the roster',
+    /CorkBoard\.init\(\{ user: _user, isAdmin: !!_state\.isAdmin, roster: _state\.roster \|\| \[\] \}\)/.test(html));
   check('tape and arrow buttons are on the bar', /CorkBoard\.addTape\('tape'\)/.test(html) && /CorkBoard\.addTape\('arrow'\)/.test(html));
 
   check('house style: no arrow functions in the board script', !/=>/.test(js));
@@ -128,14 +140,18 @@ console.log('auto-pins');
 {
   const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
   check('ids are deterministic, so a sync cannot double-post',
-    /auto_close_' \+ String\(b\.loanId\)/.test(shared) && /auto_bday_/.test(shared) && /auto_deed_/.test(shared));
+    /auto_close_' \+ String\(b\.loanId\)/.test(shared) && /auto_bday_/.test(shared) && /auto_anniv_/.test(shared));
+  // 237.193 (Mike: "Lets not have the deeds on there")
+  check('deed cards are retired, and the ones already up come down on read',
+    !/auto_deed_/.test(shared) && /d\.auto\.kind === 'deed'/.test(shared));
   check('a closing needs to clear the threshold', /AUTO_CLOSING_MIN/.test(shared) && cb.AUTO_CLOSING_MIN >= 100000);
   check('auto cards live a week by default', /const AUTO_KEEP = '1w'/.test(shared) && cb.KEEP_OPTIONS['1w'].days === 7);
   check('taking one down tombstones it so the sync does not re-post it', /board-mute\//.test(shared) && /puts it straight back up/.test(shared));
   check('an auto card is admin-only to remove or change', /posted by the Armory/.test(shared));
   const src = readFileSync('deploy/netlify/functions/armory-board.mjs', 'utf8');
   check('the sync is best-effort — a bad source cannot stop the wall loading', /auto-pin sync failed/.test(src) && /catch \(e\)/.test(src));
-  check('sources are the ones the Armory already builds', /listBells/.test(src) && /celebrationsOn/.test(src) && /getAchievementsIndex/.test(src));
+  check('sources are the ones the Armory already builds, minus deeds',
+    /listBells/.test(src) && /celebrationsOn/.test(src) && !/getAchievementsIndex/.test(src));
 }
 
 console.log('monthly archive');
@@ -157,23 +173,43 @@ console.log('layout, decoration, seasons');
     const m = new RegExp(id + ':\\s*\\{ x: (-?\\d+),\\s*y: (-?\\d+),\\s*w: (\\d+)').exec(L);
     return m ? { x: +m[1], y: +m[2], w: +m[3] } : null;
   };
-  const bell = at('sys_bell'), crier = at('sys_crier'), cele = at('sys_cele'), herald = at('sys_herald');
-  check('the Closing Bell hangs on the LEFT', bell && bell.x < 200);
-  check('the Town Crier is on the left too, under the Bell', crier && crier.x === bell.x && crier.y > bell.y);
-  check('Celebrations is fixed TOP right', cele && cele.x > 700 && cele.y < 100);
-  check("the Herald's Board hangs on the RIGHT, under Celebrations", herald && herald.x === cele.x && herald.y > cele.y);
-  check('the posters leave a free channel down the middle',
-    bell.x + bell.w < 340 && cele.x > 780);
-  check('new pins land in that channel, and the two sides agree',
-    /FREE_X0 = 340, FREE_X1 = 780/.test(js) &&
-    /FREE_X0 = 340, FREE_X1 = 780/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
+  const crier = at('sys_crier'), cele = at('sys_cele');
+  const boardW = Number(/var BOARD_W = (\d+)/.exec(js)[1]);
+  const shared2 = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
+  check('the Town Crier is pinned top LEFT of the cork', crier && crier.x < 100 && crier.y < 100);
+  check('Celebrations is pinned top RIGHT of the cork', cele && cele.x > crier.x && cele.y < 100);
+  check('NEITHER card runs off the right-hand edge (the clipping Mike saw)',
+    cele.x + cele.w <= boardW - 8 && crier.x + crier.w <= cele.x);
+  check('the cork is the same width on both sides of the wire',
+    Number(/export const BOARD_W = (\d+)/.exec(shared2)[1]) === boardW);
+  check('the server clamps old pins into the narrower board instead of clipping them',
+    /_num\(x\.x, -40, BOARD_W - 80, 60\)/.test(shared2));
+  check('new pins land below the two cards, and the two sides agree',
+    /FREE_X0 = 20, FREE_X1 = 500, FREE_Y0 = 360/.test(js) &&
+    /FREE_X0 = 20, FREE_X1 = 500, FREE_Y0 = 360/.test(shared2));
 
-  check('tape and arrows are their own kinds', /KINDS = \['note', 'photo', 'tape', 'arrow'\]/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
+  check('tape and arrows are their own kinds', /KINDS = \['note', 'photo', 'shoutout', 'tape', 'arrow'\]/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
   check('tape turns further than paper does', /indexOf\('pin-tape'\) >= 0 \|\| .*indexOf\('pin-arrow'\) >= 0\) \? 45 : 14/.test(js));
   check('decoration has no author line or reactions', /Tape and arrows are decoration/.test(js));
   check('the cork wears a season', /function seasonClass/.test(js) && /season-halloween/.test(html) && /season-winter/.test(html));
   check('Founders Day gets a banner', /foundersBannerHtml/.test(js) && /cork-banner/.test(html));
   check('an Armory card reads as printed, not handwritten', /pin-auto \.note-text/.test(html) && /auto-head/.test(js));
+}
+
+console.log('shout-outs');
+{
+  const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
+  const js = readFileSync('deploy/armory-board.js', 'utf8');
+  const html = readFileSync('deploy/armory.html', 'utf8');
+  check('shoutout is its own kind', /KINDS = \['note', 'photo', 'shoutout', 'tape', 'arrow'\]/.test(shared));
+  check('it must name someone and say what they did', /Say who the shout-out is for/.test(shared) && /Say what they did/.test(shared));
+  check('the recipient is stored on the pin', /to:\s+x\.to \?/.test(shared));
+  check('the person named is notified', /a shout-out for you/.test(shared));
+  check('the button is on the bar', /CorkBoard\.newShoutout\(\)/.test(html));
+  check('you cannot shout at yourself', /no shouting at yourself/.test(js));
+  check('it renders as a certificate, seal and all', /so-head|so-seal/.test(js) && /\.pin-shoutout \.so-seal/.test(html));
+  check('a certificate already names its author, so it only shows the countdown', /function lifeHtml/.test(js));
+  check('it stays up a month by default', /keepSelect\('1m', 'bmKeep'\)/.test(js));
 }
 
 console.log('Town Crier');

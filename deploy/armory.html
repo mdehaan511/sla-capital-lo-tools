@@ -16,7 +16,7 @@
   <!-- Deploy 237.191 — the cork board (Dan's idea). Version-pinned: the news
        tab's markup and this script are a matched pair, so a cached copy would
        leave the house cards sitting unpositioned on top of each other. -->
-  <script src="armory-board.js?v=237192"></script>
+  <script src="armory-board.js?v=237193"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
   <!-- Deploy 237.073 (Mike) — THE ARMORY, part 1: the team's fun corner.
        Deliberately styled unlike the rest of the portal (parchment, dark
@@ -258,7 +258,26 @@
     .board-bar .bb-left span { display: block; font-size: 12.5px; color: #6b5a44; max-width: 680px; margin-top: 2px; }
     .board-bar .bb-right { display: flex; gap: 8px; flex-wrap: wrap; }
 
-    .cork { position: relative; width: 100%; max-width: 1120px; min-height: 1500px; border-radius: 10px; overflow: hidden;
+    /* Deploy 237.193 (Mike) — the board hangs on a wall, with the Closing
+       Bell posted to its left and the Herald's Board to its right. Those two
+       are NOT pins: they are posters on the wall beside the cork. The news
+       tab breaks out of the page's 1180px column so all three fit; below
+       that width the row scrolls sideways, and below 900px the whole thing
+       becomes a list. */
+    .tab-panel[data-tab="news"].active { width: 96vw; max-width: 1480px; margin-left: 50%; transform: translateX(-50%); }
+    .board-scroll { overflow-x: auto; overflow-y: visible; padding-bottom: 6px; }
+    .wall { display: flex; align-items: flex-start; gap: 18px; min-width: 1420px; }
+    .wall-poster { position: relative; flex: 0 0 300px; }
+    .wall-poster .card { margin: 0; max-height: 1180px; overflow: auto;
+      border: 1px solid rgba(90,58,30,0.35); box-shadow: 0 12px 24px rgba(42,29,18,0.28); }
+    /* a nail in the wall, and the poster tipped a hair off square */
+    .wall-poster.left  { transform: rotate(-0.5deg); }
+    .wall-poster.right { transform: rotate(0.6deg); }
+    .wall-nail { position: absolute; left: 50%; top: -9px; width: 13px; height: 13px; margin-left: -6px; border-radius: 50%; z-index: 3;
+      background: radial-gradient(circle at 35% 30%, #d9d3c6, #6f6a60 70%);
+      box-shadow: 0 3px 5px rgba(0,0,0,0.35); }
+
+    .cork { position: relative; flex: 0 0 auto; width: 788px; min-height: 1200px; border-radius: 10px; overflow: hidden;
       border: 14px solid #6b4423;
       box-shadow: 0 10px 30px rgba(42,29,18,0.35), inset 0 0 60px rgba(90,52,20,0.35);
       background-color: #c8964f;
@@ -271,7 +290,7 @@
       background-size: 22px 22px, 31px 31px, 17px 17px, 100% 100%;
       background-position: 0 0, 9px 13px, 5px 7px, 0 0; }
     body.cork-dragging { user-select: none; cursor: grabbing; }
-    .cork-empty { position: absolute; left: 50%; top: 1050px; transform: translateX(-50%); color: rgba(60,35,12,0.65);
+    .cork-empty { position: absolute; left: 50%; top: 720px; transform: translateX(-50%); color: rgba(60,35,12,0.65);
       font-size: 13.5px; background: rgba(255,245,225,0.55); border: 1px dashed rgba(80,48,20,0.45); border-radius: 10px; padding: 10px 16px; }
 
     .pin { position: absolute; transform-origin: 50% 40%; cursor: grab; transition: box-shadow 0.15s, filter 0.15s; }
@@ -368,6 +387,23 @@
     .pin-auto { box-shadow: 0 8px 16px rgba(42,29,18,0.30), 0 0 0 1px rgba(90,58,30,0.18) inset; }
 
     .note-text .mention { color: #7c1f1f; font-weight: 700; }
+
+    /* Deploy 237.193 (Mike) — shout-outs: "a specific kind of note to pin
+       that looks like a certificate". Parchment, a double gold rule, a seal. */
+    .pin-shoutout { background: linear-gradient(160deg, #fdf6e0, #f2e6c4); padding: 12px 14px 10px; border-radius: 3px;
+      box-shadow: 0 10px 20px rgba(42,29,18,0.32); border: 1px solid rgba(160,120,50,0.5); outline: 3px double rgba(180,140,60,0.75); outline-offset: -7px; }
+    .pin-shoutout .so-head { text-align: center; font-family: 'Cinzel Decorative', 'Cinzel', serif; font-size: 11px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #8a6218; margin-bottom: 2px; }
+    .pin-shoutout .so-to { text-align: center; font-family: 'Cinzel', serif; font-size: 17px; font-weight: 700; color: var(--wood); line-height: 1.2; }
+    .pin-shoutout .so-rule { height: 0; border-top: 1px solid rgba(160,120,50,0.6); border-bottom: 1px solid rgba(160,120,50,0.35); margin: 6px 10px 8px; }
+    .pin-shoutout .so-body { font-family: 'Bradley Hand', 'Segoe Print', 'DM Sans', cursive; font-size: 14.5px; color: #3a2e1c; text-align: center; line-height: 1.4; }
+    .pin-shoutout .so-from { text-align: center; font-size: 10.5px; color: #8a7350; margin-top: 8px; font-style: italic; }
+    .pin-shoutout .so-seal { display: block; width: 34px; height: 34px; margin: 6px auto 0; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #e0b357, #a9761d 70%); color: #fff6dc; font-size: 17px; line-height: 34px; text-align: center;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+    /* the composer's recipient picker */
+    .bm-who { display: flex; gap: 8px; flex-wrap: wrap; }
+    .bm-who select { flex: 1; min-width: 180px; }
 
     /* Seasonal frames (cosmetic only — a class on the cork). */
     .cork.season-halloween { border-color: #4a2a08; box-shadow: 0 10px 30px rgba(42,29,18,0.4), inset 0 0 90px rgba(200,90,10,0.35); }
@@ -531,6 +567,9 @@
           <div class="bb-right">
             <button type="button" class="btn sm" onclick="CorkBoard.newNote()">📝 Pin a note</button>
             <button type="button" class="btn sm" onclick="CorkBoard.newPhoto()">🖼 Pin a photo</button>
+            <!-- Deploy 237.193 (Mike) — "a shout out button where people can shout
+                 out to other users for awesome things they've done." -->
+            <button type="button" class="btn sm" onclick="CorkBoard.newShoutout()">🏅 Shout-out</button>
             <button type="button" class="btn ghost sm" onclick="CorkBoard.addTape('tape')" title="A strip of tape to decorate with">🎀 Tape</button>
             <button type="button" class="btn ghost sm" onclick="CorkBoard.addTape('arrow')" title="An arrow to point at something">➡ Arrow</button>
           </div>
@@ -538,17 +577,20 @@
         <!-- Deploy 237.192 — every past month's wall, kept like a Town Crier issue. -->
         <div class="board-archives" id="boardArchives"></div>
 
-        <div class="cork" id="cork">
-          <div class="pin pin-sys" id="pin_sys_bell" data-id="sys_bell">
-            <span class="tack" style="background:#c0392b"></span>
-            <span class="poster-cord"></span>
-            <!-- Deploy 237.082 — the Closing Bell: every closed loan rings here + in Slack. -->
-            <div class="card">
+        <!-- Deploy 237.193 (Mike) — the Bell and the Herald hang on the WALL
+             either side of the board, not on the cork itself. Same cards,
+             same element ids: renderBell() and renderEvents() never knew. -->
+        <div class="board-scroll">
+        <div class="wall">
+          <div class="wall-poster left" id="wallBell">
+            <span class="wall-nail"></span>
+<div class="card">
               <h2>🔔 The Closing Bell <span class="sub">every loan that crosses the finish line</span></h2>
               <div id="bellList"><div class="empty">Listening for the bell…</div></div>
             </div>
-            </div>
+          </div>
 
+          <div class="cork" id="cork">
           <div class="pin pin-sys" id="pin_sys_crier" data-id="sys_crier">
             <span class="tack" style="background:#2c7fb8"></span>
             <span class="poster-cord"></span>
@@ -572,10 +614,14 @@
             </div>
             </div>
 
-          <div class="pin pin-sys" id="pin_sys_herald" data-id="sys_herald">
-            <span class="tack" style="background:#2f8f57"></span>
-            <span class="poster-cord"></span>
-            <div class="card">
+          <div id="corkBanner"></div>
+          <div id="corkPins"></div>
+          <div class="cork-empty" id="corkEmpty">Nothing pinned yet. Put something up — a photo from a closing, a note for the team, anything.</div>
+        </div>
+
+          <div class="wall-poster right" id="wallHerald">
+            <span class="wall-nail"></span>
+<div class="card">
               <h2>Herald's Board <span class="sub">current events</span></h2>
               <div class="lede" id="evLede">What's on at SLA beyond the loans.</div>
               <div id="evList"><div class="empty">Reading the notices…</div></div>
@@ -588,12 +634,8 @@
                 <div id="holidayList"><div class="empty">—</div></div>
               </div>
             </div>
-            </div>
-
-          <!-- user pins land here (absolutely positioned against .cork) -->
-          <div id="corkBanner"></div>
-          <div id="corkPins"></div>
-          <div class="cork-empty" id="corkEmpty">Nothing pinned yet. Put something up — a photo from a closing, a note for the team, anything.</div>
+          </div>
+        </div>
         </div>
 
         <!-- Phones get the same content as a stack; dragging a wall on a 390px screen is no fun. -->
@@ -757,7 +799,8 @@
       // /api/armory-board; the four house cards above are already on the
       // wall in the page markup and just need positioning.
       if (window.CorkBoard) {
-        CorkBoard.init({ user: _user, isAdmin: !!_state.isAdmin });
+        // 237.193 — the roster rides along so a shout-out can name a teammate.
+        CorkBoard.init({ user: _user, isAdmin: !!_state.isAdmin, roster: _state.roster || [] });
       }
     }).catch(function (err) {
       document.getElementById('rtTable').innerHTML = '<div class="empty">The scroll could not be read: ' + escH(err && err.message || 'unknown') + '</div>';

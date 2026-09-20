@@ -53,25 +53,30 @@ export const KEEP_OPTIONS = {
 };
 export const DEFAULT_KEEP = '2w';
 
-// The four house cards. Fixed posters since 237.192 — the ids survive only so
-// old docs can be recognised and swept.
+// The house cards. Since 237.193 only the Town Crier and Celebrations are
+// pinned to the cork (fixed); the Closing Bell and the Herald's Board hang on
+// the WALL either side of the board and are not board items at all. The ids
+// survive so any old doc can be recognised and swept.
 export const SYSTEM_IDS = ['sys_bell', 'sys_crier', 'sys_cele', 'sys_herald'];
 export function isSystemId(id) { return SYSTEM_IDS.indexOf(String(id || '')) >= 0; }
 
-// note / photo are what people pin; tape and arrow are decoration (Mike: "add
-// all of those ideas") — no text, just something to point with or hold a
-// corner down.
-export const KINDS = ['note', 'photo', 'tape', 'arrow'];
+// note / photo / shoutout are what people pin; tape and arrow are decoration
+// (Mike: "add all of those ideas") — no text, just something to point with or
+// hold a corner down.
+export const KINDS = ['note', 'photo', 'shoutout', 'tape', 'arrow'];
 const MAX_ITEMS = 160;                      // a cork board, not a photo library
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024;    // ~3MB of base64 after the client downscales
 const REACTIONS = ['👍', '🔥', '😂', '🎉', '❤️'];
 export const REACTION_SET = REACTIONS;
 
-// The free cork: the middle channel between the two poster columns, and
-// everything below them. Auto-pins and anything the client does not place
-// itself land here. Mirrors LAYOUT in armory-board.js.
-const FREE_X0 = 340, FREE_X1 = 780, FREE_Y0 = 40, FREE_STEP_X = 130, FREE_STEP_Y = 140;
-const BELOW_Y = 980;
+// The free cork (237.193): the board is 760 wide inside its frame, with the
+// Town Crier pinned top-left and Celebrations top-right. Everything below
+// them is the team's. Auto-pins and anything the client does not place itself
+// land here. These numbers mirror LAYOUT/BOARD_W in armory-board.js and the
+// gate asserts the two agree.
+export const BOARD_W = 760;
+const FREE_X0 = 20, FREE_X1 = 500, FREE_Y0 = 360, FREE_STEP_X = 120, FREE_STEP_Y = 140;
+const BELOW_Y = 700;
 
 function _store()  { return getStore({ name: STORE, consistency: 'strong' }); }
 function _photos() { return getStore({ name: PHOTO_STORE, consistency: 'strong' }); }
@@ -130,11 +135,14 @@ function _clean(raw) {
       name:   _str((x.author && x.author.name) || '', 120),
       avatar: _str((x.author && x.author.avatar) || '', 40),
     },
-    // Board coordinates are in the board's own pixel space (the client scales
-    // the surface), so they survive any viewport.
-    x:   _num(x.x, -200, 4000, 400),
-    y:   _num(x.y, -200, 8000, 60),
-    w:   _num(x.w, 40, 900, 240),
+    // Board coordinates are in the board's own pixel space, so they survive
+    // any viewport. 237.193 narrowed the cork from 1120 to 760 when the Bell
+    // and the Herald moved onto the wall — clamping on READ pulls anything
+    // pinned under the old width back into view instead of leaving it
+    // clipped off the right-hand edge.
+    x:   _num(x.x, -40, BOARD_W - 80, 60),
+    y:   _num(x.y, -40, 8000, 380),
+    w:   _num(x.w, 40, BOARD_W - 40, 240),
     rot: _num(x.rot, -45, 45, 0),
     z:   _num(x.z, 0, 99999, 1),
     keep,
@@ -143,11 +151,18 @@ function _clean(raw) {
     expiresAt: _str(x.expiresAt, 40),
     reactions: {},
     photo:     x.photo ? { w: _num(x.photo.w, 1, 8000, 800), h: _num(x.photo.h, 1, 8000, 600), type: _str(x.photo.type, 40) || 'image/jpeg' } : null,
-    // 237.192 — pinned by the platform rather than a person (a big closing, a
-    // birthday, a new deed). Printed rather than handwritten on the board.
+    // 237.192 — pinned by the platform rather than a person (a big closing,
+    // a birthday). Printed rather than handwritten on the board.
     auto:      x.auto ? { kind: _str(x.auto.kind, 30), icon: _str(x.auto.icon, 8), title: _str(x.auto.title, 160) } : null,
+    // 237.193 — who a shout-out is for.
+    to:        x.to ? { email: normalizeEmail(x.to.email || ''), name: _str(x.to.name || '', 120) } : null,
     mentions:  [],
   };
+  // Clamping x alone is not enough: a 300-wide pin at x 680 still hangs off
+  // the edge. Pull the whole pin inside the frame, width included — this is
+  // what rescues pins placed under the old 1120-wide board.
+  if (item.x + item.w > BOARD_W - 10) item.x = Math.max(6, BOARD_W - 10 - item.w);
+
   const ms = Array.isArray(x.mentions) ? x.mentions : [];
   ms.slice(0, 20).forEach((m) => {
     const email = normalizeEmail((m && m.email) || '');
@@ -198,6 +213,10 @@ export async function listBoard() {
   docs.forEach((d) => {
     if (!d || !d.id) return;
     if (isSystemId(d.id) || d.kind === 'system') { dead.push({ id: d.id, retired: true }); return; }
+    // 237.193 (Mike: "Lets not have the deeds on there") — the Hall of Deeds
+    // is its own tab and the deed cards buried the wall. Retired, and the
+    // ones already up come down on the next read.
+    if (d.auto && d.auto.kind === 'deed') { dead.push({ id: d.id, retired: true }); return; }
     const item = _clean(d);
     if (isExpired(item, now)) dead.push(item); else live.push(item);
   });
@@ -301,6 +320,9 @@ export async function createItem(user, body, photoBase64, roster) {
     await _photos().set(id, b64);          // BASE64 TEXT, never a Buffer
   } else if (kind === 'note' && !_str(body && body.text, 1200)) {
     throw new Error('Write something on the note first');
+  } else if (kind === 'shoutout') {
+    if (!_str(body && body.toName, 120)) throw new Error('Say who the shout-out is for');
+    if (!_str(body && body.text, 1200)) throw new Error('Say what they did');
   }
   const spot = (body && body.x != null && body.y != null) ? null : placeInFreeZone(current, body && body.w);
   const item = _clean({
@@ -315,11 +337,25 @@ export async function createItem(user, body, photoBase64, roster) {
     keep: body && body.keep,
     photo: body && body.photo,
     mentions: kind === 'note' ? findMentions(body && body.text, roster) : [],
+    to: kind === 'shoutout' ? { email: body && body.toEmail, name: body && body.toName } : null,
   });
   item.expiresAt = _expiryFor(item.keep);
   await _put(item);
   if (item.mentions.length) await _notifyMentions(item, item.author.name);
-  await touchPulse('board', (item.author.name || 'Someone') + ' pinned something to the cork board');
+  // 237.193 — the point of a shout-out is that the person hears about it.
+  if (item.to && item.to.email && item.to.email !== item.author.email) {
+    await pushUserNotification(item.to.email, {
+      kind: 'mention',
+      fromName: item.author.name || 'Someone',
+      fromEmail: item.author.email,
+      address: 'the cork board — a shout-out for you',
+      snippet: (item.text || '').slice(0, 160),
+      href: '/armory.html#news',
+    }).catch(() => null);
+  }
+  await touchPulse('board', kind === 'shoutout'
+    ? (item.author.name || 'Someone') + ' gave ' + ((item.to && item.to.name) || 'someone') + ' a shout-out'
+    : (item.author.name || 'Someone') + ' pinned something to the cork board');
   return item;
 }
 
@@ -429,10 +465,10 @@ function _autoCard(id, fields) {
 
 /**
  * Make sure the platform's own cards are on the wall. Takes what the caller
- * already loaded (bells, celebrations, deeds) so this costs one list of
+ * already loaded (bells, celebrations) so this costs one list of
  * tombstones and a write per genuinely new card.
  */
-export async function syncAutoPins({ bells, celebrations, deeds, existing }) {
+export async function syncAutoPins({ bells, celebrations, existing }) {
   const have = {};
   (existing || []).forEach((i) => { have[i.id] = 1; });
   const muted = {};
@@ -476,16 +512,9 @@ export async function syncAutoPins({ bells, celebrations, deeds, existing }) {
     }));
   });
 
-  (deeds || []).forEach((d) => {
-    if (!d || !d.email || !d.key) return;
-    if (Date.parse(d.at || 0) < weekAgo) return;
-    wanted.push(_autoCard('auto_deed_' + normalizeEmail(d.email).replace(/[^\w]/g, '') + '_' + d.key + '_' + d.tier, {
-      text: (d.name || 'A knight') + ' earned ' + (d.label || d.key) + (d.rank ? ' ' + d.rank : '') + '.',
-      auto: { kind: 'deed', icon: '📜', title: 'New deed' }, color: 'yellow', w: 240,
-      createdAt: d.at,
-      expiresAt: _expiryFor(AUTO_KEEP, Date.parse(d.at || 0) || Date.now()),
-    }));
-  });
+  // Deeds used to pin a card each (237.192). Mike, 237.193: "Lets not have
+  // the deeds on there" — they arrived several at a time and buried the
+  // wall, and the Hall of Deeds tab already tells that story.
 
   const fresh = wanted.filter((c) => !have[c.id] && !muted[c.id]);
   if (!fresh.length) return [];

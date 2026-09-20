@@ -4,10 +4,11 @@
  * Deploy 237.191 — the cork board's one endpoint (Dan's idea, Mike's shape).
  * Team members only, same gate as the rest of the Armory.
  * 237.192 — auto-pins, @mentions, the monthly archive.
+ * 237.193 — shout-outs; deed cards retired.
  *
  * Body: { action, ... }
  *   list                                  → { items, archives }
- *   pin    { kind:'note'|'photo'|'tape'|'arrow', ... }   → { item }
+ *   pin    { kind:'note'|'photo'|'shoutout'|'tape'|'arrow', ... }   → { item }
  *   move   { id, x, y, w, rot, z }        → { item }   anyone may tidy
  *   edit   { id, text|caption|color|keep }→ { item }   author or admin
  *   react  { id, emoji }                  → { item }
@@ -21,7 +22,6 @@ import { handleOptions, json, requireAuth, readJsonBody, isAdmin } from './_shar
 import { isTeamMember, displayNameFor } from './_shared/armory.mjs';
 import { listBells } from './_shared/closing-bell.mjs';
 import { loadTeamProfiles, celebrationsOn, todayPacific } from './_shared/team-events.mjs';
-import { getAchievementsIndex, DEEDS, RANKS } from './_shared/achievements.mjs';
 import {
   listBoard, createItem, moveItem, editItem, reactToItem, deleteItem, signPhoto,
   syncAutoPins, ensureMonthlyArchive, listArchiveMonths, getArchive,
@@ -34,25 +34,17 @@ async function roster() {
 }
 
 /**
- * Everything the auto-pins are derived from. All three sources are already
- * built for other parts of the Armory, so this is reads, not computation, and
- * a failure in any one of them must not stop the board from loading.
+ * What the auto-pins are derived from. Both sources are already built for
+ * other parts of the Armory, so this is reads, not computation, and a failure
+ * in either must not stop the board from loading. Deeds used to be a third
+ * source; Mike had them removed in 237.193 (they buried the wall).
  */
 async function autoSources() {
-  const [bells, profiles, idx] = await Promise.all([
+  const [bells, profiles] = await Promise.all([
     listBells(20).catch(() => []),
     loadTeamProfiles().catch(() => []),
-    getAchievementsIndex().catch(() => null),
   ]);
-  const celebrations = { today: celebrationsOn(profiles, todayPacific(new Date())) };
-  const byKey = {};
-  DEEDS.forEach((d) => { byKey[d.key] = d; });
-  const deeds = ((idx && idx.recent) || []).slice(0, 12).map((r) => ({
-    email: r.email, name: r.name, key: r.key, tier: r.tier, at: r.at,
-    label: (byKey[r.key] && byKey[r.key].name) || r.key,
-    rank: RANKS[(r.tier || 1) - 1] || '',
-  }));
-  return { bells, celebrations, deeds };
+  return { bells, celebrations: { today: celebrationsOn(profiles, todayPacific(new Date())) } };
 }
 
 export default async (req, context) => {
@@ -101,7 +93,7 @@ export default async (req, context) => {
         { email: user.email },
         Object.assign({}, body, { authorName: body.authorName || displayNameFor(user) }),
         b64,
-        body.kind === 'note' ? await roster() : [],
+        (body.kind === 'note' || body.kind === 'shoutout') ? await roster() : [],
       );
       return json(200, { ok: true, item: item.kind === 'photo' ? Object.assign({}, item, { photoUrl: signPhoto(item.id) }) : item });
     }
@@ -116,7 +108,7 @@ export default async (req, context) => {
     const msg = (e && e.message) || 'unknown';
     console.error('armory-board error:', msg);
     // The thrown messages above are written for the person reading them.
-    return json(/required|full|too large|Only the person|no longer|fixed to the frame|posted by the Armory|did not look|Write something/i.test(msg) ? 400 : 500,
+    return json(/required|full|too large|Only the person|no longer|fixed to the frame|posted by the Armory|did not look|Write something|Say who|Say what/i.test(msg) ? 400 : 500,
       { error: msg });
   }
 };

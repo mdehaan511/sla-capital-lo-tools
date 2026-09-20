@@ -24,8 +24,11 @@
 (function () {
   'use strict';
 
-  var BOARD_W = 1120;          // the board's own pixel space; x/y are stored in it
-  var MIN_H = 1500;
+  // 237.193 — the cork narrowed when the Bell and the Herald moved onto the
+  // wall beside it. corkboard.mjs holds the same number and clamps old pins
+  // into it on read, so nothing sits clipped off the right-hand edge.
+  var BOARD_W = 760;
+  var MIN_H = 1200;
   var NARROW = 900;            // below this the cork becomes a plain list
   var COLORS = ['yellow', 'blue', 'green', 'pink', 'white'];
   var TAPES = ['washi-gold', 'washi-red', 'washi-blue', 'washi-green'];
@@ -38,21 +41,21 @@
     ['forever', 'Until I take it down'],
   ];
 
-  // The posters. Fixed to the frame: the Bell and the Crier hang down the
-  // left, Celebrations sits at the top right and the Herald's Board hangs
-  // below it. The free cork is the channel between them (x 340–800) plus
-  // everything below y≈980 — mirrored by placeInFreeZone in corkboard.mjs.
+  // What is pinned to the cork itself (Mike, 237.193): the Town Crier top
+  // left and Celebrations top right, both fixed. The Closing Bell and the
+  // Herald's Board are NOT here — they are posters on the wall either side of
+  // the board, plain DOM in armory.html. Everything below y 360 is the
+  // team's; placeInFreeZone in corkboard.mjs mirrors these numbers.
   var LAYOUT = {
-    sys_bell:   { x: 8,   y: 10,  w: 300, maxH: 570 },
-    sys_crier:  { x: 8,   y: 610, w: 300, maxH: 300 },
-    sys_cele:   { x: 812, y: 10,  w: 300, maxH: 290 },
-    sys_herald: { x: 812, y: 330, w: 300, maxH: 580 },
+    sys_crier: { x: 14,  y: 12, w: 340, maxH: 300 },
+    sys_cele:  { x: 406, y: 12, w: 340, maxH: 300 },
   };
-  var SYS_IDS = ['sys_bell', 'sys_crier', 'sys_cele', 'sys_herald'];
-  var FREE_X0 = 340, FREE_X1 = 780, FREE_Y0 = 40, FREE_STEP_X = 130, FREE_STEP_Y = 140, BELOW_Y = 980;
+  var SYS_IDS = ['sys_crier', 'sys_cele'];
+  var FREE_X0 = 20, FREE_X1 = 500, FREE_Y0 = 360, FREE_STEP_X = 120, FREE_STEP_Y = 140, BELOW_Y = 700;
 
   var _items = [];
   var _archives = [];
+  var _roster = [];            // 237.193 - who a shout-out can name
   var _user = null;
   var _isAdmin = false;
   var _loaded = false;
@@ -218,6 +221,10 @@
     return out + '</div>';
   }
 
+  function lifeHtml(item) {
+    return '<div class="pin-meta" style="justify-content:flex-end">' +
+      '<span class="life' + (isWilting(item) ? ' soon' : '') + '">' + esc(fallsOffLabel(item)) + '</span></div>';
+  }
   function metaHtml(item) {
     var who = (item.author && item.author.name) || (item.author && item.author.email) || '';
     return '<div class="pin-meta"><span>' + esc(who) + '</span>' +
@@ -240,6 +247,8 @@
   }
 
   function pinHtml(item) {
+    // Belt and braces with the server clamp: never paint a pin off the edge.
+    if (item.x + item.w > BOARD_W - 10) item.x = Math.max(6, BOARD_W - 10 - item.w);
     // Tape and arrows are decoration: no author line, no reactions, no tack.
     if (item.kind === 'tape' || item.kind === 'arrow') {
       return '<div class="pin pin-' + item.kind + ' ' + esc(item.color || '') + '" id="pin_' + esc(item.id) + '" data-id="' + esc(item.id) + '"' +
@@ -256,7 +265,15 @@
     var cls = 'pin pin-' + item.kind + ' c-' + esc(item.color || 'yellow') +
       (isWilting(item) ? ' wilting' : '') + (item.auto ? ' pin-auto' : '');
     var body;
-    if (item.kind === 'photo') {
+    if (item.kind === 'shoutout') {
+      // A certificate: who it is for, what they did, who said so, and a seal.
+      body = '<div class="so-head">Shout-out</div>' +
+        '<div class="so-to">' + esc((item.to && item.to.name) || 'A teammate') + '</div>' +
+        '<div class="so-rule"></div>' +
+        '<div class="so-body">' + esc(item.text).replace(/\n/g, '<br>') + '</div>' +
+        '<div class="so-from">— ' + esc((item.author && item.author.name) || '') + '</div>' +
+        '<span class="so-seal">★</span>';
+    } else if (item.kind === 'photo') {
       body = '<div class="photo-frame"><img src="' + esc(item.photoUrl || '') + '" alt="' + esc(item.caption || 'pinned photo') + '" draggable="false" />' +
         (item.caption ? '<div class="cap">' + esc(item.caption) + '</div>' : '') + '</div>';
     } else {
@@ -266,7 +283,7 @@
     return '<div class="' + cls + '" id="pin_' + esc(item.id) + '" data-id="' + esc(item.id) + '"' +
       ' style="left:' + item.x + 'px;top:' + item.y + 'px;width:' + item.w + 'px;z-index:' + Math.round(item.z || 1) +
       ';transform:rotate(' + (item.rot || 0) + 'deg)">' +
-      tackHtml(item.id) + body + metaHtml(item) + reactionsHtml(item) + toolsHtml(item) +
+      tackHtml(item.id) + body + (item.kind === 'shoutout' ? lifeHtml(item) : metaHtml(item)) + reactionsHtml(item) + toolsHtml(item) +
       '<span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>' +
       '</div>';
   }
@@ -345,12 +362,13 @@
     var dx = e.clientX - _drag.startX;
     var dy = e.clientY - _drag.startY;
     if (_drag.mode === 'move') {
-      _drag.x = Math.max(-40, Math.min(BOARD_W - 60, _drag.x0 + dx));
+      // Keep the whole pin on the cork, width included (237.193).
+      _drag.x = Math.max(4, Math.min(BOARD_W - 10 - _drag.w, _drag.x0 + dx));
       _drag.y = Math.max(0, _drag.y0 + dy);
       _drag.node.style.left = Math.round(_drag.x) + 'px';
       _drag.node.style.top = Math.round(_drag.y) + 'px';
     } else if (_drag.mode === 'size') {
-      _drag.w = Math.max(60, Math.min(880, _drag.w0 + dx));
+      _drag.w = Math.max(60, Math.min(BOARD_W - 20 - _drag.x, _drag.w0 + dx));
       _drag.node.style.width = Math.round(_drag.w) + 'px';
     } else if (_drag.mode === 'rot') {
       var a = Math.atan2(e.clientY - _drag.cy, e.clientX - _drag.cx) * 180 / Math.PI;
@@ -456,6 +474,56 @@
       }
     }).catch(function (err) {
       btn.disabled = false; btn.textContent = 'Pin it';
+      toast('⚠ ' + ((err && err.message) || 'unknown'));
+    });
+  }
+
+  /**
+   * Deploy 237.193 (Mike): "add a shout out button where people can shout out
+   * to other users for awesome things they've done. Make it a specific kind
+   * of note to pin that looks like a certificate." The person named gets a
+   * notification, and it stays up a month by default — longer than a note,
+   * because it is worth more than a note.
+   */
+  function newShoutout() {
+    var opts = '<option value="">— choose a teammate —</option>';
+    var list = _roster.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].email || '').toLowerCase() === me()) continue;      // no shouting at yourself
+      opts += '<option value="' + esc(list[i].email) + '">' + esc(list[i].name || list[i].email) + '</option>';
+    }
+    openModal(
+      '<h3>🏅 Give a shout-out</h3>' +
+      '<div class="bm-note">It goes up as a certificate on the board, and they get a notification.</div>' +
+      '<label class="bm-label">Who deserves it</label>' +
+      '<div class="bm-who"><select id="bmTo" class="bm-input">' + opts + '</select></div>' +
+      '<label class="bm-label">What they did</label>' +
+      '<textarea id="bmText" class="bm-input" rows="4" placeholder="Saved a closing that was going sideways…"></textarea>' +
+      '<label class="bm-label">Keep it up for</label>' + keepSelect('1m', 'bmKeep') +
+      '<div class="bm-actions"><button type="button" class="btn ghost sm" onclick="CorkBoard.close()">Cancel</button>' +
+      '<button type="button" class="btn sm" id="bmGo" onclick="CorkBoard.saveShoutout(this)">Pin it up</button></div>');
+  }
+
+  function saveShoutout(btn) {
+    var sel = byId('bmTo');
+    var toEmail = sel.value;
+    var toName = toEmail ? sel.options[sel.selectedIndex].text : '';
+    var text = String(byId('bmText').value || '').trim();
+    if (!toEmail) { toast('Pick who the shout-out is for'); return; }
+    if (!text) { toast('Say what they did'); return; }
+    btn.disabled = true; btn.textContent = 'Pinning…';
+    var spot = freeSpot();
+    api({
+      action: 'pin', kind: 'shoutout', text: text, toEmail: toEmail, toName: toName,
+      keep: byId('bmKeep').value, x: spot.x, y: spot.y, w: 270, rot: randomTilt(), z: maxZ() + 1,
+    }).then(function (r) {
+      closeModal();
+      _items.push(r.item);
+      render();
+      scrollToPin(r.item.id);
+      toast('🏅 Shout-out pinned — ' + toName + ' has been told');
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Pin it up';
       toast('⚠ ' + ((err && err.message) || 'unknown'));
     });
   }
@@ -686,6 +754,7 @@
   function init(opts) {
     _user = (opts && opts.user) || null;
     _isAdmin = !!(opts && opts.isAdmin);
+    _roster = (opts && opts.roster) || [];
     var box = cork();
     if (!box) return;
     if (!_loaded) {
@@ -713,6 +782,7 @@
   window.CorkBoard = {
     init: init, reload: load, render: render,
     newNote: newNote, newPhoto: newPhoto, preview: preview, addTape: addTape,
+    newShoutout: newShoutout, saveShoutout: saveShoutout,
     saveNote: saveNote, savePhoto: savePhoto, pickColor: pickColor,
     edit: edit, saveEdit: saveEdit, keep: keep, saveKeep: saveKeep,
     unpin: unpin, react: react, showArchive: showArchive, close: closeModal,
