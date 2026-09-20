@@ -68,10 +68,21 @@
     }).catch(function(){});
   }
 
+  // Deploy 237.198 (Mike: "I cant seem to see a bell") -- this used to be a single
+  // attempt that returned silently when .nav-right was not there yet. sla-nav.js builds
+  // that element, and several pages load it with `defer`, so any page whose ordering put
+  // us first lost the bell permanently with no error anywhere. Wait for the nav instead:
+  // an observer while the document is alive, plus a short poll for the pages that build
+  // their nav late. Gives up after ~10s so a page with genuinely no nav costs nothing.
+  var _injectTries = 0;
   function inject() {
     if (document.getElementById('slaNotifWrap')) return;
     var navRight = document.querySelector('.nav-right');
-    if (!navRight) return;
+    if (!navRight) {
+      if (_injectTries++ > 40) return;          // ~10s at 250ms
+      setTimeout(inject, 250);
+      return;
+    }
 
     var wrap = document.createElement('div');
     wrap.id = 'slaNotifWrap';
@@ -724,7 +735,7 @@
   };
 
   window.__slaNotifClearAll = function() {
-    if (!confirm('Clear all visible notifications? Due reminders will be marked complete.')) return;
+    if (!confirm('Clear the bell? Notifications are marked read (still on your Notifications page); due reminders are marked complete.')) return;
     var drop = document.getElementById('slaNotifDrop');
     if (!drop) return;
     // Collect IDs from the current dropdown
@@ -760,11 +771,14 @@
         owner: b.getAttribute('data-task-owner') || '',
       }).catch(function(){}));
     });
-    // Deploy 237.050 -- dismiss every visible mention server-side.
+    // Deploy 237.050 -- clear every visible notification server-side.
+    // Deploy 237.198 -- MARK READ, not delete. 237.197 fixed the per-item tick and
+    // left this one deleting, which would have quietly emptied the very history the
+    // notifications page exists to show -- from the button people press most.
     var mentionIds = Array.from(mentionBtns).map(function(b){ return b.getAttribute('data-mention-id'); }).filter(Boolean);
     if (mentionIds.length && window.SLA && SLA.api) {
       _mentionCache = [];
-      promises.push(SLA.api('POST', '/api/notifications-dismiss', { ids: mentionIds }).catch(function(){}));
+      promises.push(SLA.api('POST', '/api/notifications-read', { ids: mentionIds }).catch(function(){}));
     }
     Promise.all(promises).then(function() { _lastTaskFetch = 0; refresh(); });
   };
