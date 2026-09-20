@@ -928,6 +928,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/notifications-read"
+  to = "/.netlify/functions/notifications-read"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/notifications-dismiss"
   to = "/.netlify/functions/notifications-dismiss"
   status = 200

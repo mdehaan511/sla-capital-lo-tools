@@ -110,6 +110,9 @@
       '.sla-notif-hdr{padding:12px 14px 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;border-bottom:1px solid #f0ece5;display:flex;justify-content:space-between;align-items:baseline}' +
       '.sla-notif-hdr .count{color:#7c1f1f}' +
       '.sla-notif-empty{padding:22px 14px;font-size:13px;color:#7a7488;text-align:center}' +
+      // Deploy 237.197 -- the way through to the full history.
+      '.sla-notif-seeall{display:block;padding:10px 14px;text-align:center;font-size:12px;font-weight:600;color:#c8813a;text-decoration:none;border-top:1px solid #f0ece5}' +
+      '.sla-notif-seeall:hover{background:rgba(200,129,58,0.08)}' +
       '.sla-notif-item{padding:10px 14px;border-bottom:1px solid #f0ece5;display:flex;gap:10px;align-items:center;transition:background .1s}' +
       '.sla-notif-item:last-child{border-bottom:none}' +
       '.sla-notif-item:hover{background:rgba(200,129,58,0.06)}' +
@@ -257,8 +260,10 @@
     }
 
     // Deploy 237.050 -- my @-mentions (cheap: one blob read), every poll.
+    // Deploy 237.197 -- UNREAD only. Notifications are kept now (read/unread rather
+    // than deleted), so without this the bell would re-show everything ever sent.
     var fetchMentions = SLA.api
-      ? trackAuth(SLA.api('GET', '/api/notifications-list')).then(function(r) {
+      ? trackAuth(SLA.api('GET', '/api/notifications-list?unread=1')).then(function(r) {
           _mentionCache = (r && r.items) || [];
           return _mentionCache;
         }).catch(function(){ return _mentionCache; })
@@ -441,6 +446,10 @@
         '<button class="sla-notif-clear-all" onclick="window.__slaNotifClearAll()">Clear all notifications</button>' +
       '</div>';
     }
+    // Deploy 237.197 (Mike) -- "You get to it by clicking the bell and going to See
+    // All Notifications". ALWAYS present, including when the bell is empty: an empty
+    // bell is exactly when someone goes looking for what they have already read.
+    html += '<a href="/notifications.html" class="sla-notif-seeall">See all notifications \u2192</a>';
 
     var drop = document.getElementById('slaNotifDrop');
     drop.innerHTML = html;
@@ -707,9 +716,11 @@
     var row = btn.closest('.sla-notif-item');
     if (row) row.remove();
     _mentionCache = _mentionCache.filter(function(m){ return m && m.id !== id; });
-    SLA.api('POST', '/api/notifications-dismiss', { ids: [id] })
+    // Deploy 237.197 -- MARK READ, not delete. It leaves the bell but stays in the
+    // history on /notifications.html, where it can be marked unread again.
+    SLA.api('POST', '/api/notifications-read', { ids: [id] })
       .then(function(){ refresh(); })
-      .catch(function(err){ console.warn('Mention dismiss failed:', err); refresh(); });
+      .catch(function(err){ console.warn('Notification mark-read failed:', err); refresh(); });
   };
 
   window.__slaNotifClearAll = function() {

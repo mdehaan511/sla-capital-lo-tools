@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notifications — SLA Capital</title>
+<link rel="icon" href="/favicon.ico">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+<!--
+  Deploy 237.197 (Mike): "a profile based notifications page. You get to it by clicking
+  the bell and going to See All Notifications and it shows all historical notifications,
+  both unread and read, and has links to whatever loan or client ties to that
+  notification ... if they click one of the notifications it goes to whatever that
+  notification is and marks it as read. They can also mark notifications as unread or
+  mark all notifications as read ... filter by date and type."
+
+  The bell shows what is outstanding; this page is the record. Every notification kind
+  ever pushed shows up here without this page being taught about it — an unknown kind
+  still renders with its title, its date and its link (see kindLabel / hrefFor), because
+  the next kind someone adds should not silently go missing from the history.
+
+  Nav comes from sla-nav.js — this page adds no nav CSS of its own (see
+  feedback_one_nav_everywhere).
+-->
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="/sla-api.js?v=237197"></script>
+<script src="/sla-nav.js"></script>
+<script src="/sla-search.js"></script>
+<script src="/sla-notifications.js?v=237197"></script>
+<script src="/sla-chat.js"></script>
+<style>
+  :root{
+    --bg:#faf7f2; --surface:#fff; --text:#1a1520; --muted:#7a7488;
+    --line:#e4dfd4; --gold:#c8813a; --gold-soft:rgba(200,129,58,.10);
+    --red:#7c1f1f; --green:#166534;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px}
+  .page{max-width:900px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-family:'Fraunces',serif;font-size:26px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;
+       background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .fld{display:flex;flex-direction:column;gap:4px}
+  .fld label{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .fld select,.fld input{padding:7px 10px;font-family:inherit;font-size:13px;color:var(--text);
+       border:1px solid var(--line);border-radius:8px;background:#fff}
+  .bar .spacer{flex:1}
+  button.act{padding:8px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;
+       cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--text)}
+  button.act.primary{background:var(--gold);border-color:var(--gold);color:#fff}
+  button.act:disabled{opacity:.5;cursor:default}
+
+  .list{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .row{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-top:1px solid var(--line);position:relative}
+  .row:first-child{border-top:none}
+  .row.unread{background:var(--gold-soft)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--gold);margin-top:6px;flex:0 0 8px}
+  .row.read .dot{background:transparent;border:1px solid var(--line)}
+  .main{flex:1;min-width:0}
+  .ttl{font-weight:600;line-height:1.35}
+  .row.read .ttl{font-weight:500;color:#4a4458}
+  .meta{font-size:12px;color:var(--muted);margin-top:3px}
+  .kind{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+        color:#6b5322;background:var(--gold-soft);border:1px solid rgba(200,129,58,.28);
+        border-radius:20px;padding:1px 8px;margin-right:6px}
+  .go{color:inherit;text-decoration:none;display:block}
+  .go:hover .ttl{text-decoration:underline}
+  .rowbtn{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:6px;
+          font-size:11px;font-weight:600;padding:4px 8px;cursor:pointer;white-space:nowrap}
+  .empty{padding:48px 20px;text-align:center;color:var(--muted)}
+  .empty b{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
+  .count{font-size:12px;color:var(--muted);margin:10px 2px}
+  #auth-gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
+  #auth-gate .gate-msg{color:var(--muted);font-size:14px;text-align:center}
+  #auth-gate .gate-msg strong{color:var(--text);display:block;margin-bottom:8px;font-size:18px}
+</style>
+</head>
+<body>
+<div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+<div class="page" id="appWrap" style="display:none">
+  <h1>Notifications</h1>
+  <div class="sub" id="sub">Everything sent to you — read and unread.</div>
+
+  <div class="bar">
+    <div class="fld">
+      <label for="fType">Type</label>
+      <select id="fType" onchange="applyFilters()"><option value="">All types</option></select>
+    </div>
+    <div class="fld">
+      <label for="fState">Status</label>
+      <select id="fState" onchange="applyFilters()">
+        <option value="">Read &amp; unread</option>
+        <option value="unread">Unread only</option>
+        <option value="read">Read only</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label for="fFrom">From</label>
+      <input type="date" id="fFrom" onchange="applyFilters()">
+    </div>
+    <div class="fld">
+      <label for="fTo">To</label>
+      <input type="date" id="fTo" onchange="applyFilters()">
+    </div>
+    <div class="spacer"></div>
+    <button class="act" id="btnClear" onclick="clearFilters()">Clear filters</button>
+    <button class="act primary" id="btnAll" onclick="markAllRead()">Mark all as read</button>
+  </div>
+
+  <div class="count" id="count"></div>
+  <div class="list" id="list"><div class="empty">Loading…</div></div>
+</div>
+
+<script>
+/* eslint-disable */
+var _items = [];
+
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+  .replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(s){ return escH(s); }
+
+/* A kind we have never seen still gets a readable label rather than a blank chip —
+   the next notification someone adds must not go missing from the history. */
+var KIND_LABELS = {
+  mention:         'Mention',
+  borrower_upload: 'New document',
+  full_file:       'Full file',
+  servicing:       'Servicing',
+  deed:            'Deed',
+  payoff_confirmed:   'Payoff confirmed',
+  payoff_unconfirmed: 'Payoff unconfirmed'
+};
+function kindLabel(k){
+  if (KIND_LABELS[k]) return KIND_LABELS[k];
+  return String(k||'Notification').replace(/[_-]+/g,' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+}
+
+/* Where a notification goes when you click it. Explicit href wins; otherwise the loan it
+   names; otherwise the client. Mike: "has links to whatever loan or client ties to that
+   notification". */
+function hrefFor(n){
+  if (n.href) return n.href;
+  if (n.loanId){
+    return '/loan-details/' + encodeURIComponent(n.loanId) +
+      (n.owner ? '?owner=' + encodeURIComponent(n.owner) : '');
+  }
+  if (n.clientId) return '/client-details.html?clientId=' + encodeURIComponent(n.clientId);
+  return '';
+}
+
+/* Every kind stores its wording slightly differently (mentions use snippet, the newer
+   ones use title/text). Read them all rather than showing an empty row. */
+function titleOf(n){
+  if (n.title) return n.title;
+  if (n.kind === 'mention'){
+    return (n.fromName || n.fromEmail || 'Someone') + ' mentioned you' +
+      (n.address ? ' on ' + String(n.address).split(',')[0] : '');
+  }
+  return kindLabel(n.kind);
+}
+function bodyOf(n){
+  return n.text || n.snippet || n.address || '';
+}
+function fmtWhen(iso){
+  if (!iso) return '';
+  var d = new Date(iso); if (isNaN(d)) return '';
+  var now = new Date();
+  var sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? 'Today ' + d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })
+    : d.toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' }) +
+      ' ' + d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+}
+
+function load(){
+  return SLA.api('GET', '/api/notifications-list')
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      _items = (j && j.items) || [];
+      buildTypeFilter();
+      applyFilters();
+    })
+    .catch(function(e){
+      document.getElementById('list').innerHTML =
+        '<div class="empty"><b>Could not load your notifications</b>' + escH((e && e.message) || '') + '</div>';
+    });
+}
+
+/* Only offer types that are actually in this person's history — an empty filter option
+   is a dead end. */
+function buildTypeFilter(){
+  var sel = document.getElementById('fType');
+  var cur = sel.value;
+  var kinds = [];
+  _items.forEach(function(n){
+    var k = n.kind || 'mention';
+    if (kinds.indexOf(k) < 0) kinds.push(k);
+  });
+  kinds.sort(function(a,b){ return kindLabel(a).localeCompare(kindLabel(b)); });
+  sel.innerHTML = '<option value="">All types</option>' + kinds.map(function(k){
+    return '<option value="' + escAttr(k) + '">' + escH(kindLabel(k)) + '</option>';
+  }).join('');
+  if (cur && kinds.indexOf(cur) >= 0) sel.value = cur;
+}
+
+function filtered(){
+  var kind  = document.getElementById('fType').value;
+  var state = document.getElementById('fState').value;
+  var from  = document.getElementById('fFrom').value;
+  var to    = document.getElementById('fTo').value;
+  return _items.filter(function(n){
+    if (kind && (n.kind || 'mention') !== kind) return false;
+    if (state === 'unread' && n.readAt) return false;
+    if (state === 'read' && !n.readAt) return false;
+    var day = String(n.createdAt || '').slice(0, 10);
+    if (from && day < from) return false;
+    if (to && day > to) return false;   // inclusive: the To date itself is included
+    return true;
+  });
+}
+
+function applyFilters(){
+  var rows = filtered();
+  var unread = _items.filter(function(n){ return !n.readAt; }).length;
+  document.getElementById('sub').textContent =
+    unread ? (unread + ' unread of ' + _items.length + ' — read and unread, newest first.')
+           : (_items.length + ' notification' + (_items.length === 1 ? '' : 's') + ' — all read.');
+  document.getElementById('count').textContent =
+    rows.length === _items.length ? '' : ('Showing ' + rows.length + ' of ' + _items.length);
+  document.getElementById('btnAll').disabled = !unread;
+
+  var list = document.getElementById('list');
+  if (!rows.length){
+    list.innerHTML = _items.length
+      ? '<div class="empty"><b>Nothing matches those filters</b>Try widening the dates or the type.</div>'
+      : '<div class="empty"><b>No notifications yet</b>Mentions, new documents from borrowers and alerts will collect here.</div>';
+    return;
+  }
+  list.innerHTML = rows.map(rowHtml).join('');
+}
+
+function rowHtml(n){
+  var href = hrefFor(n);
+  var read = !!n.readAt;
+  var inner =
+    '<div class="ttl">' + escH(titleOf(n)) + '</div>' +
+    '<div class="meta"><span class="kind">' + escH(kindLabel(n.kind)) + '</span>' +
+      escH(bodyOf(n)) + (bodyOf(n) ? ' · ' : '') + escH(fmtWhen(n.createdAt)) +
+      (read ? ' · read' : '') +
+    '</div>';
+  return '<div class="row ' + (read ? 'read' : 'unread') + '" id="nrow_' + escAttr(n.id) + '">' +
+      '<div class="dot"></div>' +
+      '<div class="main">' +
+        (href
+          ? '<a class="go" href="' + escAttr(href) + '" onclick="return openOne(\'' + escAttr(n.id) + '\')">' + inner + '</a>'
+          : inner) +
+      '</div>' +
+      '<button class="rowbtn" onclick="toggleRead(\'' + escAttr(n.id) + '\')">' +
+        (read ? 'Mark unread' : 'Mark read') +
+      '</button>' +
+    '</div>';
+}
+
+/* Mike: "if they click one of the notifications it goes to whatever that notification is
+   and marks it as read." The mark is fired and NOT awaited — the navigation should not
+   wait on a write, and if it fails the item simply stays unread, which is the safe way
+   round. */
+function openOne(id){
+  var n = _items.filter(function(x){ return x.id === id; })[0];
+  if (n && !n.readAt){
+    n.readAt = new Date().toISOString();
+    try { SLA.api('POST', '/api/notifications-read', { ids: [id] }); } catch (_) {}
+  }
+  return true;   // let the browser follow the link
+}
+
+function toggleRead(id){
+  var n = _items.filter(function(x){ return x.id === id; })[0];
+  if (!n) return;
+  var makeUnread = !!n.readAt;
+  n.readAt = makeUnread ? '' : new Date().toISOString();
+  applyFilters();
+  SLA.api('POST', '/api/notifications-read', makeUnread ? { ids: [id], unread: true } : { ids: [id] })
+    .catch(function(e){
+      console.warn('notification mark failed:', e && e.message);
+      n.readAt = makeUnread ? new Date().toISOString() : '';   // put it back
+      applyFilters();
+    });
+}
+
+function markAllRead(){
+  var stamp = new Date().toISOString();
+  var was = _items.map(function(n){ return n.readAt || ''; });
+  _items.forEach(function(n){ if (!n.readAt) n.readAt = stamp; });
+  applyFilters();
+  SLA.api('POST', '/api/notifications-read', { all: true })
+    .catch(function(e){
+      console.warn('mark all failed:', e && e.message);
+      _items.forEach(function(n, i){ n.readAt = was[i]; });
+      applyFilters();
+    });
+}
+
+function clearFilters(){
+  ['fType','fState','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value = ''; });
+  applyFilters();
+}
+
+// Same gate as every other staff page. Everyone signed in has notifications of their
+// own, so there is no role check beyond being logged in.
+window.netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  // ?unread=1 from the bell's "See all" — land on what is still outstanding.
+  var p = new URLSearchParams(location.search);
+  if (p.get('unread') === '1') document.getElementById('fState').value = 'unread';
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  load();
+});
+</script>
+</body>
+</html>
