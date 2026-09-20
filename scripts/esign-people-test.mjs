@@ -22,7 +22,11 @@ import {
   emailsOf, normalizePersonRef, docBelongsTo, visibleTo, docsForPerson, nameKey,
 } from '../deploy/netlify/functions/_shared/esign-people.mjs';
 
+import { readFileSync } from 'node:fs';
+
 let fail = 0;
+/** True when fn() throws -- used where refusing is the correct answer. */
+const throwsOn = (fn) => { try { fn(); return false; } catch (e) { return true; } };
 const check = (name, got, want) => {
   const g = JSON.stringify(got), w = JSON.stringify(want);
   if (g === w) { console.log('  ok   ' + name); return; }
@@ -123,9 +127,58 @@ check('no loan filed = no loan link, rather than a broken one',
   docsForPerson([doc()], borrower, '', { email: LO_A })[0].loan, null);
 
 console.log('\nRubbish in');
-check('no summaries at all', docsForPerson(null, borrower, '', { email: LO_A }), []);
 check('a summary with no signers', docsForPerson([doc({ signers: null })], borrower, '', { email: LO_A }), []);
 check('no person', docsForPerson(summaries, null, '', { email: LO_A, staff: true }), []);
+// 237.167 answered [] here. That tolerance is exactly what hid the bug below for three
+// days, so the wrong SHAPE is now a refusal: a 500 the profile catches is a bug someone
+// can see, and an empty list is not.
+check('the wrong shape is refused, not answered with []', throwsOn(() => docsForPerson(null, borrower, '', { email: LO_A })), true);
+check('...a byOwner map most of all', throwsOn(() => docsForPerson({ lo_a: [doc()] }, borrower, '', { email: LO_A })), true);
+
+// == The wiring =====================================================================
+// Every check above passed on the day 237.167 shipped, and the feature still showed
+// nothing on every profile: listSummaries() returns the index's byOwner MAP, and the
+// endpoint handed that map to docsForPerson, which iterates an array. The helpers were
+// right; the join between them was wrong. These are the checks nobody wrote. 237.201.
+console.log('\nWiring: map in, list out');
+
+// flattenSummaries lives in esign-docs.mjs, which imports @netlify/blobs and so cannot be
+// imported here -- lift the real source text and run that.
+const DOCS_SRC = readFileSync(new URL('../deploy/netlify/functions/_shared/esign-docs.mjs', import.meta.url), 'utf8');
+const FN_SRC = (DOCS_SRC.match(/export function flattenSummaries[\s\S]*?\n}/) || [''])[0];
+assert('flattenSummaries is there to be lifted', FN_SRC.length > 0, 'esign-docs.mjs no longer exports flattenSummaries');
+const flattenSummaries = new Function(
+  '"use strict";' + FN_SRC.replace('export function', 'function') + ' return flattenSummaries;')();
+
+const SIGNED_AT = '2026-09-18T20:06:44.840Z';
+const BY_OWNER = {
+  mike_slacapital_com: [doc({ id: 'd_broker_agmt', title: 'Nikki Rickard Broker Agreement',
+    ownerEmail: 'mike@slacapital.com', completedAt: SIGNED_AT,
+    signers: [{ id: 's1', name: 'Nikki Rickard', email: 're.brokerfunding@gmail.com', signedAt: SIGNED_AT },
+              { id: 's2', name: 'Mike DeHaan', email: 'mike@slacapital.com', signedAt: SIGNED_AT }] })],
+  lo_a_slacapital_com: [doc({ id: 'd_other_lo' })],
+  empty_lo: [],
+};
+check('a map of three owners flattens to the documents inside',
+  flattenSummaries(BY_OWNER).map((d) => d.id).sort(), ['d_broker_agmt', 'd_other_lo']);
+check('an empty index is not a crash', flattenSummaries({}), []);
+check('no index at all is not a crash', flattenSummaries(null), []);
+
+// The real case Mike would open: a broker record in one LO's book, an agreement sent from
+// a different account. Scoping the SCAN by owner would hide it -- visibleTo is the gate.
+const nikki = { id: 'b_1787708797174_6mvuzs', name: 'Nikki Rickard', _isBroker: true, email: 're.brokerfunding@gmail.com' };
+const found = docsForPerson(flattenSummaries(BY_OWNER), nikki, '', { email: 'mike@slacapital.com', staff: true });
+check('the broker agreement reaches the broker profile', found.map((d) => d.id), ['d_broker_agmt']);
+check('...marked as signed, not filed by hand', found.length ? found[0].via : null, 'signed');
+
+// And the join itself, so renaming the helper or dropping the call fails here instead of
+// becoming another three days of a section that quietly says "nothing signed yet".
+const EP = readFileSync(new URL('../deploy/netlify/functions/esign-docs-for-person.mjs', import.meta.url), 'utf8');
+check('the endpoint imports the flattener', /import \{[^}]*flattenSummaries[^}]*\} from '\.\/_shared\/esign-docs\.mjs'/.test(EP), true);
+check('...and flattens before it asks for a person\'s documents',
+  /const summaries = flattenSummaries\(await listSummaries\(\)\)/.test(EP), true);
+check('nothing hands listSummaries() straight to docsForPerson',
+  /docsForPerson\(\s*await listSummaries\(\)/.test(EP), false);
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(fail ? 1 : 0);

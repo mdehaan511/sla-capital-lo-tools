@@ -151,6 +151,23 @@ export async function listSummaries() {
   return (index && index.byOwner) || {};
 }
 
+/**
+ * listSummaries() hands back the index's byOwner MAP, not a list. Every caller written
+ * before 237.167 flattened it inline and named the variable `byOwner`, so the shape was
+ * obvious at the call site; esign-docs-for-person named it `summaries` and passed the map
+ * to a function that iterates an array. The loop simply never ran, so the Signed Documents
+ * section on every borrower, broker and investor profile answered "nothing signed yet"
+ * from the day it shipped -- a wrong answer that looks exactly like the right one.
+ * One named helper now, so the next caller cannot get it wrong quietly. Deploy 237.201.
+ */
+export function flattenSummaries(byOwner) {
+  const out = [];
+  Object.keys(byOwner || {}).forEach((ok) => {
+    (byOwner[ok] || []).forEach((d) => { if (d) out.push(d); });
+  });
+  return out;
+}
+
 // ── Record helpers ────────────────────────────────────────────────
 export async function readDoc(ownerKey, id) {
   if (!ownerKey || !id) return null;

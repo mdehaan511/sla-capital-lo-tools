@@ -22,7 +22,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isAdmin, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { listSummaries } from './_shared/esign-docs.mjs';
+import { listSummaries, flattenSummaries } from './_shared/esign-docs.mjs';
 import { docsForPerson } from './_shared/esign-people.mjs';
 
 export default async (req, context) => {
@@ -63,7 +63,12 @@ export default async (req, context) => {
     }
     if (!person) return json(404, { error: 'Record not found' });
 
-    const summaries = await listSummaries();
+    // listSummaries() is a byOwner MAP -- flatten it. Reading every owner's documents
+    // here is deliberate: the e-sign index is org-wide and visibleTo() below is the gate
+    // that decides who may see what, so scoping the SCAN would hide a document that the
+    // viewer is entitled to (the Nikki Rickard broker agreement, signed under mike@, on
+    // a broker record owned by jeremy@). Deploy 237.201.
+    const summaries = flattenSummaries(await listSummaries());
     // No kind filter: record ids are unique by prefix (c_* / inv_*), and a broker IS a
     // client, so a link filed as 'client' must still show on the broker view of the
     // same record.

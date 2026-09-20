@@ -146,8 +146,16 @@ export function profileRow(doc, rel) {
  * @param summaries  esignIndex list (projectDoc shape)
  */
 export function docsForPerson(summaries, person, kind, viewer) {
+  // Refuse rather than answer nothing. Handed the byOwner map instead of a list, the old
+  // `Array.isArray(x) ? x : []` guard turned a wiring mistake into "this person has no
+  // documents" -- indistinguishable, from the outside, from the truth. A throw surfaces
+  // as a 500 the profile already catches, which is a bug someone can SEE. Deploy 237.201.
+  if (!Array.isArray(summaries)) {
+    throw new TypeError('docsForPerson expects an array of summaries '
+      + '(flattenSummaries(byOwner)), got ' + (summaries === null ? 'null' : typeof summaries));
+  }
   const out = [];
-  for (const d of (Array.isArray(summaries) ? summaries : [])) {
+  for (const d of summaries) {
     if (!d || d.status !== 'completed') continue;      // only EXECUTED documents
     if (!visibleTo(d, viewer)) continue;
     const rel = docBelongsTo(d, person, kind);
