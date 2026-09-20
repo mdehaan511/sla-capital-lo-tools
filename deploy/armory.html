@@ -13,6 +13,10 @@
   <script src="sla-notifications.js?v=237120"></script>
   <script src="sla-chat.js"></script>
   <script src="armory-avatars.js?v=237086"></script>
+  <!-- Deploy 237.191 — the cork board (Dan's idea). Version-pinned: the news
+       tab's markup and this script are a matched pair, so a cached copy would
+       leave the house cards sitting unpositioned on top of each other. -->
+  <script src="armory-board.js?v=237191"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
   <!-- Deploy 237.073 (Mike) — THE ARMORY, part 1: the team's fun corner.
        Deliberately styled unlike the rest of the portal (parchment, dark
@@ -244,6 +248,102 @@
     .cele:last-child { border-bottom: 0; }
     .cele .when { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 11px; color: #8a7350; white-space: nowrap; }
     .cele.today { background: rgba(201,161,74,0.16); border-radius: 8px; padding: 8px 10px; font-weight: 700; border-bottom: 0; margin-bottom: 4px; }
+    /* ── Deploy 237.191 — the cork board (Dan's idea) ──────────────
+       A real wall: cork, a wooden frame, pins that tilt and overlap.
+       Everything on it is absolutely positioned in the board's own pixel
+       space (1120 wide, see BOARD_W in armory-board.js) so a drag means
+       the same thing on every screen. */
+    .board-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 4px 0 10px; }
+    .board-bar .bb-left strong { display: block; font-family: 'Cinzel', serif; font-size: 17px; color: var(--wood); letter-spacing: 0.04em; }
+    .board-bar .bb-left span { display: block; font-size: 12.5px; color: #6b5a44; max-width: 680px; margin-top: 2px; }
+    .board-bar .bb-right { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .cork { position: relative; width: 100%; max-width: 1120px; min-height: 1500px; border-radius: 10px; overflow: hidden;
+      border: 14px solid #6b4423;
+      box-shadow: 0 10px 30px rgba(42,29,18,0.35), inset 0 0 60px rgba(90,52,20,0.35);
+      background-color: #c8964f;
+      /* cork grain: a few layers of speckle, no image asset */
+      background-image:
+        radial-gradient(rgba(120,72,30,0.40) 12%, transparent 13%),
+        radial-gradient(rgba(150,100,45,0.35) 10%, transparent 11%),
+        radial-gradient(rgba(90,55,22,0.25) 9%, transparent 10%),
+        radial-gradient(ellipse at 30% 20%, rgba(255,225,175,0.30), transparent 60%);
+      background-size: 22px 22px, 31px 31px, 17px 17px, 100% 100%;
+      background-position: 0 0, 9px 13px, 5px 7px, 0 0; }
+    body.cork-dragging { user-select: none; cursor: grabbing; }
+    .cork-empty { position: absolute; left: 50%; top: 1050px; transform: translateX(-50%); color: rgba(60,35,12,0.65);
+      font-size: 13.5px; background: rgba(255,245,225,0.55); border: 1px dashed rgba(80,48,20,0.45); border-radius: 10px; padding: 10px 16px; }
+
+    .pin { position: absolute; transform-origin: 50% 40%; cursor: grab; transition: box-shadow 0.15s, filter 0.15s; }
+    .pin.grabbed { cursor: grabbing; transition: none; filter: drop-shadow(0 14px 18px rgba(0,0,0,0.35)); }
+    .pin .tack { position: absolute; left: 50%; top: -9px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; z-index: 3;
+      box-shadow: inset -2px -2px 3px rgba(0,0,0,0.35), inset 2px 2px 3px rgba(255,255,255,0.45), 0 3px 5px rgba(0,0,0,0.35); }
+    /* House cards keep their own card chrome; only the grip strip drags them,
+       because their bodies scroll and hold their own buttons. */
+    .pin-sys .card { margin: 0; box-shadow: 0 8px 18px rgba(42,29,18,0.35); max-height: 620px; overflow: auto; }
+    .pin-grip { cursor: grab; text-align: center; font-size: 10px; letter-spacing: 0.18em; color: #f3e2bd; text-transform: uppercase;
+      background: rgba(58,35,19,0.92); border-radius: 8px 8px 0 0; padding: 3px 0 2px; opacity: 0.55; transition: opacity 0.15s; }
+    .pin-sys:hover .pin-grip { opacity: 1; }
+
+    /* Sticky notes. Five colours, a handwriting-ish face, a curled corner. */
+    .pin-note { padding: 14px 14px 8px; border-radius: 2px; font-size: 14.5px; line-height: 1.45; color: #2c2415;
+      box-shadow: 0 8px 16px rgba(42,29,18,0.30); }
+    .pin-note .note-text { white-space: pre-wrap; word-break: break-word; font-family: 'Bradley Hand', 'Segoe Print', 'DM Sans', cursive; font-size: 15.5px; }
+    .c-yellow { background: linear-gradient(170deg, #ffef9f, #f7e07a); }
+    .c-blue   { background: linear-gradient(170deg, #cfe7ff, #aed3f7); }
+    .c-green  { background: linear-gradient(170deg, #d5f2c9, #b6e3a5); }
+    .c-pink   { background: linear-gradient(170deg, #ffd9e4, #f9bcce); }
+    .c-white  { background: linear-gradient(170deg, #fffdf6, #f0ece0); }
+
+    /* Photos hang as polaroids, with two bits of tape. */
+    .pin-photo .photo-frame { background: #fffdf7; padding: 10px 10px 8px; border-radius: 2px; box-shadow: 0 10px 20px rgba(42,29,18,0.35); }
+    .pin-photo img { display: block; width: 100%; border-radius: 1px; background: #e8e2d4; }
+    .pin-photo .cap { font-family: 'Bradley Hand', 'Segoe Print', 'DM Sans', cursive; font-size: 14px; color: #3a2e1c; text-align: center; padding: 7px 2px 2px; }
+
+    .pin-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 10.5px; color: rgba(60,45,22,0.72); padding: 6px 2px 0; }
+    .pin-meta .life.soon { color: #9a3a12; font-weight: 700; }
+    /* The last two days on the wall: it yellows and starts to let go. */
+    .pin.wilting { filter: sepia(0.25) saturate(0.85); }
+    .pin.wilting::after { content: ''; position: absolute; inset: 0; border-radius: 2px; pointer-events: none;
+      background: linear-gradient(200deg, rgba(120,80,20,0.00) 55%, rgba(120,80,20,0.18)); }
+
+    .pin-reacts { display: flex; gap: 2px; padding: 2px 0 0; flex-wrap: wrap; }
+    .pin-reacts .react { border: none; background: rgba(255,255,255,0.45); border-radius: 10px; cursor: pointer; font-size: 12px;
+      padding: 1px 5px; line-height: 1.5; opacity: 0.95; }
+    .pin-reacts .react b { font-size: 10px; margin-left: 2px; font-weight: 700; }
+    .pin-reacts .react.on { background: rgba(200,129,58,0.35); box-shadow: inset 0 0 0 1px rgba(120,72,20,0.45); }
+    .pin-reacts .react.quiet { opacity: 0; transition: opacity 0.15s; }
+    .pin:hover .pin-reacts .react.quiet { opacity: 0.55; }
+
+    .pin-tools { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; z-index: 4; }
+    .pin:hover .pin-tools { opacity: 1; }
+    .pin-tools button { border: none; background: rgba(42,29,18,0.72); color: #f7ecd2; border-radius: 5px; cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 5px; }
+    .pin-tools button:hover { background: var(--crimson); }
+
+    .h-rot, .h-size { position: absolute; width: 14px; height: 14px; border-radius: 50%; opacity: 0; transition: opacity 0.15s; z-index: 4;
+      background: rgba(42,29,18,0.75); box-shadow: 0 0 0 2px rgba(255,240,210,0.6); }
+    .h-rot { left: -8px; top: -8px; cursor: alias; }
+    .h-size { right: -8px; bottom: -8px; cursor: nwse-resize; border-radius: 3px; }
+    .pin:hover .h-rot, .pin:hover .h-size { opacity: 0.85; }
+
+    /* Board dialogs reuse .modal-bg / .modal; these are just the innards. */
+    .bm-input { width: 100%; padding: 9px 11px; border: 2px solid rgba(90,58,30,0.35); border-radius: 8px; background: #fffdf5;
+      font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+    .bm-label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b5a44; margin: 12px 0 4px; }
+    .bm-colors { display: flex; gap: 8px; }
+    .bm-colors .swatch { width: 30px; height: 30px; border-radius: 6px; border: 2px solid rgba(90,58,30,0.35); cursor: pointer; }
+    .bm-colors .swatch.on { box-shadow: 0 0 0 3px var(--gold); }
+    .bm-preview { margin: 10px 0 0; text-align: center; }
+    .bm-preview img { max-width: 100%; max-height: 240px; border-radius: 6px; border: 4px solid #fffdf7; box-shadow: 0 6px 14px rgba(0,0,0,0.25); }
+    .bm-wait { font-size: 11.5px; color: #6b5a44; margin-top: 4px; }
+    .bm-wait.err { color: var(--crimson); font-weight: 600; }
+    .bm-note { font-size: 13px; color: #5a4a36; margin-bottom: 10px; }
+    .bm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+    .board-list .mini { padding: 12px 14px; margin-bottom: 10px; }
+    .board-list .board-note { font-size: 12.5px; color: #6b5a44; margin-bottom: 10px; }
+    @media (max-width: 900px) { .cork { display: none; } }
+
     .crier-modal { position: fixed; inset: 0; background: rgba(42,29,18,0.7); z-index: 9000; display: none; align-items: center; justify-content: center; padding: 16px; }
     .crier-modal.open { display: flex; }
     .crier-modal iframe { width: 100%; max-width: 680px; height: 90vh; background: #fff; border: 3px solid var(--royal); border-radius: var(--r); }
@@ -310,7 +410,7 @@
            Hall of Deeds (expanded: what's new, who's close, the full grid, the deed list). -->
       <div class="tabs" id="armoryTabs" role="tablist">
         <button type="button" class="tab" data-tab="quest" onclick="Armory.tab('quest')">⚔ Monthly Quest</button>
-        <button type="button" class="tab" data-tab="news" onclick="Armory.tab('news')">📯 Company News</button>
+        <button type="button" class="tab" data-tab="news" onclick="Armory.tab('news')">📌 Company &amp; Team News</button>
         <button type="button" class="tab" data-tab="deeds" onclick="Armory.tab('deeds')">📜 Hall of Deeds</button>
       </div>
 
@@ -363,15 +463,41 @@
         </div>
       </section>
 
+      <!-- Deploy 237.191 — THE CORK BOARD (Dan's idea, Mike's shape). Company
+           News became Company & Team News: the four house cards below pin
+           themselves to the cork automatically, and the rest of the wall is
+           for whatever the team wants to put up. Their markup and element ids
+           are UNCHANGED, so renderBell() / renderCelebrations() / renderCrier()
+           / renderEvents() still write into them exactly as before —
+           armory-board.js only positions the wrappers. -->
       <section class="tab-panel" data-tab="news">
-        <div class="grid">
-          <div>
+        <div class="board-bar">
+          <div class="bb-left">
+            <strong>📌 The Cork Board</strong>
+            <span>Company &amp; team news. Drag anything, tilt it, let it overlap. Notes and photos come down after two weeks unless you say to keep them.</span>
+          </div>
+          <div class="bb-right">
+            <button type="button" class="btn sm" onclick="CorkBoard.newNote()">📝 Pin a note</button>
+            <button type="button" class="btn sm" onclick="CorkBoard.newPhoto()">🖼 Pin a photo</button>
+            <button type="button" class="btn ghost sm" id="boardTidy" style="display:none" onclick="CorkBoard.tidy()">🧹 Tidy the house cards</button>
+          </div>
+        </div>
+
+        <div class="cork" id="cork">
+          <div class="pin pin-sys" id="pin_sys_bell" data-id="sys_bell">
+            <span class="tack" style="background:#c0392b"></span>
+            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
             <!-- Deploy 237.082 — the Closing Bell: every closed loan rings here + in Slack. -->
             <div class="card">
               <h2>🔔 The Closing Bell <span class="sub">every loan that crosses the finish line</span></h2>
               <div id="bellList"><div class="empty">Listening for the bell…</div></div>
             </div>
+            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
+          </div>
 
+          <div class="pin pin-sys" id="pin_sys_crier" data-id="sys_crier">
+            <span class="tack" style="background:#2c7fb8"></span>
+            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
             <!-- Deploy 237.082 — the Monday digest. -->
             <div class="card">
               <h2>📯 The Town Crier <span class="sub">every Monday, 8am Pacific</span></h2>
@@ -379,16 +505,24 @@
               <div id="crierBox" class="empty">No issue has gone out yet. The first one cries on Monday.</div>
               <div id="crierAdmin" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap"></div>
             </div>
+            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
           </div>
 
-          <div>
+          <div class="pin pin-sys" id="pin_sys_cele" data-id="sys_cele">
+            <span class="tack" style="background:#e0a800"></span>
+            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
             <!-- Deploy 237.082 — birthdays + work anniversaries (profiles: birthday / startDate). -->
             <div class="card">
               <h2>🎂 Celebrations</h2>
               <div id="celeList"><div class="empty">Consulting the calendar…</div></div>
               <div class="lede" style="margin:10px 0 0;font-size:12px" id="celeMine"></div>
             </div>
+            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
+          </div>
 
+          <div class="pin pin-sys" id="pin_sys_herald" data-id="sys_herald">
+            <span class="tack" style="background:#2f8f57"></span>
+            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
             <div class="card">
               <h2>Herald's Board <span class="sub">current events</span></h2>
               <div class="lede" id="evLede">What's on at SLA beyond the loans.</div>
@@ -402,8 +536,16 @@
                 <div id="holidayList"><div class="empty">—</div></div>
               </div>
             </div>
+            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
           </div>
+
+          <!-- user pins land here (absolutely positioned against .cork) -->
+          <div id="corkPins"></div>
+          <div class="cork-empty" id="corkEmpty">Nothing pinned yet. Put something up — a photo from a closing, a note for the team, anything.</div>
         </div>
+
+        <!-- Phones get the same content as a stack; dragging a wall on a 390px screen is no fun. -->
+        <div class="board-list" id="boardList" style="display:none"></div>
       </section>
 
       <section class="tab-panel" data-tab="deeds">
@@ -462,6 +604,11 @@
         <button type="button" class="btn sm" id="evSaveBtn" onclick="Armory.saveEvent()">Post it</button>
       </div>
     </div>
+  </div>
+  <!-- Deploy 237.191 — one shell for every cork-board dialog (pin a note, pin
+       a photo, edit, how long to keep it). armory-board.js fills the body. -->
+  <div class="modal-bg" id="boardModal" onclick="if(event.target===this)CorkBoard.close()">
+    <div class="modal" style="max-width:520px" id="boardModalBody"></div>
   </div>
   <div class="toast" id="toast"></div>
   <div class="crier-modal" id="crierModal" onclick="if(event.target===this)Armory.closeCrier()"><iframe id="crierFrame" title="The Town Crier"></iframe></div>
@@ -554,6 +701,13 @@
       renderHolidays();                                                   // Deploy 237.113
       loadDeeds();                                                        // Deploy 237.085
       document.getElementById('evAdmin').style.display = _state.isAdmin ? 'block' : 'none';
+      // Deploy 237.191 — the cork board. It reads its own pins from
+      // /api/armory-board; the four house cards above are already on the
+      // wall in the page markup and just need positioning.
+      if (window.CorkBoard) {
+        document.getElementById('boardTidy').style.display = _state.isAdmin ? 'inline-block' : 'none';
+        CorkBoard.init({ user: _user, isAdmin: !!_state.isAdmin });
+      }
     }).catch(function (err) {
       document.getElementById('rtTable').innerHTML = '<div class="empty">The scroll could not be read: ' + escH(err && err.message || 'unknown') + '</div>';
       document.getElementById('evList').innerHTML = '';
@@ -1143,7 +1297,10 @@
 
   window.Armory = { editEvent: editEvent, closeModal: closeModal, saveEvent: saveEvent, deleteEvent: deleteEvent, voidScore: voidScore,
     readCrier: readCrier, closeCrier: closeCrier, crierTest: crierTest,
-    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds, seedCalendar: seedCalendar, tab: tab, rtPage: rtPage };
+    showDeeds: showDeeds, closeDeeds: closeDeeds, recomputeDeeds: recomputeDeeds, seedCalendar: seedCalendar, tab: tab, rtPage: rtPage,
+    // Deploy 237.191 — the cork board borrows the page's toast and the
+    // caller's chosen avatar for the pins they put up.
+    toast: showToast, myAvatar: function () { return (_state && _state.myCalendar && _state.myCalendar.avatar) || ''; } };
 })();
 </script>
 </body>

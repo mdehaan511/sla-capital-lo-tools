@@ -912,6 +912,21 @@
   status = 200
   force = true
 
+# Deploy 237.191 — the cork board (Dan's idea): armory-board is the authed
+# read/write for every pin; armory-photo serves one photo through an
+# HMAC-signed URL because an <img> tag cannot send a bearer token.
+[[redirects]]
+  from = "/api/armory-board"
+  to = "/.netlify/functions/armory-board"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/armory-photo"
+  to = "/.netlify/functions/armory-photo"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/notifications-dismiss"
   to = "/.netlify/functions/notifications-dismiss"
@@ -2533,6 +2548,11 @@
 [functions.achievements-cron]
   timeout = 26
 [functions.armory-admin]
+  timeout = 26
+# Deploy 237.191 — a board read lists every pin doc and a photo pin ships a
+# few MB of base64 up; neither is slow, but the default 10s is tight when the
+# store is cold.
+[functions.armory-board]
   timeout = 26
 # Deploy 237.135 -- the Financial Audit ledger reads every loan + the Sitewire cache.
 # Deploy 237.184 -- the one-pager embeds a logo and builds a QR; the FIRST hit
