@@ -175,8 +175,9 @@ function fmtWhen(iso){
 }
 
 function load(){
+  // SLA.api resolves to the PARSED BODY already — it is not fetch, there is no
+  // .json() to call. Deploy 237.200.
   return SLA.api('GET', '/api/notifications-list')
-    .then(function(r){ return r.json(); })
     .then(function(j){
       _items = (j && j.items) || [];
       buildTypeFilter();

@@ -318,8 +318,8 @@ function loadInvestorDocs(id) {
   if (!id) { wrap.style.display = 'none'; box.innerHTML = ''; return; }
   wrap.style.display = '';
   box.innerHTML = '<div style="color:var(--muted);font-size:12px">Loading\u2026</div>';
+  // SLA.api resolves to the parsed body; there is no .json(). Deploy 237.200.
   SLA.api('GET', '/api/esign-docs-for-person?kind=investor&id=' + encodeURIComponent(id))
-    .then(function (r) { return r.json(); })
     .then(function (j) {
       var docs = (j && j.docs) || [];
       if (!docs.length) {

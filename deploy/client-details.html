@@ -591,7 +591,8 @@ function refreshSignedDocs(c) {
   var kind = c._isBroker ? 'broker' : 'client';
   var q = '/api/esign-docs-for-person?kind=' + encodeURIComponent(kind) + '&id=' + encodeURIComponent(c.id);
   if (_loEmail) q += '&owner=' + encodeURIComponent(_loEmail);
-  SLA.api('GET', q).then(function(r) { return r.json(); }).then(function(j) {
+  // SLA.api resolves to the parsed body; there is no .json(). Deploy 237.200.
+  SLA.api('GET', q).then(function(j) {
     var docs = (j && j.docs) || [];
     var countEl = document.getElementById('signedDocsCount');
     if (countEl) countEl.textContent = docs.length ? String(docs.length) : '';
