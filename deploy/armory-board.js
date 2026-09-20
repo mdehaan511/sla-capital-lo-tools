@@ -1,20 +1,25 @@
 /**
- * armory-board.js — the cork board on armory.html (Deploy 237.191)
+ * armory-board.js — the cork board on armory.html (Deploy 237.191, reworked 237.192)
  *
  * Dan: "Do you think it would be possible to have a virtual cork board in the
  * armory? ... people could 'pin' photos or notes on a virtual cork board like
- * you'd see in an office." Mike turned Company News into Company & TEAM News:
- * the four house cards pin themselves to the cork automatically and everyone
- * else gets the rest of the wall.
+ * you'd see in an office." Mike turned Company News into Company & TEAM News.
+ *
+ * 237.192 (Mike): "Lets have the Closing bell hang on the left of the board
+ * like a poster and the heralds board hang on the right of the board like a
+ * poster. Then keep the Celebrations always on the top right of the board
+ * fixed and the town crier always on the left." So the four house cards are
+ * now FIXED POSTERS in two columns — the whole middle channel, and everything
+ * below them, belongs to the team. Nothing about how those cards are built
+ * changed: they keep their original markup and element ids, so renderBell() /
+ * renderCelebrations() / renderCrier() / renderEvents() in armory.html still
+ * write into #bellList / #crierBox / #celeList / #evList exactly as before.
+ *
+ * Also 237.192: tape and arrows to decorate with, @mentions on a note, cards
+ * the Armory pins itself, a seasonal frame, and last month's board kept.
  *
  * House style on purpose: var, function declarations, no arrow functions, no
  * build step. Everything talks to /api/armory-board.
- *
- * The four house cards (Closing Bell, Town Crier, Celebrations, Herald's
- * Board) keep their ORIGINAL markup and element ids — renderBell() and
- * friends in armory.html still write into #bellList / #crierBox / #celeList /
- * #evList exactly as before. This file only picks those cards up and pins
- * them to the board, so nothing about how they are built had to change.
  */
 (function () {
   'use strict';
@@ -23,26 +28,36 @@
   var MIN_H = 1500;
   var NARROW = 900;            // below this the cork becomes a plain list
   var COLORS = ['yellow', 'blue', 'green', 'pink', 'white'];
+  var TAPES = ['washi-gold', 'washi-red', 'washi-blue', 'washi-green'];
   var REACTIONS = ['👍', '🔥', '😂', '🎉', '❤️'];
   var KEEPS = [
+    ['1w', '1 week'],
     ['2w', '2 weeks (default)'],
     ['1m', '1 month'],
     ['3m', '3 months'],
     ['forever', 'Until I take it down'],
   ];
-  var SYS = {
-    sys_bell:   { x: 24,  y: 20,  w: 360, rot: -1.2 },
-    sys_crier:  { x: 24,  y: 470, w: 360, rot: 1.0 },
-    sys_cele:   { x: 410, y: 20,  w: 330, rot: 0.8 },
-    sys_herald: { x: 410, y: 340, w: 330, rot: -0.7 },
-  };
 
-  var _items = [];             // server items (user pins + any dragged house cards)
+  // The posters. Fixed to the frame: the Bell and the Crier hang down the
+  // left, Celebrations sits at the top right and the Herald's Board hangs
+  // below it. The free cork is the channel between them (x 340–800) plus
+  // everything below y≈980 — mirrored by placeInFreeZone in corkboard.mjs.
+  var LAYOUT = {
+    sys_bell:   { x: 8,   y: 10,  w: 300, maxH: 570 },
+    sys_crier:  { x: 8,   y: 610, w: 300, maxH: 300 },
+    sys_cele:   { x: 812, y: 10,  w: 300, maxH: 290 },
+    sys_herald: { x: 812, y: 330, w: 300, maxH: 580 },
+  };
+  var SYS_IDS = ['sys_bell', 'sys_crier', 'sys_cele', 'sys_herald'];
+  var FREE_X0 = 340, FREE_X1 = 780, FREE_Y0 = 40, FREE_STEP_X = 130, FREE_STEP_Y = 140, BELOW_Y = 980;
+
+  var _items = [];
+  var _archives = [];
   var _user = null;
   var _isAdmin = false;
   var _loaded = false;
-  var _drag = null;            // active pointer gesture
-  var _pendingMove = {};       // id -> geometry waiting to be POSTed
+  var _drag = null;
+  var _pendingMove = {};
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -57,7 +72,7 @@
   function byId(id) { return document.getElementById(id); }
   function me() { return String((_user && _user.email) || '').toLowerCase(); }
   function mine(item) { return item && item.author && item.author.email === me(); }
-  function canEdit(item) { return item && item.kind !== 'system' && (mine(item) || _isAdmin); }
+  function canEdit(item) { return item && (item.auto ? _isAdmin : (mine(item) || _isAdmin)); }
 
   // ── time helpers ────────────────────────────────────────────────
   function daysUntil(iso) {
@@ -77,6 +92,12 @@
     var d = daysUntil(item.expiresAt);
     return d != null && d <= 2;
   }
+  function monthLabel(key) {
+    var m = /^(\d{4})-(\d{2})$/.exec(String(key || ''));
+    if (!m) return String(key || '');
+    var names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return names[Number(m[2]) - 1] + ' ' + m[1];
+  }
 
   // ── board surface ───────────────────────────────────────────────
   function cork() { return byId('cork'); }
@@ -88,12 +109,29 @@
     return z;
   }
 
-  function geometryFor(id) {
+  function itemById(id) {
     for (var i = 0; i < _items.length; i++) if (_items[i].id === id) return _items[i];
-    if (SYS[id]) {
-      return { id: id, kind: 'system', x: SYS[id].x, y: SYS[id].y, w: SYS[id].w, rot: SYS[id].rot, z: 1, reactions: {} };
-    }
     return null;
+  }
+
+  /**
+   * A seasonal frame, because a cork board in an office changes with the year
+   * (Mike: add all of those ideas). Purely cosmetic — a class on the cork.
+   */
+  function seasonClass() {
+    var d = new Date(), m = d.getMonth() + 1, day = d.getDate();
+    if (m === 10) return 'season-halloween';
+    if (m === 12 || (m === 1 && day <= 6)) return 'season-winter';
+    if (m === 8 && day <= 13 && day >= 1) return 'season-founders';   // Founders Day, Aug 6
+    if (m === 7 && day <= 7) return 'season-july4';
+    if (m === 3 || m === 4) return 'season-spring';
+    return '';
+  }
+  function foundersBannerHtml() {
+    var d = new Date();
+    if (!(d.getMonth() + 1 === 8 && d.getDate() >= 1 && d.getDate() <= 13)) return '';
+    var years = d.getFullYear() - 2022;
+    return '<div class="cork-banner">🏰 Founders Day — SLA Capital turns ' + years + ' 🏰</div>';
   }
 
   /** Paint every pin. Cheap enough to redo wholesale; drags move the node directly. */
@@ -103,38 +141,34 @@
     if (narrow()) { renderList(); return; }
     byId('boardList').style.display = 'none';
     box.style.display = 'block';
+    box.className = 'cork ' + seasonClass();
 
-    // House cards first — they live in the page's own markup and only get
-    // wrapped/positioned here, so their renderers keep working.
-    var ids = ['sys_bell', 'sys_crier', 'sys_cele', 'sys_herald'];
-    for (var s = 0; s < ids.length; s++) {
-      var wrap = byId('pin_' + ids[s]);
+    // The posters: fixed to the frame, straight, never dragged.
+    for (var s = 0; s < SYS_IDS.length; s++) {
+      var id = SYS_IDS[s];
+      var wrap = byId('pin_' + id);
       if (!wrap) continue;
-      place(wrap, geometryFor(ids[s]));
-      wrap.className = 'pin pin-sys';
+      var g = LAYOUT[id];
+      wrap.className = 'pin poster ' + id.replace('sys_', 'poster-');
+      wrap.style.left = g.x + 'px';
+      wrap.style.top = g.y + 'px';
+      wrap.style.width = g.w + 'px';
+      wrap.style.zIndex = '2';
+      var card = wrap.querySelector('.card');
+      if (card) card.style.maxHeight = g.maxH + 'px';
     }
 
-    // User pins: rebuild the ones that are not house cards.
     var holder = byId('corkPins');
     var html = '';
-    for (var i = 0; i < _items.length; i++) {
-      var it = _items[i];
-      if (it.kind === 'system') continue;
-      html += pinHtml(it);
-    }
-    holder.innerHTML = html || '';
+    for (var i = 0; i < _items.length; i++) html += pinHtml(_items[i]);
+    holder.innerHTML = html;
+
+    var banner = byId('corkBanner');
+    if (banner) banner.innerHTML = foundersBannerHtml();
     var empty = byId('corkEmpty');
     if (empty) empty.style.display = html ? 'none' : 'block';
+    renderArchiveBar();
     resizeBoard();
-  }
-
-  function place(node, g) {
-    if (!node || !g) return;
-    node.style.left = g.x + 'px';
-    node.style.top = g.y + 'px';
-    node.style.width = g.w + 'px';
-    node.style.zIndex = String(Math.round(g.z || 1));
-    node.style.transform = 'rotate(' + (g.rot || 0) + 'deg)';
   }
 
   function resizeBoard() {
@@ -175,11 +209,13 @@
 
   function toolsHtml(item) {
     if (!canEdit(item)) return '';
-    return '<div class="pin-tools">' +
-      '<button type="button" title="Edit" onclick="CorkBoard.edit(\'' + esc(item.id) + '\')">✎</button>' +
-      '<button type="button" title="Keep it up longer" onclick="CorkBoard.keep(\'' + esc(item.id) + '\')">⏳</button>' +
-      '<button type="button" title="Take it down" onclick="CorkBoard.unpin(\'' + esc(item.id) + '\')">✕</button>' +
-      '</div>';
+    var out = '<div class="pin-tools">';
+    if (item.kind === 'note' || item.kind === 'photo') {
+      out += '<button type="button" title="Edit" onclick="CorkBoard.edit(\'' + esc(item.id) + '\')">✎</button>';
+      out += '<button type="button" title="Keep it up longer" onclick="CorkBoard.keep(\'' + esc(item.id) + '\')">⏳</button>';
+    }
+    out += '<button type="button" title="Take it down" onclick="CorkBoard.unpin(\'' + esc(item.id) + '\')">✕</button>';
+    return out + '</div>';
   }
 
   function metaHtml(item) {
@@ -188,15 +224,44 @@
       '<span class="life' + (isWilting(item) ? ' soon' : '') + '">' + esc(fallsOffLabel(item)) + '</span></div>';
   }
 
+  /** @Name in a note reads as a mention, and the person got a notification. */
+  function noteTextHtml(item) {
+    var html = esc(item.text).replace(/\n/g, '<br>');
+    var ms = item.mentions || [];
+    for (var i = 0; i < ms.length; i++) {
+      var needle = esc('@' + ms[i].name);
+      html = html.split(needle).join('<span class="mention" title="' + esc(ms[i].email) + '">' + needle + '</span>');
+      var firstOnly = esc('@' + String(ms[i].name).split(/\s+/)[0]);
+      if (html.indexOf('<span class="mention"') < 0) {
+        html = html.split(firstOnly).join('<span class="mention" title="' + esc(ms[i].email) + '">' + firstOnly + '</span>');
+      }
+    }
+    return html;
+  }
+
   function pinHtml(item) {
-    var cls = 'pin pin-' + item.kind + ' c-' + esc(item.color || 'yellow') + (isWilting(item) ? ' wilting' : '');
+    // Tape and arrows are decoration: no author line, no reactions, no tack.
+    if (item.kind === 'tape' || item.kind === 'arrow') {
+      return '<div class="pin pin-' + item.kind + ' ' + esc(item.color || '') + '" id="pin_' + esc(item.id) + '" data-id="' + esc(item.id) + '"' +
+        ' style="left:' + item.x + 'px;top:' + item.y + 'px;width:' + item.w + 'px;z-index:' + Math.round(item.z || 1) +
+        ';transform:rotate(' + (item.rot || 0) + 'deg)">' +
+        (item.kind === 'arrow'
+          ? '<svg viewBox="0 0 200 40" preserveAspectRatio="none"><path d="M4 20 H176" /><path d="M158 6 L182 20 L158 34" /></svg>'
+          : '<span class="tape-strip"></span>') +
+        toolsHtml(item) +
+        '<span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>' +
+        '</div>';
+    }
+
+    var cls = 'pin pin-' + item.kind + ' c-' + esc(item.color || 'yellow') +
+      (isWilting(item) ? ' wilting' : '') + (item.auto ? ' pin-auto' : '');
     var body;
     if (item.kind === 'photo') {
-      var url = item.photoUrl || '';
-      body = '<div class="photo-frame"><img src="' + esc(url) + '" alt="' + esc(item.caption || 'pinned photo') + '" draggable="false" />' +
+      body = '<div class="photo-frame"><img src="' + esc(item.photoUrl || '') + '" alt="' + esc(item.caption || 'pinned photo') + '" draggable="false" />' +
         (item.caption ? '<div class="cap">' + esc(item.caption) + '</div>' : '') + '</div>';
     } else {
-      body = '<div class="note-text">' + esc(item.text).replace(/\n/g, '<br>') + '</div>';
+      body = (item.auto ? '<div class="auto-head">' + esc(item.auto.icon || '📌') + ' ' + esc(item.auto.title || '') + '</div>' : '') +
+        '<div class="note-text">' + noteTextHtml(item) + '</div>';
     }
     return '<div class="' + cls + '" id="pin_' + esc(item.id) + '" data-id="' + esc(item.id) + '"' +
       ' style="left:' + item.x + 'px;top:' + item.y + 'px;width:' + item.w + 'px;z-index:' + Math.round(item.z || 1) +
@@ -216,14 +281,26 @@
     var sorted = _items.slice().sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
     for (var i = 0; i < sorted.length; i++) {
       var it = sorted[i];
-      if (it.kind === 'system') continue;
+      if (it.kind === 'tape' || it.kind === 'arrow') continue;
       html += '<div class="card mini c-' + esc(it.color || 'yellow') + '">' +
+        (it.auto ? '<div class="auto-head">' + esc(it.auto.icon || '📌') + ' ' + esc(it.auto.title || '') + '</div>' : '') +
         (it.kind === 'photo'
           ? '<img src="' + esc(it.photoUrl || '') + '" alt="" style="width:100%;border-radius:8px" />' + (it.caption ? '<div class="cap">' + esc(it.caption) + '</div>' : '')
-          : '<div class="note-text">' + esc(it.text).replace(/\n/g, '<br>') + '</div>') +
+          : '<div class="note-text">' + noteTextHtml(it) + '</div>') +
         metaHtml(it) + reactionsHtml(it) + toolsHtml(it) + '</div>';
     }
     list.innerHTML = html;
+  }
+
+  function renderArchiveBar() {
+    var bar = byId('boardArchives');
+    if (!bar) return;
+    if (!_archives.length) { bar.innerHTML = ''; return; }
+    var out = '<span class="ab-label">📚 Past boards:</span>';
+    for (var i = 0; i < Math.min(_archives.length, 12); i++) {
+      out += '<button type="button" class="ab-link" onclick="CorkBoard.showArchive(\'' + esc(_archives[i]) + '\')">' + esc(monthLabel(_archives[i])) + '</button>';
+    }
+    bar.innerHTML = out;
   }
 
   // ── pointer gestures: drag / resize / tilt ──────────────────────
@@ -231,16 +308,16 @@
     if (narrow()) return;
     var node = e.target.closest ? e.target.closest('.pin') : null;
     if (!node) return;
+    // The posters are fixed to the frame (237.192) — nothing to grab.
+    if (node.className.indexOf('poster') >= 0) return;
     if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('select') || e.target.closest('textarea')) return;
 
     var id = node.getAttribute('data-id');
-    var g = geometryFor(id);
+    var g = itemById(id);
     if (!g) return;
     var mode = 'move';
     if (e.target.classList.contains('h-size')) mode = 'size';
     else if (e.target.classList.contains('h-rot')) mode = 'rot';
-    // House cards scroll internally; only their header strip drags.
-    if (mode === 'move' && node.className.indexOf('pin-sys') >= 0 && !e.target.closest('.pin-grip')) return;
 
     var rect = node.getBoundingClientRect();
     _drag = {
@@ -251,7 +328,6 @@
       x: g.x, y: g.y, w: g.w, rot: g.rot || 0,
       x0: g.x, y0: g.y, w0: g.w, r0: g.rot || 0,
       cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2,
-      moved: false,
     };
     if (mode === 'rot') _drag.a0 = Math.atan2(e.clientY - _drag.cy, e.clientX - _drag.cx) * 180 / Math.PI;
     // Whatever you touch comes to the front.
@@ -268,18 +344,19 @@
     if (!_drag) return;
     var dx = e.clientX - _drag.startX;
     var dy = e.clientY - _drag.startY;
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) _drag.moved = true;
     if (_drag.mode === 'move') {
       _drag.x = Math.max(-40, Math.min(BOARD_W - 60, _drag.x0 + dx));
       _drag.y = Math.max(0, _drag.y0 + dy);
       _drag.node.style.left = Math.round(_drag.x) + 'px';
       _drag.node.style.top = Math.round(_drag.y) + 'px';
     } else if (_drag.mode === 'size') {
-      _drag.w = Math.max(140, Math.min(880, _drag.w0 + dx));
+      _drag.w = Math.max(60, Math.min(880, _drag.w0 + dx));
       _drag.node.style.width = Math.round(_drag.w) + 'px';
     } else if (_drag.mode === 'rot') {
       var a = Math.atan2(e.clientY - _drag.cy, e.clientX - _drag.cx) * 180 / Math.PI;
-      _drag.rot = Math.max(-14, Math.min(14, _drag.r0 + (a - _drag.a0)));
+      // Tape and arrows turn all the way round; paper only leans.
+      var limit = (_drag.node.className.indexOf('pin-tape') >= 0 || _drag.node.className.indexOf('pin-arrow') >= 0) ? 45 : 14;
+      _drag.rot = Math.max(-limit, Math.min(limit, _drag.r0 + (a - _drag.a0)));
       _drag.node.style.transform = 'rotate(' + _drag.rot.toFixed(1) + 'deg)';
     }
   }
@@ -299,9 +376,8 @@
   /** Debounced per-pin so a long drag is one write, not sixty. */
   function saveGeometry(id, g) {
     _pendingMove[id] = g;
-    var local = geometryFor(id);
+    var local = itemById(id);
     if (local) { local.x = g.x; local.y = g.y; local.w = g.w; local.rot = g.rot; local.z = g.z; }
-    else if (SYS[id]) { _items.push({ id: id, kind: 'system', x: g.x, y: g.y, w: g.w, rot: g.rot, z: g.z, reactions: {} }); }
     clearTimeout(saveGeometry._t);
     saveGeometry._t = setTimeout(function () {
       var batch = _pendingMove;
@@ -351,8 +427,9 @@
   function newNote() {
     _color = 'yellow';
     openModal(
-      '<h3>📌 Pin a note</h3>' +
-      '<textarea id="bmText" class="bm-input" rows="5" placeholder="What do you want on the board?"></textarea>' +
+      '<h3>📝 Pin a note</h3>' +
+      '<textarea id="bmText" class="bm-input" rows="5" placeholder="What do you want on the board? Type @Name to tag someone."></textarea>' +
+      '<div class="bm-note">Tag a teammate with <b>@Name</b> and they get a notification.</div>' +
       '<label class="bm-label">Colour</label>' + colorRow('yellow') +
       '<label class="bm-label">Keep it up for</label>' + keepSelect('2w', 'bmKeep') +
       '<div class="bm-actions"><button type="button" class="btn ghost sm" onclick="CorkBoard.close()">Cancel</button>' +
@@ -374,6 +451,9 @@
       _items.push(r.item);
       render();
       scrollToPin(r.item.id);
+      if (r.item.mentions && r.item.mentions.length) {
+        toast('Pinned — ' + r.item.mentions.map(function (m) { return m.name; }).join(', ') + ' notified');
+      }
     }).catch(function (err) {
       btn.disabled = false; btn.textContent = 'Pin it';
       toast('⚠ ' + ((err && err.message) || 'unknown'));
@@ -458,26 +538,41 @@
     });
   }
 
+  /** Decoration: a strip of washi tape, or an arrow to point at something. */
+  function addTape(which) {
+    var spot = freeSpot();
+    var isArrow = which === 'arrow';
+    api({
+      action: 'pin', kind: isArrow ? 'arrow' : 'tape',
+      color: isArrow ? '' : TAPES[Math.floor(Math.random() * TAPES.length)],
+      keep: 'forever', x: spot.x, y: spot.y, w: isArrow ? 180 : 140,
+      rot: isArrow ? 0 : Math.round((Math.random() * 20 - 10)), z: maxZ() + 1,
+    }).then(function (r) {
+      _items.push(r.item); render(); scrollToPin(r.item.id);
+      toast(isArrow ? 'Arrow added — drag it where you want it' : 'Tape added — drag and tilt it');
+    }).catch(function (err) { toast('⚠ ' + ((err && err.message) || 'unknown')); });
+  }
+
   /** A little tilt on arrival — nothing on a real cork board hangs straight. */
   function randomTilt() { return Math.round((Math.random() * 8 - 4) * 10) / 10; }
 
   /**
-   * Somewhere open-ish, below the house cards, nudged until it is not sitting
-   * exactly on top of another pin. Overlapping a little is the point; landing
-   * perfectly on top of someone else's note is not.
+   * Somewhere open in the free channel between the posters, then below them.
+   * Overlapping a little is the point; landing exactly on someone else's note
+   * is not. Mirrors placeInFreeZone in corkboard.mjs.
    */
   function freeSpot() {
-    var startY = 760, x = 60, y = startY;
-    for (var tries = 0; tries < 60; tries++) {
+    var x = FREE_X0, y = FREE_Y0;
+    for (var tries = 0; tries < 80; tries++) {
       var clash = false;
       for (var i = 0; i < _items.length; i++) {
-        var it = _items[i];
-        if (it.kind === 'system') continue;
-        if (Math.abs(it.x - x) < 90 && Math.abs(it.y - y) < 90) { clash = true; break; }
+        if (Math.abs(_items[i].x - x) < 100 && Math.abs(_items[i].y - y) < 100) { clash = true; break; }
       }
       if (!clash) break;
-      x += 120;
-      if (x > BOARD_W - 300) { x = 60; y += 130; }
+      x += FREE_STEP_X;
+      if (x > FREE_X1) { x = FREE_X0; y += FREE_STEP_Y; }
+      if (y > BELOW_Y) x = 60;                 // below the posters the whole width is free
+      if (y > 2400) break;
     }
     return { x: x, y: y };
   }
@@ -496,7 +591,7 @@
   }
 
   function edit(id) {
-    var item = geometryFor(id);
+    var item = itemById(id);
     if (!item) return;
     _color = item.color || 'yellow';
     openModal(
@@ -523,7 +618,7 @@
   }
 
   function keep(id) {
-    var item = geometryFor(id);
+    var item = itemById(id);
     if (!item) return;
     openModal(
       '<h3>⏳ How long should this stay up?</h3>' +
@@ -558,17 +653,33 @@
     _items.push(item);
   }
 
-  /** Admin: put the house cards back where they started. */
-  function tidy() {
-    if (!window.confirm('Put the four house cards back in their corners? Notes and photos are not moved.')) return;
-    var ids = Object.keys(SYS);
-    for (var i = 0; i < ids.length; i++) {
-      (function (id) {
-        var d = SYS[id];
-        saveGeometry(id, { x: d.x, y: d.y, w: d.w, rot: d.rot, z: 1 });
-      })(ids[i]);
-    }
-    render();
+  /** Last month's wall, kept like a Town Crier issue. */
+  function showArchive(month) {
+    openModal('<h3>📚 The board — ' + esc(monthLabel(month)) + '</h3><div class="bm-note">Reading the archive…</div>');
+    api({ action: 'archive', month: month }).then(function (r) {
+      var a = r && r.archive;
+      if (!a || !a.items || !a.items.length) {
+        byId('boardModalBody').innerHTML = '<h3>📚 ' + esc(monthLabel(month)) + '</h3><div class="bm-note">Nothing was kept from that month.</div>' +
+          '<div class="bm-actions"><button type="button" class="btn sm" onclick="CorkBoard.close()">Close</button></div>';
+        return;
+      }
+      var html = '<h3>📚 The board — ' + esc(monthLabel(month)) + '</h3>' +
+        '<div class="bm-note">' + a.items.length + ' pin' + (a.items.length === 1 ? '' : 's') + ', as the wall stood at the end of the month.</div>' +
+        '<div class="archive-grid">';
+      for (var i = 0; i < a.items.length; i++) {
+        var it = a.items[i];
+        if (it.kind === 'tape' || it.kind === 'arrow') continue;
+        html += '<div class="arch c-' + esc(it.color || 'yellow') + '">' +
+          (it.auto ? '<div class="auto-head">' + esc(it.auto.icon || '📌') + ' ' + esc(it.auto.title || '') + '</div>' : '') +
+          (it.kind === 'photo' && it.photoUrl ? '<img src="' + esc(it.photoUrl) + '" alt="" />' : '') +
+          (it.text ? '<div class="note-text">' + esc(it.text).replace(/\n/g, '<br>') + '</div>' : '') +
+          (it.caption ? '<div class="cap">' + esc(it.caption) + '</div>' : '') +
+          '<div class="pin-meta"><span>' + esc((it.author && it.author.name) || '') + '</span></div>' +
+          '</div>';
+      }
+      html += '</div><div class="bm-actions"><button type="button" class="btn sm" onclick="CorkBoard.close()">Close</button></div>';
+      byId('boardModalBody').innerHTML = html;
+    }).catch(function (err) { toast('⚠ ' + ((err && err.message) || 'unknown')); });
   }
 
   // ── boot ────────────────────────────────────────────────────────
@@ -591,6 +702,7 @@
   function load() {
     return api({ action: 'list' }).then(function (r) {
       _items = (r && r.items) || [];
+      _archives = (r && r.archives) || [];
       render();
     }).catch(function (err) {
       var box = byId('corkEmpty');
@@ -600,9 +712,9 @@
 
   window.CorkBoard = {
     init: init, reload: load, render: render,
-    newNote: newNote, newPhoto: newPhoto, preview: preview,
+    newNote: newNote, newPhoto: newPhoto, preview: preview, addTape: addTape,
     saveNote: saveNote, savePhoto: savePhoto, pickColor: pickColor,
     edit: edit, saveEdit: saveEdit, keep: keep, saveKeep: saveKeep,
-    unpin: unpin, react: react, tidy: tidy, close: closeModal,
+    unpin: unpin, react: react, showArchive: showArchive, close: closeModal,
   };
 })();

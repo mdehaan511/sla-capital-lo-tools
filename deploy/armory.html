@@ -16,7 +16,7 @@
   <!-- Deploy 237.191 — the cork board (Dan's idea). Version-pinned: the news
        tab's markup and this script are a matched pair, so a cached copy would
        leave the house cards sitting unpositioned on top of each other. -->
-  <script src="armory-board.js?v=237191"></script>
+  <script src="armory-board.js?v=237192"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
   <!-- Deploy 237.073 (Mike) — THE ARMORY, part 1: the team's fun corner.
        Deliberately styled unlike the rest of the portal (parchment, dark
@@ -278,12 +278,20 @@
     .pin.grabbed { cursor: grabbing; transition: none; filter: drop-shadow(0 14px 18px rgba(0,0,0,0.35)); }
     .pin .tack { position: absolute; left: 50%; top: -9px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; z-index: 3;
       box-shadow: inset -2px -2px 3px rgba(0,0,0,0.35), inset 2px 2px 3px rgba(255,255,255,0.45), 0 3px 5px rgba(0,0,0,0.35); }
-    /* House cards keep their own card chrome; only the grip strip drags them,
-       because their bodies scroll and hold their own buttons. */
-    .pin-sys .card { margin: 0; box-shadow: 0 8px 18px rgba(42,29,18,0.35); max-height: 620px; overflow: auto; }
-    .pin-grip { cursor: grab; text-align: center; font-size: 10px; letter-spacing: 0.18em; color: #f3e2bd; text-transform: uppercase;
-      background: rgba(58,35,19,0.92); border-radius: 8px 8px 0 0; padding: 3px 0 2px; opacity: 0.55; transition: opacity 0.15s; }
-    .pin-sys:hover .pin-grip { opacity: 1; }
+    /* Deploy 237.192 (Mike) — the four house cards are POSTERS now, hung on
+       the frame and fixed there: Bell and Crier down the left, Celebrations
+       pinned top-right with the Herald's Board under it. They keep their own
+       card chrome and their bodies scroll. */
+    .pin.poster { cursor: default; }
+    .pin.poster .card { margin: 0; overflow: auto; border: 1px solid rgba(90,58,30,0.35);
+      box-shadow: 0 14px 26px rgba(42,29,18,0.42), 0 2px 0 rgba(255,255,255,0.35) inset; }
+    .pin.poster .tack { top: -11px; width: 18px; height: 18px; margin-left: -9px; }
+    /* the little cord it hangs from */
+    .poster-cord { display: block; height: 16px; margin: 0 auto -4px; width: 2px; background: rgba(60,38,16,0.55); position: relative; z-index: 1; }
+    .poster-cord::before, .poster-cord::after { content: ''; position: absolute; top: 0; width: 22px; height: 12px;
+      border-bottom: 2px solid rgba(60,38,16,0.45); border-radius: 0 0 14px 14px; }
+    .poster-cord::before { right: 1px; transform: skewX(18deg); }
+    .poster-cord::after  { left: 1px;  transform: skewX(-18deg); }
 
     /* Sticky notes. Five colours, a handwriting-ish face, a curled corner. */
     .pin-note { padding: 14px 14px 8px; border-radius: 2px; font-size: 14.5px; line-height: 1.45; color: #2c2415;
@@ -339,6 +347,50 @@
     .bm-wait.err { color: var(--crimson); font-weight: 600; }
     .bm-note { font-size: 13px; color: #5a4a36; margin-bottom: 10px; }
     .bm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+    /* ── Deploy 237.192 — decoration, auto-cards, mentions, seasons ──── */
+    /* Tape and arrows: no paper, no tack, they just lie on the cork. */
+    .pin-tape { height: 30px; }
+    .pin-tape .tape-strip { display: block; width: 100%; height: 30px; border-radius: 1px; opacity: 0.82;
+      box-shadow: 0 2px 5px rgba(42,29,18,0.30); background-repeat: repeat; }
+    .pin-tape.washi-gold  .tape-strip { background: repeating-linear-gradient(135deg, #f0cf8a 0 8px, #e3bd6c 8px 16px); }
+    .pin-tape.washi-red   .tape-strip { background: repeating-linear-gradient(135deg, #e7a79c 0 8px, #d98d80 8px 16px); }
+    .pin-tape.washi-blue  .tape-strip { background: repeating-linear-gradient(135deg, #a8c8e8 0 8px, #8fb4dc 8px 16px); }
+    .pin-tape.washi-green .tape-strip { background: repeating-linear-gradient(135deg, #b4d6a8 0 8px, #9cc78d 8px 16px); }
+    .pin-arrow { height: 40px; }
+    .pin-arrow svg { width: 100%; height: 40px; display: block; filter: drop-shadow(0 2px 3px rgba(42,29,18,0.35)); }
+    .pin-arrow svg path { fill: none; stroke: #7c1f1f; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Cards the Armory pinned itself: printed, not handwritten. */
+    .pin-auto .note-text { font-family: 'DM Sans', sans-serif; font-size: 13px; }
+    .pin-auto .auto-head { font-family: 'Cinzel', serif; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--wood); border-bottom: 1px solid rgba(90,58,30,0.25); padding-bottom: 4px; margin-bottom: 6px; }
+    .pin-auto { box-shadow: 0 8px 16px rgba(42,29,18,0.30), 0 0 0 1px rgba(90,58,30,0.18) inset; }
+
+    .note-text .mention { color: #7c1f1f; font-weight: 700; }
+
+    /* Seasonal frames (cosmetic only — a class on the cork). */
+    .cork.season-halloween { border-color: #4a2a08; box-shadow: 0 10px 30px rgba(42,29,18,0.4), inset 0 0 90px rgba(200,90,10,0.35); }
+    .cork.season-winter    { border-color: #5b4a3a; box-shadow: 0 10px 30px rgba(42,29,18,0.4), inset 0 0 90px rgba(150,190,220,0.35); }
+    .cork.season-spring    { box-shadow: 0 10px 30px rgba(42,29,18,0.35), inset 0 0 80px rgba(120,190,120,0.25); }
+    .cork.season-july4     { border-color: #63382a; box-shadow: 0 10px 30px rgba(42,29,18,0.4), inset 0 0 80px rgba(190,60,60,0.22); }
+    .cork.season-founders  { border-color: #6b4423; box-shadow: 0 10px 30px rgba(42,29,18,0.4), inset 0 0 90px rgba(200,129,58,0.45); }
+    .cork-banner:empty { display: none; }
+    .cork-banner, #corkBanner > .cork-banner { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 3;
+      background: linear-gradient(#f3d98a, #c9a14a); color: var(--wood); border: 2px solid var(--wood); border-radius: 8px;
+      font-family: 'Cinzel', serif; font-weight: 700; font-size: 13px; letter-spacing: 0.06em; padding: 5px 18px;
+      box-shadow: 0 6px 14px rgba(42,29,18,0.4); }
+
+    /* Past boards */
+    .board-archives { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+    .board-archives .ab-label { font-size: 11.5px; font-weight: 700; color: #6b5a44; letter-spacing: 0.04em; }
+    .board-archives .ab-link { border: 1px solid rgba(90,58,30,0.3); background: rgba(255,250,235,0.8); color: var(--wood);
+      border-radius: 14px; font-size: 11.5px; padding: 2px 10px; cursor: pointer; }
+    .board-archives .ab-link:hover { border-color: var(--gold); color: var(--gold-mid); }
+    .archive-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 10px;
+      max-height: 60vh; overflow: auto; }
+    .archive-grid .arch { border-radius: 4px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 3px 8px rgba(42,29,18,0.2); }
+    .archive-grid .arch img { width: 100%; border-radius: 3px; margin-bottom: 4px; }
 
     .board-list .mini { padding: 12px 14px; margin-bottom: 10px; }
     .board-list .board-note { font-size: 12.5px; color: #6b5a44; margin-bottom: 10px; }
@@ -479,25 +531,27 @@
           <div class="bb-right">
             <button type="button" class="btn sm" onclick="CorkBoard.newNote()">📝 Pin a note</button>
             <button type="button" class="btn sm" onclick="CorkBoard.newPhoto()">🖼 Pin a photo</button>
-            <button type="button" class="btn ghost sm" id="boardTidy" style="display:none" onclick="CorkBoard.tidy()">🧹 Tidy the house cards</button>
+            <button type="button" class="btn ghost sm" onclick="CorkBoard.addTape('tape')" title="A strip of tape to decorate with">🎀 Tape</button>
+            <button type="button" class="btn ghost sm" onclick="CorkBoard.addTape('arrow')" title="An arrow to point at something">➡ Arrow</button>
           </div>
         </div>
+        <!-- Deploy 237.192 — every past month's wall, kept like a Town Crier issue. -->
+        <div class="board-archives" id="boardArchives"></div>
 
         <div class="cork" id="cork">
           <div class="pin pin-sys" id="pin_sys_bell" data-id="sys_bell">
             <span class="tack" style="background:#c0392b"></span>
-            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
+            <span class="poster-cord"></span>
             <!-- Deploy 237.082 — the Closing Bell: every closed loan rings here + in Slack. -->
             <div class="card">
               <h2>🔔 The Closing Bell <span class="sub">every loan that crosses the finish line</span></h2>
               <div id="bellList"><div class="empty">Listening for the bell…</div></div>
             </div>
-            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
-          </div>
+            </div>
 
           <div class="pin pin-sys" id="pin_sys_crier" data-id="sys_crier">
             <span class="tack" style="background:#2c7fb8"></span>
-            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
+            <span class="poster-cord"></span>
             <!-- Deploy 237.082 — the Monday digest. -->
             <div class="card">
               <h2>📯 The Town Crier <span class="sub">every Monday, 8am Pacific</span></h2>
@@ -505,24 +559,22 @@
               <div id="crierBox" class="empty">No issue has gone out yet. The first one cries on Monday.</div>
               <div id="crierAdmin" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap"></div>
             </div>
-            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
-          </div>
+            </div>
 
           <div class="pin pin-sys" id="pin_sys_cele" data-id="sys_cele">
             <span class="tack" style="background:#e0a800"></span>
-            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
+            <span class="poster-cord"></span>
             <!-- Deploy 237.082 — birthdays + work anniversaries (profiles: birthday / startDate). -->
             <div class="card">
               <h2>🎂 Celebrations</h2>
               <div id="celeList"><div class="empty">Consulting the calendar…</div></div>
               <div class="lede" style="margin:10px 0 0;font-size:12px" id="celeMine"></div>
             </div>
-            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
-          </div>
+            </div>
 
           <div class="pin pin-sys" id="pin_sys_herald" data-id="sys_herald">
             <span class="tack" style="background:#2f8f57"></span>
-            <div class="pin-grip" title="Drag the card by this strip">⠿ drag</div>
+            <span class="poster-cord"></span>
             <div class="card">
               <h2>Herald's Board <span class="sub">current events</span></h2>
               <div class="lede" id="evLede">What's on at SLA beyond the loans.</div>
@@ -536,10 +588,10 @@
                 <div id="holidayList"><div class="empty">—</div></div>
               </div>
             </div>
-            <span class="h-rot" title="Tilt it"></span><span class="h-size" title="Resize"></span>
-          </div>
+            </div>
 
           <!-- user pins land here (absolutely positioned against .cork) -->
+          <div id="corkBanner"></div>
           <div id="corkPins"></div>
           <div class="cork-empty" id="corkEmpty">Nothing pinned yet. Put something up — a photo from a closing, a note for the team, anything.</div>
         </div>
@@ -705,7 +757,6 @@
       // /api/armory-board; the four house cards above are already on the
       // wall in the page markup and just need positioning.
       if (window.CorkBoard) {
-        document.getElementById('boardTidy').style.display = _state.isAdmin ? 'inline-block' : 'none';
         CorkBoard.init({ user: _user, isAdmin: !!_state.isAdmin });
       }
     }).catch(function (err) {

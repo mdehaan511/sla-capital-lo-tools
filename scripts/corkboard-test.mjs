@@ -58,12 +58,12 @@ console.log('endpoint');
   const src = readFileSync('deploy/netlify/functions/armory-board.mjs', 'utf8');
   check('team-member gate, same as the rest of the Armory', /isTeamMember\(user\)/.test(src) && /403/.test(src));
   check('every action is covered', ['list', 'pin', 'move', 'edit', 'react', 'unpin'].every((a) => src.indexOf("'" + a + "'") >= 0));
-  check('edit and unpin are handed the admin flag', /editItem\(user, body, admin\)/.test(src) && /deleteItem\(user, body\.id, admin\)/.test(src));
+  check('edit and unpin are handed the admin flag', /editItem\(user, body, admin,/.test(src) && /deleteItem\(user, body\.id, admin\)/.test(src));
   const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
   check('content edits are author-or-admin', /Only the person who pinned it \(or an admin\) can change it/.test(shared));
   check('taking a pin down is author-or-admin', /Only the person who pinned it \(or an admin\) can take it down/.test(shared));
   check('moving is deliberately open to the whole team', /ANYONE on the team may rearrange/.test(shared));
-  check('house cards cannot be deleted or edited', /House cards cannot be taken down/.test(shared) && /House cards are not editable/.test(shared));
+  check('the posters are fixed to the frame, not movable', /The house posters are fixed to the frame/.test(shared));
   check('photos are stored as BASE64 TEXT, never a Buffer', /BASE64 TEXT, never a Buffer/.test(shared) && !/Buffer\.from\([^)]*\)\s*\);\s*\/\/ photo/.test(shared));
   check('expired pins are swept on read', /lazy purge/.test(shared) && /dead\.map/.test(shared));
   const photo = readFileSync('deploy/netlify/functions/armory-photo.mjs', 'utf8');
@@ -82,23 +82,107 @@ console.log('page wiring');
   check('their original ids survived, so the existing renderers still work',
     ['id="bellList"', 'id="crierBox"', 'id="celeList"', 'id="evList"', 'id="holidayList"', 'id="celeMine"', 'id="evAdmin"']
       .every((s) => html.indexOf(s) >= 0));
-  check('each house card has a drag grip', (html.match(/class="pin-grip"/g) || []).length === 4);
+  check('each poster hangs from a cord (237.192: no drag grips)', (html.match(/class="poster-cord"/g) || []).length === 4 && !/pin-grip/.test(html));
   check('the cork, the pin holder and the phone fallback all exist',
     /id="cork"/.test(html) && /id="corkPins"/.test(html) && /id="boardList"/.test(html));
-  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237191/.test(html));
+  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237192/.test(html));
   check('the tab is Company & Team News', /Company &amp; Team News/.test(html));
   check('the board is booted with the caller and their admin flag', /CorkBoard\.init\(\{ user: _user, isAdmin: !!_state\.isAdmin \}\)/.test(html));
-  check('Tidy is admin-only', /boardTidy'\)\.style\.display = _state\.isAdmin/.test(html));
+  check('tape and arrow buttons are on the bar', /CorkBoard\.addTape\('tape'\)/.test(html) && /CorkBoard\.addTape\('arrow'\)/.test(html));
 
   check('house style: no arrow functions in the board script', !/=>/.test(js));
   check('house style: no let/const in the board script', !/^\s*(let|const)\s/m.test(js));
   check('every gesture is measured from where it started, not accumulated', /x0: g\.x, y0: g\.y, w0: g\.w, r0: g\.rot \|\| 0/.test(js));
-  check('a house card only drags by its grip', /pin-sys.*pin-grip|indexOf\('pin-sys'\) >= 0 && !e\.target\.closest\('\.pin-grip'\)/.test(js));
+  check('a poster cannot be dragged at all', /if \(node\.className\.indexOf\('poster'\) >= 0\) return;/.test(js));
   check('moves are debounced into one write per pin', /clearTimeout\(saveGeometry\._t\)/.test(js));
   check('text and captions are escaped into the pin', /esc\(item\.text\)/.test(js) && /esc\(item\.caption/.test(js));
   check('photos are downscaled before upload', /function downscale\(file, maxEdge, cb\)/.test(js) && /toDataURL\('image\/jpeg', 0\.82\)/.test(js));
   check('HEIC gets a real explanation rather than a silent failure', /Browsers cannot read HEIC/.test(js));
   check('the last two days on the wall are visibly wilting', /function isWilting/.test(js) && /wilting/.test(html));
+}
+
+// ── Deploy 237.192 — the batch Mike asked for ──────────────────────
+console.log('@mentions (real behaviour)');
+{
+  const roster = [
+    { email: 'dan@slacapital.com', name: 'Dan Austin' },
+    { email: 'mike@slacapital.com', name: 'Mike DeHaan' },
+    { email: 'chance@slacapital.com', name: 'Chance Luce' },
+    { email: 'mike.other@slacapital.com', name: 'Mike Other' },
+  ];
+  const hit = (t) => cb.findMentions(t, roster).map((m) => m.email).join(',');
+  check('a full name matches', hit('nice one @Chance Luce') === 'chance@slacapital.com');
+  check('an unambiguous first name matches', hit('ask @Dan about it') === 'dan@slacapital.com');
+  check('an AMBIGUOUS first name matches nobody (two Mikes)', hit('hey @Mike') === '');
+  check('the full name still works when the first name is ambiguous', hit('hey @Mike DeHaan') === 'mike@slacapital.com');
+  check('a stranger matches nobody', hit('@Nobody here') === '');
+  check('the same person is only tagged once', hit('@Dan and @Dan again') === 'dan@slacapital.com');
+  check('plain text tags nobody', hit('no tags at all') === '');
+
+  const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
+  check('a mention sends the existing notification kind (no new renderer to pin)', /kind: 'mention'/.test(shared));
+  check('you cannot ping yourself', /no pinging yourself/.test(shared));
+}
+
+console.log('auto-pins');
+{
+  const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
+  check('ids are deterministic, so a sync cannot double-post',
+    /auto_close_' \+ String\(b\.loanId\)/.test(shared) && /auto_bday_/.test(shared) && /auto_deed_/.test(shared));
+  check('a closing needs to clear the threshold', /AUTO_CLOSING_MIN/.test(shared) && cb.AUTO_CLOSING_MIN >= 100000);
+  check('auto cards live a week by default', /const AUTO_KEEP = '1w'/.test(shared) && cb.KEEP_OPTIONS['1w'].days === 7);
+  check('taking one down tombstones it so the sync does not re-post it', /board-mute\//.test(shared) && /puts it straight back up/.test(shared));
+  check('an auto card is admin-only to remove or change', /posted by the Armory/.test(shared));
+  const src = readFileSync('deploy/netlify/functions/armory-board.mjs', 'utf8');
+  check('the sync is best-effort — a bad source cannot stop the wall loading', /auto-pin sync failed/.test(src) && /catch \(e\)/.test(src));
+  check('sources are the ones the Armory already builds', /listBells/.test(src) && /celebrationsOn/.test(src) && /getAchievementsIndex/.test(src));
+}
+
+console.log('monthly archive');
+{
+  const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
+  check('last month is snapshotted lazily on the first read of a new month', /ensureMonthlyArchive/.test(shared) && /_prevMonth/.test(shared));
+  check('it never overwrites an archive it already wrote', /if \(existing\) return null;/.test(shared));
+  const js = readFileSync('deploy/armory-board.js', 'utf8');
+  const html = readFileSync('deploy/armory.html', 'utf8');
+  check('past boards are listed and readable', /function showArchive/.test(js) && /id="boardArchives"/.test(html));
+}
+
+console.log('layout, decoration, seasons');
+{
+  const js = readFileSync('deploy/armory-board.js', 'utf8');
+  const html = readFileSync('deploy/armory.html', 'utf8');
+  const L = /var LAYOUT = \{([\s\S]*?)\};/.exec(js)[1];
+  const at = (id) => {
+    const m = new RegExp(id + ':\\s*\\{ x: (-?\\d+),\\s*y: (-?\\d+),\\s*w: (\\d+)').exec(L);
+    return m ? { x: +m[1], y: +m[2], w: +m[3] } : null;
+  };
+  const bell = at('sys_bell'), crier = at('sys_crier'), cele = at('sys_cele'), herald = at('sys_herald');
+  check('the Closing Bell hangs on the LEFT', bell && bell.x < 200);
+  check('the Town Crier is on the left too, under the Bell', crier && crier.x === bell.x && crier.y > bell.y);
+  check('Celebrations is fixed TOP right', cele && cele.x > 700 && cele.y < 100);
+  check("the Herald's Board hangs on the RIGHT, under Celebrations", herald && herald.x === cele.x && herald.y > cele.y);
+  check('the posters leave a free channel down the middle',
+    bell.x + bell.w < 340 && cele.x > 780);
+  check('new pins land in that channel, and the two sides agree',
+    /FREE_X0 = 340, FREE_X1 = 780/.test(js) &&
+    /FREE_X0 = 340, FREE_X1 = 780/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
+
+  check('tape and arrows are their own kinds', /KINDS = \['note', 'photo', 'tape', 'arrow'\]/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
+  check('tape turns further than paper does', /indexOf\('pin-tape'\) >= 0 \|\| .*indexOf\('pin-arrow'\) >= 0\) \? 45 : 14/.test(js));
+  check('decoration has no author line or reactions', /Tape and arrows are decoration/.test(js));
+  check('the cork wears a season', /function seasonClass/.test(js) && /season-halloween/.test(html) && /season-winter/.test(html));
+  check('Founders Day gets a banner', /foundersBannerHtml/.test(js) && /cork-banner/.test(html));
+  check('an Armory card reads as printed, not handwritten', /pin-auto \.note-text/.test(html) && /auto-head/.test(js));
+}
+
+console.log('Town Crier');
+{
+  const tc = readFileSync('deploy/netlify/functions/_shared/town-crier.mjs', 'utf8');
+  check('the digest has a cork-board section', /The Cork Board — last 7 days/.test(tc));
+  check('it only counts what people pinned, not the Armory\'s own cards', /!i\.auto/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
+  check('photo thumbnails are absolute, so they load in an email client', /PORTAL \+ p\.photoUrl/.test(tc));
+  check('the section is skipped in a quiet week', /if \(boardNew\.length\) \{/.test(tc));
 }
 
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed');

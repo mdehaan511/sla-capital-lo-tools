@@ -23,6 +23,7 @@ import { listAllMonths, legendsFrom, getEvents, monthKey, monthLabel, daysLeftIn
 import { listBells, fmtMoney } from './closing-bell.mjs';
 import { loadTeamProfiles, upcomingCelebrations, todayPacific, prettyYmd, ordinal, addDays } from './team-events.mjs';
 import { getAchievementsIndex, DEEDS, RANKS } from './achievements.mjs'; // Deploy 237.085
+import { boardSince } from './corkboard.mjs';                            // Deploy 237.192 — the cork board
 import { touchPulse } from './armory.mjs';
 
 const PORTAL = 'https://portal.slacapital.ai';
@@ -98,6 +99,30 @@ export async function buildTownCrier(now) {
       const when = e.startsAt && e.endsAt ? e.startsAt + ' → ' + e.endsAt : e.startsAt ? 'from ' + e.startsAt : e.endsAt ? 'through ' + e.endsAt : '';
       line((e.emoji ? escH(e.emoji) + ' ' : '') + '<b>' + escH(e.title) + '</b>' + (when ? ' <span style="color:#8a7350">(' + escH(when) + ')</span>' : '') + (e.body ? '<br><span style="color:#5a4a36">' + escH(e.body).replace(/\n/g, '<br>') + '</span>' : ''),
         (e.emoji ? e.emoji + ' ' : '') + e.title + (when ? ' (' + when + ')' : '') + (e.body ? '\n   ' + e.body.replace(/\n/g, '\n   ') : ''));
+    });
+  }
+
+  // Deploy 237.192 (Mike) — the cork board. What the team put up this week,
+  // with a thumbnail for the photos. Signed photo URLs work in an email
+  // client because they carry their own credential (see corkboard.mjs);
+  // they outlive the issue by a week, which is long enough for a Monday
+  // digest and short enough to matter if one ever leaked.
+  const boardNew = await boardSince(weekAgo).catch(() => []);
+  if (boardNew.length) {
+    section('📌 The Cork Board — last 7 days');
+    line(escH(boardNew.length + (boardNew.length === 1 ? ' new thing went' : ' new things went') + ' up on the board.') +
+      ' <a href="' + PORTAL + '/armory.html#news" style="color:#7c1f1f;font-weight:700">Take a look →</a>',
+      boardNew.length + ' new thing' + (boardNew.length === 1 ? '' : 's') + ' went up on the cork board: ' + PORTAL + '/armory.html#news');
+    boardNew.slice(0, 4).forEach((p) => {
+      const who = shortName((p.author && p.author.name) || '');
+      const what = (p.kind === 'photo')
+        ? (p.caption ? escH(p.caption) : 'a photo')
+        : escH(String(p.text || '').slice(0, 120).replace(/\n/g, ' '));
+      const thumb = (p.kind === 'photo' && p.photoUrl)
+        ? '<div style="margin:4px 0"><img src="' + PORTAL + p.photoUrl + '" alt="" style="max-width:180px;border:4px solid #fffdf7;border-radius:3px" /></div>'
+        : '';
+      line('📌 <b>' + escH(who) + '</b> — ' + what + thumb,
+        '📌 ' + who + ' — ' + (p.kind === 'photo' ? (p.caption || 'a photo') : String(p.text || '').slice(0, 120).replace(/\n/g, ' ')));
     });
   }
 
