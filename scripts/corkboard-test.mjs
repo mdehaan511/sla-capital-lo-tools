@@ -96,7 +96,7 @@ console.log('page wiring');
     (html.match(/class="wall-nail"/g) || []).length === 2 && !/pin-grip/.test(html));
   check('the cork, the pin holder and the phone fallback all exist',
     /id="cork"/.test(html) && /id="corkPins"/.test(html) && /id="boardList"/.test(html));
-  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237193/.test(html));
+  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237194/.test(html));
   check('the tab is Company & Team News', /Company &amp; Team News/.test(html));
   check('the board is booted with the caller, their admin flag and the roster',
     /CorkBoard\.init\(\{ user: _user, isAdmin: !!_state\.isAdmin, roster: _state\.roster \|\| \[\] \}\)/.test(html));
@@ -219,6 +219,51 @@ console.log('Town Crier');
   check('it only counts what people pinned, not the Armory\'s own cards', /!i\.auto/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
   check('photo thumbnails are absolute, so they load in an email client', /PORTAL \+ p\.photoUrl/.test(tc));
   check('the section is skipped in a quiet week', /if \(boardNew\.length\) \{/.test(tc));
+}
+
+// ── Deploy 237.194 — the phone pass and the load jump ─────────────
+console.log('mobile');
+{
+  const html = readFileSync('deploy/armory.html', 'utf8');
+  const js = readFileSync('deploy/armory-board.js', 'utf8');
+  const nav = readFileSync('deploy/sla-nav.js', 'utf8');
+
+  check('the cork stays invisible until the board paints (no top-left flash)',
+    /\.cork \{ visibility: hidden; \}/.test(html) && /\.cork\.ready \{ visibility: visible; \}/.test(html) &&
+    /box\.className = 'cork ready '/.test(js));
+  check('the two pinned cards carry their position in the markup, before any JS',
+    /id="pin_sys_crier"[^>]*style="left:14px;top:12px/.test(html) &&
+    /id="pin_sys_cele"[^>]*style="left:406px;top:12px/.test(html));
+  check('a board script that never loads still reveals the cork',
+    /if \(c && c\.className\.indexOf\('ready'\) < 0\) c\.className \+= ' ready';/.test(html));
+
+  check('on a phone the wall posters are hidden, as Mike allowed',
+    /@media \(max-width: 900px\) \{[\s\S]{0,400}\.wall-poster \{ display: none; \}/.test(html));
+  check('the add buttons sit at the top and stay there while scrolling',
+    /\.board-bar \{ position: sticky; top: 0;/.test(html));
+  check('the phone list still looks like a cork board', /\.board-list \{ background-color: #c8964f;/.test(html));
+  check('the two pinned house cards are lifted into the phone list',
+    /function liftHouseCards/.test(js) && /liftHouseCards\(true\)/.test(js) && /liftHouseCards\(false\)/.test(js));
+  check('...and are parked back on the cork BEFORE the list is rebuilt (or a re-render destroys them)',
+    /liftHouseCards\(false\);\s*\n\s*var html = '<div class="board-note">/.test(js));
+  check('the busy backdrop recedes and cards go solid on a phone',
+    /#realmBg \{ opacity: 0\.35; \}/.test(html) && /\.card, \.legends, \.board-list \.mini \{ background: #fffaf0; \}/.test(html));
+  check('tap targets are at least 40px', /\.btn \{ min-height: 40px;/.test(html));
+
+  // app-wide, via the one file every staff page loads
+  check('the nav bar scrolls sideways instead of wrapping to four lines',
+    /nav\.nav \.nav-right\{flex-wrap:nowrap;overflow-x:auto/.test(nav));
+  check('fields are 16px on a phone, so iOS stops zooming on focus',
+    /input,select,textarea\{font-size:16px !important\}/.test(nav));
+  check('wide tables scroll on their own', /table\{max-width:100%;display:block;overflow-x:auto/.test(nav));
+  check('body is NOT overflow-hidden (that breaks sticky headers)', !/body\{overflow-x:hidden\}/.test(nav));
+  check('a dropdown cannot run off the right edge', /\.nav-dd-menu\{right:auto;left:0;min-width:180px;max-width:calc\(100vw - 28px\)\}/.test(nav));
+
+  for (const page of ['sla-dashboard.html', 'clients.html', 'processing-pipeline.html', 'profile.html']) {
+    check(page + ' has a phone block', /Deploy 237\.194 — phone layout/.test(readFileSync('deploy/' + page, 'utf8')));
+  }
+  check('every page that pins sla-nav.js points at this deploy',
+    !/sla-nav\.js\?v=(?!237194)/.test(readFileSync('deploy/armory.html', 'utf8')));
 }
 
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed');

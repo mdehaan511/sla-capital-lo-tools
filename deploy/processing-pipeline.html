@@ -198,6 +198,13 @@
     .ss-status { font-size: 12px; min-height: 18px; margin-right: auto; align-self: center; }
     .ss-status.err { color: var(--danger); }
     .ss-status.ok { color: var(--success); }
+  
+    /* Deploy 237.194 — phone layout (Mike): the board's columns stack. */
+    @media (max-width: 760px) {
+      .page, .wrap { padding-left: 12px; padding-right: 12px; }
+      h1 { font-size: 22px; }
+      .btn, button { min-height: 40px; }
+    }
   </style>
 </head>
 <body>

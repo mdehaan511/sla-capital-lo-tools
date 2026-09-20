@@ -143,8 +143,14 @@
     if (!box) return;
     if (narrow()) { renderList(); return; }
     byId('boardList').style.display = 'none';
+    // Coming back from the phone view: the two house cards live in the list
+    // while it is showing, so put them back on the cork first.
+    liftHouseCards(false);
     box.style.display = 'block';
-    box.className = 'cork ' + seasonClass();
+    // 'ready' un-hides the cork (237.194). Until the first paint the pins
+    // have no coordinates yet and would stack in the top-left corner, which
+    // is the jump Mike saw.
+    box.className = 'cork ready ' + seasonClass();
 
     // The posters: fixed to the frame, straight, never dragged.
     for (var s = 0; s < SYS_IDS.length; s++) {
@@ -289,24 +295,70 @@
   }
 
   /** Phones get the same content as a plain stack — dragging a wall on a 390px screen is no fun. */
+  /**
+   * The phone view (Deploy 237.194, Mike). A wall you drag is no use on a
+   * 390px screen, so the cork becomes one column of cards — but it is still
+   * the BOARD: the add buttons sit at the top, the strip is cork-textured,
+   * and the two house cards that are pinned to the cork (Town Crier and
+   * Celebrations) are LIFTED OUT of it and appended here, because the cork
+   * itself is hidden and they would otherwise vanish. The Closing Bell and
+   * the Herald's Board stay hidden on a phone, by Mike's say-so.
+   */
   function renderList() {
     var box = cork();
     if (box) box.style.display = 'none';
     var list = byId('boardList');
     list.style.display = 'block';
-    var html = '<div class="board-note">Pinned notes and photos, newest first. Open the board on a computer to rearrange them.</div>';
+    // The house cards were appended to this list on the last pass; park them
+    // back on the cork BEFORE the innerHTML below wipes it, or the second
+    // render destroys them and renderCrier() has nothing to write into.
+    liftHouseCards(false);
+    var html = '<div class="board-note">The board, newest first. Open it on a computer to move things around.</div>';
     var sorted = _items.slice().sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
     for (var i = 0; i < sorted.length; i++) {
       var it = sorted[i];
-      if (it.kind === 'tape' || it.kind === 'arrow') continue;
-      html += '<div class="card mini c-' + esc(it.color || 'yellow') + '">' +
+      if (it.kind === 'tape' || it.kind === 'arrow') continue;    // decoration means nothing in a list
+      var body;
+      if (it.kind === 'shoutout') {
+        body = '<div class="so-head">Shout-out</div>' +
+          '<div class="so-to">' + esc((it.to && it.to.name) || 'A teammate') + '</div>' +
+          '<div class="so-rule"></div>' +
+          '<div class="so-body">' + esc(it.text).replace(/\n/g, '<br>') + '</div>' +
+          '<div class="so-from">— ' + esc((it.author && it.author.name) || '') + '</div>';
+      } else if (it.kind === 'photo') {
+        body = '<img src="' + esc(it.photoUrl || '') + '" alt="" style="width:100%;border-radius:8px" />' +
+          (it.caption ? '<div class="cap">' + esc(it.caption) + '</div>' : '');
+      } else {
+        body = '<div class="note-text">' + noteTextHtml(it) + '</div>';
+      }
+      html += '<div class="card mini ' + (it.kind === 'shoutout' ? 'pin-shoutout' : 'c-' + esc(it.color || 'yellow')) + '">' +
         (it.auto ? '<div class="auto-head">' + esc(it.auto.icon || '📌') + ' ' + esc(it.auto.title || '') + '</div>' : '') +
-        (it.kind === 'photo'
-          ? '<img src="' + esc(it.photoUrl || '') + '" alt="" style="width:100%;border-radius:8px" />' + (it.caption ? '<div class="cap">' + esc(it.caption) + '</div>' : '')
-          : '<div class="note-text">' + noteTextHtml(it) + '</div>') +
-        metaHtml(it) + reactionsHtml(it) + toolsHtml(it) + '</div>';
+        body + (it.kind === 'shoutout' ? lifeHtml(it) : metaHtml(it)) + reactionsHtml(it) + toolsHtml(it) + '</div>';
     }
     list.innerHTML = html;
+    liftHouseCards(true);
+  }
+
+  /**
+   * Move the two cork-pinned house cards between the board and the phone
+   * list. They are the page's own markup — moving the node keeps their ids,
+   * so renderCrier() / renderCelebrations() carry on writing into them.
+   */
+  function liftHouseCards(toList) {
+    var list = byId('boardList');
+    var box = cork();
+    if (!list || !box) return;
+    for (var i = 0; i < SYS_IDS.length; i++) {
+      var node = byId('pin_' + SYS_IDS[i]);
+      if (!node) continue;
+      if (toList) {
+        node.className = 'pin poster on-phone ' + SYS_IDS[i].replace('sys_', 'poster-');
+        list.appendChild(node);
+      } else if (node.parentNode !== box) {
+        node.className = 'pin poster ' + SYS_IDS[i].replace('sys_', 'poster-');
+        box.insertBefore(node, byId('corkBanner'));
+      }
+    }
   }
 
   function renderArchiveBar() {

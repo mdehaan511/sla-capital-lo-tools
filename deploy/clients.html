@@ -193,6 +193,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
     .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
     .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
+  
+    /* ── Deploy 237.194 — phone layout (Mike) ──────────────────────
+       The client list is one wide table with nowrap cells. sla-nav.js makes
+       any table scroll on its own; here we also drop the columns that are
+       noise on a phone and give the rows room to be tapped. */
+    @media (max-width: 760px) {
+      .page { padding: 1rem 12px 3rem; }
+      h1 { font-size: 22px; }
+      .loans-table { font-size: 12.5px; }
+      .loans-table th, .loans-table td { padding: 10px 12px; }
+      /* the address column already ellipsises at 200px — let it use the width it has */
+      .loans-table td[style*="max-width:200px"] { max-width: 46vw !important; }
+      .modal-row { grid-template-columns: 1fr; }
+      .view-tab { padding: 8px 14px; }
+      .search-row, .filters { flex-wrap: wrap; gap: 8px; }
+      .btn, button { min-height: 40px; }
+    }
   </style>
 </head>
 <body>

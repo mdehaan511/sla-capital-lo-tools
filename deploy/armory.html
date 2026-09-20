@@ -8,7 +8,7 @@
   <script src="sla-api.js"></script>
   <!-- Deploy 237.073: version-pinned so the new Armory link + 'staff' gate render
        here even while the cached sla-nav.js is still stale elsewhere. -->
-  <script src="sla-nav.js?v=237177"></script>
+  <script src="sla-nav.js?v=237194"></script>
   <script src="/sla-search.js" defer></script>
   <script src="sla-notifications.js?v=237120"></script>
   <script src="sla-chat.js"></script>
@@ -16,7 +16,7 @@
   <!-- Deploy 237.191 — the cork board (Dan's idea). Version-pinned: the news
        tab's markup and this script are a matched pair, so a cached copy would
        leave the house cards sitting unpositioned on top of each other. -->
-  <script src="armory-board.js?v=237193"></script>
+  <script src="armory-board.js?v=237194"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
   <!-- Deploy 237.073 (Mike) — THE ARMORY, part 1: the team's fun corner.
        Deliberately styled unlike the rest of the portal (parchment, dark
@@ -277,6 +277,14 @@
       background: radial-gradient(circle at 35% 30%, #d9d3c6, #6f6a60 70%);
       box-shadow: 0 3px 5px rgba(0,0,0,0.35); }
 
+    /* Deploy 237.194 (Mike: "when the corkboard loads it doesnt start with the
+       items in top left and then jumps to place them"). The pins are
+       absolutely positioned by JS; until that first paint they stack at 0,0.
+       The cork stays invisible (but laid out, so nothing reflows) until
+       armory-board.js marks it ready. The two pinned cards also carry their
+       position inline, so they are right even before the script runs. */
+    .cork { visibility: hidden; }
+    .cork.ready { visibility: visible; }
     .cork { position: relative; flex: 0 0 auto; width: 788px; min-height: 1200px; border-radius: 10px; overflow: hidden;
       border: 14px solid #6b4423;
       box-shadow: 0 10px 30px rgba(42,29,18,0.35), inset 0 0 60px rgba(90,52,20,0.35);
@@ -430,7 +438,71 @@
 
     .board-list .mini { padding: 12px 14px; margin-bottom: 10px; }
     .board-list .board-note { font-size: 12.5px; color: #6b5a44; margin-bottom: 10px; }
-    @media (max-width: 900px) { .cork { display: none; } }
+
+    /* ── Deploy 237.194 — the Armory on a phone (Mike) ────────────────
+       Two problems on a small screen: the pixel-art realm behind the page
+       makes loose text hard to read, and a drag-and-drop wall is no use on
+       a 390px screen. So: everything that carries words gets a solid
+       background, the backdrop is dialled right down, and the board becomes
+       a single column of cards with the add buttons at the top. The Closing
+       Bell and the Herald's Board are hidden there (Mike: "You can hide the
+       closing bell and heralds board on mobile") — they are the two longest
+       cards and the Town Crier / Celebrations carry the news that matters. */
+    @media (max-width: 900px) {
+      .cork { display: none; }
+      .wall-poster { display: none; }
+      /* the row is 1420px wide by design on a desktop; on a phone that alone
+         would force a sideways scroll even with every child hidden */
+      .wall { min-width: 0; display: block; gap: 0; }
+      .board-scroll { overflow-x: visible; }
+      .tab-panel[data-tab="news"].active { width: auto; max-width: none; margin-left: 0; transform: none; }
+      /* the add buttons lead, and stay reachable while scrolling the wall */
+      .board-bar { position: sticky; top: 0; z-index: 20; background: var(--parch); padding: 8px 0 8px;
+        box-shadow: 0 6px 10px -8px rgba(42,29,18,0.5); margin-bottom: 8px; }
+      .board-bar .bb-right { width: 100%; }
+      .board-bar .bb-right .btn { flex: 1 1 46%; text-align: center; }
+      .board-bar .bb-left span { display: none; }
+      /* tape and arrows are for arranging a wall you can drag - not on a phone */
+      .board-bar .deco-only { display: none; }
+      /* the mobile wall: a strip of cork so it still reads as the board */
+      .board-list { background-color: #c8964f; border: 8px solid #6b4423; border-radius: 10px; padding: 12px 10px;
+        background-image: radial-gradient(rgba(120,72,30,0.40) 12%, transparent 13%), radial-gradient(rgba(150,100,45,0.35) 10%, transparent 11%);
+        background-size: 22px 22px, 31px 31px; box-shadow: inset 0 0 40px rgba(90,52,20,0.35); }
+      .board-list .board-note { color: #fff3dc; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+      .board-list .mini, .board-list .pin { background: #fffaf0; border-radius: 6px; box-shadow: 0 6px 12px rgba(42,29,18,0.3); }
+      /* a card lifted out of the cork keeps its look but not its coordinates */
+      .board-list .pin.on-phone { position: static; width: auto !important; transform: none !important;
+        margin-bottom: 12px; left: auto; top: auto; }
+      .board-list .pin.on-phone .tack, .board-list .pin.on-phone .poster-cord,
+      .board-list .pin.on-phone .h-rot, .board-list .pin.on-phone .h-size { display: none; }
+      .board-list .pin.on-phone .card { max-height: none !important; }
+      .board-archives { justify-content: center; }
+    }
+
+    /* Readability over the pixel-art realm, and phone-sized chrome. */
+    @media (max-width: 760px) {
+      body { padding: 0 10px 3rem; }
+      /* the backdrop is atmosphere, not content — let it recede on a phone */
+      #realmBg { opacity: 0.35; }
+      .card, .legends, .board-list .mini { background: #fffaf0; }
+      .page { padding-top: 0.75rem; }
+      .banner { padding: 20px 14px 18px; border-radius: 10px; }
+      .banner h1 { font-size: 24px; }
+      .banner p { font-size: 12.5px; }
+      .banner .pennant { display: none; }
+      .tabs { gap: 4px; padding: 0; border-bottom-width: 2px; }
+      .tab { font-size: 12px; padding: 7px 10px; flex: 1 1 auto; text-align: center; min-height: 40px; }
+      h2 { font-size: 16px; }
+      h2 .sub { display: block; margin-left: 0; }
+      .lede { font-size: 12.5px; }
+      /* anything that scrolls sideways does so on its own, not the page */
+      .deed-scroll, .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table.deedgrid { font-size: 11px; }
+      .modal { max-height: 88vh; }
+      /* a real tap target everywhere */
+      .btn { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+      .btn.sm { min-height: 36px; }
+    }
 
     .crier-modal { position: fixed; inset: 0; background: rgba(42,29,18,0.7); z-index: 9000; display: none; align-items: center; justify-content: center; padding: 16px; }
     .crier-modal.open { display: flex; }
@@ -570,8 +642,8 @@
             <!-- Deploy 237.193 (Mike) — "a shout out button where people can shout
                  out to other users for awesome things they've done." -->
             <button type="button" class="btn sm" onclick="CorkBoard.newShoutout()">🏅 Shout-out</button>
-            <button type="button" class="btn ghost sm" onclick="CorkBoard.addTape('tape')" title="A strip of tape to decorate with">🎀 Tape</button>
-            <button type="button" class="btn ghost sm" onclick="CorkBoard.addTape('arrow')" title="An arrow to point at something">➡ Arrow</button>
+            <button type="button" class="btn ghost sm deco-only" onclick="CorkBoard.addTape('tape')" title="A strip of tape to decorate with">🎀 Tape</button>
+            <button type="button" class="btn ghost sm deco-only" onclick="CorkBoard.addTape('arrow')" title="An arrow to point at something">➡ Arrow</button>
           </div>
         </div>
         <!-- Deploy 237.192 — every past month's wall, kept like a Town Crier issue. -->
@@ -591,7 +663,7 @@
           </div>
 
           <div class="cork" id="cork">
-          <div class="pin pin-sys" id="pin_sys_crier" data-id="sys_crier">
+          <div class="pin poster poster-crier" id="pin_sys_crier" data-id="sys_crier" style="left:14px;top:12px;width:340px;z-index:2">
             <span class="tack" style="background:#2c7fb8"></span>
             <span class="poster-cord"></span>
             <!-- Deploy 237.082 — the Monday digest. -->
@@ -603,7 +675,7 @@
             </div>
             </div>
 
-          <div class="pin pin-sys" id="pin_sys_cele" data-id="sys_cele">
+          <div class="pin poster poster-cele" id="pin_sys_cele" data-id="sys_cele" style="left:406px;top:12px;width:340px;z-index:2">
             <span class="tack" style="background:#e0a800"></span>
             <span class="poster-cord"></span>
             <!-- Deploy 237.082 — birthdays + work anniversaries (profiles: birthday / startDate). -->
@@ -802,6 +874,13 @@
         // 237.193 — the roster rides along so a shout-out can name a teammate.
         CorkBoard.init({ user: _user, isAdmin: !!_state.isAdmin, roster: _state.roster || [] });
       }
+      // 237.194 — the cork is hidden until the board paints (so the pins do
+      // not flash in the top-left corner first). If the board script ever
+      // fails to load, show it anyway rather than leaving a blank wall.
+      setTimeout(function () {
+        var c = document.getElementById('cork');
+        if (c && c.className.indexOf('ready') < 0) c.className += ' ready';
+      }, 2500);
     }).catch(function (err) {
       document.getElementById('rtTable').innerHTML = '<div class="empty">The scroll could not be read: ' + escH(err && err.message || 'unknown') + '</div>';
       document.getElementById('evList').innerHTML = '';

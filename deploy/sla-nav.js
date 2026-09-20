@@ -375,6 +375,43 @@
         'background:var(--gold-light,rgba(200,129,58,0.10));color:var(--gold-mid,#b5712d);border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer}' +
       'nav.nav a.nav-tools-btn:hover,nav.nav button.nav-tools-btn:hover{background:var(--gold,#C8813A);color:#fff;border-color:var(--gold,#C8813A)}' +
       '@media (max-width:700px){nav.nav{padding:1rem 14px 0}nav.nav img{height:38px}}' +
+      // ── Deploy 237.194 (Mike: "Go through the whole app really and anything
+      // that would make it better for mobile please do that.") ──────────────
+      // This file is the one thing every staff page loads, so the app-wide
+      // phone fixes live here. Deliberately conservative: nothing here moves
+      // anything on a desktop, and nothing overrides a page's own styling
+      // beyond what a phone genuinely needs.
+      '@media (max-width:760px){' +
+        // The bar's link row would otherwise wrap to three or four lines and
+        // eat half the screen. One row that scrolls sideways instead.
+        'nav.nav{padding:0.75rem 12px 0;gap:8px;align-items:flex-start}' +
+        'nav.nav .nav-right{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;' +
+          'scrollbar-width:none;max-width:100%;padding-bottom:4px;gap:8px}' +
+        'nav.nav .nav-right::-webkit-scrollbar{display:none}' +
+        'nav.nav .nav-right>*{flex:0 0 auto}' +
+        // Real tap targets on the pills.
+        'nav.nav a.nav-tool-link,nav.nav button.nav-tool-link{padding:8px 13px;font-size:12.5px}' +
+        'nav.nav a.nav-tools-btn,nav.nav button.nav-tools-btn{padding:8px 15px;font-size:12.5px}' +
+        // A dropdown pinned to the right edge of a narrow screen used to run
+        // off it; let it size to the viewport instead.
+        '.nav-dd-menu{right:auto;left:0;min-width:180px;max-width:calc(100vw - 28px)}' +
+        // iOS zooms the whole page when a field smaller than 16px takes
+        // focus, and never zooms back. It is the single biggest phone
+        // annoyance in the app, and pages style their own inputs with
+        // higher-specificity selectors, so this one has to shout.
+        'input,select,textarea{font-size:16px !important}' +
+        // Long addresses, emails and loan ids used to push the page sideways.
+        // (Not overflow-x:hidden on body — that silently breaks every
+        // position:sticky header underneath it.)
+        'body{overflow-wrap:break-word}' +
+        'img,svg,canvas,video{max-width:100%}' +
+        'pre,code{overflow-x:auto;max-width:100%}' +
+        // Any table that does not fit scrolls on its own rather than
+        // stretching the page under it.
+        'table{max-width:100%;display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}' +
+        // A modal that is taller than the screen must be able to scroll.
+        '.modal,.modal-bg .modal{max-height:88vh;overflow-y:auto}' +
+      '}' +
       '.nav-dd{position:relative;display:inline-block}' +
       '.nav-dd-trigger{cursor:pointer;font:inherit;background:transparent;display:inline-flex;align-items:center;gap:6px}' +
       '.nav-dd-trigger .nav-dd-caret{font-size:9px;opacity:0.7;transition:transform .15s}' +

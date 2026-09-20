@@ -116,6 +116,27 @@
     .err-banner { padding: 14px 18px; background: rgba(124,31,31,0.06); border: 1px solid rgba(124,31,31,0.22); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; margin-bottom: 18px; }
     .auth-gate { display: flex; align-items: center; justify-content: center; min-height: 70vh; }
     .auth-gate .gate-msg { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 28px 32px; max-width: 380px; text-align: center; }
+  
+    /* ── Deploy 237.194 — phone layout (Mike) ──────────────────────
+       The page is a 1280px column of stat tiles and grid "tables" whose
+       columns are declared inline (24px 200px 1fr 1fr 200px). On a phone
+       those rows are what pushed the page sideways, so the rows become
+       stacked blocks and the tiles go two-up. */
+    @media (max-width: 760px) {
+      .page { margin: 16px auto; padding: 0 12px 60px; }
+      .stat-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 16px; }
+      h1 { font-size: 22px; }
+      h2 { font-size: 17px; }
+      /* the inline-styled grid rows: one line per field instead of five columns */
+      [style*="grid-template-columns:24px 200px 1fr 1fr 200px"],
+      [style*="grid-template-columns:24px 110px 1fr 90px 200px"] {
+        grid-template-columns: 1fr !important;
+        gap: 2px !important;
+        padding: 10px 12px !important;
+      }
+      .card, .panel, .box { padding: 14px 14px; }
+      .btn, button { min-height: 40px; }
+    }
   </style>
 </head>
 <body>
