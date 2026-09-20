@@ -122,7 +122,7 @@
       '.sla-notif-hdr .count{color:#7c1f1f}' +
       '.sla-notif-empty{padding:22px 14px;font-size:13px;color:#7a7488;text-align:center}' +
       // Deploy 237.197 -- the way through to the full history.
-      '.sla-notif-seeall{display:block;padding:10px 14px;text-align:center;font-size:12px;font-weight:600;color:#c8813a;text-decoration:none;border-top:1px solid #f0ece5}' +
+      '.sla-notif-seeall{display:block;padding:10px 14px;text-align:center;font-size:12px;font-weight:600;color:#c8813a;text-decoration:none;border-bottom:1px solid #f0ece5}' +
       '.sla-notif-seeall:hover{background:rgba(200,129,58,0.08)}' +
       '.sla-notif-item{padding:10px 14px;border-bottom:1px solid #f0ece5;display:flex;gap:10px;align-items:center;transition:background .1s}' +
       '.sla-notif-item:last-child{border-bottom:none}' +
@@ -460,7 +460,11 @@
     // Deploy 237.197 (Mike) -- "You get to it by clicking the bell and going to See
     // All Notifications". ALWAYS present, including when the bell is empty: an empty
     // bell is exactly when someone goes looking for what they have already read.
-    html += '<a href="/notifications.html" class="sla-notif-seeall">See all notifications \u2192</a>';
+    // Deploy 237.199 (Mike: "Lets add see all notifications to the top") -- PREPENDED,
+    // and it has to happen here rather than before the body is built: the empty-state
+    // branch above ASSIGNS html instead of appending, so a link written first would be
+    // wiped precisely when the bell is empty.
+    html = '<a href="/notifications.html" class="sla-notif-seeall">See all notifications \u2192</a>' + html;
 
     var drop = document.getElementById('slaNotifDrop');
     drop.innerHTML = html;
