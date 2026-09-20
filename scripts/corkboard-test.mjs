@@ -96,7 +96,7 @@ console.log('page wiring');
     (html.match(/class="wall-nail"/g) || []).length === 2 && !/pin-grip/.test(html));
   check('the cork, the pin holder and the phone fallback all exist',
     /id="cork"/.test(html) && /id="corkPins"/.test(html) && /id="boardList"/.test(html));
-  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237194/.test(html));
+  check('the board script is version-pinned to this deploy', /armory-board\.js\?v=237195/.test(html));
   check('the tab is Company & Team News', /Company &amp; Team News/.test(html));
   check('the board is booted with the caller, their admin flag and the roster',
     /CorkBoard\.init\(\{ user: _user, isAdmin: !!_state\.isAdmin, roster: _state\.roster \|\| \[\] \}\)/.test(html));
@@ -188,7 +188,7 @@ console.log('layout, decoration, seasons');
     /FREE_X0 = 20, FREE_X1 = 500, FREE_Y0 = 360/.test(js) &&
     /FREE_X0 = 20, FREE_X1 = 500, FREE_Y0 = 360/.test(shared2));
 
-  check('tape and arrows are their own kinds', /KINDS = \['note', 'photo', 'shoutout', 'tape', 'arrow'\]/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
+  check('tape and arrows are their own kinds', /KINDS = \['note', 'photo', 'video', 'shoutout', 'tape', 'arrow'\]/.test(readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8')));
   check('tape turns further than paper does', /indexOf\('pin-tape'\) >= 0 \|\| .*indexOf\('pin-arrow'\) >= 0\) \? 45 : 14/.test(js));
   check('decoration has no author line or reactions', /Tape and arrows are decoration/.test(js));
   check('the cork wears a season', /function seasonClass/.test(js) && /season-halloween/.test(html) && /season-winter/.test(html));
@@ -201,7 +201,7 @@ console.log('shout-outs');
   const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
   const js = readFileSync('deploy/armory-board.js', 'utf8');
   const html = readFileSync('deploy/armory.html', 'utf8');
-  check('shoutout is its own kind', /KINDS = \['note', 'photo', 'shoutout', 'tape', 'arrow'\]/.test(shared));
+  check('shoutout is its own kind', /KINDS = \['note', 'photo', 'video', 'shoutout', 'tape', 'arrow'\]/.test(shared));
   check('it must name someone and say what they did', /Say who the shout-out is for/.test(shared) && /Say what they did/.test(shared));
   check('the recipient is stored on the pin', /to:\s+x\.to \?/.test(shared));
   check('the person named is notified', /a shout-out for you/.test(shared));
@@ -264,6 +264,72 @@ console.log('mobile');
   }
   check('every page that pins sla-nav.js points at this deploy',
     !/sla-nav\.js\?v=(?!237194)/.test(readFileSync('deploy/armory.html', 'utf8')));
+}
+
+// ── Deploy 237.195 — video pins ───────────────────────────────────
+console.log('video (real behaviour)');
+{
+  const url = cb.signVideo('pin_vid');
+  const q = new URL('http://x' + url).searchParams;
+  check('a clip URL is signed and marked as video', q.get('k') === 'v' && !!q.get('s') && !!q.get('e'));
+  check('it verifies as a video', cb.verifyVideoSig('pin_vid', q.get('e'), q.get('s')));
+  check('a PHOTO signature cannot be replayed as a video one',
+    !cb.verifyVideoSig('pin_vid', ...(function () {
+      const u = new URL('http://x' + cb.signPhoto('pin_vid'));
+      return [u.searchParams.get('e'), u.searchParams.get('s')];
+    })()));
+  check('and a video signature is not accepted as a photo', !cb.verifyPhotoSig('pin_vid', q.get('e'), q.get('s')));
+  check('another id does not verify', !cb.verifyVideoSig('pin_other', q.get('e'), q.get('s')));
+  check('the 20-second cap is the shared constant', cb.VIDEO_MAX_SECONDS === 20);
+  check('video is a pin kind', cb.KINDS.indexOf('video') >= 0);
+  check('a video pin gets both a clip URL and its poster',
+    (function () {
+      const it = cb.withMediaUrls({ id: 'pin_vid', kind: 'video' });
+      return /k=v/.test(it.videoUrl) && !!it.photoUrl && !/k=v/.test(it.photoUrl);
+    })());
+}
+
+console.log('video plumbing');
+{
+  const shared = readFileSync('deploy/netlify/functions/_shared/corkboard.mjs', 'utf8');
+  const src = readFileSync('deploy/netlify/functions/armory-board.mjs', 'utf8');
+  const photo = readFileSync('deploy/netlify/functions/armory-photo.mjs', 'utf8');
+  const js = readFileSync('deploy/armory-board.js', 'utf8');
+  const html = readFileSync('deploy/armory.html', 'utf8');
+  const toml = readFileSync('deploy/netlify.toml', 'utf8');
+
+  check('chunks are namespaced by uploader (nobody assembles someone else\'s upload)',
+    /keySafeish\(ownerKey\) \+ '\/' \+ keySafeish\(uploadId\)/.test(shared));
+  check('a chunk has a size and count limit', /MAX_PART_BYTES/.test(shared) && /MAX_PARTS/.test(shared));
+  check('the assembled clip has a hard ceiling', /MAX_VIDEO_BYTES/.test(shared) && /too large even after trimming/.test(shared));
+  check('a missing piece fails loudly rather than storing half a clip', /A piece of that video did not arrive/.test(shared));
+  check('the scratch parts are cleared after assembly', /_parts\(\)\.delete\(_partKey/.test(shared));
+  check('the clip container is stored with the blob', /setJSON\(_str\(itemId, 60\), \{ b64: whole, type:/.test(shared));
+  check('unpinning a clip deletes the video too', /_videos\(\)\.delete\(key\)/.test(shared));
+  check('the endpoint takes chunks', /action === 'video-chunk'/.test(src) && /putVideoPart\(user\.email/.test(src));
+
+  check('the media endpoint answers Range requests (Safari will not play video otherwise)',
+    /Accept-Ranges/.test(photo) && /status: 206/.test(photo) && /Content-Range/.test(photo));
+  check('an out-of-range request gets a 416, not a broken body', /status: 416/.test(photo));
+  check('it serves the container the browser actually recorded', /media\.type \|\| 'video\/mp4'/.test(photo));
+  check('armory-photo has the long timeout for a 24MB read', /\[functions\.armory-photo\]\s*\n\s*timeout = 26/.test(toml));
+
+  check('the cap is enforced in the browser, before anything uploads',
+    /var VIDEO_MAX_SECONDS = 20;/.test(js) && /function trimClip/.test(js));
+  check('a short, small clip is uploaded untouched (no needless re-encode)',
+    /var needsTrim = dur > VIDEO_MAX_SECONDS \+ 0\.4 \|\| f\.size > VIDEO_ASIS_BYTES;/.test(js));
+  check('trimming stops at 20 seconds three ways: timeupdate, ended, and a backstop timer',
+    /v\.ontimeupdate = function \(\) \{ if \(v\.currentTime >= VIDEO_MAX_SECONDS\) stop\(\); \}/.test(js) &&
+    /v\.onended = stop;/.test(js) && /setTimeout\(stop, \(VIDEO_MAX_SECONDS \+ 1\.5\) \* 1000\)/.test(js));
+  check('a browser that cannot trim says so instead of failing silently',
+    /function canRecord/.test(js) && /This browser cannot trim video/.test(js));
+  check('dropped audio is disclosed, not hidden', /Audio will be dropped/.test(js) && /no sound/.test(js));
+  check('the clip uploads in 3MB slices', /var CHUNK_CHARS = 3 \* 1024 \* 1024;/.test(js) && /action: 'video-chunk'/.test(js));
+  check('a poster frame is captured so the board shows a still', /function grabPoster/.test(js) && /posterB64/.test(js));
+  check('clips do not download until played', /preload="none"/.test(js));
+  check('a clip\'s own controls do not start a drag', /e\.target\.closest\('video'\)/.test(js));
+  check('the button is on the bar and the script is pinned',
+    /CorkBoard\.newVideo\(\)/.test(html) && /armory-board\.js\?v=237195/.test(html));
 }
 
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed');

@@ -16,7 +16,7 @@
   <!-- Deploy 237.191 — the cork board (Dan's idea). Version-pinned: the news
        tab's markup and this script are a matched pair, so a cached copy would
        leave the house cards sitting unpositioned on top of each other. -->
-  <script src="armory-board.js?v=237194"></script>
+  <script src="armory-board.js?v=237195"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Cinzel+Decorative:wght@700;900&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
   <!-- Deploy 237.073 (Mike) — THE ARMORY, part 1: the team's fun corner.
        Deliberately styled unlike the rest of the portal (parchment, dark
@@ -335,6 +335,15 @@
     .pin-photo img { display: block; width: 100%; border-radius: 1px; background: #e8e2d4; }
     .pin-photo .cap { font-family: 'Bradley Hand', 'Segoe Print', 'DM Sans', cursive; font-size: 14px; color: #3a2e1c; text-align: center; padding: 7px 2px 2px; }
 
+    /* Deploy 237.195 — a clip sits in the same polaroid frame as a photo,
+       with a badge showing its length. preload=none means the poster frame
+       is all that loads until someone presses play. */
+    .pin-video .photo-frame { position: relative; }
+    .pin-video video { display: block; width: 100%; border-radius: 1px; background: #1a1520; }
+    .vid-badge { position: absolute; left: 16px; top: 16px; background: rgba(26,21,32,0.78); color: #ffe9bf;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 10px; pointer-events: none; }
+    .pin-video .cap { font-family: 'Bradley Hand', 'Segoe Print', 'DM Sans', cursive; font-size: 14px; color: #3a2e1c; text-align: center; padding: 7px 2px 2px; }
+
     .pin-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 10.5px; color: rgba(60,45,22,0.72); padding: 6px 2px 0; }
     .pin-meta .life.soon { color: #9a3a12; font-weight: 700; }
     /* The last two days on the wall: it yellows and starts to let go. */
@@ -642,6 +651,8 @@
             <!-- Deploy 237.193 (Mike) — "a shout out button where people can shout
                  out to other users for awesome things they've done." -->
             <button type="button" class="btn sm" onclick="CorkBoard.newShoutout()">🏅 Shout-out</button>
+            <!-- Deploy 237.195 (Mike) — clips, capped at the first 20 seconds. -->
+            <button type="button" class="btn sm" onclick="CorkBoard.newVideo()">🎬 Pin a video</button>
             <button type="button" class="btn ghost sm deco-only" onclick="CorkBoard.addTape('tape')" title="A strip of tape to decorate with">🎀 Tape</button>
             <button type="button" class="btn ghost sm deco-only" onclick="CorkBoard.addTape('arrow')" title="An arrow to point at something">➡ Arrow</button>
           </div>

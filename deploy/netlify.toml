@@ -2554,6 +2554,10 @@
 # store is cold.
 [functions.armory-board]
   timeout = 26
+# Deploy 237.195 — armory-photo also serves cork-board clips: it reads up to
+# ~24MB of base64 out of the blob store and slices it for a Range request.
+[functions.armory-photo]
+  timeout = 26
 # Deploy 237.135 -- the Financial Audit ledger reads every loan + the Sitewire cache.
 # Deploy 237.184 -- the one-pager embeds a logo and builds a QR; the FIRST hit
 # after a deploy cold-starts pdf-lib + qrcode and measured 14s, which blew the

@@ -40,6 +40,12 @@ import { pushUserNotification } from './user-notifications.mjs';
 
 const STORE = 'armory';
 const PHOTO_STORE = 'armory-board-photos';
+// Deploy 237.195 (Mike: "Build just the upload and cap videos at the first 20
+// seconds just to keep it safe.") A clip is assembled from 3MB chunks — a
+// Netlify function body tops out around 4MB, the same reason the document
+// vault uploads in slices — and then lives as BASE64 TEXT like the photos.
+const VIDEO_STORE = 'armory-board-videos';
+const VIDEO_PART_STORE = 'armory-board-video-parts';
 
 // Two weeks is the default life of a pin (Mike). Anything longer is a
 // deliberate choice by whoever pinned it — a birthday card should outlive the
@@ -63,7 +69,7 @@ export function isSystemId(id) { return SYSTEM_IDS.indexOf(String(id || '')) >= 
 // note / photo / shoutout are what people pin; tape and arrow are decoration
 // (Mike: "add all of those ideas") — no text, just something to point with or
 // hold a corner down.
-export const KINDS = ['note', 'photo', 'shoutout', 'tape', 'arrow'];
+export const KINDS = ['note', 'photo', 'video', 'shoutout', 'tape', 'arrow'];
 const MAX_ITEMS = 160;                      // a cork board, not a photo library
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024;    // ~3MB of base64 after the client downscales
 const REACTIONS = ['👍', '🔥', '😂', '🎉', '❤️'];
@@ -80,6 +86,8 @@ const BELOW_Y = 700;
 
 function _store()  { return getStore({ name: STORE, consistency: 'strong' }); }
 function _photos() { return getStore({ name: PHOTO_STORE, consistency: 'strong' }); }
+function _videos() { return getStore({ name: VIDEO_STORE, consistency: 'strong' }); }
+function _parts()  { return getStore({ name: VIDEO_PART_STORE, consistency: 'strong' }); }
 
 function _str(v, n) { return String(v == null ? '' : v).trim().slice(0, n); }
 function _num(v, min, max, dflt) {
@@ -119,6 +127,27 @@ export function verifyPhotoSig(id, exp, sig) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// Deploy 237.195 — the same trick for a clip, under its own HMAC prefix so a
+// photo URL can never be replayed as a video one (and the existing photo
+// signatures keep working untouched).
+export function signVideo(id, expMs) {
+  const s = _secret();
+  if (!s) return '';
+  const exp = expMs || (Date.now() + PHOTO_URL_DAYS * 86400000);
+  const sig = createHmac('sha256', s).update('board-video:' + id + ':' + exp).digest('hex').slice(0, 32);
+  return '/api/armory-photo?id=' + encodeURIComponent(id) + '&k=v&e=' + exp + '&s=' + sig;
+}
+export function verifyVideoSig(id, exp, sig) {
+  const s = _secret();
+  if (!s) return false;
+  const e = Number(exp);
+  if (!isFinite(e) || e < Date.now()) return false;
+  const want = createHmac('sha256', s).update('board-video:' + id + ':' + e).digest('hex').slice(0, 32);
+  const a = Buffer.from(String(sig || ''));
+  const b = Buffer.from(want);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 // ── Item shape ────────────────────────────────────────────────────
 function _clean(raw) {
   const x = raw || {};
@@ -151,6 +180,8 @@ function _clean(raw) {
     expiresAt: _str(x.expiresAt, 40),
     reactions: {},
     photo:     x.photo ? { w: _num(x.photo.w, 1, 8000, 800), h: _num(x.photo.h, 1, 8000, 600), type: _str(x.photo.type, 40) || 'image/jpeg' } : null,
+    // 237.195 - a clip: its own meta, and a poster frame kept in the PHOTO store under the same id.
+    video:     x.video ? { w: _num(x.video.w, 1, 8000, 640), h: _num(x.video.h, 1, 8000, 360), dur: _num(x.video.dur, 0, 3600, 0), type: _str(x.video.type, 60) || 'video/mp4', trimmed: !!x.video.trimmed } : null,
     // 237.192 — pinned by the platform rather than a person (a big closing,
     // a birthday). Printed rather than handwritten on the board.
     auto:      x.auto ? { kind: _str(x.auto.kind, 30), icon: _str(x.auto.icon, 8), title: _str(x.auto.title, 160) } : null,
@@ -227,7 +258,17 @@ export async function listBoard() {
     await Promise.all(dead.map((it) => removeItem(it.id).catch(() => null)));
   }
   live.sort((a, b) => (a.z - b.z) || String(a.createdAt).localeCompare(String(b.createdAt)));
-  return live.map((it) => (it.kind === 'photo' ? Object.assign({}, it, { photoUrl: signPhoto(it.id) }) : it));
+  return live.map(withMediaUrls);
+}
+
+/** A pin as the page needs it: signed URLs for whatever media it carries. */
+export function withMediaUrls(it) {
+  if (!it) return it;
+  if (it.kind === 'photo') return Object.assign({}, it, { photoUrl: signPhoto(it.id) });
+  // A clip's poster frame lives in the photo store under the same id, so the
+  // board can show a still without pulling megabytes of video.
+  if (it.kind === 'video') return Object.assign({}, it, { videoUrl: signVideo(it.id), photoUrl: signPhoto(it.id) });
+  return it;
 }
 
 export async function getItem(id) {
@@ -318,6 +359,16 @@ export async function createItem(user, body, photoBase64, roster) {
     if (!b64) throw new Error('No photo received');
     if (b64.length > MAX_PHOTO_BYTES) throw new Error('That photo is too large even after resizing — try a smaller one.');
     await _photos().set(id, b64);          // BASE64 TEXT, never a Buffer
+  } else if (kind === 'video') {
+    // 237.195 — the clip arrived in slices; stitch them under this pin's id.
+    // The poster frame came up with the pin itself (it is small) and is kept
+    // in the PHOTO store, so the board can show a still without downloading
+    // the video.
+    const ownerKey = normalizeEmail(user.email);
+    await assembleVideo(ownerKey, _str(body && body.uploadId, 60), id, body && body.parts,
+      body && body.video && body.video.type);
+    const poster = String((body && body.posterB64) || '');
+    if (poster && poster.length <= MAX_PHOTO_BYTES) await _photos().set(id, poster);
   } else if (kind === 'note' && !_str(body && body.text, 1200)) {
     throw new Error('Write something on the note first');
   } else if (kind === 'shoutout') {
@@ -336,6 +387,7 @@ export async function createItem(user, body, photoBase64, roster) {
     w: body && body.w, rot: body && body.rot, z: body && body.z,
     keep: body && body.keep,
     photo: body && body.photo,
+    video: body && body.video,
     mentions: kind === 'note' ? findMentions(body && body.text, roster) : [],
     to: kind === 'shoutout' ? { email: body && body.toEmail, name: body && body.toName } : null,
   });
@@ -356,7 +408,7 @@ export async function createItem(user, body, photoBase64, roster) {
   await touchPulse('board', kind === 'shoutout'
     ? (item.author.name || 'Someone') + ' gave ' + ((item.to && item.to.name) || 'someone') + ' a shout-out'
     : (item.author.name || 'Someone') + ' pinned something to the cork board');
-  return item;
+  return withMediaUrls(item);
 }
 
 /**
@@ -426,6 +478,7 @@ export async function removeItem(id) {
   const key = _str(id, 60);
   await _store().delete('board/' + key).catch(() => null);
   await _photos().delete(key).catch(() => null);
+  await _videos().delete(key).catch(() => null);      // 237.195
 }
 
 /** Take a pin down — author or admin; an auto-pin is admin-only and stays down. */
@@ -447,6 +500,63 @@ export async function deleteItem(user, id, isAdminUser) {
 /** The raw base64 for one photo (armory-photo.mjs serves it). */
 export async function readPhoto(id) {
   return _photos().get(_str(id, 60), { type: 'text' }).catch(() => null);
+}
+
+// ── Video (Deploy 237.195) ────────────────────────────────────────
+// Mike: "Build just the upload and cap videos at the first 20 seconds just to
+// keep it safe." The browser does the capping — it re-encodes the first 20
+// seconds before anything leaves the phone — so what arrives here is already
+// small. It still arrives in slices, because a function body cannot take much
+// more than 4MB in one go.
+export const VIDEO_MAX_SECONDS = 20;
+const MAX_VIDEO_BYTES = 24 * 1024 * 1024;   // assembled base64, ~18MB of actual video
+const MAX_PART_BYTES  = 3.2 * 1024 * 1024;
+const MAX_PARTS = 24;
+
+function _partKey(ownerKey, uploadId, index) {
+  // Namespaced by uploader: one person's half-finished upload can never be
+  // assembled into somebody else's pin.
+  return keySafeish(ownerKey) + '/' + keySafeish(uploadId) + '/' + String(index).padStart(3, '0');
+}
+function keySafeish(v) { return String(v || '').replace(/[^A-Za-z0-9._@-]/g, '_').slice(0, 80); }
+
+/** One slice of a clip, on its way up. */
+export async function putVideoPart(ownerKey, uploadId, index, total, b64) {
+  const i = Number(index);
+  const n = Number(total);
+  if (!(i >= 0) || !(n > 0) || n > MAX_PARTS || i >= n) throw new Error('Bad chunk');
+  const text = String(b64 || '');
+  if (!text) throw new Error('Empty chunk');
+  if (text.length > MAX_PART_BYTES) throw new Error('Chunk too large');
+  await _parts().set(_partKey(ownerKey, uploadId, i), text);
+  return { index: i, of: n };
+}
+
+/** Join the slices into one blob under the pin's id, and clear the scratch. */
+async function assembleVideo(ownerKey, uploadId, itemId, total, type) {
+  const n = Number(total) || 0;
+  if (!(n > 0) || n > MAX_PARTS) throw new Error('That upload did not finish — try again');
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const text = await _parts().get(_partKey(ownerKey, uploadId, i), { type: 'text' }).catch(() => null);
+    if (!text) throw new Error('A piece of that video did not arrive — try again');
+    parts.push(text);
+  }
+  const whole = parts.join('');
+  if (whole.length > MAX_VIDEO_BYTES) throw new Error('That clip is too large even after trimming — try a shorter one.');
+  // The container differs by browser (Chrome records webm, Safari mp4), so
+  // the type rides with the blob and armory-photo serves exactly that.
+  await _videos().setJSON(_str(itemId, 60), { b64: whole, type: _str(type, 60) || 'video/mp4' });
+  // Best effort: the scratch parts are no longer needed.
+  await Promise.all(parts.map((_, i) => _parts().delete(_partKey(ownerKey, uploadId, i)).catch(() => null)));
+  return whole.length;
+}
+
+/** One clip: { b64, type } (armory-photo.mjs serves it, with Range). */
+export async function readVideo(id) {
+  const doc = await _videos().get(_str(id, 60), { type: 'json' }).catch(() => null);
+  if (!doc || !doc.b64) return null;
+  return { b64: doc.b64, type: String(doc.type || 'video/mp4') };
 }
 
 // ── Auto-pins (237.192, Mike: "add all of those ideas") ───────────

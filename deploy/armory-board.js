@@ -219,7 +219,7 @@
   function toolsHtml(item) {
     if (!canEdit(item)) return '';
     var out = '<div class="pin-tools">';
-    if (item.kind === 'note' || item.kind === 'photo') {
+    if (item.kind === 'note' || item.kind === 'photo' || item.kind === 'video' || item.kind === 'shoutout') {
       out += '<button type="button" title="Edit" onclick="CorkBoard.edit(\'' + esc(item.id) + '\')">✎</button>';
       out += '<button type="button" title="Keep it up longer" onclick="CorkBoard.keep(\'' + esc(item.id) + '\')">⏳</button>';
     }
@@ -279,6 +279,14 @@
         '<div class="so-body">' + esc(item.text).replace(/\n/g, '<br>') + '</div>' +
         '<div class="so-from">— ' + esc((item.author && item.author.name) || '') + '</div>' +
         '<span class="so-seal">★</span>';
+    } else if (item.kind === 'video') {
+      // preload=none on purpose: a wall of clips must not pull megabytes
+      // on load, least of all on a phone. The poster frame carries the look.
+      body = '<div class="photo-frame video-frame">' +
+        '<video src="' + esc(item.videoUrl || '') + '" poster="' + esc(item.photoUrl || '') + '"' +
+        ' preload="none" controls playsinline' + (item.video && item.video.dur ? ' title="' + Math.round(item.video.dur) + ' seconds"' : '') + '></video>' +
+        '<span class="vid-badge">▶ ' + (item.video && item.video.dur ? Math.round(item.video.dur) + 's' : 'video') + '</span>' +
+        (item.caption ? '<div class="cap">' + esc(item.caption) + '</div>' : '') + '</div>';
     } else if (item.kind === 'photo') {
       body = '<div class="photo-frame"><img src="' + esc(item.photoUrl || '') + '" alt="' + esc(item.caption || 'pinned photo') + '" draggable="false" />' +
         (item.caption ? '<div class="cap">' + esc(item.caption) + '</div>' : '') + '</div>';
@@ -325,6 +333,9 @@
           '<div class="so-rule"></div>' +
           '<div class="so-body">' + esc(it.text).replace(/\n/g, '<br>') + '</div>' +
           '<div class="so-from">— ' + esc((it.author && it.author.name) || '') + '</div>';
+      } else if (it.kind === 'video') {
+        body = '<video src="' + esc(it.videoUrl || '') + '" poster="' + esc(it.photoUrl || '') + '" preload="none" controls playsinline style="width:100%;border-radius:8px"></video>' +
+          (it.caption ? '<div class="cap">' + esc(it.caption) + '</div>' : '');
       } else if (it.kind === 'photo') {
         body = '<img src="' + esc(it.photoUrl || '') + '" alt="" style="width:100%;border-radius:8px" />' +
           (it.caption ? '<div class="cap">' + esc(it.caption) + '</div>' : '');
@@ -379,7 +390,8 @@
     if (!node) return;
     // The posters are fixed to the frame (237.192) — nothing to grab.
     if (node.className.indexOf('poster') >= 0) return;
-    if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('select') || e.target.closest('textarea')) return;
+    // A clip's own controls must work; drag a video pin by its frame or caption.
+    if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('select') || e.target.closest('textarea') || e.target.closest('video')) return;
 
     var id = node.getAttribute('data-id');
     var g = itemById(id);
@@ -658,6 +670,254 @@
     });
   }
 
+  // ── Video (Deploy 237.195) ──────────────────────────────────────
+  // Mike: "Build just the upload and cap videos at the first 20 seconds just
+  // to keep it safe." The cap is enforced HERE, before anything leaves the
+  // device: a clip longer than 20s (or simply too big) is played back muted
+  // into a MediaRecorder for 20 seconds and re-encoded small. A short, small
+  // clip is uploaded untouched, which keeps the quality.
+  var VIDEO_MAX_SECONDS = 20;
+  var VIDEO_ASIS_BYTES = 8 * 1024 * 1024;     // under this, upload as it is
+  var VIDEO_HARD_BYTES = 17 * 1024 * 1024;    // ~24MB once base64 inflates it
+  var CHUNK_CHARS = 3 * 1024 * 1024;          // base64 characters per request
+  var _clip = null;
+
+  function newVideo() {
+    _clip = null;
+    openModal(
+      '<h3>🎬 Pin a video</h3>' +
+      '<div class="bm-note">Clips are capped at the first <b>' + VIDEO_MAX_SECONDS + ' seconds</b>. ' +
+      'Anything longer is trimmed here on your device before it uploads.</div>' +
+      '<input type="file" id="bmFile" accept="video/*" class="bm-input" onchange="CorkBoard.pickVideo(this)" />' +
+      '<div id="bmPreview" class="bm-preview"></div>' +
+      '<label class="bm-label">Caption (optional)</label>' +
+      '<input type="text" id="bmCap" class="bm-input" maxlength="120" placeholder="Written under the clip" />' +
+      '<label class="bm-label">Keep it up for</label>' + keepSelect('2w', 'bmKeep') +
+      '<div class="bm-actions"><button type="button" class="btn ghost sm" onclick="CorkBoard.close()">Cancel</button>' +
+      '<button type="button" class="btn sm" id="bmGo" onclick="CorkBoard.saveVideo(this)" disabled>Pin it</button></div>');
+  }
+
+  function vidNote(html, isErr) {
+    var box = byId('bmPreview');
+    if (box) box.innerHTML = '<div class="bm-wait' + (isErr ? ' err' : '') + '">' + html + '</div>';
+  }
+
+  function pickVideo(input) {
+    var f = input.files && input.files[0];
+    _clip = null;
+    byId('bmGo').disabled = true;
+    if (!f) return;
+    vidNote('Reading the clip…');
+    var url = URL.createObjectURL(f);
+    var v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    v.playsInline = true;
+    v.onerror = function () {
+      URL.revokeObjectURL(url);
+      vidNote('That file would not open. Try an MP4 or MOV straight from your phone.', true);
+    };
+    v.onloadedmetadata = function () {
+      var dur = Number(v.duration) || 0;
+      var meta = { w: v.videoWidth || 640, h: v.videoHeight || 360, dur: Math.min(dur, VIDEO_MAX_SECONDS) };
+      var needsTrim = dur > VIDEO_MAX_SECONDS + 0.4 || f.size > VIDEO_ASIS_BYTES;
+      if (!needsTrim) {
+        grabPoster(v, function (poster) {
+          _clip = { blob: f, type: f.type || 'video/mp4', poster: poster, meta: meta, trimmed: false };
+          URL.revokeObjectURL(url);
+          showClipReady(f.size, dur, false);
+        });
+        return;
+      }
+      if (!canRecord()) {
+        URL.revokeObjectURL(url);
+        if (dur <= VIDEO_MAX_SECONDS + 0.4 && f.size <= VIDEO_HARD_BYTES) {
+          grabPoster(v, function (poster) {
+            _clip = { blob: f, type: f.type || 'video/mp4', poster: poster, meta: meta, trimmed: false };
+            showClipReady(f.size, dur, false);
+          });
+          return;
+        }
+        vidNote('This browser cannot trim video. Please upload a clip under ' + VIDEO_MAX_SECONDS + ' seconds.', true);
+        return;
+      }
+      trimClip(v, f, function (err, out) {
+        URL.revokeObjectURL(url);
+        if (err) { vidNote(err.message, true); return; }
+        _clip = out;
+        showClipReady(out.blob.size, Math.min(dur, VIDEO_MAX_SECONDS), true);
+      });
+    };
+    v.src = url;
+  }
+
+  function canRecord() {
+    return !!(window.MediaRecorder && (HTMLMediaElement.prototype.captureStream ||
+      HTMLMediaElement.prototype.mozCaptureStream || HTMLCanvasElement.prototype.captureStream));
+  }
+
+  function showClipReady(bytes, dur, trimmed) {
+    var mb = (bytes / 1048576).toFixed(1);
+    byId('bmPreview').innerHTML =
+      (_clip && _clip.poster ? '<img src="' + _clip.poster + '" alt="first frame" />' : '') +
+      '<div class="bm-wait">' + (trimmed ? 'Trimmed to the first ' + VIDEO_MAX_SECONDS + ' seconds · ' : Math.round(dur) + 's · ') +
+      mb + ' MB' + (_clip && _clip.silent ? ' · <b>no sound</b> (this browser drops audio when trimming)' : '') + '</div>';
+    byId('bmGo').disabled = false;
+  }
+
+  /** The frame ~half a second in, as the still the board shows. */
+  function grabPoster(v, cb) {
+    var done = false;
+    var finish = function (data) { if (!done) { done = true; cb(data); } };
+    var draw = function () {
+      try {
+        var c = document.createElement('canvas');
+        var scale = Math.min(1, 640 / Math.max(v.videoWidth || 640, 1));
+        c.width = Math.max(1, Math.round((v.videoWidth || 640) * scale));
+        c.height = Math.max(1, Math.round((v.videoHeight || 360) * scale));
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        finish(c.toDataURL('image/jpeg', 0.75));
+      } catch (e) { finish(''); }
+    };
+    v.onseeked = draw;
+    try { v.currentTime = Math.min(0.5, (Number(v.duration) || 1) / 2); }
+    catch (e) { finish(''); }
+    setTimeout(function () { finish(''); }, 4000);     // never hang the dialog
+  }
+
+  /**
+   * Play the first 20 seconds into a MediaRecorder. Real time, so there is a
+   * countdown; the alternative (a WASM transcoder) is megabytes of download
+   * for a cork board. captureStream on the video element keeps the audio;
+   * where that is missing (Safari) we fall back to the canvas, which is
+   * silent — and the dialog says so rather than quietly dropping the sound.
+   */
+  function trimClip(v, file, cb) {
+    var stream = null, silent = false, canvas = null, raf = 0;
+    try {
+      if (v.captureStream) stream = v.captureStream();
+      else if (v.mozCaptureStream) stream = v.mozCaptureStream();
+    } catch (e) { stream = null; }
+    if (!stream) {
+      canvas = document.createElement('canvas');
+      var scale = Math.min(1, 854 / Math.max(v.videoWidth || 854, 1));
+      canvas.width = Math.max(2, Math.round((v.videoWidth || 854) * scale));
+      canvas.height = Math.max(2, Math.round((v.videoHeight || 480) * scale));
+      var ctx = canvas.getContext('2d');
+      var pump = function () {
+        try { ctx.drawImage(v, 0, 0, canvas.width, canvas.height); } catch (e) {}
+        raf = window.requestAnimationFrame(pump);
+      };
+      pump();
+      stream = canvas.captureStream(24);
+      silent = true;
+    }
+    var mime = '';
+    var tries = ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    for (var i = 0; i < tries.length; i++) {
+      if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(tries[i])) { mime = tries[i]; break; }
+    }
+    var rec;
+    try {
+      rec = new window.MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 1500000 } : { videoBitsPerSecond: 1500000 });
+    } catch (e) { cb(new Error('This browser cannot trim video. Please upload a clip under ' + VIDEO_MAX_SECONDS + ' seconds.')); return; }
+
+    var chunks = [];
+    var stopped = false;
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = function () {
+      if (raf) window.cancelAnimationFrame(raf);
+      try { v.pause(); } catch (e) {}
+      var blob = new Blob(chunks, { type: rec.mimeType || mime || 'video/webm' });
+      if (!blob.size) { cb(new Error('Nothing was recorded — try a different clip.')); return; }
+      if (blob.size > VIDEO_HARD_BYTES) { cb(new Error('That clip is still too big after trimming. Try a shorter one.')); return; }
+      grabPoster(v, function (poster) {
+        cb(null, {
+          blob: blob, type: blob.type, poster: poster, silent: silent, trimmed: true,
+          meta: { w: canvas ? canvas.width : (v.videoWidth || 640), h: canvas ? canvas.height : (v.videoHeight || 360), dur: VIDEO_MAX_SECONDS },
+        });
+      });
+    };
+
+    var t0 = Date.now();
+    var tick = setInterval(function () {
+      var left = Math.max(0, VIDEO_MAX_SECONDS - Math.round((Date.now() - t0) / 1000));
+      vidNote('Trimming to the first ' + VIDEO_MAX_SECONDS + ' seconds… ' + left + 's left' +
+        (silent ? '<br><b>Audio will be dropped</b> — this browser cannot keep it.' : ''));
+      if (left <= 0) clearInterval(tick);
+    }, 400);
+
+    var stop = function () {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(tick);
+      try { rec.stop(); } catch (e) {}
+    };
+    v.muted = true;
+    v.currentTime = 0;
+    v.onended = stop;
+    v.ontimeupdate = function () { if (v.currentTime >= VIDEO_MAX_SECONDS) stop(); };
+    var p = v.play();
+    if (p && p.catch) p.catch(function () { cb(new Error('The browser would not play the clip to trim it.')); });
+    rec.start(250);
+    setTimeout(stop, (VIDEO_MAX_SECONDS + 1.5) * 1000);   // backstop
+  }
+
+  /** base64 of a Blob, without the data: prefix. */
+  function blobToB64(blob, cb) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      var s = String(fr.result || '');
+      var at = s.indexOf(',');
+      cb(null, at >= 0 ? s.slice(at + 1) : s);
+    };
+    fr.onerror = function () { cb(new Error('Could not read the clip')); };
+    fr.readAsDataURL(blob);
+  }
+
+  function saveVideo(btn) {
+    if (!_clip) { toast('Choose a clip first'); return; }
+    btn.disabled = true; btn.textContent = 'Reading…';
+    blobToB64(_clip.blob, function (err, b64) {
+      if (err) { btn.disabled = false; btn.textContent = 'Pin it'; toast('⚠ ' + err.message); return; }
+      // Up in slices: a function body cannot take much more than 4MB.
+      var uploadId = 'up_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      var parts = Math.ceil(b64.length / CHUNK_CHARS);
+      var i = 0;
+      var next = function () {
+        if (i >= parts) return finish();
+        btn.textContent = 'Uploading ' + (i + 1) + '/' + parts + '…';
+        api({ action: 'video-chunk', uploadId: uploadId, index: i, parts: parts, b64: b64.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS) })
+          .then(function () { i++; next(); })
+          .catch(function (e) {
+            btn.disabled = false; btn.textContent = 'Pin it';
+            toast('⚠ Upload failed: ' + ((e && e.message) || 'unknown'));
+          });
+      };
+      var finish = function () {
+        btn.textContent = 'Pinning…';
+        var spot = freeSpot();
+        api({
+          action: 'pin', kind: 'video', uploadId: uploadId, parts: parts,
+          posterB64: String(_clip.poster || '').replace(/^data:image\/[a-z]+;base64,/, ''),
+          video: { w: _clip.meta.w, h: _clip.meta.h, dur: _clip.meta.dur, type: _clip.type, trimmed: !!_clip.trimmed },
+          caption: byId('bmCap').value, keep: byId('bmKeep').value,
+          x: spot.x, y: spot.y, w: 280, rot: randomTilt(), z: maxZ() + 1,
+        }).then(function (r) {
+          closeModal();
+          _clip = null;
+          _items.push(r.item);
+          render();
+          scrollToPin(r.item.id);
+        }).catch(function (e) {
+          btn.disabled = false; btn.textContent = 'Pin it';
+          toast('⚠ ' + ((e && e.message) || 'unknown'));
+        });
+      };
+      next();
+    });
+  }
+
   /** Decoration: a strip of washi tape, or an arrow to point at something. */
   function addTape(which) {
     var spot = freeSpot();
@@ -716,7 +976,7 @@
     _color = item.color || 'yellow';
     openModal(
       '<h3>✎ Edit</h3>' +
-      (item.kind === 'photo'
+      (item.kind === 'photo' || item.kind === 'video'
         ? '<label class="bm-label">Caption</label><input type="text" id="bmCap" class="bm-input" maxlength="120" value="' + esc(item.caption || '') + '" />'
         : '<textarea id="bmText" class="bm-input" rows="5">' + esc(item.text || '') + '</textarea>' +
           '<label class="bm-label">Colour</label>' + colorRow(item.color || 'yellow')) +
@@ -835,6 +1095,7 @@
     init: init, reload: load, render: render,
     newNote: newNote, newPhoto: newPhoto, preview: preview, addTape: addTape,
     newShoutout: newShoutout, saveShoutout: saveShoutout,
+    newVideo: newVideo, pickVideo: pickVideo, saveVideo: saveVideo,
     saveNote: saveNote, savePhoto: savePhoto, pickColor: pickColor,
     edit: edit, saveEdit: saveEdit, keep: keep, saveKeep: saveKeep,
     unpin: unpin, react: react, showArchive: showArchive, close: closeModal,

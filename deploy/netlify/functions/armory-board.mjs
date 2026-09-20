@@ -5,10 +5,12 @@
  * Team members only, same gate as the rest of the Armory.
  * 237.192 — auto-pins, @mentions, the monthly archive.
  * 237.193 — shout-outs; deed cards retired.
+ * 237.195 — video pins, uploaded in chunks.
  *
  * Body: { action, ... }
  *   list                                  → { items, archives }
- *   pin    { kind:'note'|'photo'|'shoutout'|'tape'|'arrow', ... }   → { item }
+ *   pin    { kind:'note'|'photo'|'video'|'shoutout'|'tape'|'arrow', ... } → { item }
+ *   video-chunk { uploadId, index, parts, b64 }          → { part }
  *   move   { id, x, y, w, rot, z }        → { item }   anyone may tidy
  *   edit   { id, text|caption|color|keep }→ { item }   author or admin
  *   react  { id, emoji }                  → { item }
@@ -23,8 +25,8 @@ import { isTeamMember, displayNameFor } from './_shared/armory.mjs';
 import { listBells } from './_shared/closing-bell.mjs';
 import { loadTeamProfiles, celebrationsOn, todayPacific } from './_shared/team-events.mjs';
 import {
-  listBoard, createItem, moveItem, editItem, reactToItem, deleteItem, signPhoto,
-  syncAutoPins, ensureMonthlyArchive, listArchiveMonths, getArchive,
+  listBoard, createItem, moveItem, editItem, reactToItem, deleteItem, withMediaUrls,
+  syncAutoPins, ensureMonthlyArchive, listArchiveMonths, getArchive, putVideoPart,
 } from './_shared/corkboard.mjs';
 
 /** The roster, for resolving @names. Cheap: team-events already caches profiles. */
@@ -95,7 +97,15 @@ export default async (req, context) => {
         b64,
         (body.kind === 'note' || body.kind === 'shoutout') ? await roster() : [],
       );
-      return json(200, { ok: true, item: item.kind === 'photo' ? Object.assign({}, item, { photoUrl: signPhoto(item.id) }) : item });
+      return json(200, { ok: true, item: withMediaUrls(item) });
+    }
+
+    // 237.195 — one slice of a clip on its way up. The browser has already
+    // trimmed it to the first 20 seconds and re-encoded it; this just carries
+    // the bytes in pieces a function body can accept.
+    if (action === 'video-chunk') {
+      const r = await putVideoPart(user.email, body.uploadId, body.index, body.parts, body.b64);
+      return json(200, { ok: true, part: r });
     }
 
     if (action === 'move')  return json(200, { ok: true, item: await moveItem(user, body) });
@@ -108,7 +118,7 @@ export default async (req, context) => {
     const msg = (e && e.message) || 'unknown';
     console.error('armory-board error:', msg);
     // The thrown messages above are written for the person reading them.
-    return json(/required|full|too large|Only the person|no longer|fixed to the frame|posted by the Armory|did not look|Write something|Say who|Say what/i.test(msg) ? 400 : 500,
+    return json(/required|full|too large|Only the person|no longer|fixed to the frame|posted by the Armory|did not look|Write something|Say who|Say what|Bad chunk|Empty chunk|Chunk too large|did not finish|did not arrive|too large even after trimming/i.test(msg) ? 400 : 500,
       { error: msg });
   }
 };
