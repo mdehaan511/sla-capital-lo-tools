@@ -229,6 +229,7 @@ function _loanRowToApi(l, summary) {
       out.formData = {
         _finalRate: l.form_data._finalRate,
         propType:   l.form_data.propType,
+        _points:    l.form_data._points,   // Deploy 237.215 — see clients-list.mjs
       };
     }
     // Deploy 236.404 (C3): broker attribution fields ride in extra —

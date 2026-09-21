@@ -70,10 +70,35 @@ ok(!/buy-down/.test(plain.marginParts), 'sizer: no buy-down, no note');
   ok(C.buydownOf(null) === 0 && C.compPoints(null) === 0, 'null loan is safe');
 }
 
-// ── 3. The field has to REACH the commission page ───────────────────────────
+// ── 2b. loan.points is NOT always the sizer's total (found on the live book) ─
+// Three closed June loans carry a 1.00 buy-down. One still holds the sizer's
+// total (2.00); two were rewritten by the Baseline enrich to ORIGINATION ONLY
+// (1) while the sizer snapshot formData._points still says 2.00. Taking the
+// buy-down off those two would remove it twice and under-pay.
+{
+  const davisville = { toolType: 'dscr', points: '2.00 pts', buydown: '1.00', tpoSpread: '1', formData: { _points: '2.00 pts' } };
+  const updike = { toolType: 'dscr', points: 1, buydown: '1.00', tpoSpread: '1', formData: { _points: '2.00 pts' } };
+  ok(C.compPoints(davisville) === 1, 'real loan, points still the sizer total (2.00): buy-down comes off → 1.00');
+  ok(C.buydownExcluded(davisville) === 1 && /1\.00 buy-down pts excluded/.test(C.marginOf(davisville).parts), '…and the breakdown says so');
+  ok(C.compPoints(updike) === 1, 'real loan, points already rewritten to origination only (1): NOT taken off twice');
+  ok(C.buydownExcluded(updike) === 0 && !/buy-down/.test(C.marginOf(updike).parts), '…and the breakdown claims no exclusion it did not make');
+  ok(r2(C.marginOf(davisville).margin) === r2(C.marginOf(updike).margin), 'both shapes of the same deal land on the same margin');
+
+  // No snapshot at all (older / imported records): fall back to the default shape.
+  ok(C.compPoints({ toolType: 'dscr', points: 2, buydown: '1.00' }) === 1, 'no snapshot, 2.00 with a 1.00 buy-down: has the total shape → 1.00');
+  ok(C.compPoints({ toolType: 'dscr', points: 1, buydown: '1.00' }) === 1, 'no snapshot, 1.00 with a 1.00 buy-down: already net → stays 1.00');
+  // An LO's override BELOW the default total is still the total when the snapshot agrees.
+  ok(C.compPoints({ toolType: 'dscr', points: '1.50', buydown: '1.00', formData: { _points: '1.50' } }) === 0.5, 'override total 1.50 with a 1.00 buy-down (snapshot agrees) → 0.50');
+  // The live sizer box always passes the total, whatever its shape.
+  ok(C.compPoints({ toolType: 'dscr', points: 1.5, buydown: 1 }, { pointsAreTotal: true }) === 0.5, 'sizer box: pointsAreTotal forces the subtraction');
+  ok(S.rowFrom({ tool: 'dscr', amount: 1, ratePct: 7, basePct: 7, tpoSpread: 1, points: 1.5, buydown: 1 }).points === 0.5, 'sizer box: a discounted 1.50 total with a 1.00 buy-down = 0.50 comp points');
+}
+
+// ── 3. The fields have to REACH the commission page ─────────────────────────
 for (const f of ['clients-list.mjs', 'clients-list-pg.mjs']) {
   const src = fs.readFileSync(path.join(ROOT, 'deploy/netlify/functions', f), 'utf8');
   ok(/'buydown'/.test(src), f + ' projects loan.buydown into the summary the commission page reads');
+  ok(/_points:\s+l\.form_?[dD]ata\._points/.test(src), f + ' carries the sizer points snapshot in the trimmed formData');
 }
 
 console.log(pass + ' checks passed' + (fails.length ? ', ' + fails.length + ' FAILED' : ''));

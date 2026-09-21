@@ -305,6 +305,9 @@ function projectLoan(l) {
     out.formData = {
       _finalRate: l.formData._finalRate,
       propType:   l.formData.propType,
+      // Deploy 237.215 — the sizer's own TOTAL points. lo-comp.js compares it to
+      // loan.points to tell whether the buy-down is still inside them.
+      _points:    l.formData._points,
     };
   }
   return out;

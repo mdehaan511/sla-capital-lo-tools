@@ -75,7 +75,7 @@
     // off through the same rule the closed book uses (lo-comp.js compPoints).
     var buydown = (tool === 'DSCR') ? Math.max(0, num(p.buydown)) : 0;
     var points = C && C.compPoints
-      ? C.compPoints({ toolType: tool, points: p.points, buydown: buydown })
+      ? C.compPoints({ toolType: tool, points: p.points, buydown: buydown }, { pointsAreTotal: true })
       : Math.max(0, num(p.points) - buydown);
     var tpo = num(p.tpoSpread);
     // Deploy 236.963 (Mike: "if they lower the interest rate before the base

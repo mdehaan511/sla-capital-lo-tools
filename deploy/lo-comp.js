@@ -142,10 +142,33 @@
     if (!(bd > 0) && l.formData) bd = num(l.formData.buydown);
     return bd > 0 ? bd : 0;
   }
-  function compPoints(l) {
+  // Deploy 237.215 — loan.points is NOT always the sizer's total. A live check of
+  // the closed book found Baseline-enriched loans whose top-level points had been
+  // rewritten to ORIGINATION ONLY (1.00) while the sizer's own snapshot
+  // (formData._points) still said 2.00 with a 1.00 buy-down. Subtracting there
+  // would take the buy-down off twice and under-pay. So the buy-down comes off
+  // only when the points really contain it:
+  //   - the caller says so (the live sizer box: it builds the total itself), or
+  //   - the sizer snapshot matches the top-level points (nobody rewrote them), or
+  //   - there is no snapshot and the points have the default total shape
+  //     (at least 1.00 origination + the buy-down).
+  function pointsIncludeBuydown(l, pts, bd) {
+    var snap = (l && l.formData) ? num(l.formData._points) : 0;
+    if (snap > 0) return Math.abs(snap - pts) < 0.005;
+    return pts >= 1 + bd - 0.005;
+  }
+  function compPoints(l, opts) {
     var pts = num(l && l.points);
     var bd = buydownOf(l);
-    return bd > 0 ? Math.max(0, pts - bd) : pts;
+    if (!(bd > 0)) return pts;
+    if (!(opts && opts.pointsAreTotal) && !pointsIncludeBuydown(l, pts, bd)) return pts;
+    return Math.max(0, pts - bd);
+  }
+  // How much buy-down compPoints actually took off (0 when the points were
+  // already net) — the breakdown text and the row both report THIS, not the
+  // raw field, so the page never claims an exclusion it did not make.
+  function buydownExcluded(l, opts) {
+    return Math.max(0, num(l && l.points) - compPoints(l, opts));
   }
   function buydownNote(bd) {
     return bd > 0 ? ' (' + bd.toFixed(2) + ' buy-down pts excluded \u2014 paid to the investor)' : '';
@@ -161,7 +184,7 @@
       // to the migrated tpoPremium (num()||num() treated 0 as unset).
       var _set = function (v) { return v != null && String(v).trim() !== ''; };
       var tpo = num(_set(l.tpoSpread) ? l.tpoSpread : (_set(l.tpo) ? l.tpo : l.tpoPremium));
-      return { margin: pts + tpo, parts: pts.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + buydownNote(buydownOf(l)), missing: false };
+      return { margin: pts + tpo, parts: pts.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + buydownNote(buydownExcluded(l)), missing: false };
     }
     // Deploy 236.941 (Mike) — the RTL base is the SIZER's engine rate, NOT the
     // investor buyRate ("they get paid more if the sizer starts at 11 and they
@@ -281,7 +304,7 @@
         // (0.105 and 10.5 both → 10.5); TPO spread resolved like marginOf.
         ratePct: (function () { var rr = num(l.rate); return rr > 1 ? rr : rr * 100; })(),
         points: compPoints(l),      // 237.214 — the salary plan reads this; net of the buy-down too
-        buydown: buydownOf(l),
+        buydown: buydownExcluded(l),
         tpoSpread: num(l.tpoSpread) || num(l.tpo) || num(l.tpoPremium),
         closeDate: l.fundingDate || '',
         margin: m.margin, marginParts: m.parts, marginMissing: m.missing,
@@ -407,7 +430,7 @@
     num: num, money: money, shortDate: shortDate,
     TIER_SCHEDULES: TIER_SCHEDULES, tierScheduleFor: tierScheduleFor, tierBps: tierBps,
     tierLadder: tierLadder, nextTierFor: nextTierFor, SALARY_RATE_STEPS: SALARY_RATE_STEPS, salaryMultiplier: salaryMultiplier, // Deploy 237.128
-    marginOf: marginOf, buydownOf: buydownOf, compPoints: compPoints, buydownNote: buydownNote, spreadParts: spreadParts, isClosedWon: isClosedWon, buildRows: buildRows,
+    marginOf: marginOf, buydownOf: buydownOf, compPoints: compPoints, buydownExcluded: buydownExcluded, pointsIncludeBuydown: pointsIncludeBuydown, buydownNote: buydownNote, spreadParts: spreadParts, isClosedWon: isClosedWon, buildRows: buildRows,
     clientIsBrokerFor: clientIsBrokerFor, repeatKeyOf: repeatKeyOf,
     isPendingApproved: isPendingApproved, buildPendingRows: buildPendingRows, STAGE_LABEL: STAGE_LABEL, todayISO: todayISO,
     computeRow: computeRow, payoutState: payoutState,
