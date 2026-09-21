@@ -180,6 +180,11 @@
       var slash = p.lastIndexOf('/');
       var f = slash >= 0 ? p.slice(slash + 1) : p;
       if (!f) return '/index.html';
+      // Deploy 237.220 (Mike) -- the address bar no longer shows ".html" (the clean-url
+      // snippet in every page's <head>), so "/pipeline" arrives here as often as
+      // "/pipeline.html". Fold it back to the canonical file name: the MENU below names
+      // files, and every comparison against it keeps working without being touched.
+      if (f.indexOf('.') < 0) f += '.html';
       return '/' + f;
     } catch (_) { return ''; }
   }
@@ -263,10 +268,19 @@
     return true;
   }
 
+  // Deploy 237.220 (Mike) -- what a link's href looks like to a person. The MENU
+  // names FILES ('/pipeline.html') on purpose -- greppable, and it is what currentFile()
+  // compares against. This is only how they are written into the page, so hovering or
+  // copying a nav link shows the clean URL too.
+  function cleanHref(h) {
+    var s = String(h || '');
+    return s.replace(/^\/index\.html(?=$|[?#])/i, '/').replace(/\.html(?=$|[?#])/i, '');
+  }
+
   function renderLink(link, current) {
     var isCurrent = current === String(link.href || '').toLowerCase()
                  || (link.match && link.match.some && link.match.some(function (m) { return current === m.toLowerCase(); }));
-    return '<a class="nav-tool-link' + (isCurrent ? ' current' : '') + '" href="' + escAttr(link.href) + '">' + escAttr(link.label) + '</a>';
+    return '<a class="nav-tool-link' + (isCurrent ? ' current' : '') + '" href="' + escAttr(cleanHref(link.href)) + '">' + escAttr(link.label) + '</a>';
   }
 
   function renderDropdown(link, current, user) {
@@ -294,7 +308,7 @@
         return '<button type="button" class="nav-dd-item" onclick="try{netlifyIdentity.logout()}catch(_){}">' + escAttr(c.label) + '</button>';
       }
       var childCurrent = c.href && current === c.href.toLowerCase();
-      return '<a class="nav-dd-item' + (childCurrent ? ' current' : '') + '" href="' + escAttr(c.href) + '">' + escAttr(c.label) + '</a>';
+      return '<a class="nav-dd-item' + (childCurrent ? ' current' : '') + '" href="' + escAttr(cleanHref(c.href)) + '">' + escAttr(c.label) + '</a>';
     }).join('');
     var menu = '<div class="nav-dd-menu" id="' + ddId + '" role="menu" hidden>' + items + '</div>';
     return '<div class="nav-dd">' + trigger + menu + '</div>';
@@ -313,7 +327,7 @@
 
     return (
       '<div class="nav-left">' +
-        '<a href="/index.html" style="display:flex;align-items:center;text-decoration:none">' +
+        '<a href="/" style="display:flex;align-items:center;text-decoration:none">' +
           // Deploy 237.177 (Mike: "the logo doesnt appear to be on all pages").
           // The src was RELATIVE, so on the pretty loan URL (/loan-details/<id>,
           // the most visited page in the app) the browser asked for
@@ -327,7 +341,7 @@
         // The index page is now positioned as the home dashboard
         // (leaderboard + sizers/guidelines shortcuts) rather than
         // just a tool launcher.
-        '<a href="/index.html" class="nav-tools-btn">Home</a>' +
+        '<a href="/" class="nav-tools-btn">Home</a>' +
       '</div>' +
       // Deploy 237.210 (Mike: "none of the dropdowns in the navbar work") —
       // on a phone the bar collapses behind this button and the links become
@@ -605,7 +619,7 @@
   var PULSE_SEEN_KEY = 'sla_armory_seen_at';
   function refreshArmoryPulse(host) {
     try {
-      var link = host && host.querySelector('a.nav-tool-link[href="/armory.html"]');
+      var link = host && host.querySelector('a.nav-tool-link[href="/armory"]'); // Deploy 237.220 -- links render clean
       if (!link) return;                             // not staff, or no Armory link
       if (!(window.SLA && SLA.api)) return;
       var here = currentFile();
