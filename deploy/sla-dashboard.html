@@ -129,8 +129,9 @@
       h1 { font-size: 22px; }
       h2 { font-size: 17px; }
       /* the inline-styled grid rows: one line per field instead of five columns */
-      [style*="grid-template-columns:24px 200px 1fr 1fr 200px"],
-      [style*="grid-template-columns:24px 110px 1fr 90px 200px"] {
+      /* 237.210 — match ANY of the JS-built rows, not just the two spellings
+         that happened to exist when this was written. */
+      [style*="grid-template-columns:24px"] {
         grid-template-columns: 1fr !important;
         gap: 2px !important;
         padding: 10px 12px !important;

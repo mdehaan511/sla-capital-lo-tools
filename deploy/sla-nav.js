@@ -329,6 +329,15 @@
         // just a tool launcher.
         '<a href="/index.html" class="nav-tools-btn">Home</a>' +
       '</div>' +
+      // Deploy 237.210 (Mike: "none of the dropdowns in the navbar work") —
+      // on a phone the bar collapses behind this button and the links become
+      // a stacked panel. 237.194 tried a sideways-scrolling strip instead,
+      // which LOOKED fine and quietly broke every dropdown: an overflow
+      // container clips its absolutely-positioned children, so the menus
+      // opened inside a 40px-tall scroller and were never visible.
+      '<button type="button" class="nav-burger" aria-label="Menu" aria-expanded="false">' +
+        '<span></span><span></span><span></span>' +
+      '</button>' +
       '<div class="nav-right">' +
         links +
         rightExtras +
@@ -381,20 +390,42 @@
       // phone fixes live here. Deliberately conservative: nothing here moves
       // anything on a desktop, and nothing overrides a page's own styling
       // beyond what a phone genuinely needs.
+      // The burger only exists on a phone.
+      '.nav-burger{display:none}' +
       '@media (max-width:760px){' +
-        // The bar's link row would otherwise wrap to three or four lines and
-        // eat half the screen. One row that scrolls sideways instead.
-        'nav.nav{padding:0.75rem 12px 0;gap:8px;align-items:flex-start}' +
-        'nav.nav .nav-right{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;' +
-          'scrollbar-width:none;max-width:100%;padding-bottom:4px;gap:8px}' +
-        'nav.nav .nav-right::-webkit-scrollbar{display:none}' +
-        'nav.nav .nav-right>*{flex:0 0 auto}' +
-        // Real tap targets on the pills.
-        'nav.nav a.nav-tool-link,nav.nav button.nav-tool-link{padding:8px 13px;font-size:12.5px}' +
-        'nav.nav a.nav-tools-btn,nav.nav button.nav-tools-btn{padding:8px 15px;font-size:12.5px}' +
-        // A dropdown pinned to the right edge of a narrow screen used to run
-        // off it; let it size to the viewport instead.
-        '.nav-dd-menu{right:auto;left:0;min-width:180px;max-width:calc(100vw - 28px)}' +
+        'nav.nav{padding:0.75rem 12px 0;gap:8px;align-items:center;flex-wrap:wrap}' +
+        // The button itself: three bars, a proper 44px target.
+        '.nav-burger{display:inline-flex;flex-direction:column;justify-content:center;gap:4px;' +
+          'width:44px;height:44px;padding:10px;border:1px solid var(--border,#ddd8d0);border-radius:10px;' +
+          'background:transparent;cursor:pointer;flex:0 0 auto}' +
+        '.nav-burger span{display:block;height:2px;background:var(--muted,#7a7488);border-radius:2px;transition:transform .15s,opacity .15s}' +
+        'nav.nav.nav-open .nav-burger{border-color:var(--gold,#C8813A)}' +
+        'nav.nav.nav-open .nav-burger span{background:var(--gold,#C8813A)}' +
+        // The links become a stacked panel under the bar, shown only when the
+        // burger is open. No overflow container anywhere near them, which is
+        // what broke the dropdowns in 237.194.
+        'nav.nav .nav-right{display:none;order:3;width:100%;flex-direction:column;align-items:stretch;' +
+          'gap:2px;margin-top:10px;padding:8px;background:#fff;border:1px solid var(--border,#ddd8d0);' +
+          'border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.12)}' +
+        'nav.nav.nav-open .nav-right{display:flex}' +
+        'nav.nav .nav-right>*{width:100%}' +
+        // Not every page sets a global border-box; without this the panel's own
+        // padding pushes the menu past the screen edge.
+        'nav.nav .nav-right,nav.nav .nav-right *{box-sizing:border-box}' +
+        'nav.nav a.nav-tool-link,nav.nav button.nav-tool-link{display:block;width:100%;text-align:left;' +
+          'padding:12px 14px;font-size:14px;border:none;border-bottom:1px solid rgba(0,0,0,0.05);border-radius:8px}' +
+        'nav.nav a.nav-tools-btn,nav.nav button.nav-tools-btn{display:block;width:100%;text-align:center;padding:11px 14px;font-size:13.5px}' +
+        // A dropdown inside the panel opens INLINE rather than floating: no
+        // absolute positioning means nothing to clip and nothing to run off
+        // the edge of a 390px screen.
+        'nav.nav .nav-dd{display:block;width:100%}' +
+        'nav.nav .nav-dd-trigger{width:100%;justify-content:space-between}' +
+        'nav.nav .nav-dd-menu{position:static;display:none;min-width:0;max-width:none;margin:2px 0 6px 10px;' +
+          'border-left:2px solid var(--gold-border,rgba(200,129,58,0.28));border-radius:0;box-shadow:none;' +
+          'border-top:none;border-right:none;border-bottom:none;padding:0}' +
+        'nav.nav .nav-dd.open .nav-dd-menu{display:block}' +
+        'nav.nav .nav-dd-menu[hidden]{display:none}' +
+        'nav.nav .nav-dd-item{padding:11px 14px;font-size:13.5px}' +
         // iOS zooms the whole page when a field smaller than 16px takes
         // focus, and never zooms back. It is the single biggest phone
         // annoyance in the app, and pages style their own inputs with
@@ -409,6 +440,11 @@
         // Any table that does not fit scrolls on its own rather than
         // stretching the page under it.
         'table{max-width:100%;display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}' +
+        // Page shells are built for a desktop column; on a phone they should
+        // use the screen they have, with a thumb-friendly gutter. This sheet
+        // is injected after the page's own <style>, so a plain rule wins the
+        // tie without shouting.
+        '.page,.wrap,.container,main{max-width:100%;padding-left:12px;padding-right:12px}' +
         // A modal that is taller than the screen must be able to scroll.
         '.modal,.modal-bg .modal{max-height:88vh;overflow-y:auto}' +
       '}' +
@@ -436,11 +472,41 @@
   // Bound once at script load, then driven via event delegation so
   // re-renders (identity init/login/logout) don't need to re-wire.
   var _delegationBound = false;
+  function closeAllDropdowns() {
+    document.querySelectorAll('.nav-dd.open').forEach(function (other) {
+      other.classList.remove('open');
+      var t = other.querySelector('.nav-dd-trigger');
+      var m = other.querySelector('.nav-dd-menu');
+      if (t) t.setAttribute('aria-expanded', 'false');
+      if (m) m.setAttribute('hidden', '');
+    });
+  }
+
   function bindDelegation() {
     if (_delegationBound) return;
     _delegationBound = true;
 
     document.addEventListener('click', function (e) {
+      // Deploy 237.210 — the phone menu. The burger opens the panel; a tap on
+      // an actual destination closes it again, so you are not left staring at
+      // a menu over the page you just asked for.
+      var burger = e.target && e.target.closest && e.target.closest('.nav-burger');
+      if (burger) {
+        e.preventDefault();
+        var barB = burger.closest('nav.nav');
+        if (barB) {
+          var openNow = barB.classList.toggle('nav-open');
+          burger.setAttribute('aria-expanded', openNow ? 'true' : 'false');
+          if (!openNow) closeAllDropdowns();
+        }
+        return;
+      }
+      var navLink = e.target && e.target.closest && e.target.closest('nav.nav .nav-right a[href], nav.nav .nav-right .nav-dd-item');
+      if (navLink) {
+        var barL = navLink.closest('nav.nav');
+        if (barL) barL.classList.remove('nav-open');
+      }
+
       var trigger = e.target && e.target.closest && e.target.closest('.nav-dd-trigger');
       if (trigger) {
         e.preventDefault();
@@ -486,6 +552,11 @@
     // Escape closes any open dropdown for keyboard users
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
+      document.querySelectorAll('nav.nav.nav-open').forEach(function (bar) {
+        bar.classList.remove('nav-open');
+        var b = bar.querySelector('.nav-burger');
+        if (b) b.setAttribute('aria-expanded', 'false');
+      });
       document.querySelectorAll('.nav-dd.open').forEach(function (other) {
         other.classList.remove('open');
         var t = other.querySelector('.nav-dd-trigger');

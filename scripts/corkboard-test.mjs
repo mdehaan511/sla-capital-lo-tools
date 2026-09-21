@@ -250,20 +250,25 @@ console.log('mobile');
     /#realmBg \{ opacity: 0\.35; \}/.test(html) && /\.card, \.legends, \.board-list \.mini \{ background: #fffaf0; \}/.test(html));
   check('tap targets are at least 40px', /\.btn \{ min-height: 40px;/.test(html));
 
-  // app-wide, via the one file every staff page loads
-  check('the nav bar scrolls sideways instead of wrapping to four lines',
-    /nav\.nav \.nav-right\{flex-wrap:nowrap;overflow-x:auto/.test(nav));
+  // app-wide, via the one file every staff page loads.
+  // 237.210 — the sideways-scrolling link row this used to assert was the
+  // thing that broke every dropdown (an overflow box clips absolute
+  // children). The nav's own gate, scripts/nav-mobile-test.mjs, owns that
+  // behaviour now; here we only assert it has NOT come back.
+  check('the phone link row is not an overflow container',
+    !/nav\.nav \.nav-right\{[^}]*overflow-x:auto/.test(nav));
+  check('the phone nav is a burger menu', /class="nav-burger"/.test(nav) && /nav\.nav\.nav-open \.nav-right\{display:flex\}/.test(nav));
   check('fields are 16px on a phone, so iOS stops zooming on focus',
     /input,select,textarea\{font-size:16px !important\}/.test(nav));
   check('wide tables scroll on their own', /table\{max-width:100%;display:block;overflow-x:auto/.test(nav));
   check('body is NOT overflow-hidden (that breaks sticky headers)', !/body\{overflow-x:hidden\}/.test(nav));
-  check('a dropdown cannot run off the right edge', /\.nav-dd-menu\{right:auto;left:0;min-width:180px;max-width:calc\(100vw - 28px\)\}/.test(nav));
+  check('a phone dropdown opens inline, so it cannot run off the edge', /nav\.nav \.nav-dd-menu\{position:static/.test(nav));
 
   for (const page of ['sla-dashboard.html', 'clients.html', 'processing-pipeline.html', 'profile.html']) {
     check(page + ' has a phone block', /Deploy 237\.194 — phone layout/.test(readFileSync('deploy/' + page, 'utf8')));
   }
-  check('every page that pins sla-nav.js points at this deploy',
-    !/sla-nav\.js\?v=(?!237194)/.test(readFileSync('deploy/armory.html', 'utf8')));
+  check('every page that pins sla-nav.js points at a current deploy',
+    !/sla-nav\.js\?v=(?!237210)/.test(readFileSync('deploy/armory.html', 'utf8')));
 }
 
 // ── Deploy 237.195 — video pins ───────────────────────────────────

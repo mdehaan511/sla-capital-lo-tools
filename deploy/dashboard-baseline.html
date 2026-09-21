@@ -72,7 +72,13 @@
     .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
     .chart-row .chart-card { margin-bottom: 0; }
     .chart-row .chart-wrap { height: 320px; }
-    @media (max-width: 760px) { .chart-row { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) {
+      .chart-row { grid-template-columns: 1fr; }
+      /* Deploy 237.210 — the day/loan rows are built in JS with fixed tracks
+         (24px 220px 1fr 1fr 220px = 464px of hard columns), which is wider
+         than a phone on its own. One line per field instead. */
+      [style*="grid-template-columns:24px"] { grid-template-columns: 1fr !important; gap: 2px !important; padding: 10px 12px !important; }
+    }
 
     .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
     .table-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
