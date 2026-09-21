@@ -116,6 +116,18 @@
                         width: 20px; height: 18px; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; }
     .pgr-tools button:hover { border-color: var(--gold); }
     .pgr-tools button.danger:hover { border-color: #7c1f1f; color: #7c1f1f; }
+    /* Deploy 237.209 (Keith) — an insertion point between every two pages. Invisible
+       until the pointer is near it, then a dashed line with a + in the middle; the rail's
+       8px gap is where it lives, so it costs no height. Clicking opens Add pages with
+       "Before page N" already chosen. */
+    .pgr-gap { height: 8px; margin: -8px 0; position: relative; cursor: pointer; z-index: 1; }
+    .pgr-gap::before { content: ''; position: absolute; left: 6px; right: 6px; top: 50%; border-top: 2px dashed transparent; }
+    .pgr-gap span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 22px; height: 22px;
+                    border-radius: 50%; border: 1px solid var(--gold); background: #fff; color: var(--gold);
+                    font-size: 15px; line-height: 20px; text-align: center; font-weight: 700; opacity: 0; transition: opacity .12s; }
+    .pgr-gap:hover::before { border-top-color: var(--gold); }
+    .pgr-gap:hover span { opacity: 1; }
+    .pgr-gap.first { margin-top: 0; height: 14px; }
     .pgr-add { margin: 0 8px 8px; border: 1px dashed var(--border); background: none; color: var(--muted); border-radius: 8px;
                padding: 7px 0; font-size: 12px; font-weight: 600; cursor: pointer; }
     .pgr-add:hover { border-color: var(--gold); color: var(--gold); background: var(--gold-light); }
@@ -277,6 +289,7 @@
         <span class="ed-save" id="edSaveState"></span>
         <span class="zoom" title="Zoom (re-renders the pages sharply)"><button type="button" onclick="setZoom(_zoom / 1.25)">−</button><span class="pct" id="zoomPct">100%</span><button type="button" onclick="setZoom(_zoom * 1.25)">+</button><button type="button" onclick="setZoom(1)" style="width:auto;padding:0 8px;font-size:11px;font-weight:600">Fit</button></span>
         <button class="btn ghost sm" onclick="saveDraft(true)">Save</button>
+        <button class="btn ghost sm" onclick="downloadDraft()" title="Download the assembled PDF as it is now — no signature needed">Download PDF</button>
         <button class="btn ghost sm" onclick="saveAsTemplate()">Save as template</button>
         <button class="btn sm" onclick="openSend()">Send for signature →</button>
       </div>
@@ -390,7 +403,7 @@
 <!-- Add pages modal — Deploy 237.168 (Mike: combine multiple PDFs) -->
 <div class="modal-bg" id="addPagesModal" style="display:none" onclick="if(event.target===this)closeAddPages()">
   <div class="modal">
-    <h2>Add pages</h2>
+    <h2 id="addPagesTitle">Add pages</h2>
     <p class="sub">Combine another PDF into this document. Fields you have already placed stay on their own pages.</p>
     <div class="drop" id="addDrop" onclick="document.getElementById('addPagesFile').click()">
       <strong>Drop a PDF here or click to choose</strong>
@@ -1424,7 +1437,9 @@ function onDragUp() {
 // request body is capped near 6MB by the gateway, so appending is what lets an
 // assembled document grow past what a single upload could carry.
 var _addPagesFile = null, _addingPages = false;
-function openAddPages() {
+// `before` (optional, Deploy 237.209) preselects "Before page N" — the rail's insertion
+// points pass it; the button under the rail passes nothing and lands on "At the end".
+function openAddPages(before) {
   if (!_doc) return;
   _addPagesFile = null;
   var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
@@ -1435,6 +1450,14 @@ function openAddPages() {
   var opts = '<option value="">At the end (after page ' + n + ')</option>';
   for (var i = 1; i <= n; i++) opts += '<option value="' + i + '">Before page ' + i + '</option>';
   document.getElementById('addPagesAt').innerHTML = opts;
+  var sel = document.getElementById('addPagesAt');
+  sel.value = (before && before >= 1 && before <= n) ? String(before) : '';
+  document.getElementById('addPagesTitle').textContent =
+    sel.value ? 'Add pages before page ' + sel.value : 'Add pages at the end';
+  sel.onchange = function () {
+    document.getElementById('addPagesTitle').textContent =
+      sel.value ? 'Add pages before page ' + sel.value : 'Add pages at the end';
+  };
   document.getElementById('addPagesRoom').textContent =
     'This document is ' + _mb((_doc.pdf && _doc.pdf.size) || 0) + ' of a ' + _mb((_meta && _meta.maxDocBytes) || 12 * 1024 * 1024) + ' limit.';
   var go = document.getElementById('addPagesGo'); go.disabled = false; go.textContent = 'Add pages';
@@ -1537,6 +1560,11 @@ function renderPageRail() {
     var html = '';
     for (var i = 1; i <= _pdfDoc.numPages; i++) {
       var shot = _pmShots[i];
+      // Deploy 237.209 (Keith): "a + symbol so we can add a document(s) anywhere within
+      // the draft doc and not just after the last page". One insertion point BEFORE each
+      // page; the + Add pages button under the rail still covers "after the last".
+      html += '<div class="pgr-gap' + (i === 1 ? ' first' : '') + '" title="Insert pages before page ' + i + '"' +
+        ' onclick="event.stopPropagation();openAddPages(' + i + ')"><span>+</span></div>';
       html += '<div class="pgr-tile' + (i === _railActive ? ' active' : '') + '" draggable="true" data-p="' + i + '"' +
         ' onclick="railGo(' + i + ')"' +
         ' ondragstart="railDragStart(event,' + i + ')" ondragend="railDragEnd(event)"' +
@@ -1834,6 +1862,31 @@ function loadDetailPdf() {
     var url = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
     document.getElementById('dtPdf').src = url;
   }).catch(function (e) { document.getElementById('dtPdfMeta').textContent = 'Preview unavailable: ' + e.message; });
+}
+// Deploy 237.209 (Keith): "how do I save the final draft version of the updated PDF?"
+// He had assembled a W-9 from two files and the only way out was to send it for
+// signature. The bytes the editor renders ARE the assembled document — page adds,
+// removes, moves and rotations all apply on the server immediately — so this is the
+// same fetch the viewer makes, saved to disk. Fields are not baked in: they are
+// placeholders until someone signs, so a downloaded draft is the clean document.
+function downloadDraft() {
+  if (!_doc) return;
+  if (_railBusy || _addingPages) { showToast('Wait for the page change to finish, then download', 'err'); return; }
+  showToast('Preparing download…');
+  SLA.getToken().then(function (token) {
+    return fetch('/api/esign-doc-pdf?id=' + encodeURIComponent(_doc.id) + '&which=original' + ownerQs() + '&v=' + Date.now(),
+      { headers: { Authorization: 'Bearer ' + token } });
+  }).then(function (r) {
+    if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) { throw new Error(d.error || ('HTTP ' + r.status)); });
+    return r.blob().then(function (blob) {
+      var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href = url;
+      var m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+      var title = (document.getElementById('edTitle').value || _doc.title || 'document').replace(/[\\/:*?"<>|]+/g, ' ').trim();
+      a.download = m ? m[1] : (title + '.pdf');
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+  }).catch(function (e) { showToast('Download failed: ' + e.message, 'err'); });
 }
 function downloadFinal() {
   showToast('Preparing download…');
