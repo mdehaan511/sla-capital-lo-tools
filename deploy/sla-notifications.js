@@ -196,9 +196,17 @@
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   }
 
-  function refresh() {
-    if (!window.SLA || !SLA.Reminders) return Promise.resolve();
-    if (_pollingPaused) return Promise.resolve();
+  /**
+    * Deploy 237.202 (Mike: "My notifications are saying 9+ but when I go to the page its
+    * only showing 5"). collect() GATHERS the feeds, refresh() DRAWS them. They were one
+    * function, so /notifications.html had no way to ask for the numbers the badge is made
+    * of and counted only stored notifications -- while the badge also counts mail,
+    * processing alerts, due tasks, loan apps and reminders. Now both read the same feeds
+    * through the same openCount(), and the page shows the live half explicitly.
+    */
+  function collect() {
+    if (!window.SLA || !SLA.Reminders) return Promise.resolve(null);
+    if (_pollingPaused) return Promise.resolve(null);
     // Deploy 236.325 — capture 401s so back-off can kick in. We
     // don't count network errors or other failures — only auth
     // failures signal that polling has become disruptive noise.
@@ -316,9 +324,116 @@
         // Hide events the user has already dismissed (persisted in localStorage)
         return !isDismissed(ev.id);
       });
-      render(reminders, loanAppEvents, procAlerts, dueTasks, results[4], results[5] || []); // Deploy 237.050 -- mentions
-    }).catch(function() { /* silent */ });
+      // The due/upcoming split moved here from render() so the badge and the page
+      // count the same reminders rather than each deciding what "due" means. 237.202.
+      var todayR = todayStr();
+      var due = [], future = [];
+      reminders.forEach(function(r) {
+        if (r.completed) return;
+        if (r.dueDate <= todayR) due.push(r);
+        else future.push(r);
+      });
+      due.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
+      future.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
+      loanAppEvents.sort(function(a, b){ return new Date(b.dateIso || 0) - new Date(a.dateIso || 0); });
+
+      var mail = results[4] || null;
+      return {
+        due: due,
+        future: future,
+        loanAppEvents: loanAppEvents,
+        procAlerts: procAlerts,
+        dueTasks: dueTasks,
+        mail: mail,
+        mailN: (mail && mail.unsorted) || 0,   // Deploy 236.995 -- counted by the PIECE
+        mentions: results[5] || []             // Deploy 237.050 -- stored notifications, unread only
+      };
+    }).catch(function() { return null; });
   }
+
+  function refresh() {
+    return collect().then(function(f) { if (f) render(f); });
+  }
+
+  /**
+   * THE badge number, exported so /notifications.html adds up exactly what the bell adds
+   * up. Note mail counts by the PIECE: thirty-three envelopes are one row in the dropdown
+   * and thirty-three on the badge, which is most of why it reads 9+ next to a short
+   * history list. Deploy 237.202.
+   */
+  function openCount(f) {
+    if (!f) return 0;
+    return (f.due || []).length + (f.loanAppEvents || []).length + (f.procAlerts || []).length +
+           (f.dueTasks || []).length + (f.mailN || 0) + (f.mentions || []).length;
+  }
+
+  /**
+   * The LIVE half of the bell as plain rows for /notifications.html -- everything except
+   * mentions, which are stored notifications the history list already shows, so nothing
+   * appears twice. `weight` is what a row contributes to openCount (the mail row is worth
+   * however many pieces are waiting), which keeps this identity true:
+   *
+   *     sum(openRows(f).weight) + f.mentions.length === openCount(f)
+   *
+   * These items are not read/unread: they clear themselves when the work is done.
+   * Deploy 237.202.
+   */
+  function openRows(f) {
+    if (!f) return [];
+    var rows = [];
+    var mailN = f.mailN || 0;
+    if (mailN) {
+      rows.push({
+        kind: 'mail', weight: mailN, href: '/mail.html',
+        title: '\uD83D\uDCEC ' + mailN + ' piece' + (mailN === 1 ? '' : 's') + ' of mail waiting',
+        text: (f.mail && f.mail.overdue) ? f.mail.overdue + ' waiting over 24h'
+                                         : ('oldest ' + ((f.mail && f.mail.oldestHours) || 0) + 'h'),
+        when: ''
+      });
+    }
+    (f.procAlerts || []).forEach(function(a) {
+      rows.push({
+        kind: 'processing', weight: 1,
+        href: (window.SLA && SLA.urls && SLA.urls.loanDetails)
+          ? SLA.urls.loanDetails(a.loanId, { owner: a.owner })
+          : ('loan-details.html?loanId=' + encodeURIComponent(a.loanId || '')),
+        title: a.title || 'Processing alert', text: a.subtitle || '', when: ''
+      });
+    });
+    (f.dueTasks || []).forEach(function(t) {
+      rows.push({
+        kind: 'task', weight: 1,
+        href: (t.loanId && window.SLA && SLA.urls && SLA.urls.loanDetails)
+          ? SLA.urls.loanDetails(t.loanId, { owner: t.ownerKey })
+          : 'tasks.html',
+        title: t.title || 'Task',
+        text: (t.address ? t.address + ' \u00b7 ' : '') + (t.description || ''),
+        when: t.dueDate || ''
+      });
+    });
+    (f.loanAppEvents || []).forEach(function(ev) {
+      rows.push({
+        kind: 'loan_app_received', weight: 1,
+        href: 'pipeline.html?focusLoan=' + encodeURIComponent(String(ev.id || '').replace(/^la_/, '')),
+        title: 'Loan app received: ' + (ev.title || 'Loan'),
+        text: ev.subtitle || '', when: ev.dateIso || ''
+      });
+    });
+    (f.due || []).forEach(function(r) {
+      rows.push({
+        kind: 'reminder', weight: 1,
+        href: 'pipeline.html?openReminder=' + encodeURIComponent(r.id || ''),
+        title: r.borrower || r.address || 'Reminder',
+        text: [r.address && r.borrower ? r.address : '', r.note || ''].filter(Boolean).join(' \u00b7 '),
+        when: r.dueDate || ''
+      });
+    });
+    return rows;
+  }
+
+  // The page needs the feeds and the arithmetic, nothing else -- the bell keeps its own
+  // rendering to itself. Deploy 237.202.
+  window.SLANotify = { feeds: collect, openRows: openRows, openCount: openCount };
 
   // ── Dismissal persistence (loan-app events) ─────────────
   // Reminders complete server-side via SLA.Reminders.complete. Loan-app
@@ -372,28 +487,23 @@
     return !!ts && (Date.now() - ts) < PA_SNOOZE_MS;
   }
 
-  function render(reminders, loanAppEvents, procAlerts, dueTasks, mail, mentions) {
-    mentions = mentions || []; // Deploy 237.050
-    loanAppEvents = loanAppEvents || [];
-    procAlerts = procAlerts || [];
-    dueTasks = dueTasks || []; // Deploy 236.961
-    var today = todayStr();
-    var due = [];
-    var future = [];
-    reminders.forEach(function(r) {
-      if (r.completed) return;
-      if (r.dueDate <= today) due.push(r);
-      else future.push(r);
-    });
-    due.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
-    future.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
-    loanAppEvents.sort(function(a, b){ return new Date(b.dateIso || 0) - new Date(a.dateIso || 0); });
+  // Deploy 237.202 -- takes the feeds object collect() returns. The sorting and the
+  // due/upcoming split moved up into collect(); the count comes from openCount() so the
+  // badge and /notifications.html can never disagree about what is outstanding.
+  function render(f) {
+    var mentions      = f.mentions      || [];
+    var loanAppEvents = f.loanAppEvents || [];
+    var procAlerts    = f.procAlerts    || [];
+    var dueTasks      = f.dueTasks      || [];
+    var due           = f.due           || [];
+    var future        = f.future        || [];
+    var mail          = f.mail;
 
     // The bell glows red if there's anything due, a fresh loan-app event, or
     // an actionable processing alert.
-    var mailN = (mail && mail.unsorted) || 0; // Deploy 236.995
-    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0 || dueTasks.length > 0 || mailN > 0 || mentions.length > 0;
-    var alertCount = due.length + loanAppEvents.length + procAlerts.length + dueTasks.length + mailN + mentions.length;
+    var mailN = f.mailN || 0; // Deploy 236.995
+    var alertCount = openCount(f);
+    var hasAlert = alertCount > 0;
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');

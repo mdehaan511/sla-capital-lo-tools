@@ -23,10 +23,10 @@
   feedback_one_nav_everywhere).
 -->
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-<script src="/sla-api.js?v=237197"></script>
+<script src="/sla-api.js?v=237202"></script>
 <script src="/sla-nav.js"></script>
 <script src="/sla-search.js"></script>
-<script src="/sla-notifications.js?v=237197"></script>
+<script src="/sla-notifications.js?v=237202"></script>
 <script src="/sla-chat.js"></script>
 <style>
   :root{
@@ -72,6 +72,14 @@
   .empty{padding:48px 20px;text-align:center;color:var(--muted)}
   .empty b{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
   .count{font-size:12px;color:var(--muted);margin:10px 2px}
+  /* Deploy 237.202 -- the live half of the bell. Deliberately quieter than the history
+     rows: there is nothing to mark read here, these clear themselves. */
+  .sec{font-family:'Fraunces',serif;font-size:16px;margin:22px 2px 8px;display:flex;align-items:baseline;gap:8px}
+  .sec .n{font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;color:#6b5322;
+          background:var(--gold-soft);border:1px solid rgba(200,129,58,.28);border-radius:20px;padding:1px 8px}
+  .sec .why{font-family:'DM Sans',sans-serif;font-size:12px;font-weight:400;color:var(--muted)}
+  .row.live{background:#fff}
+  .row.live .dot{background:#b98a4e}
   #auth-gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
   #auth-gate .gate-msg{color:var(--muted);font-size:14px;text-align:center}
   #auth-gate .gate-msg strong{color:var(--text);display:block;margin-bottom:8px;font-size:18px}
@@ -82,6 +90,21 @@
 <div class="page" id="appWrap" style="display:none">
   <h1>Notifications</h1>
   <div class="sub" id="sub">Everything sent to you — read and unread.</div>
+
+  <!-- Deploy 237.202 -- Mike: the bell said 9+ and this page said 5. It was not a
+       miscount: the badge also counts mail waiting, processing alerts, due tasks, loan
+       apps and reminders, and none of those are stored notifications, so none of them
+       were ever on this page. They are now, in their own section, because they behave
+       differently -- they are live, and they disappear when the work is done rather than
+       when you read them. The numbers come from the bell's own openCount(). -->
+  <div id="liveWrap" style="display:none">
+    <div class="sec"><span>Open now</span><span class="n" id="liveN"></span>
+      <span class="why">from the bell &mdash; these clear when the work is done, not when you read them</span></div>
+    <div class="list" id="liveList"></div>
+  </div>
+
+  <div class="sec" id="histHdr" style="display:none"><span>History</span>
+    <span class="why">everything ever sent to you</span></div>
 
   <div class="bar">
     <div class="fld">
@@ -174,6 +197,39 @@ function fmtWhen(iso){
       ' ' + d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
 }
 
+/* Deploy 237.202 -- the live half, straight from the bell's own collect()/openCount()
+   so the two surfaces cannot drift. Zero-throw: the history is the point of this page and
+   must still render if a feed endpoint is having a bad day. */
+var _openN = 0;
+function loadLive(){
+  if (!window.SLANotify || !SLANotify.feeds) return Promise.resolve();
+  return SLANotify.feeds().then(function(f){
+    if (!f) return;
+    var rows = SLANotify.openRows(f);
+    // openCount counts mail by the piece, so the badge can read 33 where this list shows
+    // one row. Print the bell's number, not the row count, or we are back where we started.
+    _openN = SLANotify.openCount(f) - (f.mentions || []).length;
+    var wrap = document.getElementById('liveWrap');
+    if (!rows.length){ wrap.style.display = 'none'; _openN = 0; return; }
+    wrap.style.display = 'block';
+    document.getElementById('liveN').textContent = String(_openN);
+    document.getElementById('liveList').innerHTML = rows.map(liveRowHtml).join('');
+  }).catch(function(e){
+    console.warn('[SLA] notifications: live feeds unavailable:', e && e.message);
+  });
+}
+
+function liveRowHtml(r){
+  var meta = '<span class="kind">' + escH(kindLabel(r.kind)) + '</span>' +
+    escH(r.text || '') + ((r.text && r.when) ? ' \u00b7 ' : '') + escH(r.when ? fmtWhen(r.when) || r.when : '');
+  var inner = '<div class="ttl">' + escH(r.title) + '</div><div class="meta">' + meta + '</div>';
+  return '<div class="row live"><div class="dot"></div><div class="main">' +
+    (r.href ? '<a class="go" href="' + escAttr(r.href) + '">' + inner + '</a>' : inner) +
+    '</div>' +
+    (r.weight > 1 ? '<span class="rowbtn" style="cursor:default">' + r.weight + ' items</span>' : '') +
+    '</div>';
+}
+
 function load(){
   // SLA.api resolves to the PARSED BODY already — it is not fetch, there is no
   // .json() to call. Deploy 237.200.
@@ -225,9 +281,16 @@ function filtered(){
 function applyFilters(){
   var rows = filtered();
   var unread = _items.filter(function(n){ return !n.readAt; }).length;
-  document.getElementById('sub').textContent =
-    unread ? (unread + ' unread of ' + _items.length + ' — read and unread, newest first.')
-           : (_items.length + ' notification' + (_items.length === 1 ? '' : 's') + ' — all read.');
+  // Deploy 237.202 -- spell out the bell's arithmetic. unread + open IS the badge, and
+  // the badge stops counting out loud at 9+, which is what made these look unrelated.
+  var bell = unread + _openN;
+  var parts = [];
+  parts.push(unread ? (unread + ' unread of ' + _items.length + ' in your history')
+                    : (_items.length + ' notification' + (_items.length === 1 ? '' : 's') + ', all read'));
+  if (_openN) parts.push(_openN + ' open now');
+  document.getElementById('sub').textContent = parts.join(' \u00b7 ') +
+    (bell ? ' \u2014 the bell shows ' + (bell > 9 ? '9+ (' + bell + ')' : bell) + '.' : '.');
+  document.getElementById('histHdr').style.display = _openN ? 'flex' : 'none';
   document.getElementById('count').textContent =
     rows.length === _items.length ? '' : ('Showing ' + rows.length + ' of ' + _items.length);
   document.getElementById('btnAll').disabled = !unread;
@@ -272,10 +335,33 @@ function openOne(id){
   var n = _items.filter(function(x){ return x.id === id; })[0];
   if (n && !n.readAt){
     n.readAt = new Date().toISOString();
+    // Deploy 237.202 (Mike: "if I click into one and return with the back button ... show
+    // it as now being read"). Paint the row read BEFORE leaving rather than re-rendering
+    // the list -- a full re-render would make the row vanish under the cursor while the
+    // "Unread only" filter is on. Coming back through the bfcache restores this DOM, so
+    // the row is already correct before the pageshow refresh below lands.
+    var row = document.getElementById('nrow_' + id);
+    if (row){
+      row.className = 'row read';
+      var meta = row.querySelector('.meta');
+      if (meta && meta.textContent.indexOf(' · read') < 0) meta.textContent += ' · read';
+      var btn = row.querySelector('.rowbtn');
+      if (btn) btn.textContent = 'Mark unread';
+    }
     try { SLA.api('POST', '/api/notifications-read', { ids: [id] }); } catch (_) {}
   }
   return true;   // let the browser follow the link
 }
+
+/* Back button. A bfcached page runs no script on return, so without this the list is
+   whatever it was when you left -- including anything marked read in another tab, or the
+   mail you just sorted. Re-read both halves; it is two cheap calls. Deploy 237.202. */
+window.addEventListener('pageshow', function(e){
+  if (!e.persisted) return;                     // a fresh load already fetched
+  if (!document.getElementById('appWrap') ||
+      document.getElementById('appWrap').style.display === 'none') return;
+  load(); loadLive();
+});
 
 function toggleRead(id){
   var n = _items.filter(function(x){ return x.id === id; })[0];
@@ -319,6 +405,7 @@ window.netlifyIdentity.on('init', function (user) {
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
   load();
+  loadLive().then(applyFilters);   // the subtitle's arithmetic needs _openN
 });
 </script>
 </body>
