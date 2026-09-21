@@ -146,7 +146,14 @@ export function buildExtensionAgreementPdf(v) {
       doc.moveDown(1);
     }
 
-    B().text('The parties execute this Agreement by electronic signature; the attached signature certificate forms part of this Agreement.', { lineGap: 3 });
+    // Deploy 237.217 (Mike asked for three of these as plain printed PDFs to
+    // send a borrower) — a printed copy has no envelope behind it, so it must
+    // not promise a signature certificate that will never be attached. The
+    // e-sign path is unchanged; `printed` is opt-in.
+    B().text(v.printed
+      ? 'The parties execute this Agreement by signing below. A signed copy delivered by email or facsimile shall be treated as an original.'
+      : 'The parties execute this Agreement by electronic signature; the attached signature certificate forms part of this Agreement.',
+      { lineGap: 3 });
     doc.moveDown(2);
 
     // Signature blocks. The rules are measured as they're drawn (236.897) so
