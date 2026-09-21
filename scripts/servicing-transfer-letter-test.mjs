@@ -303,6 +303,33 @@ console.log('\nThe browser and the server agree on the next-due rule');
 const collected = vm.runInContext('_stlCollect()', ctx);
 check('what the form sends is exactly the letter\'s field list', Object.keys(collected).sort(), LETTER_FIELDS.map((d) => d.key).sort());
 
+// ── 5b. the download next to the button (237.212) ───────────────────────────
+// Mike: "After sending add a way to download that servicing transfer letter from the
+// Servicing Tab. Just put the download option next to the button to send it."
+console.log('\nDownload the sent letter, next to the button');
+ctx.fmtDateTime = (iso) => 'on ' + String(iso).slice(0, 10);
+const lastOf = (log) => vm.runInContext('_stlLastSentFromLoan(' + JSON.stringify({ notesLog: log }) + ')', ctx);
+const note = (ts, id, over) => Object.assign({ id: 'n_' + ts, ts, kind: 'servicing_transfer_notice', text: 'Sent…', meta: { letterId: id, to: ['b@x.com'], newServicer: 'Servicing Pros' } }, over || {});
+check('a loan nothing was sent on has nothing to download', lastOf([{ kind: 'manual', ts: '2026-09-01T00:00:00Z', text: 'hi' }]), null);
+check('...nor does a loan with no log at all', vm.runInContext('_stlLastSentFromLoan({})', ctx), null);
+check('the NEWEST notice wins, wherever it sits in the log',
+  (lastOf([note('2026-09-21T10:00:00Z', 'stl_b'), note('2026-09-20T10:00:00Z', 'stl_a'), { kind: 'manual', ts: '2026-09-22T00:00:00Z' }]) || {}).letterId, 'stl_b');
+check('a notice with no letter id cannot be downloaded, so it is skipped',
+  (lastOf([note('2026-09-22T10:00:00Z', '', { meta: { to: [] } }), note('2026-09-20T10:00:00Z', 'stl_a')]) || {}).letterId, 'stl_a');
+const sentHtml = vm.runInContext('_stlSentHtml(' + JSON.stringify({ letterId: 'stl_b', at: '2026-09-21T10:00:00Z', to: ['b@x.com'], newServicer: 'Servicing Pros' }) + ')', ctx);
+assert('the button downloads THAT letter', /onclick="_stlDownloadSent\('stl_b'\)"/.test(sentHtml), sentHtml);
+assert('...and says when it went and to whom', /Sent on 2026-09-21 to b@x\.com/.test(sentHtml));
+check('nothing sent draws nothing — no dead button', vm.runInContext('_stlSentHtml(null)', ctx), '');
+assert('a hostile letter id cannot break out of the handler',
+  !/<script/.test(vm.runInContext('_stlSentHtml(' + JSON.stringify({ letterId: '"><script>x</script>', at: '', to: [] }) + ')', ctx)));
+assert('it sits NEXT TO the send button, in the same row',
+  /id="stlBtn"[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*'<span id="stlSent">' \+ _stlSentHtml\(_stlLastSentFromLoan\(l\)\)/.test(LD));
+assert('a fresh send shows the download without a reload',
+  /_loan\.notesLog\.push\(r\.entry\);[\s\S]{0,260}sent\.innerHTML = _stlSentHtml\(/.test(LD));
+assert('...because the endpoint returns the note it logged',
+  /entry = appendNoteEntry\(loan, \{/.test(readFileSync(new URL('../deploy/netlify/functions/servicing-transfer-letter.mjs', import.meta.url), 'utf8')) &&
+  /warnings, entry \}\);/.test(readFileSync(new URL('../deploy/netlify/functions/servicing-transfer-letter.mjs', import.meta.url), 'utf8')));
+
 // ── 6. wiring ───────────────────────────────────────────────────────────────
 console.log('\nWiring');
 const EP = readFileSync(new URL('../deploy/netlify/functions/servicing-transfer-letter.mjs', import.meta.url), 'utf8');

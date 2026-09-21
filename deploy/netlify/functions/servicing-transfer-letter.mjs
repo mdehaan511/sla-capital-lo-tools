@@ -139,6 +139,7 @@ async function handle(req, context) {
   const author = meta.full_name || meta.fullName || user.email || '';
   const letterId = 'stl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const warnings = [];
+  let entry = null;   // Deploy 237.212 — returned so the page can show the download at once
 
   try {
     await lettersStore().setJSON(loanKey + '/' + letterId, {
@@ -156,7 +157,7 @@ async function handle(req, context) {
   } catch (e) { console.warn('stl: remember servicer failed:', e && e.message); }
 
   try {
-    appendNoteEntry(loan, {
+    entry = appendNoteEntry(loan, {
       kind: 'servicing_transfer_notice',
       text: 'Sent the Notice of Transfer of Loan Servicing to ' + to.join(', ') +
         ' — servicing moves from ' + fields.currentServicer + ' to ' + fields.newServicer +
@@ -169,7 +170,7 @@ async function handle(req, context) {
     await writeClient(ownerKey, client, { clientsStore });
   } catch (e) { warnings.push('The send was not logged to Notes & Activity'); console.warn('stl: note append failed:', e && e.message); }
 
-  return json(200, { ok: true, letterId, sentTo: to, cc, emailId: emailId || null, filename, warnings });
+  return json(200, { ok: true, letterId, sentTo: to, cc, emailId: emailId || null, filename, warnings, entry });
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

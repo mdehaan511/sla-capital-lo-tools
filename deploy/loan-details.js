@@ -2652,7 +2652,11 @@ function render() {
         // what this loan knows and asks for the rest; preview, then email the borrower.
         '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#eee);display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
           '<button type="button" id="stlBtn" onclick="openServicingTransferLetter()" style="font-size:13px;padding:8px 14px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-weight:600">✉ Servicing Transfer Letter</button>' +
-          '<span id="stlStatus" style="font-size:12px;color:var(--muted)">Notice to the borrower that servicing is moving to a new servicer.</span>' +
+          // Deploy 237.212 (Mike): "put the download option next to the button to send it."
+          // Read off the loan's own Notes & Activity (the send logs its letterId there), so
+          // it paints with the tab — no extra request, and nothing to fall out of step.
+          '<span id="stlSent">' + _stlSentHtml(_stlLastSentFromLoan(l)) + '</span>' +
+          '<span id="stlStatus" style="font-size:12px;color:var(--muted)">' + (_stlLastSentFromLoan(l) ? '' : 'Notice to the borrower that servicing is moving to a new servicer.') + '</span>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -9806,8 +9810,18 @@ function _stlSend() {
   _stlShowProblems(null);
   SLA.api('POST', '/api/servicing-transfer-letter', _stlBody({ action: 'send', fields: _stlCollect(), to: to, cc: cc })).then(function (r) {
     closeServicingTransferLetter();
+    // Deploy 237.212 — the note the server logged goes onto the page's copy of the loan
+    // (the same thing every other send on this page does), which is what puts the
+    // download next to the button without a reload and the send into the feed.
+    if (r.entry) {
+      if (!Array.isArray(_loan.notesLog)) _loan.notesLog = [];
+      _loan.notesLog.push(r.entry);
+      try { renderNotesLog(); } catch (_) {}
+    }
+    var sent = document.getElementById('stlSent');
+    if (sent) sent.innerHTML = _stlSentHtml(_stlLastSentFromLoan(_loan) || { letterId: r.letterId, at: new Date().toISOString(), to: r.sentTo || [] });
     var status = document.getElementById('stlStatus');
-    if (status) status.innerHTML = '<span style="color:var(--success,#166534)">✓ Sent to ' + escH((r.sentTo || []).join(', ')) + ' — logged to Notes &amp; Activity.</span>';
+    if (status) status.innerHTML = '<span style="color:var(--success,#166534)">✓ Sent — logged to Notes &amp; Activity.</span>';
     showToast('Notice sent' + ((r.warnings && r.warnings.length) ? ' (' + r.warnings.join('; ') + ')' : ''));
   }).catch(function (e) {
     var probs = (e && e.data && e.data.problems) || [];
@@ -9815,6 +9829,30 @@ function _stlSend() {
     else _stlShowProblems([(e && e.message) || 'The notice was not sent']);
     if (btn) { btn.disabled = false; btn.textContent = 'Email to borrower'; }
   });
+}
+// The most recent notice SENT on this loan, from the loan's own log. A send writes a
+// 'servicing_transfer_notice' note carrying the letterId; the newest one with an id wins.
+// (If that note ever failed to save, the letter is still on file and the form's own
+// "Last sent … Download" line, which reads the letter store, still reaches it.)
+function _stlLastSentFromLoan(l) {
+  var log = (l && Array.isArray(l.notesLog)) ? l.notesLog : [];
+  var best = null;
+  for (var i = 0; i < log.length; i++) {
+    var n = log[i];
+    if (!n || n.kind !== 'servicing_transfer_notice' || !n.meta || !n.meta.letterId) continue;
+    if (!best || String(n.ts || '') > String(best.ts || '')) best = n;
+  }
+  if (!best) return null;
+  return { letterId: String(best.meta.letterId), at: best.ts || '', to: best.meta.to || [], newServicer: best.meta.newServicer || '' };
+}
+function _stlSentHtml(last) {
+  if (!last || !last.letterId) return '';
+  var to = (last.to || []).join(', ');
+  return '<button type="button" id="stlDownloadBtn" onclick="_stlDownloadSent(\'' + escAttr(last.letterId) + '\')" ' +
+      'title="The letter exactly as it was sent" ' +
+      'style="font-size:13px;padding:8px 14px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-weight:600">⬇ Download sent letter</button>' +
+    '<span style="font-size:12px;color:var(--muted);margin-left:10px">Sent ' + escH(fmtDateTime(last.at)) +
+      (to ? ' to ' + escH(to) : '') + (last.newServicer ? ' · new servicer ' + escH(last.newServicer) : '') + '</span>';
 }
 function _stlDownloadSent(letterId) {
   _stlFetchPdf({ action: 'download', letterId: letterId }).then(function (resp) {
