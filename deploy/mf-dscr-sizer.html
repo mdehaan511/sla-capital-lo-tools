@@ -4124,6 +4124,14 @@ function saveCurrentQuote() {
     if (window.SLA && SLA.Clients && SLA.Clients.saveFromSizer) {
       var _brokerNameParts = String(formData.brokerName || '').trim().split(/\s+/);
       var _isBrokerPayload = isBrokerDeal && !!formData.brokerEmail;
+      // Deploy 237.212 (Mike) — a broker deal has no borrower yet. Stamp the
+      // placeholder on the LOAN so the term sheet and the pipeline card have
+      // a name to show; the client stays the broker, resolved by email. This
+      // is the alternative to an LO inventing a borrower in the client record
+      // just to stop the term sheet printing blank.
+      if (_isBrokerPayload && !String(formData.borrowerName || '').trim()) {
+        loanRec.borrowerName = 'TBD';
+      }
       var _urlParams = new URLSearchParams(window.location.search);
       var _prospectId = null;
       if (_urlParams.get('fromProspect') === '1') {

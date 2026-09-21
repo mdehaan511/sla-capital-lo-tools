@@ -102,11 +102,35 @@ export async function linkOrCreateBroker(ownerKey, loan) {
     }
 
     // 2. Email match → an existing client (broker or contact) under owner.
+    //
+    // Deploy 237.212 (Mike, via Jeremy) — an email is a strong key but it is
+    // NOT a name. When an LO has only the broker's email and files the deal
+    // under a placeholder borrower ("Chris TBD"), a client ends up holding
+    // the BROKER's address under the BORROWER's name. This branch then
+    // adopted that record wholesale: it flagged the borrower record as a
+    // broker and handed its name back to the caller, which stamped it onto
+    // the loan — so the Broker Info card read "Chris TBD" and the same
+    // record showed up again as Guarantor 1. Three of Jeremy's quotes came
+    // out that way.
+    //
+    // Now: the typed broker name always wins, and a record whose name
+    // contradicts it is never silently converted into a broker.
     if (incomingEmail) {
       const hit = await findClientByEmail(ownerKey, incomingEmail, clientsStore);
       if (hit && hit.client) {
-        await _ensureFlagged(ownerKey, hit.client, incomingComp, clientsStore);
-        return { id: hit.client.id, created: false, broker: clientAsBroker(hit.client) };
+        const recName = String(hit.client.displayName
+          || ((hit.client.firstName || '') + ' ' + (hit.client.lastName || '')).trim()).trim();
+        const nameConflict = !!incomingName && !!recName
+          && recName.toLowerCase() !== incomingName.toLowerCase();
+        if (!nameConflict) await _ensureFlagged(ownerKey, hit.client, incomingComp, clientsStore);
+        const broker = clientAsBroker(hit.client);
+        if (nameConflict) {
+          broker.name = incomingName;                 // what the LO typed is the truth
+          if (incomingComp) broker.company = incomingComp;
+          console.warn('[broker-link] email ' + incomingEmail + ' is on client "' + recName +
+            '" but the loan says the broker is "' + incomingName + '" — keeping the typed name, not flagging that client.');
+        }
+        return { id: hit.client.id, created: false, broker, nameConflict, matchedName: recName };
       }
     }
 

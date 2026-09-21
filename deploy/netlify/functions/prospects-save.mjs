@@ -632,10 +632,11 @@ async function upsertClientFromProspect(prospect, loEmail) {
         // Canonicalize inline fields from the broker record when the
         // entity already exists (subsequent submissions from the same
         // broker reuse the entity's stored name/company/etc).
-        if (b.name)    loan.brokerName    = b.name;
-        if (b.company) loan.brokerCompany = b.company;
+        // Deploy 237.212 — FILL, never overwrite: what the LO typed wins.
+        if (b.name && !String(loan.brokerName || '').trim())    loan.brokerName    = b.name;
+        if (b.company && !String(loan.brokerCompany || '').trim()) loan.brokerCompany = b.company;
         if (b.email)   loan.brokerEmail   = b.email;
-        if (b.phone)   loan.brokerPhone   = b.phone;
+        if (b.phone && !String(loan.brokerPhone || '').trim())   loan.brokerPhone   = b.phone;
         // Deploy 236.894 (Mike) — broker submission with NO existing parent
         // client: the loan's parent IS the broker, and linkOrCreateBroker
         // just resolved/created exactly that record. Reuse it instead of

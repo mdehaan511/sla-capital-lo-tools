@@ -1159,6 +1159,14 @@
   to = "/.netlify/functions/admin-summary-save-recovery-status"
   status = 200
   force = true
+# Deploy 237.212 -- finds loans whose Broker Info was overwritten with the
+# parent client's name (see admin-broker-name-audit.mjs). Read-only report.
+[[redirects]]
+  from = "/api/admin-broker-name-audit"
+  to = "/.netlify/functions/admin-broker-name-audit"
+  status = 200
+  force = true
+
 # Deploy 237.022 -- Baseline raw-record audit / gap-fill (background job + report).
 [[redirects]]
   from = "/api/admin-baseline-raw-audit"

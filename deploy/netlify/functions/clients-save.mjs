@@ -251,10 +251,11 @@ export default async (req, context) => {
           if (linked && linked.id) {
             l.brokerId = linked.id;
             const b = linked.broker || {};
-            if (b.name)    l.brokerName    = b.name;
-            if (b.company) l.brokerCompany = b.company;
+            // Deploy 237.212 — FILL, never overwrite: what the LO typed wins.
+            if (b.name && !String(l.brokerName || '').trim())    l.brokerName    = b.name;
+            if (b.company && !String(l.brokerCompany || '').trim()) l.brokerCompany = b.company;
             if (b.email)   l.brokerEmail   = b.email;
-            if (b.phone)   l.brokerPhone   = b.phone;
+            if (b.phone && !String(l.brokerPhone || '').trim())   l.brokerPhone   = b.phone;
           }
         } catch (e) {
           console.warn('clients-save: broker auto-link failed for loan ' + (l.id || '?') + ':', e && e.message);

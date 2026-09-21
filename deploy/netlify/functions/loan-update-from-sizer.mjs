@@ -278,10 +278,11 @@ async function handle(req, context) {
         // so the loan display stays consistent if the broker record was
         // edited recently (the broker book is the source of truth now).
         const b = linked.broker || {};
-        if (b.name)    merged.brokerName    = b.name;
-        if (b.company) merged.brokerCompany = b.company;
+        // Deploy 237.212 — FILL, never overwrite: what the LO typed wins.
+        if (b.name && !String(merged.brokerName || '').trim())    merged.brokerName    = b.name;
+        if (b.company && !String(merged.brokerCompany || '').trim()) merged.brokerCompany = b.company;
         if (b.email)   merged.brokerEmail   = b.email;
-        if (b.phone)   merged.brokerPhone   = b.phone;
+        if (b.phone && !String(merged.brokerPhone || '').trim())   merged.brokerPhone   = b.phone;
       }
     }
   } catch (e) {

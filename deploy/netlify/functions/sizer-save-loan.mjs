@@ -532,10 +532,11 @@ async function handle(req, context) {
         if (linked && linked.id) {
           loanRecord.brokerId = linked.id;
           const b = linked.broker || {};
-          if (b.name)    loanRecord.brokerName    = b.name;
-          if (b.company) loanRecord.brokerCompany = b.company;
+          // Deploy 237.212 — FILL, never overwrite: what the LO typed wins.
+          if (b.name && !String(loanRecord.brokerName || '').trim())    loanRecord.brokerName    = b.name;
+          if (b.company && !String(loanRecord.brokerCompany || '').trim()) loanRecord.brokerCompany = b.company;
           if (b.email)   loanRecord.brokerEmail   = b.email;
-          if (b.phone)   loanRecord.brokerPhone   = b.phone;
+          if (b.phone && !String(loanRecord.brokerPhone || '').trim())   loanRecord.brokerPhone   = b.phone;
         } else {
           // No broker resolved/created (e.g. name-only, or a transient
           // failure). Drop any incoming brokerId so a stale/dangling
