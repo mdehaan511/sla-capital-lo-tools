@@ -103,7 +103,7 @@ export async function linkOrCreateBroker(ownerKey, loan) {
 
     // 2. Email match → an existing client (broker or contact) under owner.
     //
-    // Deploy 237.212 (Mike, via Jeremy) — an email is a strong key but it is
+    // Deploy 237.215 (Mike, via Jeremy) — an email is a strong key but it is
     // NOT a name. When an LO has only the broker's email and files the deal
     // under a placeholder borrower ("Chris TBD"), a client ends up holding
     // the BROKER's address under the BORROWER's name. This branch then

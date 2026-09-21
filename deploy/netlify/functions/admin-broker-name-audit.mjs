@@ -1,7 +1,7 @@
 /**
  * admin-broker-name-audit.mjs — GET /api/admin-broker-name-audit
  *
- * Deploy 237.212 (Mike, reporting Jeremy's quotes): "the Broker name needs to
+ * Deploy 237.215 (Mike, reporting Jeremy's quotes): "the Broker name needs to
  * be correct ... I imagine its effecting others as well."
  *
  * The defect: broker-link resolved a broker by EMAIL and adopted whatever
@@ -100,7 +100,7 @@ export default async (req, context) => {
       suspectCount: suspects.length,
       suspects,
       note: 'Read-only. The real broker name was overwritten, so fix these on Loan Details → Broker Info (editable). ' +
-            'Deploy 237.212 stops new ones: a record matched by email can no longer rename the broker.',
+            'Deploy 237.215 stops new ones: a record matched by email can no longer rename the broker.',
     });
   } catch (e) {
     console.error('admin-broker-name-audit error:', (e && e.message) || e);
