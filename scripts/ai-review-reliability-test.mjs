@@ -172,8 +172,12 @@ assert('...all the way: findings, not a second "Details" click', /var _compact =
 assert('the flag is reset with the other per-loan view state', /_aiDetailsOpen = \{\}; \/\/ Deploy 237\.070\n\s+_aiOpenTray = \{\};/.test(DR));
 const pin = (LD.match(/loan-doc-review\.js\?v=([0-9A-Za-z@.]+)/) || [])[1] || '';
 const stamp = (DR.match(/_aiOpenTray = \{\};\s+\/\/ Deploy (?:237\.)?([0-9@A-Z]+)/) || [])[1] || '';
+// "That deploy OR NEWER". The first version of this check wanted the pin to END WITH the
+// deploy that added dr_openAi, so the very next deploy to bump the pin (237.222) turned a
+// correct page red. A pin only has to be no OLDER than the function it depends on.
+const pinN = Number(pin.replace(/\D/g, '')), stampN = Number('237' + stamp.replace(/\D/g, ''));
 assert('the page pins a loan-doc-review.js that HAS dr_openAi (guard the function, not the namespace)',
-  pin.replace(/\D/g, '') !== '' ? pin.replace(/\D/g, '').endsWith(stamp.replace(/\D/g, '')) : pin === stamp || /DEPLOY/.test(pin), 'pin ' + pin + ' vs deploy ' + stamp);
+  pin.replace(/\D/g, '') !== '' ? (stamp.replace(/\D/g, '') !== '' && pinN >= stampN) : /DEPLOY/.test(pin), 'pin ' + pin + ' vs deploy ' + stamp);
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(fail ? 1 : 0);

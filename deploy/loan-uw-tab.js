@@ -141,6 +141,9 @@
       assignmentContractPrice: num(e('assignmentContractPrice')),
       fundingDate: e('earliestSigningDate') || loan.fundingDate || '',
       cashToClose: cashToClose, emdPaid: num(e('emd')), accounts: accounts,
+      // Deploy 237.222 -- read by the key-metrics panel (loan-uw-metrics.js). The engine
+      // ignores it; it is here so the panel shows THIS number, not its own re-derivation.
+      downPayment: downPayment, downPaymentDerived: !(num(e('downPayment')) > 0),
       middleCredit: num(e('middleCredit')),
       points: num(loan.points), brokerFeePct: num(loan.brokerFee),
       caps: loanCaps(loan),
@@ -393,6 +396,34 @@
 
   function _rerender(){ if (_ctx) mount(_ctx); }
 
+  // Deploy 237.222 -- other renderers of this data (the key-metrics panel on Documents >
+  // Underwriting) hear about every change, whoever made it.
+  var _subs = [];
+  function subscribe(fn) { if (typeof fn === 'function' && _subs.indexOf(fn) < 0) _subs.push(fn); }
+  function _notify() {
+    var loan = _ctx && _ctx.loan;
+    _subs.slice().forEach(function (fn) { try { fn(loan); } catch (e) { console.warn('[SLA UW] subscriber failed:', e); } });
+  }
+  // What a document review can change on the loan. A fresh copy of the loan is folded in
+  // IN PLACE, these keys only: the page holds this same object under several names
+  // (_loan, the doc review's live loan, this tab's ctx), and swapping it for a raw
+  // server copy would drop whatever else the page has decorated it with.
+  var FRESH_KEYS = ['uwData', 'uwAudit', 'lightningData', 'lightningAudit',
+    'aivBpo', 'arvBpo', 'aivBpoFromBpo', 'arvBpoFromBpo', 'aivBpoBpoAt', 'arvBpoBpoAt',
+    'bpoAivBelowPurchase', 'bpoValuesAt'];
+  function mergeFresh(fresh) {
+    if (!_ctx || !_ctx.loan || !fresh || typeof fresh !== 'object') return false;
+    if (fresh.id && _ctx.loan.id && fresh.id !== _ctx.loan.id) return false; // never another loan's numbers
+    var changed = false;
+    FRESH_KEYS.forEach(function (k) {
+      if (fresh[k] === undefined) return;
+      if (JSON.stringify(fresh[k]) === JSON.stringify(_ctx.loan[k])) return;
+      _ctx.loan[k] = fresh[k]; changed = true;
+    });
+    if (changed) { _rerender(); _notify(); }
+    return changed;
+  }
+
   // ── Inline edit ────────────────────────────────────────────────────
   // Field → input type for inline editing. Keeps money/date/enum entry
   // clean and mistake-resistant (a domain where mistakes are costly).
@@ -407,8 +438,11 @@
 
   // Inline edit: turn the Value cell into a typed input in place. Enter /
   // blur / select-change commits; Escape reverts. No prompt boxes.
-  function _edit(dataset, key) {
-    var cell = document.querySelector('.uw-r-value[data-key="' + key + '"]');
+  // Deploy 237.222 -- `root` scopes the lookup. The key-metrics panel renders the same
+  // cells a second time; without it document.querySelector finds the FIRST match in the
+  // page -- the hidden Underwriting pane -- and the editor opens where nobody can see it.
+  function _edit(dataset, key, root) {
+    var cell = (root || document).querySelector('.uw-r-value[data-key="' + key + '"]');
     if (!cell || cell.querySelector('.uw-edit-input')) return; // already editing
     var loan = _ctx.loan || {};
     var data = dataset === 'uw' ? (loan.uwData || {}) : (loan.lightningData || {});
@@ -434,7 +468,7 @@
     var done = false;
     function commit(save) {
       if (done) return; done = true;
-      if (save) { _save(dataset, key, inp.value); } else { _rerender(); }
+      if (save) { _save(dataset, key, inp.value); } else { _rerender(); _notify(); }
     }
     try { inp.focus(); if (inp.select) inp.select(); } catch (_) {}
     inp.onkeydown = function (e) {
@@ -445,8 +479,8 @@
     if (inp.tagName === 'SELECT') inp.onchange = function () { commit(true); };
   }
 
-  function _acct(dataset, key) {
-    var cell = document.querySelector('.uw-acct[data-key="'+key+'"]');
+  function _acct(dataset, key, root) {
+    var cell = (root || document).querySelector('.uw-acct[data-key="'+key+'"]');
     if (!cell) return;
     var type = cell.querySelector('.uw-acct-type').value;
     var bal  = cell.querySelector('.uw-acct-bal').value;
@@ -466,10 +500,11 @@
     if (window.SLA && SLA.api) {
       SLA.api('POST','/api/loan-uw-field-save', body).then(function(r){
         if (r && r.loan) { _ctx.loan = r.loan; if (_ctx.refreshLoan) _ctx.refreshLoan(r.loan); }
-        _rerender();
+        _rerender(); _notify();
         if (typeof showToast==='function') showToast('Saved');
       }).catch(function(err){
         if (typeof showToast==='function') showToast('Save failed: '+(err&&err.message||'unknown'));
+        _rerender(); _notify(); // Deploy 237.222 -- show what is actually stored, not the rejected entry
       });
     }
   }
@@ -483,7 +518,7 @@
     if (window.SLA && SLA.api) {
       SLA.api('POST','/api/loan-uw-field-save', body).then(function(r){
         if (r && r.loan) { _ctx.loan = r.loan; if (_ctx.refreshLoan) _ctx.refreshLoan(r.loan); }
-        _rerender();
+        _rerender(); _notify();
         if (typeof showToast==='function') showToast('Confirmed');
       }).catch(function(err){
         if (typeof showToast==='function') showToast('Confirm failed: '+(err&&err.message||'unknown'));
@@ -526,5 +561,11 @@
     setTimeout(function(){ cell.classList.remove('uw-jump-flash'); }, 1600);
   }
 
-  window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history, _confirm:_confirm, _jump:_jump };
+  window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history, _confirm:_confirm, _jump:_jump,
+    // Deploy 237.222 -- the engine, for the key-metrics panel. ONE set of formulas, one
+    // save path, one audit trail: the panel draws what these return and owns none of it.
+    computeCalc: computeCalc, calcContext: calcContext, resolve: resolve, fmtDisplay: fmtDisplay,
+    provText: provText, programOf: programOf, buildChecksSummary: buildChecksSummary,
+    acctWeight: _acctWeight, ctx: function () { return _ctx; },
+    subscribe: subscribe, mergeFresh: mergeFresh };
 })();

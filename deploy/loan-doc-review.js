@@ -244,6 +244,18 @@
       '.dr-root .source-panel-body { padding:14px 22px 20px; border-top:1px solid var(--border, #ddd8d0); background:#fcfaf6; display:none; }',
       '.dr-root .source-panel-body.open { display:block; }',
       '.dr-root .source-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px 22px; }',
+      // Deploy 237.222 -- Underwriting subtab: trays + key metrics. STACKED unless the
+      // review column itself is wide enough -- a container query, because this sits inside
+      // Loan Details beside a 400px notes column and the window width says nothing about
+      // the room actually left. A browser without container queries keeps the stack.
+      '.dr-root .dr-uw-wrap { container-type:inline-size; container-name:druw; }',
+      '.dr-root .dr-uw-cols { display:flex; flex-direction:column-reverse; gap:16px; }',
+      '.dr-root .dr-uw-main { min-width:0; }',
+      '.dr-root .dr-uw-side { min-width:0; }',
+      '@container druw (min-width: 900px) {',
+      '  .dr-root .dr-uw-cols { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:18px; align-items:start; }',
+      '  .dr-root .dr-uw-side { position:sticky; top:12px; max-height:calc(100vh - 24px); overflow-y:auto; }',
+      '}',
       '.dr-root .source-grid .k { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:2px; }',
       '.dr-root .source-grid .v { font-size:13px; color:var(--text); font-family:"DM Mono", monospace; word-break:break-word; }',
       '.dr-root .source-section-title { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin:16px 0 8px; padding-top:12px; border-top:1px solid var(--border); }',
@@ -692,6 +704,7 @@
     _expanded = {};
     _aiDetailsOpen = {}; // Deploy 237.070
     _aiOpenTray = {};    // Deploy 237.221
+    _mxSig = null;       // Deploy 237.222 -- a new review is a new baseline, not a change
     _pendingOverride = null;
     _pendingNa = null;
     _pendingHide = null; // Deploy 237.071
@@ -1050,7 +1063,17 @@
     // backend path.
 
     var fullFileHtml = (_activeTab === 'uw') ? _renderFullFileCard() : ''; // Deploy 237.072 (item 8)
-    _root.innerHTML = summary + sourcePanel + tabs + toolbar + fullFileHtml + traysHtml + bottom;
+    // Deploy 237.222 (Mike) -- the key metrics sit beside the trays on Underwriting,
+    // between them and the notes / audit column. Only where loan-uw-metrics.js is loaded
+    // (Loan Details) and only for a review tied to the loan on screen; anywhere else this
+    // is the single column it always was.
+    var _mx = (_activeTab === 'uw') ? _metricsHtml() : '';
+    var _body = _mx
+      ? '<div class="dr-uw-wrap"><div class="dr-uw-cols"><div class="dr-uw-main">' + fullFileHtml + traysHtml + '</div>' +
+          '<aside class="dr-uw-side">' + _mx + '</aside></div></div>'
+      : fullFileHtml + traysHtml;
+    _root.innerHTML = summary + sourcePanel + tabs + toolbar + _body + bottom;
+    try { _metricsAfterRender(); } catch (_mxErr) { console.warn('[SLA] doc-review: metrics hook failed:', _mxErr); } // never let the panel break the trays
     _restoreScrollAnchor(_anchor); // Deploy 237.046
 
     // Deploy 236.533 — fill the borrower/broker invite status line async.
@@ -1577,6 +1600,49 @@
       '</div>' +
       '<div class="source-panel-body' + (_sourceOpen ? ' open' : '') + '">' + bodyContent + '</div>' +
     '</div>';
+  }
+
+  // ── Deploy 237.222 (Mike) -- key-metrics panel on the Underwriting subtab ──────────
+  // Drawn by loan-uw-metrics.js from the SAME registry, calc engine and save path as the
+  // Underwriting tab; this module only gives it a column and tells it when to look again.
+  var _mxSig = null;
+  var _mxSubscribed = false;
+  function _metricsLoan() {
+    var L = _liveFor(_review); // the loan ON SCREEN, and only when this review belongs to it
+    return (L && global.SLA_UW_METRICS && global.SLA_UW_METRICS.html) ? L : null;
+  }
+  function _metricsHtml() {
+    var L = _metricsLoan();
+    if (!L) return '';
+    try { return global.SLA_UW_METRICS.html(L); }
+    catch (e) { console.warn('[SLA] doc-review: metrics panel failed:', e); return ''; }
+  }
+  // "Read from documents as they're uploaded": a review landing is the moment the loan's
+  // numbers can change, and EVERY path that finishes one (sync upload, background poll,
+  // retry, ZIP, borrower upload seen on reload) stamps aiReviewedAt. So watch that stamp,
+  // not the fifteen places that assign _review.
+  function _metricsSig() {
+    var docs = (_review && _review.docs) || {};
+    return Object.keys(docs).sort().map(function(s) {
+      var d = docs[s] || {};
+      return s + ':' + (d.aiReviewedAt || '') + ':' + (d.aiReviewing ? 'r' : '');
+    }).join('|');
+  }
+  function _metricsAfterRender() {
+    if (!global.SLA_UW_METRICS) return;
+    if (!_mxSubscribed && global.SLA_UW_TAB && global.SLA_UW_TAB.subscribe) {
+      _mxSubscribed = true;
+      global.SLA_UW_TAB.subscribe(function(loan) {
+        if (loan && _liveLoan && loan.id === _liveLoan.id) _liveLoan = loan; // a save swaps the object
+        var side = _root && _root.querySelector('.dr-uw-side');
+        if (side && _activeTab === 'uw') side.innerHTML = _metricsHtml();
+      });
+    }
+    var sig = _metricsSig();
+    if (_mxSig !== null && sig !== _mxSig && _metricsLoan()) {
+      try { global.SLA_UW_METRICS.refresh(); } catch (_) {}
+    }
+    _mxSig = sig;
   }
 
   function renderSections(slugs) {
