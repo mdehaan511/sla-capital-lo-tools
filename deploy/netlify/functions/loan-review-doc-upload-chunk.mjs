@@ -33,6 +33,7 @@ import {
 } from './_shared/auth.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
+import { statusAfterUpload } from './_shared/doc-status.mjs'; // Deploy 237.213 (Jessy)
 
 // Assembled-file ceiling. Generous for a signed closing package while keeping
 // the finalize call's memory + runtime inside the function budget.
@@ -143,7 +144,9 @@ async function handle(req, context) {
   // Deploy 237.138 (Dan) -- "Received" is applied automatically the moment a
   // borrower or processor uploads a document. A new file also clears any prior
   // sign-off (the verdict reset below), so the tray goes back for review.
-  docState.status = 'received';
+  // Deploy 237.213 (Jessy) -- ...unless the tray is under an underwriter's condition: then a
+  // new document is that condition being ADDRESSED, and it stays on the Conditions tab.
+  docState.status = statusAfterUpload(docState);
   docState.statusAt = now;
   docState.statusBy = normalizeEmail(user.email);
   docState.verdict = 'pending';

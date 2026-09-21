@@ -785,6 +785,7 @@
     processor_approved: { bg: '#d81b76', fg: '#ffffff', bd: '#d81b76' },
     ptd_condition:      { bg: '#e8912d', fg: '#ffffff', bd: '#e8912d' },
     ptf_condition:      { bg: '#f0cf3f', fg: '#4a3a00', bd: '#d9b92c' },
+    condition_addressed:{ bg: '#0f766e', fg: '#ffffff', bd: '#0f766e' }, // Deploy 237.213 (Jessy) -- teal: neither a condition colour nor approved-green
     uw_approved:        { bg: '#166534', fg: '#ffffff', bd: '#166534' },
     na:                 { bg: '#e9e5de', fg: '#4a4458', bd: '#d6cfc0' },
   };
@@ -798,6 +799,13 @@
     { key: 'processor_approved', label: 'Processor Approved'   },
     { key: 'ptd_condition',      label: 'PTD Condition'        },
     { key: 'ptf_condition',      label: 'PTF Condition'        },
+    // Deploy 237.213 (Jessy, via Mike) -- the processor's half of a condition: "I have
+    // dealt with it, it is yours again." Dee marks PTD, the tray goes to Conditions;
+    // Raissa resolved it and set Received, which sent the tray BACK to Underwriting and
+    // left Dee hunting for it among every newly uploaded doc. This status keeps it on
+    // the Conditions tab. Only offered on a tray that IS under a condition -- on any
+    // other tray it would be a claim about a condition nobody made.
+    { key: 'condition_addressed', label: 'Condition Addressed', onlyUnderCondition: true },
     { key: 'uw_approved',        label: 'Underwriter Approved' },
   ];
   // Trays marked N/A before Dan's list replaced that option. Kept so the old data
@@ -806,7 +814,8 @@
   var _LEGACY_STATUSES = [{ key: 'na', label: 'Not Applicable' }];
   // Statuses that mean the processor is DONE with the tray -> Underwriting tab.
   // Outstanding / Received are collection work, so they stay with the processor.
-  var _UW_STATUS = { processor_approved: 1, ptd_condition: 1, ptf_condition: 1, uw_approved: 1, na: 1 };
+  // Deploy 237.213 -- Condition Addressed is on the UNDERWRITER's desk, not the processor's.
+  var _UW_STATUS = { processor_approved: 1, ptd_condition: 1, ptf_condition: 1, condition_addressed: 1, uw_approved: 1, na: 1 };
   function _condPriorTo(d) {
     var open = (Array.isArray(d && d.conditions) ? d.conditions : []).filter(function(c) { return c && c.status !== 'cleared'; });
     for (var i = 0; i < open.length; i++) if (open[i].priorTo === 'funding') return 'funding';
@@ -814,6 +823,13 @@
   }
   function _statusOf(slug) {
     var d = (_review && _review.docs && _review.docs[slug]) || {};
+    // Deploy 237.213 (Jessy) -- an upload onto a conditioned tray used to stamp it
+    // Received (Dan's auto-rule), and uploads have never touched uwVerdict. So
+    // "Received, but uwVerdict still says conditions" can only mean a new document
+    // landed on a tray the underwriter conditioned -- which IS Condition Addressed.
+    // Reading it that way puts the trays Dee is hunting for today back on her tab
+    // without migrating anything. (New uploads store the real status: doc-status.mjs.)
+    if (d.status === 'received' && d.uwVerdict === 'conditions') return 'condition_addressed';
     if (d.status) return d.status;
     // Trays reviewed before this deploy: derive from the old verdict pair.
     if (d.verdict === 'na') return 'na';
@@ -840,7 +856,21 @@
     if (d.hidden) return false;
     if (_openCondCount(d) > 0) return true;
     var st = _statusOf(slug);
+    // Deploy 237.213 (Jessy) -- Condition Addressed stays HERE until the underwriter
+    // moves it, items or no items. Dee reviews the new document, clears the item and
+    // approves; if clearing the last item made the tray vanish first she would be back
+    // to hunting for it in Underwriting, which is the whole complaint.
+    if (st === 'condition_addressed') return true;
     return (st === 'ptd_condition' || st === 'ptf_condition') && !(Array.isArray(d.conditions) && d.conditions.length);
+  }
+  // Is this tray under an underwriter's condition right now? Mirrors isUnderCondition()
+  // in _shared/doc-status.mjs (the gate runs both against the same trays).
+  function _underCondition(slug) {
+    var d = (_review && _review.docs && _review.docs[slug]) || {};
+    if (_openCondCount(d) > 0) return true;
+    var st = _statusOf(slug);
+    if (st === 'ptd_condition' || st === 'ptf_condition' || st === 'condition_addressed') return true;
+    return d.uwVerdict === 'conditions';
   }
   // Deploy 237.160 (Jessy: "2nd guarantor has been removed but still shows guarantor
   // doc trays") -- the roster keeps everyone who has EVER been a guarantor so their
@@ -2170,7 +2200,9 @@
           'onchange="dr_setStatus(\'' + escJs(slug) + '\',this.value)" title="Set this document\u2019s status">' +
           // Deploy 237.138 -- Outstanding is the base status, so there is no blank
           // option; a legacy N/A tray keeps N/A selectable until it is moved off.
-          _STATUSES.concat(_status === 'na' ? _LEGACY_STATUSES : []).map(function(st) {
+          // Deploy 237.213 -- Condition Addressed only where there IS a condition.
+          _STATUSES.filter(function(st) { return !st.onlyUnderCondition || st.key === _status || _underCondition(slug); })
+            .concat(_status === 'na' ? _LEGACY_STATUSES : []).map(function(st) {
             // Deploy 237.140 -- each option carries its own colour.
             return '<option value="' + escAttr(st.key) + '" style="' + _statusCss(st.key) + '"' + (st.key === _status ? ' selected' : '') + '>' + escHtml(st.label) + '</option>';
           }).join('') +
@@ -4404,6 +4436,13 @@
     // reason feeds the borrower's please-fix email (236.746). An empty tray is just
     // the base state, so it is set without a prompt.
     if (status === 'outstanding' && _trayHasDoc(dd)) { global.dr_openFlagModal(slug); return; }
+    // Deploy 237.213 (Jessy) -- "Raissa ... changes status to 'Received' when she updated
+    // doc or resolve condition - which leads the file back to Underwriting tab." On a tray
+    // under a condition, Received MEANS "I have dealt with the condition", so that is what
+    // it is recorded as, and the tray stays on the Conditions tab for the underwriter.
+    // Habit keeps working; nobody has to learn a new click for the fix to reach them.
+    var _wasReceived = false;
+    if (status === 'received' && _underCondition(slug)) { status = 'condition_addressed'; _wasReceived = true; }
     var now = new Date().toISOString();
     var who = (_user && _user.email) || '';
     var p = { status: status, statusAt: now, statusBy: who };
@@ -4417,6 +4456,13 @@
       p.verdict = 'approved'; p.approvedAt = now; p.approvedBy = who;
       p.uwVerdict = 'conditions'; p.uwConditionsAt = now; p.uwConditionsBy = who;
       p.uwApprovedAt = ''; p.uwApprovedBy = '';
+    } else if (status === 'condition_addressed') {
+      // The processor vouches for it (verdict approved); it is still the UNDERWRITER's
+      // call (uwVerdict stays 'conditions', so the pipeline tile does not count it as
+      // approved). When the underwriter conditioned it (uwConditionsAt/By) is left alone.
+      p.verdict = 'approved'; p.approvedAt = now; p.approvedBy = who;
+      p.uwVerdict = 'conditions'; p.uwApprovedAt = ''; p.uwApprovedBy = '';
+      p.conditionAddressedAt = now; p.conditionAddressedBy = who;
     } else if (status === 'na') {
       p.verdict = 'na'; p.approvedAt = now; p.approvedBy = who;
       p.uwVerdict = ''; p.uwApprovedAt = ''; p.uwApprovedBy = '';
@@ -4431,7 +4477,9 @@
     patch.docs[slug] = p;
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
-      showToast('Set to ' + _statusLabel(status) + '.', 'success');
+      showToast(_wasReceived
+        ? 'This tray is under a condition, so it is marked Condition Addressed \u2014 it stays on the Conditions tab for the underwriter.'
+        : ('Set to ' + _statusLabel(status) + '.'), 'success');
       render();
     }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
   };

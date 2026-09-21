@@ -30,6 +30,7 @@ import { keySafe } from './auth.mjs';
 // Deploy 237.156 -- one-way import: credit-auth-split never imports this file back
 // (its attach is passed in), so there is no cycle for esbuild to trip over.
 import { fileCreditAuthPages } from './credit-auth-split.mjs';
+import { statusAfterUpload } from './doc-status.mjs'; // Deploy 237.213 (Jessy)
 
 const LOAN_APP_SLUG   = 'loan_application';
 const RATE_SHEET_SLUG = 'term_sheet';
@@ -546,7 +547,7 @@ function _attachToSlug({ review, slug, bytes, filename, mimeType, sourceNote, ac
   docState.currentSize        = bytes.length;
   docState.currentMimeType    = mimeType;
   docState.currentUploadedAt  = now;
-  docState.status             = 'received'; // Deploy 237.138 (Dan) -- a generated doc has landed too
+  docState.status             = statusAfterUpload(docState); // Deploy 237.138 (Dan) -- a generated doc has landed too; 237.213 -- Condition Addressed on a conditioned tray
   docState.statusAt           = now;
   // Reset verdict + AI state — the new doc needs its own review,
   // even though it was auto-attached. Processor still has to click

@@ -46,6 +46,7 @@ import { writeFieldProposals, felonyAlertFor } from './_shared/uw-field-write.mj
 import { writeClient } from './_shared/client-write.mjs';
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
+import { statusAfterUpload } from './_shared/doc-status.mjs'; // Deploy 237.213 (Jessy)
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
 // are < 5MB; appraisals can run larger. If this becomes a problem we'll
@@ -246,7 +247,9 @@ async function handle(req, context) {
   // Deploy 237.138 (Dan) -- "Received" is applied automatically the moment a
   // borrower or processor uploads a document. A new file also clears any prior
   // sign-off (the verdict reset below), so the tray goes back for review.
-  docState.status = 'received';
+  // Deploy 237.213 (Jessy) -- ...unless the tray is under an underwriter's condition: then a
+  // new document is that condition being ADDRESSED, and it stays on the Conditions tab.
+  docState.status = statusAfterUpload(docState);
   docState.statusAt = now;
   docState.statusBy = normalizeEmail(user.email);
   docState.verdict = 'pending';

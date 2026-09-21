@@ -63,9 +63,11 @@ const sec = (slug) => run('_secOf(' + JSON.stringify(slug) + ')');
 
 console.log('doc review tabs + status gate\n');
 
-check('Dan\'s six statuses, in his order',
+// Dan's six (237.138), plus the one Jessy asked for (237.213): the processor's answer to
+// a condition, which sits between the two condition kinds and the underwriter's approval.
+check('Dan\'s six statuses in his order, with Condition Addressed where it belongs',
   run('_STATUSES.map(function(s){return s.label})'),
-  ['Outstanding', 'Received', 'Processor Approved', 'PTD Condition', 'PTF Condition', 'Underwriter Approved']);
+  ['Outstanding', 'Received', 'Processor Approved', 'PTD Condition', 'PTF Condition', 'Condition Addressed', 'Underwriter Approved']);
 check('Not Applicable survives only as a legacy option', run('_LEGACY_STATUSES.map(function(s){return s.label})'), ['Not Applicable']);
 
 // ── Dan's two behavioural notes ───────────────────────────────────────────
@@ -271,6 +273,110 @@ check('with nothing filed as Other, the section still shows for the processor',
   [true, true]);
 check('…and drops away entirely on Underwriting',
   headings(render(noOther, 'uw')).indexOf('Other Documents'), -1);
+
+// ── Deploy 237.213 (Jessy, via Mike) — a condition stays a condition ─────────
+// "when Dee underwrites a file, and if she marks a file as 'PTD' it goes to Conditions.
+// Raissa then goes to Conditions Tab to resolve them and changes status to 'Received'
+// when she updated doc or resolve condition - which leads the file back to Underwriting
+// tab. If we could keep the file under Conditions or add a status maybe like 'Condition
+// Addressed' and keep the files with conditions in the Conditions Tab."
+//
+// There were TWO doors the tray fell through: the processor picking Received, and the
+// server stamping Received on upload (Dan's auto-rule). Both are walked here.
+console.log('\nA condition stays on the Conditions tab until the UNDERWRITER moves it');
+const { isUnderCondition, statusAfterUpload, CONDITION_STATUSES } =
+  await import('../deploy/netlify/functions/_shared/doc-status.mjs');
+const open = (id) => ({ id, title: 'Need ' + id, status: 'outstanding' });
+const done = (id) => ({ id, title: 'Need ' + id, status: 'cleared' });
+const TRAYS = {
+  ptdBare:        { currentDocId: 'd', status: 'ptd_condition', verdict: 'approved', uwVerdict: 'conditions' },                 // Dee marked PTD, itemised nothing
+  ptdItems:       { currentDocId: 'd', status: 'ptd_condition', verdict: 'approved', uwVerdict: 'conditions', conditions: [open('c1')] },
+  addressed:      { currentDocId: 'd', status: 'condition_addressed', verdict: 'approved', uwVerdict: 'conditions' },
+  addressedDone:  { currentDocId: 'd', status: 'condition_addressed', uwVerdict: 'conditions', conditions: [done('c1')] },        // Dee cleared the item, has not approved yet
+  healed:         { currentDocId: 'd', status: 'received', verdict: 'pending', uwVerdict: 'conditions' },                        // an upload BEFORE this deploy
+  plainReceived:  { currentDocId: 'd', status: 'received', verdict: 'pending', uwVerdict: '' },
+  uwApproved:     { currentDocId: 'd', status: 'uw_approved', verdict: 'approved', uwVerdict: 'approved', conditions: [done('c1')] },
+  approvedOpen:   { currentDocId: 'd', status: 'processor_approved', verdict: 'approved', conditions: [open('c2')] },
+  empty:          {},
+};
+setDocs(TRAYS);
+check('the status itself stays on Conditions — even with nothing itemised', onCond('addressed'), true);
+check('...and even after the last item is cleared, until the underwriter approves',
+  onCond('addressedDone'), true);
+check('it is on the UNDERWRITER\'s desk, so it is not back in the processor\'s queue', stage('addressed'), 'uw');
+check('a tray an upload knocked to Received BEFORE this deploy reads as Condition Addressed',
+  [status('healed'), onCond('healed'), stage('healed')], ['condition_addressed', true, 'uw']);
+check('...but an ordinary Received tray is untouched', [status('plainReceived'), onCond('plainReceived'), stage('plainReceived')], ['received', false, 'processor']);
+check('the underwriter approving is what takes it off the tab', onCond('uwApproved'), false);
+check('Mike\'s rule still holds for PTD/PTF: a bare PTD shows, so the items can be added', onCond('ptdBare'), true);
+
+// The page and the server must agree on what "under a condition" means, tray for tray.
+Object.keys(TRAYS).forEach((k) => {
+  check('  page and server agree on "' + k + '"', run('_underCondition(' + JSON.stringify(k) + ')'), isUnderCondition(TRAYS[k]));
+});
+check('exactly three statuses mean "under a condition"', CONDITION_STATUSES, ['ptd_condition', 'ptf_condition', 'condition_addressed']);
+
+console.log('\nDoor 1 — the server stamping Received on upload');
+check('a document landing on a PTD tray is the condition being ADDRESSED', statusAfterUpload(TRAYS.ptdBare), 'condition_addressed');
+check('...same when the condition is only an open item on an approved tray', statusAfterUpload(TRAYS.approvedOpen), 'condition_addressed');
+check('...and a second upload keeps it there', statusAfterUpload(TRAYS.addressed), 'condition_addressed');
+check('an ordinary tray is still Dan\'s auto-Received', [statusAfterUpload(TRAYS.empty), statusAfterUpload(TRAYS.plainReceived), statusAfterUpload(undefined)], ['received', 'received', 'received']);
+check('an approved tray with every condition cleared is an ordinary tray again', statusAfterUpload(TRAYS.uwApproved), 'received');
+const fn = (p) => fs.readFileSync(new URL('../deploy/netlify/functions/' + p, import.meta.url), 'utf8');
+['loan-review-doc-upload.mjs', 'loan-review-doc-upload-chunk.mjs', 'borrower-intake-upload.mjs', '_shared/loan-review-auto-attach.mjs'].forEach((p) => {
+  const t = fn(p);
+  check('  ' + p + ' asks doc-status, and no longer hard-codes Received',
+    [/statusAfterUpload\(/.test(t), /status\s*[:=]\s*'received'/.test(t)], [true, false]);
+});
+// borrower-doc-upload mints a BRAND-NEW custom tray every time; there is no prior tray
+// for a condition to be on, so Received is right there and is left alone on purpose.
+check('  borrower-doc-upload (always a new tray) is deliberately still Received',
+  /isCustom:\s+true[\s\S]{0,300}status:\s+'received'/.test(fn('borrower-doc-upload.mjs')), true);
+
+console.log('\nDoor 2 — the processor picking Received (the handler is RUN, not read)');
+const setStatusSrc = (() => {
+  const a = src.indexOf('  global.dr_setStatus = function(slug, status) {');
+  const b = src.indexOf('  global.dr_setVerdict = function(slug, verdict) {', a);
+  if (a < 0 || b < 0) throw new Error('marker missing: dr_setStatus');
+  return src.slice(a, b);
+})();
+const sent = [];
+const toasts = [];
+ctx.global = {};
+ctx._user = { email: 'raissa@slacapital.com' };
+ctx._primaryHealFields = () => null;
+ctx.showToast = (m) => toasts.push(m);
+ctx.render = () => {};
+ctx.Date = Date;
+ctx.global.SLA = { LoanReviews: { patch: (id, patch) => { sent.push(patch); return { then: (ok) => { ok({ review: ctx._review }); return { catch: () => {} }; } }; } } };
+ctx.global.dr_openFlagModal = () => { sent.push('FLAG_MODAL'); };
+vm.runInContext(setStatusSrc, ctx);
+ctx._review = { id: 'r1', docs: JSON.parse(JSON.stringify(TRAYS)) };
+const setStatus = (slug, st) => { sent.length = 0; toasts.length = 0; run('global.dr_setStatus(' + JSON.stringify(slug) + ',' + JSON.stringify(st) + ')'); return sent[0] && sent[0].docs && sent[0].docs[slug]; };
+
+let p1 = setStatus('ptdBare', 'received');
+check('Raissa picks Received on Dee\'s PTD tray -> it is recorded as Condition Addressed',
+  [p1.status, p1.uwVerdict, p1.conditionAddressedBy], ['condition_addressed', 'conditions', 'raissa@slacapital.com']);
+check('...and she is told why, so the different label is not a surprise', /stays on the Conditions tab/.test(toasts[0] || ''), true);
+p1 = setStatus('approvedOpen', 'received');
+check('the same on a tray whose condition is an open item', p1.status, 'condition_addressed');
+p1 = setStatus('plainReceived', 'received');
+check('on a tray with NO condition, Received is just Received', [p1.status, p1.uwVerdict], ['received', '']);
+p1 = setStatus('addressed', 'uw_approved');
+check('the underwriter approving clears the condition marker', [p1.status, p1.uwVerdict], ['uw_approved', 'approved']);
+p1 = setStatus('addressed', 'ptd_condition');
+check('...or she can put it straight back under a condition', [p1.status, p1.uwVerdict], ['ptd_condition', 'conditions']);
+p1 = setStatus('ptdBare', 'condition_addressed');
+check('picking Condition Addressed directly does the same thing', [p1.status, p1.verdict, p1.uwVerdict], ['condition_addressed', 'approved', 'conditions']);
+check('the pipeline tile never counts it as approved (that needs uwVerdict approved)', p1.uwVerdict === 'approved', false);
+
+console.log('\nOffered only where it means something');
+check('the dropdown filters Condition Addressed to trays under a condition (or already holding it)',
+  /_STATUSES\.filter\(function\(st\) \{ return !st\.onlyUnderCondition \|\| st\.key === _status \|\| _underCondition\(slug\); \}\)/.test(src), true);
+check('it has its own colour in the chip and the dropdown', /condition_addressed:\{ bg: '#0f766e'/.test(src), true);
+const LDH = fs.readFileSync(new URL('../deploy/loan-details.html', import.meta.url), 'utf8');
+check('the page is pinned to a loan-doc-review.js that HAS the status',
+  Number((LDH.match(/loan-doc-review\.js\?v=(\d+)/) || [])[1]) >= 237213, true);
 
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(failures ? 1 : 0);

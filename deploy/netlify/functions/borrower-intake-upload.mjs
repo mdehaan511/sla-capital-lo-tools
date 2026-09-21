@@ -34,6 +34,7 @@ import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { writeFieldProposals } from './_shared/uw-field-write.mjs';
 import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
+import { statusAfterUpload } from './_shared/doc-status.mjs'; // Deploy 237.213 (Jessy)
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -186,7 +187,9 @@ async function handle(req, context) {
     // over an approved tray: the old carry-forward let a borrower swap the
     // file under an approved verdict (stale portal tab / direct API call)
     // and the never-reviewed replacement kept the approval + approvedBy.
-    status:          'received', // Deploy 237.138 (Dan) -- auto-applied on a borrower upload
+    // Deploy 237.213 (Jessy) -- a borrower answering a condition keeps the tray on the
+    // Conditions tab (Condition Addressed); anything else is Dan's auto-Received.
+    status:          statusAfterUpload(prior),
     statusAt:        now,
     verdict:         'pending',
     processorNotes:  (prior && prior.processorNotes) || '',
