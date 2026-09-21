@@ -212,28 +212,36 @@ assert('...and no longer reads "N unread of M"', !/unread of ' \+/.test(PAGE));
 assert('an empty account gets a sentence, not three zeroes',
   /Nothing needs your attention right now/.test(PAGE));
 
-// ── no alert for a close date that has already passed ───────────────────────
-// Mike: "Thres also a ton of notifications of close dates past that never got out of
-// leads ... we shouldnt have a close date past notification at all."
-console.log('\nNo close-date-past alerts');
+// ── the live alert list is the one Mike asked for ───────────────────────────
+// 237.204 made close-date alerts forward-only; 237.206 removed them outright, along
+// with the standing "N open conditions" count. What a LIVE alert is for: something
+// true right now that someone ends by doing something. A thing that happens at a
+// moment is a stored notification instead.
+console.log('\nThe live alert list');
 const ALERTS = readFileSync(new URL('../deploy/netlify/functions/processing-alerts.mjs', import.meta.url), 'utf8');
-check('both close-date windows are forward-only',
-  (ALERTS.match(/du != null && du >= 0 && du <= CLOSING_WINDOW_DAYS/g) || []).length, 2);
-assert('no window still admits a negative day count',
-  !/du != null && du <= CLOSING_WINDOW_DAYS/.test(ALERTS));
-assert('the "passed N ago" wording is gone with it', !/passed ' \+ _fmtDays/.test(ALERTS));
-assert('and the module header no longer promises it',
-  !/already\s*\n \*\s*past and the loan hasn/.test(ALERTS));
-assert('forward-looking alerts survive -- this was a noise fix, not a feature removal',
-  /kind: 'closing_soon'/.test(ALERTS) && /kind: 'unassigned_closing'/.test(ALERTS) &&
-  /_closesPhrase\(du\)/.test(ALERTS));
-// 237.205: _fmtDays(0) is the word "today", so "closes in " + _fmtDays(du) said "closes
-// in today". Only visible once the past-date branch stopped drowning it out.
-assert('no alert phrases a close date for itself -- they all go through _closesPhrase',
-  !/subtitle:[^\n]*_fmtDays/.test(ALERTS),
-  'building "closes in " + _fmtDays(du) at the call site skips the today/tomorrow guard');
-assert('...the nearest two days are phrased, not counted',
-  /return 'closes today'/.test(ALERTS) && /return 'closes tomorrow'/.test(ALERTS));
+const alertKinds = [...new Set((ALERTS.match(/kind: '([a-z_]+)'/g) || []).map((m) => m.slice(7, -1)))].sort();
+check('exactly two, and they are the two Mike named', alertKinds, ['stale', 'unassigned']);
+assert('no close-date alert survives anywhere in the file',
+  !/closing_soon|CLOSING_WINDOW|_daysUntil|_closesPhrase/.test(ALERTS.replace(/^ \*.*$/gm, '')),
+  'Mike: "Remove Closing Soon, people know that."');
+assert('stale measures the last UPDATE, not time in stage',
+  /const lastTouch = l\.updated_at \|\| ex\.processingStageAt/.test(ALERTS),
+  'Mike: "if its gone 7+ days without an update"');
+check('...at 7 days', (ALERTS.match(/const STALE_DAYS\s+= (\d+)/) || [])[1], '7');
+check('unassigned is measured in HOURS, at 24',
+  (ALERTS.match(/const UNASSIGNED_HOURS = (\d+)/) || [])[1], '24');
+assert('...and is admins only', /if \(manager && !assignee && inPipeline\)/.test(ALERTS));
+// The flood guard. Both rules are scoped to loans IN the pipeline: an untouched lead is
+// not a stalled loan, and it is not unassigned -- it is a lead. This is the check that
+// would have caught 237.204's 403-day-old rows before Mike saw them.
+assert('BOTH rules are scoped to loans in the pipeline, never leads',
+  (ALERTS.match(/inPipeline/g) || []).length >= 3 &&
+  /const ACTIVE_STAGES\s+= \['new_loan', 'processing', 'underwriting', 'pp_approved'\]/.test(ALERTS),
+  'an empty processing_stage means Leads -- alerting on those is the flood');
+assert('the bell draws the two kinds that exist',
+  /a\.kind === 'stale'/.test(BELL_SRC) && /a\.kind === 'unassigned'/.test(BELL_SRC));
+assert('...and names no kind that does not',
+  !/'closing_soon'|'aging'|'conditions'|'unassigned_closing'/.test(BELL_SRC));
 
 console.log('\nBack button');
 assert('the clicked row is painted read before leaving', /function openOne\([\s\S]*?nrow_[\s\S]*?Mark unread/.test(PAGE));

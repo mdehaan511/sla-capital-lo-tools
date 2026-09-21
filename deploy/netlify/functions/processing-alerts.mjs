@@ -6,21 +6,28 @@
  * alerts so the global notification bell (sla-notifications.js) can surface
  * them on any page — not just inside the Processing Pipeline.
  *
- * Alert kinds (all scoped to loans assigned to the calling processor):
- *   closing_soon — funding date is within CLOSING_WINDOW days AND STILL AHEAD.
- *                  "Your loan closes soon." A date already past is not an alert
- *                  (237.204) -- see the comment at the check.
- *   aging        — the loan has sat in Processing/Underwriting longer than
- *                  AGING_DAYS (uses loan.processingStageAt, stamped by
- *                  loan-processing-stage.mjs on a real stage change; falls
- *                  back to updatedAt).
- *   conditions   — the loan has open (uncleared) conditions
- *                  (loan.openConditions, denormalized by loan-reviews-save
- *                  in 236.564).
+ * Deploy 237.206 (Mike) rewrote the list. What a LIVE alert is for: a condition that
+ * is true right now and that someone should end by doing something. Anything that
+ * happens at a MOMENT is a stored notification instead, so it can be read once and be
+ * done with (condition added, cleared to close, loan assigned, task assigned).
+ *
+ * Alert kinds (scoped to loans assigned to the calling processor):
+ *   stale — the loan has gone STALE_DAYS without an update. Mike: "if its gone 7+ days
+ *           without an update." Measured from the loan's last write (updated_at),
+ *           falling back to processingStageAt, and only for loans IN the processing
+ *           pipeline -- a lead nobody has touched is not stalled, it is a lead.
  *
  * Manager add-on (admins only):
- *   unassigned_closing — a loan with NO assigned processor is closing within
- *                        the window. "Nobody is on this."
+ *   unassigned — a loan has been in the pipeline UNASSIGNED_HOURS with no processor on
+ *                it. Mike: "For Admins when a loan goes 24 hours without someone
+ *                assigned." The clock starts when the loan ENTERS the pipeline, not when
+ *                the record was created, or every lead ever taken would qualify forever.
+ *
+ * REMOVED in 237.206:
+ *   closing_soon       — Mike: "Remove Closing Soon, people know that."
+ *   unassigned_closing — replaced by the 24-hour rule above.
+ *   conditions         — a standing "N open conditions" count was a state, not news.
+ *                        Replaced by the condition_added notification.
  *
  * Auth: processor tier (processor / admin / super_admin). A plain LO gets a
  * 403; the bell only calls this when SLA.isProcessor(user) is true.
@@ -36,15 +43,19 @@ import {
 import { db } from './_shared/supabase-db.mjs';
 
 // Tunables.
-const CLOSING_WINDOW_DAYS = 5;   // funding within N days = "closing soon"
-const AGING_DAYS          = 7;   // in Processing/UW ≥ N days = "aging"
-const AGING_HIGH_DAYS     = 14;  // ≥ N days = high severity
-const MAX_ALERTS          = 60;  // hard cap on the returned list
+const STALE_DAYS       = 7;   // no update in N days = "stale"  (Mike, 237.206)
+const STALE_HIGH_DAYS  = 14;  // ≥ N days = high severity
+const UNASSIGNED_HOURS = 24;  // in the pipeline this long with nobody on it
+const MAX_ALERTS       = 60;  // hard cap on the returned list
 
 // Stages/statuses that are done or dead — never ping about these.
 const CLOSED_STAGE   = 'pp_closed';
 const DEAD_STATUSES  = ['closed', 'cancelled', 'denied', 'sold', 'liquidated'];
-const AGING_STAGES   = ['processing', 'underwriting'];
+// IN the processing pipeline and not finished. An empty stage means the loan is still a
+// lead (loan-advance-status stamps 'new_loan' at handoff), and a lead has no business
+// generating processing alerts -- that is how 237.204's flood of 403-day-old "close date
+// passed" rows happened.
+const ACTIVE_STAGES  = ['new_loan', 'processing', 'underwriting', 'pp_approved'];
 
 const LOAN_SELECT = 'id,client_id,owner_email,address,status,processing_stage,' +
   'loan_amt,funding_date,updated_at,extra';
@@ -71,15 +82,6 @@ function _fmtDays(n) {
   return n + ' days';
 }
 
-// "closes in today" is not a sentence. _fmtDays is a DURATION ("3 days"), and zero has no
-// duration wording, so the nearest two days get phrased rather than counted. Deploy 237.205.
-function _closesPhrase(du) {
-  if (du === 0) return 'closes today';
-  if (du === 1) return 'closes tomorrow';
-  return 'closes in ' + _fmtDays(du);
-}
-const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-
 function _stageLabel(stage) {
   switch (stage) {
     case 'new_loan':     return 'Intake';
@@ -91,12 +93,19 @@ function _stageLabel(stage) {
   }
 }
 
-// Whole-day delta between a date-ish value and now (positive = future).
-function _daysUntil(value, now) {
+// Whole hours since a date-ish value, or null when there is nothing to measure from.
+// Deploy 237.206 -- the unassigned rule is in hours, and rounding it to days would make
+// "24 hours" mean anything from one day to two.
+function _hoursSince(value, now) {
   if (!value) return null;
   const t = new Date(value).getTime();
   if (!isFinite(t)) return null;
-  return Math.ceil((t - now) / 86400000);
+  return Math.floor((now.getTime() - t) / 3600000);
+}
+
+function _fmtHours(h) {
+  if (h < 48) return h + (h === 1 ? ' hour' : ' hours');
+  return _fmtDays(Math.floor(h / 24));
 }
 function _daysSince(value, now) {
   if (!value) return null;
@@ -154,64 +163,40 @@ async function handle(req, context) {
       dateIso:  '',
     };
 
-    // ── Alerts for loans assigned to me ──────────────────────────
-    if (mine) {
-      // closing_soon -- FORWARD ONLY. Deploy 237.204 (Mike): "we shouldn't have a close
-      // date past notification at all." A loan keeps whatever estimated close date the
-      // sizer gave it, so `du <= WINDOW` matched dates from a year ago and kept matching
-      // forever; the loans doing it loudest never left Leads. Sixty of the sixty-one live
-      // rows on Mike's bell were "close date passed N days ago", which is not an alert,
-      // it is a permanent condition. A date that genuinely slipped is visible on the
-      // pipeline and the dashboard, where it can be looked at on purpose.
-      const du = _daysUntil(l.funding_date, now);
-      if (du != null && du >= 0 && du <= CLOSING_WINDOW_DAYS) {
-        alerts.push(Object.assign({}, base, {
-          kind: 'closing_soon',
-          id: 'pa_closing_' + l.id,
-          subtitle: _cap(_closesPhrase(du)),
-          dateIso: l.funding_date || '',
-          severity: du <= 2 ? 'high' : 'normal',
-        }));
-      }
+    // Only loans actually in the pipeline can be stalled or unassigned. Deploy 237.206.
+    const inPipeline = ACTIVE_STAGES.indexOf(stage) >= 0;
 
-      // aging
-      if (AGING_STAGES.indexOf(stage) >= 0) {
-        const stageAt = ex.processingStageAt || l.updated_at;
-        const dis = _daysSince(stageAt, now);
-        if (dis != null && dis >= AGING_DAYS) {
-          alerts.push(Object.assign({}, base, {
-            kind: 'aging',
-            id: 'pa_aging_' + l.id,
-            subtitle: dis + ' days in ' + _stageLabel(stage),
-            dateIso: stageAt || '',
-            severity: dis >= AGING_HIGH_DAYS ? 'high' : 'normal',
-          }));
-        }
-      }
-
-      // conditions
-      const openC = Number(ex.openConditions) || 0;
-      if (openC > 0) {
+    // ── Stale: assigned to me and nobody has touched it ──────────
+    // Mike: "Again if its gone 7+ days without an update." Measured from the last write,
+    // not from the stage change: a loan can sit in Underwriting for a month and be worked
+    // on every day, and that is not what anyone means by stalled.
+    if (mine && inPipeline) {
+      const lastTouch = l.updated_at || ex.processingStageAt;
+      const dis = _daysSince(lastTouch, now);
+      if (dis != null && dis >= STALE_DAYS) {
         alerts.push(Object.assign({}, base, {
-          kind: 'conditions',
-          id: 'pa_cond_' + l.id,
-          subtitle: openC + (openC === 1 ? ' open condition' : ' open conditions'),
-          dateIso: l.updated_at || '',
-          severity: 'normal',
+          kind: 'stale',
+          id: 'pa_stale_' + l.id,
+          subtitle: 'No update in ' + _fmtDays(dis) + ' · ' + _stageLabel(stage),
+          dateIso: lastTouch || '',
+          severity: dis >= STALE_HIGH_DAYS ? 'high' : 'normal',
         }));
       }
     }
 
-    // ── Manager add-on: unassigned loans closing soon ────────────
-    // Forward only, for the same reason as closing_soon above. Deploy 237.204.
-    if (manager && !assignee) {
-      const du = _daysUntil(l.funding_date, now);
-      if (du != null && du >= 0 && du <= CLOSING_WINDOW_DAYS) {
+    // ── Manager add-on: nobody is on this ────────────────────────
+    // Mike: "For Admins when a loan goes 24 hours without someone assigned." The clock
+    // runs from when the loan ENTERED the pipeline (processingStageAt, stamped at the
+    // handoff), falling back to the last write for loans that predate that stamp.
+    if (manager && !assignee && inPipeline) {
+      const since = ex.processingStageAt || l.updated_at;
+      const hrs = _hoursSince(since, now);
+      if (hrs != null && hrs >= UNASSIGNED_HOURS) {
         alerts.push(Object.assign({}, base, {
-          kind: 'unassigned_closing',
+          kind: 'unassigned',
           id: 'pa_unassigned_' + l.id,
-          subtitle: 'Unassigned · ' + _closesPhrase(du),
-          dateIso: l.funding_date || '',
+          subtitle: 'Nobody assigned · ' + _fmtHours(hrs) + ' in ' + _stageLabel(stage),
+          dateIso: since || '',
           severity: 'high',
         }));
       }

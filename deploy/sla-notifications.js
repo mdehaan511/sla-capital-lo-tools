@@ -25,7 +25,7 @@
 
   // Deploy 236.565 — processing-event alerts (owner follow-up #2). The bell
   // adds a "Processing" section for processors/admins: loans of theirs that
-  // are closing soon, aging in stage, or carrying open conditions. The alert
+  // have gone quiet, or have nobody assigned to them (237.206). The alert
   // endpoint scans the loans table, so we DON'T poll it every 60s like the
   // reminders/quotes fetch — we cache the result and refetch at most every
   // PA_TTL. A plain LO never calls it (processor-gated server-side too).
@@ -738,10 +738,10 @@
   // Loan Details page (via SLA.urls.loanDetails so admin owner-scope is
   // preserved). Dismiss button snoozes for 12h.
   function renderProcItem(a) {
-    var icon = a.kind === 'closing_soon'      ? '🏁'
-             : a.kind === 'aging'             ? '⏳'
-             : a.kind === 'conditions'        ? '🧾'
-             : a.kind === 'unassigned_closing'? '⚠️'
+    // Deploy 237.206 -- Mike's revised list. closing_soon / conditions /
+    // unassigned_closing are gone; stale and unassigned replace them.
+    var icon = a.kind === 'stale'      ? '⏳'
+             : a.kind === 'unassigned' ? '⚠️'
              : '•';
     var href = (window.SLA && SLA.urls && SLA.urls.loanDetails)
       ? SLA.urls.loanDetails(a.loanId, { owner: a.owner })
