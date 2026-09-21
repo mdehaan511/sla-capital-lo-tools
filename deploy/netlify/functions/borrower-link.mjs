@@ -52,11 +52,11 @@ async function handle(req) {
       }
     } catch (_) {}
     const v = verifyDurablePortalToken(token);
-    if (!v) return _page('Invalid link', '<p>This link is not valid. Please ask your loan officer to send a new portal invitation.</p>', 400);
+    if (!v) return _page('Invalid link', '<p>This link is not valid. Please ask whoever invited you to send a new one.</p>', 400);
 
-    const fresh = mintDurablePortalLink(v.email, origin);
-    if (!fresh) return _page('Unavailable', '<p>Link service is not configured. Please contact your loan officer.</p>', 500);
-    const mail = _newLinkEmail(fresh.url, fresh.expiresText);
+    const fresh = mintDurablePortalLink(v.email, origin, { kind: v.kind });
+    if (!fresh) return _page('Unavailable', '<p>Link service is not configured. Please contact SLA Capital.</p>', 500);
+    const mail = _newLinkEmail(fresh.url, fresh.expiresText, v.kind);
     let sent = false;
     try { sent = await sendBorrowerEmail(v.email, mail.subject, mail.text, mail.html, '', { kind: 'portal_link_resend' }); }
     catch (e) { console.warn('borrower-link: resend failed:', e && e.message); }
@@ -70,7 +70,7 @@ async function handle(req) {
 
   const token = url.searchParams.get('t') || '';
   const v = verifyDurablePortalToken(token);
-  if (!v) return _page('Invalid link', '<p>This sign-in link is not valid. Please use the most recent email from SLA Capital, or ask your loan officer for a new invitation.</p>' + _portalBtn(), 400);
+  if (!v) return _page('Invalid link', '<p>This sign-in link is not valid. Please use the most recent email from SLA Capital, or ask whoever invited you for a new one.</p>' + _portalBtn(), 400);
 
   if (v.expired) {
     return _page('This link has expired',
@@ -80,7 +80,7 @@ async function handle(req) {
         '<input type="hidden" name="t" value="' + escHtml(token) + '">' +
         '<button type="submit" style="background:#b5712d;color:#fff;border:none;font-weight:600;font-size:15px;padding:12px 26px;border-radius:10px;cursor:pointer">Email me a new link</button>' +
       '</form>' +
-      '<p style="color:#7a7488;font-size:13px">You can also sign in any time with Google at the portal using this same email address.</p>' + _portalBtn());
+      '<p style="color:#7a7488;font-size:13px">You can also sign in any time with Google using this same email address.</p>' + _portalBtn(v.kind));
   }
 
   // Valid — mint a fresh Supabase magic link and bounce the borrower to it.
@@ -99,7 +99,17 @@ function _maskEmail(email) {
   return s[0] + '•••' + s.slice(at - 1);
 }
 
-function _portalBtn() {
+// Deploy 237.219 — staff invites ride this same endpoint now, so the page has
+// to stop telling a newly invited loan officer to "ask your loan officer".
+// The error copy went role-neutral ("whoever invited you"); only the footer
+// button and the resend email actually need to know which side you are on.
+function _portalBtn(kind) {
+  if (kind === 'staff') {
+    return '<p style="text-align:center;margin-top:18px"><a href="/index.html" style="color:#b5712d;font-weight:600;text-decoration:none">Go to SLA Capital →</a></p>';
+  }
+  return _borrowerPortalBtn();
+}
+function _borrowerPortalBtn() {
   return '<p style="text-align:center;margin-top:18px"><a href="/borrower-portal.html" style="color:#b5712d;font-weight:600;text-decoration:none">Go to the borrower portal &rarr;</a></p>';
 }
 
@@ -116,10 +126,13 @@ function _page(title, bodyHtml, status) {
   return new Response(html, { status: status || 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
-function _newLinkEmail(link, expiresText) {
+function _newLinkEmail(link, expiresText, kind) {
+  // 237.219 — same email for both sides, one noun apart.
+  const what = kind === 'staff' ? 'SLA Capital sign-in link' : 'SLA Capital borrower portal sign-in link';
+  const whatShort = kind === 'staff' ? 'sign-in link' : 'borrower portal sign-in link';
   const text = [
     'Hi there,', '',
-    'Here is your new SLA Capital borrower portal sign-in link:', link, '',
+    'Here is your new ' + what + ':', link, '',
     'For your security this link expires in ' + PORTAL_LINK_TTL_HOURS + ' hours' + (expiresText ? ' — on ' + expiresText : '') + '. If it expires, just open it anyway and you can request another with one click.', '',
     'You can also sign in any time with Google using this same email address.', '',
     '— SLA Capital',
@@ -127,7 +140,7 @@ function _newLinkEmail(link, expiresText) {
   const html = `<!doctype html><html><body style="margin:0;background:#f4f1ea;font-family:Arial,Helvetica,sans-serif;color:#1a1520">
     <div style="max-width:520px;margin:0 auto;padding:28px 22px">
       <div style="font-family:Georgia,serif;font-size:20px;font-weight:600;margin-bottom:14px">SLA Capital</div>
-      <p style="font-size:15px;line-height:1.55">Here is your new borrower portal sign-in link:</p>
+      <p style="font-size:15px;line-height:1.55">Here is your new ${whatShort}:</p>
       <p style="text-align:center;margin:22px 0">
         <a href="${escHtml(link)}" style="background:#b5712d;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 26px;border-radius:10px;display:inline-block">Sign in to my portal &rarr;</a>
       </p>

@@ -27,6 +27,9 @@
  */
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin, normalizeEmail } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
+// Deploy 237.219 — the same durable 72-hour link borrower invites have used
+// since 236.818 (see borrower-invite-core.mjs).
+import { mintDurablePortalLink, PORTAL_LINK_TTL_HOURS } from './_shared/borrower-invite-core.mjs';
 
 const ALLOWED_ROLES = new Set(['admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant']); // Deploy 236.831 - Senior LO tier; 236.995 - Office Assistant
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
@@ -48,8 +51,12 @@ function _buildInviteEmail(email, fullName, role, actionLink) {
     greeting + ',\n\n' +
     'You\'ve been invited to SLA Capital\'s Loan Tools portal with the role of ' + role + '.\n\n' +
     'Click here to activate your account and sign in:\n' + actionLink + '\n\n' +
-    'This link is single-use and will sign you in the first time you click it. ' +
-    'If you didn\'t expect this invitation, you can ignore this email — the invitation will expire.\n\n' +
+    // Deploy 237.219 — it is no longer single-use: the durable token is good
+    // for 72 hours and can be clicked more than once in that window (same
+    // custody model as the inbox it was sent to). Saying otherwise was going
+    // to be wrong the first time someone clicked twice.
+    'This link is good for ' + PORTAL_LINK_TTL_HOURS + ' hours. If it expires, open it anyway and you can request a fresh one with one click. ' +
+    'If you didn\'t expect this invitation, you can ignore this email.\n\n' +
     'SLA Capital';
   const html =
     '<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f0ece5;padding:40px 20px;margin:0">' +
@@ -63,7 +70,7 @@ function _buildInviteEmail(email, fullName, role, actionLink) {
         '</p>' +
         '<p style="font-size:12px;color:#7a7488;margin:0 0 8px">Or copy this link into your browser:</p>' +
         '<p style="font-size:11px;color:#7a7488;word-break:break-all;background:#faf8f3;padding:8px 12px;border-radius:6px;margin:0 0 20px"><a href="' + escH(actionLink) + '" style="color:#7a7488;text-decoration:none">' + escH(actionLink) + '</a></p>' +
-        '<p style="font-size:11px;color:#7a7488;font-style:italic;margin:0">This link is single-use. If you didn\'t expect this invitation, ignore this email.</p>' +
+        '<p style="font-size:11px;color:#7a7488;font-style:italic;margin:0">This link is good for ' + PORTAL_LINK_TTL_HOURS + ' hours — if it expires, open it anyway and you can request a fresh one. If you didn\'t expect this invitation, ignore this email.</p>' +
       '</div>' +
     '</body></html>';
   return { subject, text, html };
@@ -202,6 +209,14 @@ export default async (req, context) => {
     if (!actionLink) {
       return json(500, { error: 'Supabase generate_link returned no action_link', userId: supabaseUserId });
     }
+    // Deploy 237.219 (Mike: invites should last 72 hours) — wrap it in OUR
+    // durable link. The raw action_link dies with the project's OTP window,
+    // which is why staff invites kept going stale before anyone clicked them.
+    // This one is good for 72h and mints a fresh Supabase link at click time.
+    // Falls back to the raw link when ESIGN_SEAL_SECRET is missing: an invite
+    // that works for an hour beats no invite at all.
+    const durable = mintDurablePortalLink(email, inviteOrigin, { kind: 'staff' });
+    if (durable) actionLink = durable.url;
   } catch (e) {
     console.error('users-invite-supabase generate_link error:', e);
     return json(500, { error: 'Failed to generate magic link: ' + ((e && e.message) || 'unknown'), userId: supabaseUserId });

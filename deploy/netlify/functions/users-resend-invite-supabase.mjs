@@ -15,6 +15,9 @@
  */
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
+// Deploy 237.219 — durable 72-hour link, the same one borrower invites have
+// used since 236.818 (see borrower-invite-core.mjs).
+import { mintDurablePortalLink, PORTAL_LINK_TTL_HOURS } from './_shared/borrower-invite-core.mjs';
 
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
 
@@ -47,7 +50,7 @@ function _buildInviteEmail(email, fullName, role, actionLink) {
         '</p>' +
         '<p style="font-size:12px;color:#7a7488;margin:0 0 8px">Or copy this link into your browser:</p>' +
         '<p style="font-size:11px;color:#7a7488;word-break:break-all;background:#faf8f3;padding:8px 12px;border-radius:6px;margin:0 0 20px"><a href="' + escH(actionLink) + '" style="color:#7a7488;text-decoration:none">' + escH(actionLink) + '</a></p>' +
-        '<p style="font-size:11px;color:#7a7488;font-style:italic;margin:0">This link is single-use. If you didn\'t expect this, ignore this email.</p>' +
+        '<p style="font-size:11px;color:#7a7488;font-style:italic;margin:0">This link is good for ' + PORTAL_LINK_TTL_HOURS + ' hours — if it expires, open it anyway and you can request a fresh one. If you didn\'t expect this, ignore this email.</p>' +
       '</div>' +
     '</body></html>';
   return { subject, text, html };
@@ -139,6 +142,10 @@ export default async (req, context) => {
     const linkData = await linkResp.json().catch(() => ({}));
     actionLink = (linkData && linkData.properties && linkData.properties.action_link) || linkData.action_link || '';
     if (!actionLink) return json(500, { error: 'Supabase generate_link returned no action_link' });
+    // Deploy 237.219 — wrap it so a RESENT invite lasts 72 hours too. Without
+    // this, "resend the invite" just posted another link that died in an hour.
+    const durable = mintDurablePortalLink(email, inviteOrigin, { kind: 'staff' });
+    if (durable) actionLink = durable.url;
   } catch (e) {
     console.error('users-resend-invite-supabase generate_link error:', e);
     return json(500, { error: 'Failed to generate magic link: ' + ((e && e.message) || 'unknown') });

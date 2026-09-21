@@ -40,17 +40,29 @@ function _signPayload(payloadB64) {
   return _b64url(crypto.createHmac('sha256', _linkSecret()).update(payloadB64).digest());
 }
 
-// Returns { url, token, expiresAt (ISO), expiresText } or null when the
+// Returns { url, token, expiresAt (ISO), expiresText, kind } or null when the
 // secret isn't configured (callers fall back to the raw magic link).
-export function mintDurablePortalLink(email, origin) {
+//
+// Deploy 237.219 (Mike: "make it so the invites for borrowers and users last
+// 72 hours") — borrower invites already did; STAFF invites were emailing a raw
+// Supabase magic link, which dies with the project's OTP window (an hour).
+// They now use this too, and `kind: 'staff'` rides in the token so the redeem
+// page can say "ask an admin" rather than "ask your loan officer" and send
+// them to the right place. A token without a kind is a borrower's, so every
+// link already in someone's inbox keeps working.
+export function mintDurablePortalLink(email, origin, opts) {
   if (!_linkSecret() || !email) return null;
+  const kind = (opts && opts.kind === 'staff') ? 'staff' : 'borrower';
   const expiresMs = Date.now() + PORTAL_LINK_TTL_HOURS * 3600 * 1000;
-  const payloadB64 = _b64url(JSON.stringify({ e: String(email).toLowerCase(), x: expiresMs, v: 1 }));
+  const claims = { e: String(email).toLowerCase(), x: expiresMs, v: 1 };
+  if (kind === 'staff') claims.k = 'staff';
+  const payloadB64 = _b64url(JSON.stringify(claims));
   const token = payloadB64 + '.' + _signPayload(payloadB64);
   const base = String(origin || 'https://portal.slacapital.ai').replace(/\/+$/, '');
   return {
     url: base + '/api/borrower-link?t=' + token,
     token,
+    kind,
     expiresAt: new Date(expiresMs).toISOString(),
     expiresText: portalLinkExpiryText(expiresMs),
   };
@@ -69,7 +81,8 @@ export function verifyDurablePortalToken(token) {
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const p = JSON.parse(_b64urlDecode(parts[0]));
     if (!p || !p.e || !p.x) return null;
-    return { email: String(p.e).toLowerCase(), expiresMs: Number(p.x), expired: Date.now() > Number(p.x) };
+    return { email: String(p.e).toLowerCase(), expiresMs: Number(p.x), expired: Date.now() > Number(p.x),
+      kind: p.k === 'staff' ? 'staff' : 'borrower' };
   } catch (_) { return null; }
 }
 
