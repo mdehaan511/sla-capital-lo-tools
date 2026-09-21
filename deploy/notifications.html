@@ -23,10 +23,10 @@
   feedback_one_nav_everywhere).
 -->
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-<script src="/sla-api.js?v=237206"></script>
+<script src="/sla-api.js?v=237207"></script>
 <script src="/sla-nav.js"></script>
 <script src="/sla-search.js"></script>
-<script src="/sla-notifications.js?v=237206"></script>
+<script src="/sla-notifications.js?v=237207"></script>
 <script src="/sla-chat.js"></script>
 <style>
   :root{
@@ -160,7 +160,13 @@ var KIND_LABELS = {
   servicing:       'Servicing',
   deed:            'Deed',
   payoff_confirmed:   'Payoff confirmed',
-  payoff_unconfirmed: 'Payoff unconfirmed'
+  payoff_unconfirmed: 'Payoff unconfirmed',
+  /* Deploy 237.207 -- Mike's five events. */
+  condition_added:    'Condition added',
+  clear_to_close:     'Cleared to Close',
+  loan_assigned:      'Loan assigned',
+  task_assigned:      'Task assigned',
+  doc_signed:         'Signed document'
 };
 function kindLabel(k){
   if (KIND_LABELS[k]) return KIND_LABELS[k];

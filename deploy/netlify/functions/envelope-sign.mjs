@@ -262,6 +262,22 @@ async function handle(req) {
   // that the cleanup below deletes, so signed sheets never mapped.
   await _attachSignedRateSheet(envelope, stampedPdfs);
 
+  // Deploy 237.207 (Mike): "A Loan Rate Sheet ... is signed and completed." Only rate
+  // sheets: an extension envelope already flips a servicing chip and writes a loan note,
+  // and telling the same people the same thing twice is how a bell gets ignored.
+  if ((envelope.docs || []).some((d) => d && d.kind === 'rate_sheet')) {
+    const { notifyDocSignedByIds } = await import('./_shared/loan-event-notify.mjs');
+    await notifyDocSignedByIds({
+      getStore,
+      ownerKey: envelope.ownerKey,
+      clientId: envelope.clientId,
+      loanId: envelope.loanId,
+      address: envelope.propertyAddress || '',
+      docLabel: 'Rate Sheet',
+      signer: ((envelope.signers || []).map((x) => x && x.name).filter(Boolean)[0]) || '',
+    });
+  }
+
   return json(200, {
     ok: true, signedAt, status: 'completed',
     emailedCount,

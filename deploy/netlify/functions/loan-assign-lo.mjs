@@ -39,6 +39,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { notifyLoanAssigned } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
 // Deploy 236.357 — persist the (old → new) location so any URL that
@@ -457,6 +458,22 @@ async function handle(req, context) {
   } catch (e) {
     console.warn('loan-assign-lo: notify block threw (non-fatal):', e && e.message);
   }
+
+  // Deploy 237.207 (Mike): "A new loan is assigned to you." The other assignment path --
+  // this one hands the loan to a different LO outright, so the new owner is the one who
+  // needs to know. ownerEmail is the DESTINATION: the link has to resolve under the book
+  // the loan now lives in, not the one it left.
+  await notifyLoanAssigned({
+    toEmail: newOwnerEmail,
+    byEmail: normalizeEmail((user && user.email) || ''),
+    by: (user && user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || '',
+    role: 'loan officer',
+    loanId: loan.id,
+    clientId: destClientId,
+    ownerEmail: newOwnerEmail,
+    address: loan.address || '',
+    borrower: ((srcClient.firstName || '') + ' ' + (srcClient.lastName || '')).trim(),
+  });
 
   return json(200, {
     ok: true,

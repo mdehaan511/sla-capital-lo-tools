@@ -34,6 +34,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.880
+import { notifyTaskAssigned } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -75,12 +76,14 @@ async function handle(req, context) {
   const authorName = meta.full_name || meta.fullName || user.email || '';
 
   let task;
+  let priorAssignee = '';   // Deploy 237.207 -- so only a CHANGE of assignee notifies
   if (body.taskId) {
     // UPDATE existing.
     const key = ownerKey + '/' + keySafe(body.taskId);
     try { task = await tasksStore.get(key, { type: 'json' }); }
     catch (e) { return json(500, { error: 'Failed to read task: ' + (e.message || 'unknown') }); }
     if (!task) return json(404, { error: 'Task not found: ' + body.taskId });
+    priorAssignee = String(task.assignedTo || '').trim().toLowerCase(); // Deploy 237.207
     // Apply patches — only the fields the caller explicitly sent.
     if (body.title !== undefined)          task.title          = String(body.title || '').trim();
     if (body.dueDate !== undefined)        task.dueDate        = String(body.dueDate || '').trim();
@@ -130,6 +133,22 @@ async function handle(req, context) {
   const key = ownerKey + '/' + keySafe(task.id);
   try { await tasksStore.setJSON(key, task); }
   catch (e) { return json(500, { error: 'Failed to save task: ' + (e.message || 'unknown') }); }
+
+  // Deploy 237.207 (Mike): "If a Task is assigned to you." Only on a real CHANGE of
+  // assignee -- editing a due date on a task you already own is not news, and every
+  // other field on this endpoint can be saved repeatedly. Assigning to yourself is
+  // silent (notifyTaskAssigned drops it), and the whole thing is zero-throw: a task
+  // must save whether or not the bell hears about it.
+  if (task.assignedTo && task.assignedTo !== priorAssignee) {
+    await notifyTaskAssigned({
+      toEmail: task.assignedTo,
+      byEmail: selfEmail,
+      by: authorName,
+      task,
+      ownerEmail: ownerKey,
+      address: String(body.address || '').trim(),
+    });
+  }
 
   return json(200, { ok: true, task });
 }

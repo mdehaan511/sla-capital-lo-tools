@@ -34,6 +34,8 @@ import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // De
 import { adoptGuarantorsFromLoan, expandGuarantorTrays } from './_shared/guarantor-trays.mjs'; // Deploy 237.106
 // Deploy 236.746 — flagged issues land in the loan's Notes & Activity stream.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 237.207 (Mike): "When a condition is added."
+import { addedConditions, docLabelFor, notifyConditionAdded } from './_shared/loan-event-notify.mjs';
 
 // Deploy 236.746 — when a processor flags an issue on a doc tray (verdict
 // 'issues' + flagReason), append it to the LOAN's note stream so the whole
@@ -73,6 +75,37 @@ async function _logFlaggedIssuesToLoan(review, patchedDocs, actorEmail) {
   if (!wrote) return;
   loan.updatedAt = new Date().toISOString();
   await writeClient(ownerKey, client, { clientsStore });
+}
+
+// Deploy 237.207 — tell the people working this loan when a condition is added to it.
+// Reads the client for the processing team (loanWatchers needs the loan record); one
+// extra strong read on a path that already does several, and entirely best-effort.
+async function _notifyNewConditions(existing, updated, patchDocs, user, selfEmail) {
+  const added = addedConditions(existing && existing.docs, patchDocs);
+  if (!added.length) return;
+  const src = (updated && updated.source) || {};
+  if (src.kind !== 'existing' || !src.clientId || !src.loanId || !src.ownerKey) return;
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const ownerKey = keySafe(src.ownerKey);
+  const client = await clientsStore.get(ownerKey + '/' + keySafe(src.clientId), { type: 'json' });
+  const loan = (client && Array.isArray(client.loans))
+    ? client.loans.find((l) => l && l.id === src.loanId) : null;
+  const meta = (user && user.user_metadata) || {};
+  // One notification per TRAY, not per condition: adding four conditions to the same
+  // document in one sitting is one piece of news.
+  const bySlug = new Map();
+  for (const c of added) bySlug.set(c.slug, (bySlug.get(c.slug) || 0) + 1);
+  for (const [slug, count] of bySlug) {
+    await notifyConditionAdded({
+      loan, ownerEmail: ownerKey,
+      loanId: src.loanId, clientId: src.clientId,
+      address: (loan && loan.address) || (updated && updated.address) || '',
+      by: meta.full_name || meta.fullName || (user && user.email) || '',
+      byEmail: selfEmail,
+      docLabel: docLabelFor(slug),
+      count,
+    });
+  }
 }
 
 // Sum non-cleared conditions across all doc trays and mirror the count onto the
@@ -159,6 +192,13 @@ async function handle(req, context) {
     if (patch.docs) { await syncReviewCountsToLoan(updated); } // Deploy 237.102 -- conditions + docs collected/approved/pending-conditions
     // Deploy 236.746 — flagged issues → loan Notes & Activity (best-effort).
     if (patch.docs) { try { await _logFlaggedIssuesToLoan(updated, patch.docs, selfEmail); } catch (e) { console.warn('flag note append failed:', e && e.message); } }
+    // Deploy 237.207 (Mike): "When a condition is added." Diffed by condition id against
+    // what was there before, because the same patch shape clears and removes conditions
+    // too, and neither of those is an addition. Zero-throw and after the durable write.
+    if (patch.docs) {
+      try { await _notifyNewConditions(existing, updated, patch.docs, user, selfEmail); }
+      catch (e) { console.warn('condition notify failed (non-fatal):', e && e.message); }
+    }
     return json(200, { ok: true, review: updated });
   }
 

@@ -731,6 +731,30 @@ async function handle(req) {
     console.warn('borrower-info-sign: LO notify failed:', e && e.message);
   }
 
+  // Deploy 237.207 (Mike): "a Loan App is signed and completed." COMPLETED is the word
+  // that matters -- with a second borrower the application is not done until they sign,
+  // and borrower2-auth-sign rings it then. Inside the deadline discipline this whole
+  // handler runs under: the signature is already durable, and nothing here is worth
+  // risking it for (see project_sign_handler_timeout).
+  if (!hasB2) {
+    if (_pastDeadline()) {
+      _housekeepingSkipped.push('app-signed-bell');
+    } else try {
+      const { notifyDocSignedByIds } = await import('./_shared/loan-event-notify.mjs');
+      await notifyDocSignedByIds({
+        getStore,
+        ownerKey: record.ownerKey,
+        clientId: record.clientId,
+        loanId: record.loanId,
+        address: signedRecord.propertyAddress || '',
+        docLabel: 'Loan Application',
+        signer: (b1Audit && b1Audit.signerName) || '',
+      });
+    } catch (e) {
+      console.warn('borrower-info-sign: signed-app bell failed (non-fatal):', e && e.message);
+    }
+  }
+
   // Deploy 236.415 — persist any skips recorded after the signed-
   // record write so the LO/repair side can see what needs a follow-up.
   if (_housekeepingSkipped.length && record._housekeepingSkipped !== _housekeepingSkipped) {

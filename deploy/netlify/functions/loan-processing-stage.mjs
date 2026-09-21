@@ -33,6 +33,7 @@ import { writeClient } from './_shared/client-write.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 import { ringClosingBell } from './_shared/closing-bell.mjs'; // Deploy 237.082
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
+import { notifyClearToClose } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 
@@ -143,6 +144,10 @@ async function handle(req, context) {
   const priorStatus = String(loan.status || '');
   let statusChanged = false;
   let freshlyClosed = false; // Deploy 236.694 — drives the LO congrats email
+  // Deploy 237.207 (Mike): "When a loan is moved clear to close." pp_approved IS
+  // Cleared to Close (see STAGE_LABELS). Fires on ARRIVING at that stage, so moving a
+  // card around inside the column, or editing a substatus, stays quiet.
+  const freshlyCTC = newStage === 'pp_approved' && priorStage !== 'pp_approved';
   if (newStage === 'pp_closed' && priorStatus !== 'closed') {
     loan.status = 'closed';
     loan.closedAt = loan.closedAt || new Date().toISOString();
@@ -251,6 +256,22 @@ async function handle(req, context) {
     catch (e) { console.warn('loan-processing-stage: closed-congrats email failed:', e && e.message); }
     // Deploy 237.082 — ring the Closing Bell (Armory card + team Slack). Never throws.
     await ringClosingBell({ ownerKey, loan, client });
+  }
+
+  // Deploy 237.207 — tell the people working this loan it cleared. After the durable
+  // write and zero-throw, like every other notification here: the stage change is the
+  // job, the bell is a courtesy.
+  if (freshlyCTC) {
+    await notifyClearToClose({
+      loan,
+      ownerEmail: ownerKey,
+      loanId: loan.id,
+      clientId: client.id,
+      address: loan.address || '',
+      borrower: client.name || ((client.firstName || '') + ' ' + (client.lastName || '')).trim(),
+      by: (user && user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || '',
+      byEmail: normalizeEmail((user && user.email) || ''),
+    });
   }
 
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from

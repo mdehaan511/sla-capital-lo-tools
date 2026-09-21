@@ -21,6 +21,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
+import { notifyLoanAssigned } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
@@ -129,7 +130,7 @@ async function handle(req, context) {
       existing.name = name; existing.role = role; existing.at = now; existing.by = selfEmail;
     } else {
       loan.assignedProcessors.push({ email, name, role, at: now, by: selfEmail });
-      if (email !== selfEmail) notifyPerson = { email, name };
+      if (email !== selfEmail) notifyPerson = { email, name, role };
     }
   } else {
     return json(400, { error: 'Nothing to do: provide processorEmail (with optional role), removeProcessor, clearRole, or unassign' });
@@ -148,6 +149,21 @@ async function handle(req, context) {
     } catch (e) {
       console.warn('loan-assign-processor: notify failed (non-fatal):', e && e.message);
     }
+    // Deploy 237.207 (Mike): "A new loan is assigned to you." The email above has been
+    // the only signal since 236.575; this puts it on the bell too, for the people who
+    // live in the portal rather than in their inbox. Same trigger exactly -- newly
+    // added to the team, never a role edit, never yourself.
+    await notifyLoanAssigned({
+      toEmail: notifyPerson.email,
+      byEmail: selfEmail,
+      by: (user && user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || '',
+      role: notifyPerson.role || 'processor',
+      loanId: loan.id,
+      clientId: client.id,
+      ownerEmail: ownerKey,
+      address: loan.address || '',
+      borrower: ((client.firstName || '') + ' ' + (client.lastName || '')).trim(),
+    });
   }
 
   return json(200, { ok: true, assignedProcessors: loan.assignedProcessors, assignedProcessor: loan.assignedProcessor || null });

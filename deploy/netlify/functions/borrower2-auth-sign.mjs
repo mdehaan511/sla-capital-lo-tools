@@ -339,6 +339,24 @@ async function handle(req) {
     console.warn('borrower2-auth-sign: LO notify failed:', e && e.message);
   }
 
+  // Deploy 237.207 (Mike): "a Loan App is signed and completed." THIS is completion for a
+  // two-borrower application -- borrower-info-sign deliberately stays quiet when there is
+  // a second signer, so the team hears once, when the document is actually done.
+  try {
+    const { notifyDocSignedByIds } = await import('./_shared/loan-event-notify.mjs');
+    await notifyDocSignedByIds({
+      getStore,
+      ownerKey: rec.ownerKey,
+      clientId: rec.clientId,
+      loanId: rec.loanId,
+      address: rec.propertyAddress || '',
+      docLabel: 'Loan Application',
+      signer: (b2Audit && b2Audit.signerName) || '',
+    });
+  } catch (e) {
+    console.warn('borrower2-auth-sign: signed-app bell failed (non-fatal):', e && e.message);
+  }
+
   return json(200, {
     ok: true,
     signedAt,

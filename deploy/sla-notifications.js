@@ -483,6 +483,14 @@
     reminder: 'Loan Updates',
     // the front desk
     mail: 'Mail',
+    // Deploy 237.207 -- Mike's five new events. A condition, a stage change, an
+    // assignment and a task are all "something moved on a loan"; a signed rate sheet or
+    // application is a document arriving in the file, which is where people look for it.
+    condition_added: 'Loan Updates',
+    clear_to_close: 'Loan Updates',
+    loan_assigned: 'Loan Updates',
+    task_assigned: 'Loan Updates',
+    doc_signed: 'Documents Uploaded',
     // money in and out -- servicing covers NSF and late payments
     servicing: 'Payments',
     payoff_confirmed: 'Payments',
@@ -642,6 +650,15 @@
     drop.innerHTML = html;
   }
 
+  // Deploy 237.207 -- icons for the event kinds that use the generic renderer below.
+  var GENERIC_ICONS = {
+    condition_added: '\uD83E\uDDFE',   // receipt
+    clear_to_close:  '\uD83C\uDFC1',   // chequered flag
+    loan_assigned:   '\uD83D\uDCCB',   // clipboard
+    task_assigned:   '\uD83D\uDCCC',   // pushpin
+    doc_signed:      '\u270D\uFE0F'    // writing hand
+  };
+
   // Deploy 237.050 -- one @-mention. Links to the loan (owner-scoped so admin /
   // processor links keep working); the check mark dismisses it server-side.
   function renderMentionItem(m) {
@@ -698,6 +715,25 @@
           '<div class="body">' +
             '<div class="title">\uD83D\uDCC1 Full file ready for UW: ' + esc(m.address || m.borrower || 'a loan') + '</div>' +
             '<div class="meta">' + esc(m.snippet || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
+          '</div>' +
+        '</a>' +
+        '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
+      '</div>';
+    }
+    // Deploy 237.207 -- every kind that carries its own title renders the same way:
+    // icon, title, text, date. The five new event kinds go through here rather than each
+    // getting a near-identical twelve-line branch, and so does whatever gets added next.
+    // The fallback below is the @-MENTION layout ("Someone mentioned you on a loan"),
+    // which is the wrong sentence for anything that is not a mention -- a notification
+    // arriving under a false description is worse than one that looks plain.
+    if (m.kind && m.kind !== 'mention' && m.title) {
+      var gIcon = GENERIC_ICONS[m.kind] || '\uD83D\uDD14';
+      return '<div class="sla-notif-item due">' +
+        '<a href="' + esc(m.href || href) + '" class="sla-notif-link">' +
+          '<div class="pin"></div>' +
+          '<div class="body">' +
+            '<div class="title">' + gIcon + ' ' + esc(m.title) + '</div>' +
+            '<div class="meta">' + esc(m.text || m.address || '') + (m.createdAt ? '  \u00B7  ' + fmtDate(m.createdAt) : '') + '</div>' +
           '</div>' +
         '</a>' +
         '<button class="sla-notif-done" data-mention-id="' + esc(m.id) + '" title="Dismiss" onclick="window.__slaNotifDismissMention(this)">\u2713</button>' +
