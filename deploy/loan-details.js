@@ -5291,6 +5291,12 @@ var PROC_ROLES = [
   { value: 'processor', label: 'Processor' },
   { value: 'closer',    label: 'Closer' },
   { value: 'manager',   label: 'Processing Manager' },
+  // Deploy 237.216 (Raissa: "add an underwriter option in the dropdown here, so Dee can
+  // filter loans already assigned to her"). A TEAM role on the loan, not a login role:
+  // the Processing Pipeline's "My Loans" and team-member filters match on email across
+  // every role, so being on the team as Underwriter is all the filtering needs.
+  // Mirrors TEAM_ROLES in _shared/team-roles.mjs.
+  { value: 'underwriter', label: 'Underwriter' },
 ];
 function _procRoleLabel(r) {
   for (var i = 0; i < PROC_ROLES.length; i++) { if (PROC_ROLES[i].value === r) return PROC_ROLES[i].label; }

@@ -23,6 +23,7 @@ import { locateLoan } from './_shared/loan-locate.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { sendBorrowerEmail, escHtml } from './_shared/borrower-invite-core.mjs';
+import { primaryProcessor } from './_shared/team-roles.mjs'; // Deploy 237.216
 
 const PORTAL_ORIGIN = 'https://portal.slacapital.ai';
 
@@ -163,7 +164,9 @@ async function handle(req, context) {
       if (vomFollowUp) {
         try {
           const procs = Array.isArray(found.loan.assignedProcessors) ? found.loan.assignedProcessors : [];
-          const p0 = procs.find((a) => a && a.email) || null;
+          // Deploy 237.216 -- was "the first team member with an email", which is the
+          // underwriter whenever she was added first. The VOM follow-up is processing work.
+          const p0 = primaryProcessor(procs);
           const assignee = p0 ? { email: String(p0.email).toLowerCase(), name: p0.name || '' } : { email: String(rec.sentBy || '').toLowerCase(), name: rec.senderName || '' };
           const due = new Date(Date.now() + 2 * 86400000);
           const dueYmd = due.getFullYear() + '-' + String(due.getMonth() + 1).padStart(2, '0') + '-' + String(due.getDate()).padStart(2, '0');

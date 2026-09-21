@@ -23,6 +23,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { notifyLoanAssigned } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 import { writeClient } from './_shared/client-write.mjs';
+import { TEAM_ROLES, primaryProcessor, roleWorkPhrase } from './_shared/team-roles.mjs'; // Deploy 237.216
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -78,7 +79,8 @@ async function handle(req, context) {
   // legacy single loan.assignedProcessor is kept synced to the PRIMARY (the
   // role='processor' entry, else the first) so every existing reader — pipeline
   // cards, alerts, PG projection, sizer merge — keeps working untouched.
-  const VALID_ROLES = { processor: 1, closer: 1, manager: 1 };
+  // Deploy 237.216 (Raissa) -- + underwriter. The list lives in _shared/team-roles.mjs.
+  const VALID_ROLES = {}; TEAM_ROLES.forEach((t) => { VALID_ROLES[t.value] = 1; });
   if (!Array.isArray(loan.assignedProcessors)) {
     // First touch under the new model: migrate any existing single assignee in.
     loan.assignedProcessors = (loan.assignedProcessor && loan.assignedProcessor.email)
@@ -93,7 +95,11 @@ async function handle(req, context) {
   }
   function _syncPrimary() {
     const arr = loan.assignedProcessors;
-    const p = arr.find((x) => x.role === 'processor') || arr[0] || null;
+    // Deploy 237.216 -- was `|| arr[0]`. With only an underwriter on a loan that made HER
+    // the processor of record: the card showed her as Processor and the admins' 24-hour
+    // "nobody assigned" alert went quiet on a loan nobody was processing. An underwriter
+    // reviews the file; she is never the fallback. Closer / manager still are.
+    const p = primaryProcessor(arr);
     if (p) loan.assignedProcessor = { email: p.email, name: p.name, at: p.at, by: p.by };
     else delete loan.assignedProcessor;
   }
@@ -199,7 +205,7 @@ async function _emailAssignedProcessor(req, user, loan, client, ownerKey, assign
   const bodyLines = [
     greeting,
     '',
-    byName + ' has assigned a loan to you for processing at SLA Capital.',
+    byName + ' has assigned a loan to you ' + roleWorkPhrase(assignee && assignee.role) + ' at SLA Capital.', // Deploy 237.216
     '',
     'Borrower: ' + borrowerName,
     address ? ('Property: ' + address) : '',

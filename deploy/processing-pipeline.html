@@ -1806,7 +1806,9 @@ function _teamPillsHtml(it, excludeEmail) {
     loPill +
     members.map(function (p) {
       var role = p.role || 'processor';
-      var lbl = role === 'closer' ? 'Closer' : (role === 'manager' ? 'Mgr' : (role === 'processor' ? 'Processor' : role));
+      // Deploy 237.216 (Raissa) -- + Underwriter. "My Loans" and the team-member filter
+      // above match on email across every role, so they needed no change for this.
+      var lbl = role === 'closer' ? 'Closer' : (role === 'manager' ? 'Mgr' : (role === 'underwriter' ? 'Underwriter' : (role === 'processor' ? 'Processor' : role)));
       var txt = (p.name || p.email || '') + ' · ' + lbl;
       return '<span class="card-team-badge" title="' + escAttr(txt) + '" style="font-size:10px;font-weight:600;background:rgba(38,26,54,0.08);color:var(--muted);border-radius:8px;padding:1px 6px">\u{1F464} ' + escH(txt) + '</span>';
     }).join('') +

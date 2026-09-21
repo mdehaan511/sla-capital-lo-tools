@@ -28,6 +28,7 @@ import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
 // ad-hoc uploads) show on their list alongside the checklist.
 import { borrowerVisibleEntries } from './_shared/borrower-intake-custom.mjs';
 import { BORROWER_AI_FEEDBACK, BORROWER_RECEIVED_MSG, isAiFailure } from './_shared/borrower-ai-feedback.mjs';
+import { borrowerFacingTeam } from './_shared/team-roles.mjs'; // Deploy 237.216
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -105,7 +106,10 @@ async function handle(req, context) {
       if (p) { loName = p.fullName || ''; loEmail = p.email || loEmail; }
     } catch (_) {}
     if (loEmail && loEmail.includes('@')) team.push({ name: loName, email: loEmail, role: 'Loan Officer' });
-    const assigned = (loan && Array.isArray(loan.assignedProcessors)) ? loan.assignedProcessors : [];
+    // Deploy 237.216 (Raissa) -- underwriters can now be on the team. They are left OFF
+    // "Your SLA Team": a borrower should not be writing to the person underwriting them,
+    // and an unknown role used to print as "Loan Processor" with her email beside it.
+    const assigned = borrowerFacingTeam(loan && loan.assignedProcessors);
     for (const a of assigned) {
       if (!a || !a.email) continue;
       if (team.some((t) => t.email === a.email)) continue;
