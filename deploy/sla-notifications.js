@@ -351,8 +351,36 @@
     }).catch(function() { return null; });
   }
 
+  // Deploy 237.203 -- anyone who wants the same numbers the badge just drew.
+  var _feedSubs = [];
+  var _lastFeeds = null;
+
   function refresh() {
-    return collect().then(function(f) { if (f) render(f); });
+    return collect().then(function(f) {
+      if (!f) return;
+      render(f);
+      _lastFeeds = f;
+      // After render, never before: a subscriber is looking at the same pass the badge
+      // is, so the two cannot show different totals even for a moment.
+      _feedSubs.forEach(function(fn) { try { fn(f); } catch (e) { /* a subscriber must not break the bell */ } });
+    });
+  }
+
+  /**
+   * Call fn(feeds) every time the bell refreshes, and once immediately if it has already
+   * drawn. Deploy 237.203: /notifications.html used to fetch the feeds itself at page
+   * boot, which ran BEFORE resolveRole() had learned the caller is a processor -- so
+   * processing alerts and mail were still empty and the page showed nothing beside a 9+
+   * badge. Riding the bell's pass removes the race and the duplicate fetching with it.
+   */
+  function subscribe(fn) {
+    if (typeof fn !== 'function') return function(){};
+    _feedSubs.push(fn);
+    if (_lastFeeds) { try { fn(_lastFeeds); } catch (e) {} }
+    return function unsubscribe() {
+      var i = _feedSubs.indexOf(fn);
+      if (i >= 0) _feedSubs.splice(i, 1);
+    };
   }
 
   /**
@@ -433,7 +461,7 @@
 
   // The page needs the feeds and the arithmetic, nothing else -- the bell keeps its own
   // rendering to itself. Deploy 237.202.
-  window.SLANotify = { feeds: collect, openRows: openRows, openCount: openCount };
+  window.SLANotify = { feeds: collect, openRows: openRows, openCount: openCount, subscribe: subscribe };
 
   // ── Dismissal persistence (loan-app events) ─────────────
   // Reminders complete server-side via SLA.Reminders.complete. Loan-app

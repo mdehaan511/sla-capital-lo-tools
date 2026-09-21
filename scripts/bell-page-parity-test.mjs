@@ -66,7 +66,7 @@ new vm.Script(BELL_SRC, { filename: 'sla-notifications.js' }).runInContext(win);
 console.log('\nThe export exists at all');
 const N = win.SLANotify;
 assert('window.SLANotify is published', !!N, 'the IIFE ran but hung nothing on window');
-['feeds', 'openRows', 'openCount'].forEach((k) =>
+['feeds', 'openRows', 'openCount', 'subscribe'].forEach((k) =>
   assert('  .' + k + '()', N && typeof N[k] === 'function'));
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -127,7 +127,13 @@ check('no feeds at all (a failed fetch) does not throw', [N.openCount(null), N.o
 // working; see feedback_verify_the_data_path.
 console.log('\nThe page is wired to it');
 const PAGE = readFileSync(new URL('../deploy/notifications.html', import.meta.url), 'utf8');
-assert('notifications.html asks the bell for the feeds', /SLANotify\.feeds\(\)/.test(PAGE));
+// 237.203: the page subscribes rather than fetching. Fetching for itself is what broke
+// it — that ran before resolveRole() knew the caller is a processor, so mail and
+// processing alerts were missing from the very section added to show them.
+assert('notifications.html rides the bell\'s refresh', /SLANotify\.subscribe\(/.test(PAGE));
+assert('...and does NOT fetch the feeds on its own clock',
+  !/SLANotify\.feeds\(\)/.test(PAGE),
+  'a boot-time fetch races resolveRole() and under-reports');
 assert('...renders the live rows', /SLANotify\.openRows\(/.test(PAGE));
 assert('...and takes the NUMBER from openCount, not from the row count',
   /SLANotify\.openCount\(/.test(PAGE) && !/openRows\([^)]*\)\.length\s*;/.test(PAGE),
@@ -145,6 +151,24 @@ assert('refresh() still exists for every caller that polls it', /function refres
 // Mike: "if I click into one and return with the back button ... show it as now being
 // read". A bfcached page runs no script on return, so the row has to be painted read
 // before the navigation AND the list re-read on pageshow.
+// ── the subscription contract ───────────────────────────────────────────────
+console.log('\nSubscribers see what the badge saw');
+{
+  const seen = [];
+  const off = N.subscribe((f) => seen.push(f));
+  assert('subscribe() returns an unsubscribe', typeof off === 'function');
+  assert('a subscriber added before any refresh waits rather than firing with nothing', seen.length === 0);
+  assert('a non-function is ignored, not pushed', typeof N.subscribe(null) === 'function');
+  off();
+}
+assert('the bell notifies AFTER render, so the two agree at every instant',
+  /render\(f\);[\s\S]{0,400}_feedSubs\.forEach/.test(BELL_SRC),
+  'notifying first would show the page a total the badge has not drawn yet');
+assert('a late subscriber is replayed the last pass instead of waiting a minute',
+  /if \(_lastFeeds\) \{ try \{ fn\(_lastFeeds\); \}/.test(BELL_SRC));
+assert('a throwing subscriber cannot break the bell',
+  /_feedSubs\.forEach\(function\(fn\) \{ try \{ fn\(f\); \} catch/.test(BELL_SRC));
+
 console.log('\nBack button');
 assert('the clicked row is painted read before leaving', /function openOne\([\s\S]*?nrow_[\s\S]*?Mark unread/.test(PAGE));
 assert('...and the list is re-read when the page comes back from the bfcache',

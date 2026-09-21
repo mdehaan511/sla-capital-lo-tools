@@ -23,10 +23,10 @@
   feedback_one_nav_everywhere).
 -->
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-<script src="/sla-api.js?v=237202"></script>
+<script src="/sla-api.js?v=237203"></script>
 <script src="/sla-nav.js"></script>
 <script src="/sla-search.js"></script>
-<script src="/sla-notifications.js?v=237202"></script>
+<script src="/sla-notifications.js?v=237203"></script>
 <script src="/sla-chat.js"></script>
 <style>
   :root{
@@ -201,22 +201,28 @@ function fmtWhen(iso){
    so the two surfaces cannot drift. Zero-throw: the history is the point of this page and
    must still render if a feed endpoint is having a bad day. */
 var _openN = 0;
-function loadLive(){
-  if (!window.SLANotify || !SLANotify.feeds) return Promise.resolve();
-  return SLANotify.feeds().then(function(f){
-    if (!f) return;
-    var rows = SLANotify.openRows(f);
-    // openCount counts mail by the piece, so the badge can read 33 where this list shows
-    // one row. Print the bell's number, not the row count, or we are back where we started.
-    _openN = SLANotify.openCount(f) - (f.mentions || []).length;
-    var wrap = document.getElementById('liveWrap');
-    if (!rows.length){ wrap.style.display = 'none'; _openN = 0; return; }
-    wrap.style.display = 'block';
-    document.getElementById('liveN').textContent = String(_openN);
-    document.getElementById('liveList').innerHTML = rows.map(liveRowHtml).join('');
-  }).catch(function(e){
-    console.warn('[SLA] notifications: live feeds unavailable:', e && e.message);
-  });
+
+/* Deploy 237.203 -- ride the bell's own refresh rather than fetching the feeds here. The
+   first version fetched once at page boot, which happened BEFORE the bell had resolved
+   that this user is a processor, so mail and processing alerts were still empty and this
+   section rendered nothing beside a 9+ badge -- the very mismatch it was added to fix.
+   Subscribing means the page redraws from the same pass that draws the badge. */
+function bootLive(){
+  if (!window.SLANotify || !SLANotify.subscribe) return;
+  SLANotify.subscribe(function(f){ paintLive(f); applyFilters(); });
+}
+
+function paintLive(f){
+  var wrap = document.getElementById('liveWrap');
+  if (!wrap) return;
+  var rows = (f && SLANotify.openRows(f)) || [];
+  // openCount counts mail by the piece, so the badge can read 33 where this list shows
+  // one row. Print the bell's number, not the row count, or we are back where we started.
+  _openN = f ? (SLANotify.openCount(f) - (f.mentions || []).length) : 0;
+  if (!rows.length){ wrap.style.display = 'none'; _openN = 0; return; }
+  wrap.style.display = 'block';
+  document.getElementById('liveN').textContent = String(_openN);
+  document.getElementById('liveList').innerHTML = rows.map(liveRowHtml).join('');
 }
 
 function liveRowHtml(r){
@@ -360,7 +366,7 @@ window.addEventListener('pageshow', function(e){
   if (!e.persisted) return;                     // a fresh load already fetched
   if (!document.getElementById('appWrap') ||
       document.getElementById('appWrap').style.display === 'none') return;
-  load(); loadLive();
+  load();   // the live half redraws on the bell's next pass by itself
 });
 
 function toggleRead(id){
@@ -405,7 +411,7 @@ window.netlifyIdentity.on('init', function (user) {
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
   load();
-  loadLive().then(applyFilters);   // the subtitle's arithmetic needs _openN
+  bootLive();   // the subtitle's arithmetic needs _openN, which arrives with the bell
 });
 </script>
 </body>
