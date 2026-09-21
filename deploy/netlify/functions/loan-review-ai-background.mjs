@@ -200,7 +200,7 @@ async function handle(req, context) {
   // review call (no extra latency). Only for reviews tied to a real loan.
   const _canWriteFields = !!(review.source && review.source.kind === 'existing' &&
     review.source.clientId && review.source.loanId && review.source.ownerKey);
-  const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug) : null;
+  const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug, review.loanType) : null; // Deploy 237.221 -- loan type gates the RTL-only appraisal AIV/ARV
   const _extractFields = (Array.isArray(_extractSpec) && _extractSpec.length)
     ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
     : undefined;

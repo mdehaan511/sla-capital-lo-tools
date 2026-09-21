@@ -126,6 +126,16 @@ export const SLUG_FIELD_MAP = {
   // registry field, so the proposal simply isn't rendered.)
   appraisal: [
     { dataset: 'uw', key: 'asIsPrice',    label: 'The AS-IS / current market value the appraisal concludes (number only)' },
+    // Deploy 237.221 (Mike: "after the BPO was reviewed the BPO AIV and ARV aren't
+    // reviewed") -- RTL loans have TWO valuation trays, BPO / Valuation and Appraisal, and
+    // only the first asked for these. An RTL loan valued by an APPRAISAL never got its
+    // AIV / ARV onto the loan, so LTAIV and the BPO LTARV stayed blank. RTL / GUC only:
+    // on a DSCR loan the appraisal's value is the pricing value itself, and writing
+    // aivBpo there would lock inputs that product does not use.
+    { dataset: 'loan', key: 'aivBpo', onlyLoanTypes: ['rtl', 'guc'],
+      label: 'The AS-IS market value the appraisal concludes for the property in its CURRENT condition (number only, no $ or commas)' },
+    { dataset: 'loan', key: 'arvBpo', onlyLoanTypes: ['rtl', 'guc'],
+      label: 'The AFTER-REPAIR value the appraisal concludes -- labeled "As-Repaired", "After Repair Value", "Subject To Completion" or "As-Completed" (number only, no $ or commas). Return null if the appraisal states no after-repair value.' },
     { dataset: 'uw', key: 'propertyType', label: 'The property type as stated: "SFR" (single family), "2-4 Unit", "PUD", or "Condo" — or the exact type if none of these' },
     { dataset: 'uw', key: 'propertySqFt', label: 'The gross living area / square footage of the subject property (number only)' },
     { dataset: 'uw', key: 'rucaRural',    label: 'Does the appraisal designate the property as Rural? Answer exactly "Yes" or "No" (append the RUCA code if the report states one)' },
@@ -178,9 +188,17 @@ const NEVER_AI_WRITE = {
 // so portfolio uploads extract like single-property ones. (Shared keys
 // mean the last property reviewed wins a given field — an unverified
 // proposal either way, the underwriter confirms.)
-export function fieldsForSlug(slug) {
+// `loanType` (Deploy 237.221) filters entries marked onlyLoanTypes. A caller that does
+// not pass it gets the entries that apply to EVERY loan type, never the restricted ones --
+// the safe direction to be wrong in, since a restricted entry writes a real loan field.
+export function fieldsForSlug(slug, loanType) {
   const spec = SLUG_FIELD_MAP[String(slug || '').replace(/__[pg]\d+$/, '')];
   if (!spec) return null;
-  const safe = spec.filter(function (f) { return !NEVER_AI_WRITE[f.key]; });
+  const lt = String(loanType || '').toLowerCase();
+  const safe = spec.filter(function (f) {
+    if (NEVER_AI_WRITE[f.key]) return false;
+    if (Array.isArray(f.onlyLoanTypes)) return !!lt && f.onlyLoanTypes.indexOf(lt) >= 0;
+    return true;
+  });
   return safe.length ? safe : null;
 }

@@ -42,7 +42,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // we ask the SAME review call to also extract them, then write each one onto
 // the loan as an UNVERIFIED proposal for a human to confirm.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
-import { writeFieldProposals, felonyAlertFor } from './_shared/uw-field-write.mjs';
+import { writeFieldProposals, felonyAlertFor, bpoAlertFor } from './_shared/uw-field-write.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
@@ -397,7 +397,7 @@ async function handle(req, context) {
     // Only meaningful for reviews tied to a real loan (existing source).
     const _canWriteFields = !!(review.source && review.source.kind === 'existing' &&
       review.source.clientId && review.source.loanId && review.source.ownerKey);
-    const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug) : null;
+    const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug, review.loanType) : null; // Deploy 237.221 -- loan type gates the RTL-only appraisal AIV/ARV
     const _extractFields = (Array.isArray(_extractSpec) && _extractSpec.length)
       ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
       : undefined;
@@ -537,17 +537,13 @@ async function handle(req, context) {
   // the purchase price the deal has to be repriced, so surface it right on the
   // BPO tray in Documents (Loan Details raises its own banner from the loan
   // flags, and also covers the LTARV-over-max case which needs the rate tables).
-  if (String(body.slug) === 'bpo_valuation') {
-    const _n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
-    const _aivProp = Array.isArray(_fieldProposals) ? _fieldProposals.find((p) => p && p.key === 'aivBpo') : null;
-    const _aivNum  = _aivProp ? _n(_aivProp.value) : 0;
-    const _ppNum   = _n((review.sourceLoanSnapshot || review.snapshotLoan || {}).purchasePrice); // Deploy 237.074
-    if (_aivNum > 0 && _ppNum > 0 && _aivNum < _ppNum) {
-      docState.bpoAlert = 'BPO as-is value ($' + _aivNum.toLocaleString('en-US') + ') is BELOW the purchase price ($' +
-        _ppNum.toLocaleString('en-US') + ') — this loan needs to be repriced due to the BPO.';
-    } else if (_aivNum > 0) {
-      docState.bpoAlert = '';   // a fresh BPO clears a stale alert
-    }
+  // Deploy 237.221 -- this path carried its OWN copy of the rule while the background
+  // and retry paths called bpoAlertFor(). Same sentence, three places, and the copy here
+  // would have missed the RTL appraisal this deploy adds. One helper now: a string raises
+  // the alert, "" clears a stale one on a clean re-read, null means nothing to say.
+  {
+    const _valAlert = bpoAlertFor(body.slug, _fieldProposals, review.sourceLoanSnapshot || review.snapshotLoan); // Deploy 237.074 snapshot order
+    if (_valAlert !== null) docState.bpoAlert = _valAlert;
   }
 
   // Deploy 236.777 (Mike) — FELONY hard stop, surfaced on the background-check

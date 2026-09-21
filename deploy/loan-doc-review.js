@@ -145,6 +145,7 @@
   var _activeGuarantor = 0;          // Deploy 237.106 — per-guarantor tab (Guarantor section)
   var _expanded = {};
   var _aiDetailsOpen = {}; // Deploy 237.070 -- AI block "Details" open per doc (slug|docId)
+  var _aiOpenTray = {};    // Deploy 237.221 -- trays whose AI review was opened from the chip
   var _pendingOverride = null;
   var _pendingNa = null;
   var _docSearch = '';
@@ -690,6 +691,7 @@
     _activeTab = 'processor';
     _expanded = {};
     _aiDetailsOpen = {}; // Deploy 237.070
+    _aiOpenTray = {};    // Deploy 237.221
     _pendingOverride = null;
     _pendingNa = null;
     _pendingHide = null; // Deploy 237.071
@@ -2183,9 +2185,15 @@
     }
     var _aiChip = '';
     if (!d.hidden && hasDoc && _trayAi && _trayAi !== 'stored') {
-      _aiChip = _trayAi === 'approved' ? '<span class="tray-verdict ai-ok" title="AI verdict: looks good">AI \u2713</span>'
-              : _trayAi === 'issues'   ? '<span class="tray-verdict ai-bad" title="AI verdict: issues found">AI \u2717</span>'
-              : '<span class="tray-verdict ai-unclear" title="AI could not fully verify this document">AI ?</span>';
+      // Deploy 237.221 (Mike: "when the little AI X button is clicked ... it pops down the
+      // AI review information"). It looked like a button and did nothing: the review sat
+      // two clicks away (open the tray, then "expand"). The chip is that shortcut now.
+      var _aiChipAttrs = ' role="button" tabindex="0" style="cursor:pointer" ' +
+        'onclick="event.stopPropagation();dr_openAi(\'' + escJs(slug) + '\')" ' +
+        'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();event.stopPropagation();dr_openAi(\'' + escJs(slug) + '\')}"';
+      _aiChip = _trayAi === 'approved' ? '<span class="tray-verdict ai-ok"' + _aiChipAttrs + ' title="AI verdict: looks good \u2014 click to see the review">AI \u2713</span>'
+              : _trayAi === 'issues'   ? '<span class="tray-verdict ai-bad"' + _aiChipAttrs + ' title="AI verdict: issues found \u2014 click to see the review">AI \u2717</span>'
+              : '<span class="tray-verdict ai-unclear"' + _aiChipAttrs + ' title="AI could not fully verify this document \u2014 click to see the review">AI ?</span>';
     }
     // Deploy 237.136 (Mike) -- the chip on the right IS the status now: one dropdown,
     // set by whoever is working the tray. A hidden tray keeps its own chip.
@@ -2275,7 +2283,7 @@
     // so the underwriter gets the same compact row for all of them.
     if (_activeTab === 'uw' && aiHtml && hasDoc && !d.hidden) {
       var _aiSum = _trayAi === 'approved' ? '\u2713 AI: looks good' : _trayAi === 'issues' ? '\u26a0 AI: issues found' : _trayAi === 'needs_manual_review' ? '\u26a0 AI: needs manual review' : 'AI review';
-      aiHtml = '<details class="dr-ai-collapse"><summary>' + escHtml(_aiSum) + ' — expand</summary>' + aiHtml + '</details>';
+      aiHtml = '<details class="dr-ai-collapse" id="dr-ai_' + escAttr(slug) + '"' + (_aiOpenTray[slug] ? ' open' : '') + '><summary>' + escHtml(_aiSum) + ' — expand</summary>' + aiHtml + '</details>';
     }
 
     var dz =
@@ -2677,7 +2685,9 @@
     // checks only; the AI's summary and per-finding detail sit behind "Details"
     // (remembered per doc for the page session) so a tray reads in one glance.
     var _dkey = slug + '|' + (docId || '');
-    var _compact = !_aiDetailsOpen[_dkey];
+    // Deploy 237.221 -- opened from the chip means opened all the way: the findings,
+    // not a second "Details" click away.
+    var _compact = !(_aiDetailsOpen[_dkey] || _aiOpenTray[slug]);
     var _hasDetails = !!(src.aiNotes || (Array.isArray(src.aiFindings) && src.aiFindings.some(function(f) { return f && f.detail; })));
     return '<div class="ai-block ' + cls + (_compact ? ' compact' : '') + '" data-dkey="' + escAttr(_dkey) + '">' +
       '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
@@ -3186,6 +3196,20 @@
         showToast('Could not open doc: ' + (err.message || 'Unknown'), 'error');
       });
     }
+  };
+  // Deploy 237.221 (Mike) -- the AI chip on a tray header. Opens the tray AND the AI
+  // review inside it (on Underwriting the review is folded into a <details>); a second
+  // click folds the review away again and leaves the tray open.
+  global.dr_openAi = function(slug) {
+    var wasOpen = _expanded[slug] === true && _aiOpenTray[slug] === true;
+    _aiOpenTray[slug] = !wasOpen;
+    _expanded[slug] = true;
+    render();
+    if (wasOpen) return;
+    try {
+      var el = document.getElementById('dr-ai_' + slug) || document.getElementById('dr-tray_' + slug);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch (_) {}
   };
   // Deploy 237.070 -- "Details" toggle on the compact AI block (per doc, page session).
   global.dr_toggleAiDetails = function(btn) {

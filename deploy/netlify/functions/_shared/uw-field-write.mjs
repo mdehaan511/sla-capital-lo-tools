@@ -51,14 +51,21 @@ export function buildProposals(extractSpec, extractedFields, docLabel) {
 // shown on the BPO tray in Documents. Returns "" to CLEAR a stale alert once a
 // fresh BPO reads fine, or null when this doc has nothing to say.
 export function bpoAlertFor(slug, proposals, snapshotLoan) {
-  if (String(slug) !== "bpo_valuation") return null;
+  // Deploy 237.221 -- an RTL APPRAISAL now carries aivBpo too (uw-field-map), and the
+  // per-property suffix (__p0) was never stripped, so portfolio BPO trays could not alert.
+  const _base = String(slug || "").replace(/__[pg]\d+$/, "");
+  if (_base !== "bpo_valuation" && _base !== "appraisal") return null;
   const n = (v) => Number(String(v == null ? "" : v).replace(/[^0-9.]/g, "")) || 0;
   const aivProp = Array.isArray(proposals) ? proposals.find((p) => p && p.key === "aivBpo") : null;
   const aiv = aivProp ? n(aivProp.value) : 0;
   const pp  = n(snapshotLoan && snapshotLoan.purchasePrice);
   if (aiv > 0 && pp > 0 && aiv < pp) {
-    return "BPO as-is value ($" + aiv.toLocaleString("en-US") + ") is BELOW the purchase price ($" +
-      pp.toLocaleString("en-US") + ") — this loan needs to be repriced due to the BPO.";
+    // Named for the document it came from: "repriced due to the BPO" on an APPRAISAL tray
+    // sends someone looking for a BPO that does not exist.
+    const _doc = _base === "appraisal" ? "appraisal" : "BPO";
+    const _Doc = _base === "appraisal" ? "Appraisal" : "BPO";
+    return _Doc + " as-is value ($" + aiv.toLocaleString("en-US") + ") is BELOW the purchase price ($" +
+      pp.toLocaleString("en-US") + ") — this loan needs to be repriced due to the " + _doc + ".";
   }
   if (aiv > 0) return "";
   return null;

@@ -15,7 +15,12 @@
  */
 import { aiCostCents, logAiUsage } from './ai-usage.mjs'; // Deploy 237.093 -- spend: price + log every call
 const MODEL = process.env.DOC_REVIEW_MODEL || 'claude-sonnet-4-6'; // Deploy 237.004: env override
-const MAX_OUTPUT_TOKENS = 2048;
+// Deploy 237.221 -- was 2048. With thinking off, this model does its reasoning in the
+// VISIBLE answer on a hard document ("I need to analyze this 401(k) statement..."), and
+// 2,048 tokens of prose left no room for the JSON: 4.7% of reviews came back
+// `malformed_verdict` and lost everything, extracted fields included. Output is billed
+// only when generated, so a higher ceiling costs nothing on the reviews that were fine.
+const MAX_OUTPUT_TOKENS = 8192;
 const INPUT_CENTS_PER_TOKEN          = 0.0003;
 // Deploy 236.77 — Anthropic prompt caching pricing. Writes (storing
 // content in the cache on the first call) cost 1.25x normal input;
@@ -250,6 +255,9 @@ export async function reviewDocument(opts) {
   // Pull text content + usage from the Anthropic response shape.
   const textBlock = (data.content || []).find(function (c) { return c && c.type === 'text'; });
   const rawText = textBlock ? String(textBlock.text || '') : '';
+  // Deploy 237.221 -- nothing read this before, so an answer cut off at max_tokens was
+  // indistinguishable from one that was never JSON at all.
+  const stopReason = String(data.stop_reason || '');
   const usage = data.usage || {};
   const inputTokens          = Number(usage.input_tokens             || 0);
   const cacheWriteTokens     = Number(usage.cache_creation_input_tokens || 0);
@@ -261,19 +269,24 @@ export async function reviewDocument(opts) {
   // Deploy 237.093 -- priced by _shared/ai-usage.mjs (a 1h cache write is 2x, not
   // 1.25x) and logged there so the weekly spend digest sees every review.
   const costCents = aiCostCents(MODEL, usage);
-  await logAiUsage({ feature: 'doc-review', model: MODEL, usage, meta: { reviewId: opts.reviewId || '', slug: opts.slug || '', address: opts.address || '', docLabel: opts.docLabel || '', origin: opts.origin || '' } });
+  await logAiUsage({ feature: 'doc-review', model: MODEL, usage, meta: { reviewId: opts.reviewId || '', slug: opts.slug || '', address: opts.address || '', docLabel: opts.docLabel || '', origin: opts.origin || '', stopReason } });
 
   // Parse the model's JSON. The system prompt asks for clean JSON
   // but defensively strip markdown fences and pull the first
   // JSON object out if there's surrounding chatter.
   const parsed = extractJson(rawText);
   if (!parsed) {
+    // Deploy 237.221 -- say WHICH failure it was. Cut off at the ceiling is a different
+    // problem (and a different fix) from an answer that was never JSON.
+    const truncated = stopReason === 'max_tokens';
     return {
       verdict: 'issues',
-      summary: 'AI returned malformed verdict. Raw: ' + rawText.slice(0, 200),
+      summary: truncated
+        ? 'AI review was cut off before it finished (' + outputTokens + ' tokens). Press Retry; if it repeats, this document needs a manual review.'
+        : 'AI returned malformed verdict. Raw: ' + rawText.slice(0, 200),
       findings: [], extractedEntities: {},
-      inputTokens, outputTokens, costCents,
-      error: 'malformed_verdict',
+      inputTokens, outputTokens, costCents, stopReason,
+      error: truncated ? 'truncated' : 'malformed_verdict',
     };
   }
 
@@ -290,7 +303,7 @@ export async function reviewDocument(opts) {
     // Deploy 236.669 — AI document-integrity assessment (present only when
     // opts.integrityCheck was set). Shape: { risk, findings:[{level,detail}] }.
     integrity: _normalizeIntegrity(parsed.integrity),
-    inputTokens, outputTokens, costCents, cacheWriteTokens, cacheReadTokens,
+    inputTokens, outputTokens, costCents, cacheWriteTokens, cacheReadTokens, stopReason,
   };
 }
 
@@ -551,10 +564,16 @@ function buildPrompt(opts) {
     '- For documentDate / expirationDate: only fill these in if the date is LITERALLY visible on the doc. Do not infer. Bank statements have a statement period (use the statement end date). Certificates of Good Standing typically have a "printed on" or "as of" date. Insurance / drivers licenses / passports have explicit expirations. If you cannot see a date, return null — that is not a finding by itself.',
     _extractRule,
     _integrityRule,
+    // Deploy 237.221 -- the LAST line, on purpose. "Respond ONLY with valid JSON" is
+    // already said twice above and the model still opened 4.7% of answers with a paragraph
+    // of analysis. (Assistant prefill would force it, but current models reject prefill
+    // with a 400, so it is not an option.)
+    '',
+    'Your ENTIRE reply must be that one JSON object. The first character you write must be { and the last must be }. Do all of your checking silently: no analysis, reasoning, preamble or explanation before or after the JSON.',
   ].join('\n');
 }
 
-function extractJson(text) {
+export function extractJson(text) {
   if (!text) return null;
   // Strip markdown code fences if present.
   let t = String(text).trim();
@@ -563,12 +582,37 @@ function extractJson(text) {
   }
   // Try direct parse first.
   try { return JSON.parse(t); } catch (e) { /* fall through */ }
-  // Pull the first {...} block.
-  const m = t.match(/\{[\s\S]*\}/);
-  if (m) {
-    try { return JSON.parse(m[0]); } catch (e) { /* fall through */ }
+  // Deploy 237.221 -- was one greedy regex, first "{" to LAST "}", which is wrong the
+  // moment the prose around the answer contains a brace of its own ("the {entity} name...")
+  // or the model appends a note after the object. Walk the text instead: every balanced
+  // top-level {...} (strings and escapes respected) is a candidate, and the verdict is
+  // the first one that parses AND looks like a verdict.
+  const candidates = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { if (depth > 0) inStr = true; continue; }
+    if (c === '{') { if (depth === 0) start = i; depth++; }
+    else if (c === '}' && depth > 0) {
+      depth--;
+      if (depth === 0 && start >= 0) { candidates.push(t.slice(start, i + 1)); start = -1; }
+    }
   }
-  return null;
+  let firstObject = null;
+  for (const cand of candidates) {
+    let obj = null;
+    try { obj = JSON.parse(cand); } catch (e) { continue; }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+    if ('verdict' in obj || 'findings' in obj) return obj;
+    if (!firstObject) firstObject = obj;
+  }
+  return firstObject;
 }
 
 function normalizeFinding(f) {
