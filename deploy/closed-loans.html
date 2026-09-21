@@ -1712,7 +1712,10 @@ function openExtensionModal(clientId, loanId, ownerKey){
     '<div class="svc-fld"><label>Current UPB</label><input type="text" id="ext_upb" value="'+escAttr(String(l.upb!=null&&l.upb!==''?l.upb:origAmt))+'" /></div>'+
     '<div class="svc-fld"><label>Fee Handling</label><select id="ext_feeHandling">'+
       '<option value="at_signing">Paid at time of signing</option>'+
-      '<option value="add_to_principal">Added to principal balance</option></select></div>'+
+      '<option value="add_to_principal">Added to principal balance</option>'+
+      // Deploy 237.218 (Mike): the fee is owed at payoff and does NOT
+      // accrue interest -- which is what SLA actually does, so it leads.
+      '<option value="at_payoff" selected>Due at payoff (no interest)</option></select></div>'+
     '<div class="svc-fld"><label>Borrower (as on the Note)</label><input type="text" id="ext_borrowerName" value="'+escAttr(bName)+'" /></div>'+
     '<div class="svc-fld"><label>Borrower Email <span class="req">*</span></label><input type="text" id="ext_borrowerEmail" value="'+escAttr(c.email||'')+'" /></div>'+
     // Deploy 236.974 (Mike: "extensions can be sent to both of the guarantors") —

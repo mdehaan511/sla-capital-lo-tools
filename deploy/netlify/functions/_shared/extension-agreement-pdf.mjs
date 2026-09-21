@@ -90,7 +90,16 @@ export function buildExtensionAgreementPdf(v) {
     // Deploy 236.845 — the extension term reads "three (3) months" (Mike),
     // matching the new-maturity default of the 1st of the month three months
     // out (an exact day count would drift once the date snaps to the 1st).
-    const atSigning = v.feeHandling !== 'add_to_principal';
+    // Deploy 237.218 (Mike): "instead of saying they'll be added onto the
+    // principle ... they'll be paid at payoff since we arent collecting
+    // interest on the fees." Adding a fee to principal makes it accrue at the
+    // note rate, which is not what SLA does with extension fees — so there is
+    // now a third handling: due at payoff, expressly not bearing interest.
+    // The third line only renders when it is the one chosen, which leaves
+    // every existing e-sign agreement byte-identical.
+    const atPayoff = v.feeHandling === 'at_payoff';
+    const toPrincipal = v.feeHandling === 'add_to_principal';
+    const atSigning = !atPayoff && !toPrincipal;
 
     const H = () => doc.font('Times-Bold').fontSize(11);
     const B = () => doc.font('Times-Roman').fontSize(11);
@@ -128,7 +137,12 @@ export function buildExtensionAgreementPdf(v) {
     doc.moveDown(0.5);
     B().text('[' + (atSigning ? 'X' : ' ') + ']  This fee shall be paid at the time of signing.', { indent: 24 });
     doc.moveDown(0.25);
-    B().text('[' + (atSigning ? ' ' : 'X') + ']  This fee shall be added to the principal balance of the Loan.', { indent: 24 });
+    B().text('[' + (toPrincipal ? 'X' : ' ') + ']  This fee shall be added to the principal balance of the Loan.', { indent: 24 });
+    if (atPayoff) {
+      doc.moveDown(0.25);
+      B().text('[X]  This fee shall be due and payable at payoff of the Loan. The fee shall not be added to the ' +
+        'principal balance and shall not accrue interest.', { indent: 24 });
+    }
     doc.moveDown(1);
 
     H().text('5. NO OTHER MODIFICATIONS', { continued: true });

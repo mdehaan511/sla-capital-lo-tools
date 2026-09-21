@@ -15,7 +15,7 @@
  *   (term is a flat "three (3) months" in the agreement text — 236.845)
  *   extensionFee?,              // $ (default 1% of original loan amount)
  *   currentUpb?,                // $ (default loan.upb, else loan amount)
- *   feeHandling?,               // 'at_signing' (default) | 'add_to_principal'
+ *   feeHandling?,               // 'at_signing' (default) | 'add_to_principal' | 'at_payoff'
  *   borrowerName?, borrowerEmail?,   // default entity/client name + client email
  *   lenderName?, lenderEmail?,       // default Mike DeHaan / mike@slacapital.com
  * }
@@ -87,7 +87,9 @@ async function handle(req, context) {
     currentUpb:      _num(body.currentUpb) || _num(loan.upb) || loanAmount,
     newMaturityDate: String(body.newMaturityDate || '').slice(0, 10),
     extensionFee:    _num(body.extensionFee) || Math.round(loanAmount * 0.01 * 100) / 100,
-    feeHandling:     body.feeHandling === 'add_to_principal' ? 'add_to_principal' : 'at_signing',
+    // Deploy 237.218 -- three ways to handle the fee now; 'at_payoff'
+    // is owed at payoff and expressly does not accrue interest.
+    feeHandling:     ['add_to_principal', 'at_payoff'].indexOf(body.feeHandling) >= 0 ? body.feeHandling : 'at_signing',
     lenderName:      String(body.lenderName || (DEFAULT_LENDER.firstName + ' ' + DEFAULT_LENDER.lastName)).slice(0, 120),
   };
   if (!values.newMaturityDate) return json(400, { error: 'newMaturityDate required' });
@@ -217,7 +219,8 @@ async function handle(req, context) {
       kind: 'status',
       text: 'Loan Extension Agreement sent for signature — new maturity ' + values.newMaturityDate +
         ', fee $' + Number(values.extensionFee).toLocaleString() +
-        ' (' + (values.feeHandling === 'add_to_principal' ? 'added to principal' : 'paid at signing') + '). ' +
+        ' (' + (values.feeHandling === 'add_to_principal' ? 'added to principal'
+          : values.feeHandling === 'at_payoff' ? 'due at payoff, no interest' : 'paid at signing') + '). ' +
         'Lender (' + lenderEmail + ') signs first, then borrower (' + borrowerEmail + ')' +
         (extraGuarantors.length ? ', then ' + extraGuarantors.map((g) => g.name + ' (' + g.email + ')').join(', ') : '') + '.',
       author: meta.full_name || meta.fullName || user.email || '',
