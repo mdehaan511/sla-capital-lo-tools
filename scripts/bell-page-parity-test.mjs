@@ -66,8 +66,9 @@ new vm.Script(BELL_SRC, { filename: 'sla-notifications.js' }).runInContext(win);
 console.log('\nThe export exists at all');
 const N = win.SLANotify;
 assert('window.SLANotify is published', !!N, 'the IIFE ran but hung nothing on window');
-['feeds', 'openRows', 'openCount', 'subscribe'].forEach((k) =>
+['feeds', 'openRows', 'openCount', 'subscribe', 'categoryOf'].forEach((k) =>
   assert('  .' + k + '()', N && typeof N[k] === 'function'));
+assert('  .categories[]', Array.isArray(N && N.categories) && N.categories.length >= 5);
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 const feeds = (over) => Object.assign({
@@ -151,6 +152,27 @@ assert('refresh() still exists for every caller that polls it', /function refres
 // Mike: "if I click into one and return with the back button ... show it as now being
 // read". A bfcached page runs no script on return, so the row has to be painted read
 // before the navigation AND the list re-read on pageshow.
+// ── categories ──────────────────────────────────────────────────────────────
+// Mike: "Documents Uploaded. Loan Updates. Mail. Payments."
+console.log('\nCategories');
+check('Mike\'s four, in his order, then a home for anything unmapped',
+  N.categories, ['Documents Uploaded', 'Loan Updates', 'Mail', 'Payments', 'Other']);
+[['borrower_upload', 'Documents Uploaded'], ['full_file', 'Documents Uploaded'],
+ ['mention', 'Loan Updates'], ['deed', 'Loan Updates'], ['processing', 'Loan Updates'],
+ ['task', 'Loan Updates'], ['loan_app_received', 'Loan Updates'], ['reminder', 'Loan Updates'],
+ ['mail', 'Mail'],
+ ['servicing', 'Payments'], ['payoff_confirmed', 'Payments'], ['payoff_unconfirmed', 'Payments'],
+].forEach(([kind, want]) => check('  ' + kind, N.categoryOf(kind), want));
+check('a kind nobody has taught us still lands somewhere', N.categoryOf('whatever_is_next'), 'Other');
+check('...and so does a missing one', N.categoryOf(undefined), 'Other');
+// Every kind THIS FILE mints must have a real home: an "Other" bucket in the live list
+// would be our own doing, not an unknown notification from somewhere else.
+{
+  const minted = [...new Set(N.openRows(EVERYTHING).map((r) => r.kind))];
+  minted.forEach((k) => assert('  openRows mints ' + k + ' into a named category',
+    N.categoryOf(k) !== 'Other', k + ' falls through to Other'));
+}
+
 // ── the subscription contract ───────────────────────────────────────────────
 console.log('\nSubscribers see what the badge saw');
 {
@@ -168,6 +190,43 @@ assert('a late subscriber is replayed the last pass instead of waiting a minute'
   /if \(_lastFeeds\) \{ try \{ fn\(_lastFeeds\); \}/.test(BELL_SRC));
 assert('a throwing subscriber cannot break the bell',
   /_feedSubs\.forEach\(function\(fn\) \{ try \{ fn\(f\); \} catch/.test(BELL_SRC));
+
+console.log('\nThe page groups and filters by category');
+assert('both lists are grouped through one helper', /function groupedHtml\(/.test(PAGE));
+assert('  the history list is grouped', /list\.innerHTML = groupedHtml\(/.test(PAGE));
+assert('  the live list is grouped', /liveList'\)\.innerHTML =\s*\n?\s*groupedHtml\(/.test(PAGE));
+assert('the filter is by category, built from what this person actually has',
+  /function buildCategoryFilter\(/.test(PAGE) && /id="fCat"/.test(PAGE));
+assert('...and nothing still refers to the old type filter', !/fType/.test(PAGE));
+assert('categories come from the bell, not a second copy on the page',
+  /SLANotify\.categoryOf/.test(PAGE) && !/KIND_CATEGORY/.test(PAGE),
+  'two maps would group the two halves of the same page differently');
+
+console.log('\nThe subtitle says what is true');
+// Inside a STRING literal, not anywhere in the file -- the comment above the new
+// subtitle quotes the old one on purpose, and that record is worth keeping.
+assert('it no longer explains the bell to the reader',
+  !/['\"][^'\"\n]*the bell shows/.test(PAGE),
+  'Mike: "The subtext at the stop of 2 unread of 5 is still misleading"');
+assert('...and no longer reads "N unread of M"', !/unread of ' \+/.test(PAGE));
+assert('an empty account gets a sentence, not three zeroes',
+  /Nothing needs your attention right now/.test(PAGE));
+
+// ── no alert for a close date that has already passed ───────────────────────
+// Mike: "Thres also a ton of notifications of close dates past that never got out of
+// leads ... we shouldnt have a close date past notification at all."
+console.log('\nNo close-date-past alerts');
+const ALERTS = readFileSync(new URL('../deploy/netlify/functions/processing-alerts.mjs', import.meta.url), 'utf8');
+check('both close-date windows are forward-only',
+  (ALERTS.match(/du != null && du >= 0 && du <= CLOSING_WINDOW_DAYS/g) || []).length, 2);
+assert('no window still admits a negative day count',
+  !/du != null && du <= CLOSING_WINDOW_DAYS/.test(ALERTS));
+assert('the "passed N ago" wording is gone with it', !/passed ' \+ _fmtDays/.test(ALERTS));
+assert('and the module header no longer promises it',
+  !/already\s*\n \*\s*past and the loan hasn/.test(ALERTS));
+assert('forward-looking alerts survive -- this was a noise fix, not a feature removal',
+  /kind: 'closing_soon'/.test(ALERTS) && /kind: 'unassigned_closing'/.test(ALERTS) &&
+  /Closes in ' \+ _fmtDays\(du\)/.test(ALERTS));
 
 console.log('\nBack button');
 assert('the clicked row is painted read before leaving', /function openOne\([\s\S]*?nrow_[\s\S]*?Mark unread/.test(PAGE));

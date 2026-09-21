@@ -7,8 +7,9 @@
  * them on any page — not just inside the Processing Pipeline.
  *
  * Alert kinds (all scoped to loans assigned to the calling processor):
- *   closing_soon — funding date is within CLOSING_WINDOW days (or already
- *                  past and the loan hasn't closed). "Your loan closes soon."
+ *   closing_soon — funding date is within CLOSING_WINDOW days AND STILL AHEAD.
+ *                  "Your loan closes soon." A date already past is not an alert
+ *                  (237.204) -- see the comment at the check.
  *   aging        — the loan has sat in Processing/Underwriting longer than
  *                  AGING_DAYS (uses loan.processingStageAt, stamped by
  *                  loan-processing-stage.mjs on a real stage change; falls
@@ -146,18 +147,21 @@ async function handle(req, context) {
 
     // ── Alerts for loans assigned to me ──────────────────────────
     if (mine) {
-      // closing_soon
+      // closing_soon -- FORWARD ONLY. Deploy 237.204 (Mike): "we shouldn't have a close
+      // date past notification at all." A loan keeps whatever estimated close date the
+      // sizer gave it, so `du <= WINDOW` matched dates from a year ago and kept matching
+      // forever; the loans doing it loudest never left Leads. Sixty of the sixty-one live
+      // rows on Mike's bell were "close date passed N days ago", which is not an alert,
+      // it is a permanent condition. A date that genuinely slipped is visible on the
+      // pipeline and the dashboard, where it can be looked at on purpose.
       const du = _daysUntil(l.funding_date, now);
-      if (du != null && du <= CLOSING_WINDOW_DAYS) {
-        const overdue = du < 0;
+      if (du != null && du >= 0 && du <= CLOSING_WINDOW_DAYS) {
         alerts.push(Object.assign({}, base, {
           kind: 'closing_soon',
           id: 'pa_closing_' + l.id,
-          subtitle: overdue
-            ? ('Close date passed ' + _fmtDays(Math.abs(du)) + ' ago')
-            : ('Closes in ' + _fmtDays(du)),
+          subtitle: 'Closes in ' + _fmtDays(du),
           dateIso: l.funding_date || '',
-          severity: (overdue || du <= 2) ? 'high' : 'normal',
+          severity: du <= 2 ? 'high' : 'normal',
         }));
       }
 
@@ -190,15 +194,14 @@ async function handle(req, context) {
     }
 
     // ── Manager add-on: unassigned loans closing soon ────────────
+    // Forward only, for the same reason as closing_soon above. Deploy 237.204.
     if (manager && !assignee) {
       const du = _daysUntil(l.funding_date, now);
-      if (du != null && du <= CLOSING_WINDOW_DAYS) {
+      if (du != null && du >= 0 && du <= CLOSING_WINDOW_DAYS) {
         alerts.push(Object.assign({}, base, {
           kind: 'unassigned_closing',
           id: 'pa_unassigned_' + l.id,
-          subtitle: 'Unassigned · ' + (du < 0
-            ? ('close date passed ' + _fmtDays(Math.abs(du)) + ' ago')
-            : ('closes in ' + _fmtDays(du))),
+          subtitle: 'Unassigned · closes in ' + _fmtDays(du),
           dateIso: l.funding_date || '',
           severity: 'high',
         }));

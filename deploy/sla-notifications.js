@@ -459,9 +459,43 @@
     return rows;
   }
 
-  // The page needs the feeds and the arithmetic, nothing else -- the bell keeps its own
-  // rendering to itself. Deploy 237.202.
-  window.SLANotify = { feeds: collect, openRows: openRows, openCount: openCount, subscribe: subscribe };
+  /**
+   * Deploy 237.204 (Mike): "Can you also put the notifications into categories?
+   * Documents Uploaded. Loan Updates. Mail. Payments."
+   *
+   * The map lives here because this file mints half the kinds itself (openRows) and the
+   * store supplies the other half -- one map means the two halves of /notifications.html
+   * group the same way. An unmapped kind lands in 'Other' rather than vanishing, which is
+   * the same promise the page's kindLabel() makes: a notification nobody taught this page
+   * about still has to show up.
+   */
+  var CATEGORY_ORDER = ['Documents Uploaded', 'Loan Updates', 'Mail', 'Payments', 'Other'];
+  var KIND_CATEGORY = {
+    // things a borrower or a processor put in the file
+    borrower_upload: 'Documents Uploaded',
+    full_file: 'Documents Uploaded',
+    // something moved, or somebody needs you
+    mention: 'Loan Updates',
+    deed: 'Loan Updates',
+    processing: 'Loan Updates',
+    task: 'Loan Updates',
+    loan_app_received: 'Loan Updates',
+    reminder: 'Loan Updates',
+    // the front desk
+    mail: 'Mail',
+    // money in and out -- servicing covers NSF and late payments
+    servicing: 'Payments',
+    payoff_confirmed: 'Payments',
+    payoff_unconfirmed: 'Payments'
+  };
+  function categoryOf(kind) { return KIND_CATEGORY[kind] || 'Other'; }
+
+  // The page needs the feeds, the arithmetic and the grouping, nothing else -- the bell
+  // keeps its own rendering to itself. Deploy 237.202.
+  window.SLANotify = {
+    feeds: collect, openRows: openRows, openCount: openCount, subscribe: subscribe,
+    categoryOf: categoryOf, categories: CATEGORY_ORDER.slice()
+  };
 
   // ── Dismissal persistence (loan-app events) ─────────────
   // Reminders complete server-side via SLA.Reminders.complete. Loan-app

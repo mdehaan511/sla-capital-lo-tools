@@ -23,10 +23,10 @@
   feedback_one_nav_everywhere).
 -->
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-<script src="/sla-api.js?v=237203"></script>
+<script src="/sla-api.js?v=237204"></script>
 <script src="/sla-nav.js"></script>
 <script src="/sla-search.js"></script>
-<script src="/sla-notifications.js?v=237203"></script>
+<script src="/sla-notifications.js?v=237204"></script>
 <script src="/sla-chat.js"></script>
 <style>
   :root{
@@ -78,6 +78,13 @@
   .sec .n{font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;color:#6b5322;
           background:var(--gold-soft);border:1px solid rgba(200,129,58,.28);border-radius:20px;padding:1px 8px}
   .sec .why{font-family:'DM Sans',sans-serif;font-size:12px;font-weight:400;color:var(--muted)}
+  /* Deploy 237.204 -- a category heading inside a list. Sits on the list's own border
+     rhythm, so a group reads as part of the list rather than a stack of separate cards. */
+  .grp{display:flex;align-items:baseline;gap:8px;padding:9px 16px;border-top:1px solid var(--line);
+       background:#fbf8f3;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+       color:#6b5322}
+  .grp:first-child{border-top:none}
+  .grp .gn{font-weight:600;color:var(--muted);letter-spacing:0;text-transform:none;font-size:11px}
   .row.live{background:#fff}
   .row.live .dot{background:#b98a4e}
   #auth-gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
@@ -108,8 +115,8 @@
 
   <div class="bar">
     <div class="fld">
-      <label for="fType">Type</label>
-      <select id="fType" onchange="applyFilters()"><option value="">All types</option></select>
+      <label for="fCat">Category</label>
+      <select id="fCat" onchange="applyFilters()"><option value="">All categories</option></select>
     </div>
     <div class="fld">
       <label for="fState">Status</label>
@@ -222,7 +229,8 @@ function paintLive(f){
   if (!rows.length){ wrap.style.display = 'none'; _openN = 0; return; }
   wrap.style.display = 'block';
   document.getElementById('liveN').textContent = String(_openN);
-  document.getElementById('liveList').innerHTML = rows.map(liveRowHtml).join('');
+  document.getElementById('liveList').innerHTML =
+    groupedHtml(rows, function(r){ return r.kind; }, liveRowHtml);
 }
 
 function liveRowHtml(r){
@@ -242,7 +250,7 @@ function load(){
   return SLA.api('GET', '/api/notifications-list')
     .then(function(j){
       _items = (j && j.items) || [];
-      buildTypeFilter();
+      buildCategoryFilter();
       applyFilters();
     })
     .catch(function(e){
@@ -251,30 +259,60 @@ function load(){
     });
 }
 
-/* Only offer types that are actually in this person's history — an empty filter option
-   is a dead end. */
-function buildTypeFilter(){
-  var sel = document.getElementById('fType');
-  var cur = sel.value;
-  var kinds = [];
-  _items.forEach(function(n){
-    var k = n.kind || 'mention';
-    if (kinds.indexOf(k) < 0) kinds.push(k);
+/* Deploy 237.204 -- categories come from the bell (one map for both halves of this page).
+   If that script is missing everything falls into 'Other' and the page still works. */
+function catOf(kind){
+  return (window.SLANotify && SLANotify.categoryOf) ? SLANotify.categoryOf(kind) : 'Other';
+}
+function catOrder(){
+  return (window.SLANotify && SLANotify.categories)
+    ? SLANotify.categories
+    : ['Documents Uploaded', 'Loan Updates', 'Mail', 'Payments', 'Other'];
+}
+
+/* Group rows under their category heading, in a fixed order, skipping categories this
+   person has nothing in — an empty heading is worse than no heading. */
+function groupedHtml(rows, kindOf, rowFn){
+  var buckets = {};
+  rows.forEach(function(r){
+    var c = catOf(kindOf(r));
+    if (!buckets[c]) buckets[c] = [];
+    buckets[c].push(r);
   });
-  kinds.sort(function(a,b){ return kindLabel(a).localeCompare(kindLabel(b)); });
-  sel.innerHTML = '<option value="">All types</option>' + kinds.map(function(k){
-    return '<option value="' + escAttr(k) + '">' + escH(kindLabel(k)) + '</option>';
+  var out = '';
+  catOrder().forEach(function(c){
+    var b = buckets[c];
+    if (!b || !b.length) return;
+    out += '<div class="grp">' + escH(c) + '<span class="gn">' + b.length + '</span></div>' +
+           b.map(rowFn).join('');
+  });
+  return out;
+}
+
+/* Only offer categories that are actually in this person's history — an empty filter
+   option is a dead end. */
+function buildCategoryFilter(){
+  var sel = document.getElementById('fCat');
+  var cur = sel.value;
+  var cats = [];
+  _items.forEach(function(n){
+    var c = catOf(n.kind || 'mention');
+    if (cats.indexOf(c) < 0) cats.push(c);
+  });
+  cats.sort(function(a,b){ return catOrder().indexOf(a) - catOrder().indexOf(b); });
+  sel.innerHTML = '<option value="">All categories</option>' + cats.map(function(c){
+    return '<option value="' + escAttr(c) + '">' + escH(c) + '</option>';
   }).join('');
-  if (cur && kinds.indexOf(cur) >= 0) sel.value = cur;
+  if (cur && cats.indexOf(cur) >= 0) sel.value = cur;
 }
 
 function filtered(){
-  var kind  = document.getElementById('fType').value;
+  var cat   = document.getElementById('fCat').value;
   var state = document.getElementById('fState').value;
   var from  = document.getElementById('fFrom').value;
   var to    = document.getElementById('fTo').value;
   return _items.filter(function(n){
-    if (kind && (n.kind || 'mention') !== kind) return false;
+    if (cat && catOf(n.kind || 'mention') !== cat) return false;
     if (state === 'unread' && n.readAt) return false;
     if (state === 'read' && !n.readAt) return false;
     var day = String(n.createdAt || '').slice(0, 10);
@@ -287,15 +325,17 @@ function filtered(){
 function applyFilters(){
   var rows = filtered();
   var unread = _items.filter(function(n){ return !n.readAt; }).length;
-  // Deploy 237.202 -- spell out the bell's arithmetic. unread + open IS the badge, and
-  // the badge stops counting out loud at 9+, which is what made these look unrelated.
-  var bell = unread + _openN;
+  // Deploy 237.204 -- three plain counts. 237.202 tried to EXPLAIN the bell here ("2
+  // unread of 5 in your history · 93 open now — the bell shows 9+ (95)"), which read like
+  // a reconciliation of two things that disagree. They no longer disagree, so there is
+  // nothing to reconcile; just say what is on the page.
   var parts = [];
-  parts.push(unread ? (unread + ' unread of ' + _items.length + ' in your history')
-                    : (_items.length + ' notification' + (_items.length === 1 ? '' : 's') + ', all read'));
   if (_openN) parts.push(_openN + ' open now');
-  document.getElementById('sub').textContent = parts.join(' \u00b7 ') +
-    (bell ? ' \u2014 the bell shows ' + (bell > 9 ? '9+ (' + bell + ')' : bell) + '.' : '.');
+  if (unread) parts.push(unread + ' unread');
+  parts.push(_items.length + ' in your history');
+  document.getElementById('sub').textContent = (_openN || _items.length)
+    ? parts.join(' \u00b7 ')
+    : 'Nothing needs your attention right now.';
   document.getElementById('histHdr').style.display = _openN ? 'flex' : 'none';
   document.getElementById('count').textContent =
     rows.length === _items.length ? '' : ('Showing ' + rows.length + ' of ' + _items.length);
@@ -304,11 +344,11 @@ function applyFilters(){
   var list = document.getElementById('list');
   if (!rows.length){
     list.innerHTML = _items.length
-      ? '<div class="empty"><b>Nothing matches those filters</b>Try widening the dates or the type.</div>'
+      ? '<div class="empty"><b>Nothing matches those filters</b>Try widening the dates or the category.</div>'
       : '<div class="empty"><b>No notifications yet</b>Mentions, new documents from borrowers and alerts will collect here.</div>';
     return;
   }
-  list.innerHTML = rows.map(rowHtml).join('');
+  list.innerHTML = groupedHtml(rows, function(n){ return n.kind || 'mention'; }, rowHtml);
 }
 
 function rowHtml(n){
@@ -397,7 +437,7 @@ function markAllRead(){
 }
 
 function clearFilters(){
-  ['fType','fState','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value = ''; });
+  ['fCat','fState','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value = ''; });
   applyFilters();
 }
 
