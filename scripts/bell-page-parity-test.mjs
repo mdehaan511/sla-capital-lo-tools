@@ -238,6 +238,35 @@ assert('BOTH rules are scoped to loans in the pipeline, never leads',
   (ALERTS.match(/inPipeline/g) || []).length >= 3 &&
   /const ACTIVE_STAGES\s+= \['new_loan', 'processing', 'underwriting', 'pp_approved'\]/.test(ALERTS),
   'an empty processing_stage means Leads -- alerting on those is the flood');
+// Deploy 237.208 -- RUN the date helpers instead of only reading them. `now` in this
+// handler is Date.now(), a number; _hoursSince treated it as a Date and threw on the
+// first unassigned loan it found, with node --check and every source assertion above
+// passing. Lifting and executing is the only check that sees that class of mistake.
+{
+  const lift = (name) => {
+    const m = ALERTS.match(new RegExp('function ' + name + '\\([\\s\\S]*?\\n}'));
+    assert('  ' + name + ' can be lifted', !!m, 'renamed or removed');
+    return m ? new Function('"use strict";' + m[0] + ' return ' + name + ';')() : () => null;
+  };
+  const NOW = Date.now();                       // EXACTLY what the handler passes
+  const ago = (ms) => new Date(NOW - ms).toISOString();
+  const _hoursSince = lift('_hoursSince');
+  const _daysSince = lift('_daysSince');
+  const _fmtDays = lift('_fmtDays');
+  const _fmtHours = new Function('"use strict";' +
+    (ALERTS.match(/function _fmtDays\([\s\S]*?\n}/) || [''])[0] +
+    (ALERTS.match(/function _fmtHours\([\s\S]*?\n}/) || [''])[0] + ' return _fmtHours;')();
+  check('26 hours ago is 26 hours', _hoursSince(ago(26 * 3600000), NOW), 26);
+  check('...and clears the 24-hour bar', _hoursSince(ago(26 * 3600000), NOW) >= 24, true);
+  check('23 hours ago does NOT', _hoursSince(ago(23 * 3600000), NOW) >= 24, false);
+  check('9 days ago is 9 days', _daysSince(ago(9 * 86400000), NOW), 9);
+  check('nothing to measure from is null, not zero',
+    [_hoursSince('', NOW), _hoursSince('not a date', NOW), _daysSince(null, NOW)], [null, null, null]);
+  check('hours read as hours until two days, then as days',
+    [_fmtHours(1), _fmtHours(26), _fmtHours(72)], ['1 hour', '26 hours', '3 days']);
+  check('and a day is a day', [_fmtDays(0), _fmtDays(1), _fmtDays(9)], ['today', '1 day', '9 days']);
+}
+
 assert('the bell draws the two kinds that exist',
   /a\.kind === 'stale'/.test(BELL_SRC) && /a\.kind === 'unassigned'/.test(BELL_SRC));
 assert('...and names no kind that does not',

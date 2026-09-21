@@ -96,11 +96,13 @@ function _stageLabel(stage) {
 // Whole hours since a date-ish value, or null when there is nothing to measure from.
 // Deploy 237.206 -- the unassigned rule is in hours, and rounding it to days would make
 // "24 hours" mean anything from one day to two.
+// Deploy 237.208 -- `now` here is Date.now(), a NUMBER, exactly as _daysSince above
+// takes it. This subtracted now.getTime() and threw on the first unassigned loan.
 function _hoursSince(value, now) {
   if (!value) return null;
   const t = new Date(value).getTime();
   if (!isFinite(t)) return null;
-  return Math.floor((now.getTime() - t) / 3600000);
+  return Math.floor((now - t) / 3600000);
 }
 
 function _fmtHours(h) {
