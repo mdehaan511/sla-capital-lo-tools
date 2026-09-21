@@ -1098,6 +1098,16 @@
   status = 200
   force = true
 
+# Deploy 237.211 (Mike) — Notice of Transfer of Loan Servicing, from the Servicing tab.
+[[redirects]]
+  from = "/api/servicing-transfer-letter"
+  to = "/.netlify/functions/servicing-transfer-letter"
+  status = 200
+  force = true
+
+[functions."servicing-transfer-letter"]
+  timeout = 26
+
 [functions."fci-boarding-sheet"]
   timeout = 26
 

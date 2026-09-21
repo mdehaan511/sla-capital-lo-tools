@@ -2648,6 +2648,12 @@ function render() {
           '<button class="save-app-btn" onclick="saveServicingFields()">Save Changes</button>' +
           '<span id="servicingStatus" style="display:none;color:var(--success);font-size:13px">Saved ✓</span>' +
         '</div>' +
+        // Deploy 237.211 (Mike) — the Notice of Transfer of Loan Servicing. Auto-fills
+        // what this loan knows and asks for the rest; preview, then email the borrower.
+        '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#eee);display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<button type="button" id="stlBtn" onclick="openServicingTransferLetter()" style="font-size:13px;padding:8px 14px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-weight:600">✉ Servicing Transfer Letter</button>' +
+          '<span id="stlStatus" style="font-size:12px;color:var(--muted)">Notice to the borrower that servicing is moving to a new servicer.</span>' +
+        '</div>' +
       '</div>' +
     '</div>';
 
@@ -9567,6 +9573,255 @@ function renderPostClosePanel(l) {
     '</div>' +
   '</div>';
 }
+// ── Servicing Transfer Letter (Deploy 237.211, Mike) ──────────────────────────
+// "Add this as a document we can send from the Servicing Tab of a loan that auto fills
+// the appropriate items and asks for input on the items that it can't grab from the loan
+// itself." The server decides what it could grab (it differs loan to loan: a Baseline
+// import knows an entity and an address and nothing else) and returns the list of blanks
+// it needs — those are the ones drawn with a gold edge. Nothing is sent without a
+// preview-grade validation pass on the server; a letter with a hole in it comes back as
+// a list of problems instead.
+var _stl = null;
+var STL_GROUPS = [
+  { title: 'From the loan', keys: ['date', 'borrowerLine', 'dearName', 'loanNumber', 'propertyAddress'] },
+  { title: 'Current servicer', keys: ['currentServicer', 'currentServicerPhone', 'currentServicerEmail'] },
+  { title: 'New servicer', keys: ['newServicer', 'newServicerAddress', 'newServicerPhone', 'newServicerEmail', 'newServicerPortal'] },
+  { title: 'The transfer', keys: ['transferDate', 'nextPaymentDue'] }
+];
+function _stlBody(extra) {
+  var b = { clientId: _client.id, loanId: _loanId };
+  var owner = _closingOwner(); if (owner) b.owner = owner;
+  for (var k in (extra || {})) if (Object.prototype.hasOwnProperty.call(extra, k)) b[k] = extra[k];
+  return b;
+}
+function openServicingTransferLetter() {
+  if (!_loan || !_client) return;
+  var btn = document.getElementById('stlBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Reading the loan…'; }
+  SLA.api('POST', '/api/servicing-transfer-letter', _stlBody({ action: 'prefill' })).then(function (r) {
+    _stl = r; _stl.nextDueTouched = false;
+    _stlRender();
+  }).catch(function (e) {
+    showToast((e && e.status === 403) ? 'Sending this notice needs a processor or admin' : ('Could not start the letter: ' + ((e && e.message) || 'unknown')));
+  }).then(function () {
+    if (btn) { btn.disabled = false; btn.textContent = '✉ Servicing Transfer Letter'; }
+  });
+}
+function closeServicingTransferLetter() {
+  var bg = document.getElementById('stlModalBg'); if (bg) bg.remove();
+}
+function _stlDef(key) {
+  var defs = (_stl && _stl.defs) || [];
+  for (var i = 0; i < defs.length; i++) if (defs[i].key === key) return defs[i];
+  return { key: key, label: key };
+}
+function _stlRender() {
+  closeServicingTransferLetter();
+  var asked = (_stl.asked || []);
+  var f = _stl.fields || {};
+  var names = [];
+  (_stl.servicers || []).concat(_stl.remembered || []).forEach(function (s) {
+    if (s && s.name && names.indexOf(s.name) < 0) names.push(s.name);
+  });
+  var grabbed = 0, need = 0;
+  var body = '';
+  STL_GROUPS.forEach(function (g) {
+    body += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 6px">' + escH(g.title) + '</div>' +
+      '<div class="app-grid">';
+    g.keys.forEach(function (key) {
+      var d = _stlDef(key);
+      var isAsked = asked.indexOf(key) >= 0;
+      if (isAsked) need++; else if (f[key]) grabbed++;
+      var edge = isAsked ? 'border-left:3px solid var(--gold,#C8813A);' : '';
+      var id = 'stl_' + key;
+      var common = ' id="' + id + '" style="' + edge + '" oninput="_stlOnInput(\'' + key + '\')"';
+      var input;
+      if (d.multiline) {
+        input = '<textarea rows="3"' + common + ' placeholder="Street or PO Box&#10;City, State ZIP">' + escH(f[key] || '') + '</textarea>';
+      } else if (d.type === 'date') {
+        input = '<input type="date"' + common + ' value="' + escAttr(f[key] || '') + '" />';
+      } else if (key === 'currentServicer' || key === 'newServicer') {
+        input = '<input type="text" list="stlServicerList" autocomplete="off"' + common + ' value="' + escAttr(f[key] || '') + '" placeholder="Pick a servicer or type one" />';
+      } else {
+        input = '<input type="text"' + common + ' value="' + escAttr(f[key] || '') + '" />';
+      }
+      body += '<div class="field"' + (d.multiline ? ' style="grid-column:1/-1"' : '') + '>' +
+        '<label>' + escH(d.label) + (d.required ? ' *' : '') +
+          (isAsked ? ' <span style="color:var(--gold,#C8813A);font-weight:600;text-transform:none;letter-spacing:0">— needs your input</span>' : '') +
+        '</label>' + input + '</div>';
+    });
+    body += '</div>';
+  });
+  var recips = (_stl.recipients || []).join(', ');
+  var last = _stl.lastSent;
+  var lastHtml = last
+    ? '<div style="font-size:12px;color:var(--muted);margin:0 0 4px">Last sent ' + escH(fmtDateTime(last.at)) + ' to ' + escH((last.to || []).join(', ')) +
+        (last.newServicer ? ' (to ' + escH(last.newServicer) + ')' : '') +
+        ' · <a href="#" onclick="_stlDownloadSent(\'' + escAttr(last.letterId) + '\');return false" style="color:var(--gold,#C8813A);font-weight:600">Download that letter</a></div>'
+    : '';
+  var bg = document.createElement('div');
+  bg.className = 'ag-modal-bg';
+  bg.id = 'stlModalBg';
+  bg.innerHTML =
+    '<div class="ag-modal" style="max-width:720px;width:100%;max-height:90vh;overflow-y:auto">' +
+      '<h3 style="display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+        '<span>Notice of Transfer of Loan Servicing</span>' +
+        '<button type="button" onclick="closeServicingTransferLetter()" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted)">&times;</button>' +
+      '</h3>' +
+      '<p style="font-size:12.5px;color:var(--muted);margin:0 0 6px">Filled from the loan: <b>' + grabbed + '</b> · Needs your input: <b style="color:var(--gold,#C8813A)">' + need + '</b>. Everything is editable — check it, preview it, then send.</p>' +
+      lastHtml +
+      '<datalist id="stlServicerList">' + names.map(function (n) { return '<option value="' + escAttr(n) + '"></option>'; }).join('') + '</datalist>' +
+      body +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 6px">Send to</div>' +
+      '<div class="field"><label>Recipient email(s) *' + (recips ? '' : ' <span style="color:var(--gold,#C8813A);font-weight:600;text-transform:none;letter-spacing:0">— no borrower email on file</span>') + '</label>' +
+        '<input type="text" id="stl_to" value="' + escAttr(recips) + '" placeholder="borrower@example.com, second@example.com" style="' + (recips ? '' : 'border-left:3px solid var(--gold,#C8813A);') + '" /></div>' +
+      '<div class="field"><label>Also CC (optional)</label><input type="text" id="stl_cc" placeholder="' + escAttr(_stl.alwaysCc || 'boarding@slacapital.com') + ' is always copied" /></div>' +
+      '<div id="stlProblems" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(124,31,31,.06);border:1px solid rgba(124,31,31,.25);color:#7c1f1f;font-size:12.5px"></div>' +
+      '<div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+        '<button type="button" id="stlPreviewBtn" onclick="_stlPreview()" style="font-size:13px;padding:9px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-weight:600">📄 Preview PDF</button>' +
+        '<button type="button" id="stlSendBtn" class="save-app-btn" onclick="_stlSend()">Email to borrower</button>' +
+        '<button type="button" onclick="closeServicingTransferLetter()" style="font-size:13px;padding:9px 12px;border:none;background:none;cursor:pointer;color:var(--muted)">Close</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(bg);
+}
+// A contact field WE filled may be replaced when the servicer changes; one the person
+// typed may not. data-auto is how the two are told apart.
+function _stlSetAuto(key, val) {
+  var el = document.getElementById('stl_' + key);
+  if (!el) return;
+  if (el.value && el.getAttribute('data-auto') !== '1') return;   // theirs — leave it
+  el.value = val || '';
+  el.setAttribute('data-auto', '1');
+}
+function _stlFind(list, name) {
+  var want = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!want) return null;
+  for (var i = 0; i < (list || []).length; i++) {
+    if (String(list[i].name || '').replace(/\s+/g, ' ').trim().toLowerCase() === want) return list[i];
+  }
+  return null;
+}
+function _stlOnInput(key) {
+  var el = document.getElementById('stl_' + key);
+  if (el) el.removeAttribute('data-auto');
+  if (key === 'currentServicer') {
+    var c = _stlFind(_stl.servicers, el.value);
+    if (c) { _stlSetAuto('currentServicerPhone', c.phone); _stlSetAuto('currentServicerEmail', c.email); }
+  }
+  if (key === 'newServicer') {
+    // What was actually SENT last time for this servicer beats the Vendors entry: it is
+    // the block a person already checked, and it carries the address and the portal.
+    var r = _stlFind(_stl.remembered, el.value), d = _stlFind(_stl.servicers, el.value);
+    if (r || d) {
+      _stlSetAuto('newServicerPhone', (r && r.phone) || (d && d.phone));
+      _stlSetAuto('newServicerEmail', (r && r.email) || (d && d.email));
+      if (r) { _stlSetAuto('newServicerAddress', r.address); _stlSetAuto('newServicerPortal', r.portal); }
+    }
+  }
+  if (key === 'nextPaymentDue') _stl.nextDueTouched = true;
+  if (key === 'transferDate' && !_stl.nextDueTouched) {
+    var nd = document.getElementById('stl_nextPaymentDue');
+    if (nd) nd.value = _stlNextDue(el.value, _stl.dueDay);
+  }
+}
+// The first payment due ON OR AFTER the transfer, on this loan's payment day. Mirrors
+// nextDueOnOrAfter() in _shared/servicing-transfer-letter.mjs — the gate runs both
+// against the same cases so they cannot drift. Parsed by hand: new Date('2026-10-01')
+// is UTC midnight, which is September 30 in Spokane.
+function _stlNextDue(transferIso, dueDay) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(transferIso || ''));
+  if (!m) return '';
+  var ty = +m[1], tm = +m[2], td = +m[3];
+  var day = Math.floor(Number(dueDay)); if (!(day >= 1 && day <= 31)) day = 1;
+  var y = ty, mo = tm;
+  for (var i = 0; i < 3; i++) {
+    var dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    var d = Math.min(day, dim);
+    if (y > ty || mo > tm || d >= td) return y + '-' + (mo < 10 ? '0' : '') + mo + '-' + (d < 10 ? '0' : '') + d;
+    mo += 1; if (mo > 12) { mo = 1; y += 1; }
+  }
+  return '';
+}
+function _stlCollect() {
+  var out = {};
+  ((_stl && _stl.defs) || []).forEach(function (d) {
+    var el = document.getElementById('stl_' + d.key);
+    out[d.key] = el ? el.value : '';
+  });
+  return out;
+}
+function _stlShowProblems(list) {
+  var box = document.getElementById('stlProblems');
+  if (!box) return;
+  if (!list || !list.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<b>Not ready to go yet:</b><ul style="margin:6px 0 0 18px;padding:0">' +
+    list.map(function (p) { return '<li>' + escH(p) + '</li>'; }).join('') + '</ul>';
+}
+function _stlSaveBlob(resp, fallbackName) {
+  var fm = /filename="([^"]+)"/.exec(resp.headers.get('Content-Disposition') || '');
+  return resp.blob().then(function (b) {
+    var u = URL.createObjectURL(b);
+    var a = document.createElement('a');
+    a.href = u; a.download = (fm && fm[1]) || fallbackName;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  });
+}
+function _stlFetchPdf(extra) {
+  return SLA.getToken().then(function (t) {
+    return fetch('/api/servicing-transfer-letter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+      body: JSON.stringify(_stlBody(extra))
+    });
+  }).then(function (resp) {
+    if (resp.ok) return resp;
+    return resp.json().catch(function () { return {}; }).then(function (d) {
+      var err = new Error(d.error || ('HTTP ' + resp.status)); err.problems = d.problems || []; throw err;
+    });
+  });
+}
+function _stlPreview() {
+  var btn = document.getElementById('stlPreviewBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  _stlShowProblems(null);
+  _stlFetchPdf({ action: 'pdf', fields: _stlCollect() }).then(function (resp) {
+    return _stlSaveBlob(resp, 'Notice of Servicing Transfer.pdf');
+  }).catch(function (e) {
+    if (e.problems && e.problems.length) _stlShowProblems(e.problems);
+    else showToast('Preview failed: ' + ((e && e.message) || 'unknown'));
+  }).then(function () {
+    if (btn) { btn.disabled = false; btn.textContent = '📄 Preview PDF'; }
+  });
+}
+function _stlSend() {
+  var to = (document.getElementById('stl_to') || {}).value || '';
+  var cc = (document.getElementById('stl_cc') || {}).value || '';
+  if (!to.replace(/\s+/g, '')) { _stlShowProblems(['Enter at least one recipient email address']); return; }
+  if (!confirm('Email this notice to ' + to + '?\n\n' + ((_stl && _stl.alwaysCc) || 'boarding@slacapital.com') + ' is copied, and the send is logged to this loan.')) return;
+  var btn = document.getElementById('stlSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  _stlShowProblems(null);
+  SLA.api('POST', '/api/servicing-transfer-letter', _stlBody({ action: 'send', fields: _stlCollect(), to: to, cc: cc })).then(function (r) {
+    closeServicingTransferLetter();
+    var status = document.getElementById('stlStatus');
+    if (status) status.innerHTML = '<span style="color:var(--success,#166534)">✓ Sent to ' + escH((r.sentTo || []).join(', ')) + ' — logged to Notes &amp; Activity.</span>';
+    showToast('Notice sent' + ((r.warnings && r.warnings.length) ? ' (' + r.warnings.join('; ') + ')' : ''));
+  }).catch(function (e) {
+    var probs = (e && e.data && e.data.problems) || [];
+    if (probs.length) _stlShowProblems(probs);
+    else _stlShowProblems([(e && e.message) || 'The notice was not sent']);
+    if (btn) { btn.disabled = false; btn.textContent = 'Email to borrower'; }
+  });
+}
+function _stlDownloadSent(letterId) {
+  _stlFetchPdf({ action: 'download', letterId: letterId }).then(function (resp) {
+    return _stlSaveBlob(resp, 'Notice of Servicing Transfer.pdf');
+  }).catch(function (e) { showToast('Download failed: ' + ((e && e.message) || 'unknown')); });
+}
+
 // Deploy 236.890 — generate + download the filled FCI boarding package.
 function downloadFciBoardingSheet() {
   if (!_loan || !_client) return;
