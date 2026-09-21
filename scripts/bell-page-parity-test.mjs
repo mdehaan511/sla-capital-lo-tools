@@ -226,7 +226,14 @@ assert('and the module header no longer promises it',
   !/already\s*\n \*\s*past and the loan hasn/.test(ALERTS));
 assert('forward-looking alerts survive -- this was a noise fix, not a feature removal',
   /kind: 'closing_soon'/.test(ALERTS) && /kind: 'unassigned_closing'/.test(ALERTS) &&
-  /Closes in ' \+ _fmtDays\(du\)/.test(ALERTS));
+  /_closesPhrase\(du\)/.test(ALERTS));
+// 237.205: _fmtDays(0) is the word "today", so "closes in " + _fmtDays(du) said "closes
+// in today". Only visible once the past-date branch stopped drowning it out.
+assert('no alert phrases a close date for itself -- they all go through _closesPhrase',
+  !/subtitle:[^\n]*_fmtDays/.test(ALERTS),
+  'building "closes in " + _fmtDays(du) at the call site skips the today/tomorrow guard');
+assert('...the nearest two days are phrased, not counted',
+  /return 'closes today'/.test(ALERTS) && /return 'closes tomorrow'/.test(ALERTS));
 
 console.log('\nBack button');
 assert('the clicked row is painted read before leaving', /function openOne\([\s\S]*?nrow_[\s\S]*?Mark unread/.test(PAGE));

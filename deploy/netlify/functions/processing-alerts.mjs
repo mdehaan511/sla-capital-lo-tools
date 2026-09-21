@@ -71,6 +71,15 @@ function _fmtDays(n) {
   return n + ' days';
 }
 
+// "closes in today" is not a sentence. _fmtDays is a DURATION ("3 days"), and zero has no
+// duration wording, so the nearest two days get phrased rather than counted. Deploy 237.205.
+function _closesPhrase(du) {
+  if (du === 0) return 'closes today';
+  if (du === 1) return 'closes tomorrow';
+  return 'closes in ' + _fmtDays(du);
+}
+const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
 function _stageLabel(stage) {
   switch (stage) {
     case 'new_loan':     return 'Intake';
@@ -159,7 +168,7 @@ async function handle(req, context) {
         alerts.push(Object.assign({}, base, {
           kind: 'closing_soon',
           id: 'pa_closing_' + l.id,
-          subtitle: 'Closes in ' + _fmtDays(du),
+          subtitle: _cap(_closesPhrase(du)),
           dateIso: l.funding_date || '',
           severity: du <= 2 ? 'high' : 'normal',
         }));
@@ -201,7 +210,7 @@ async function handle(req, context) {
         alerts.push(Object.assign({}, base, {
           kind: 'unassigned_closing',
           id: 'pa_unassigned_' + l.id,
-          subtitle: 'Unassigned · closes in ' + _fmtDays(du),
+          subtitle: 'Unassigned · ' + _closesPhrase(du),
           dateIso: l.funding_date || '',
           severity: 'high',
         }));
