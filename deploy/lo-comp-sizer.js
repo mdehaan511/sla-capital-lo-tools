@@ -70,7 +70,14 @@
     var C = comp();
     var tool = String(p.tool || '').toUpperCase() || '?';
     var amount = num(p.amount), ratePct = pct(p.ratePct), basePct = pct(p.basePct);
-    var points = num(p.points), tpo = num(p.tpoSpread);
+    // Deploy 237.214 (Mike) — buy-down points go to the end investor, so they
+    // are not comp. p.points is the TOTAL on the term sheet; take the buy-down
+    // off through the same rule the closed book uses (lo-comp.js compPoints).
+    var buydown = (tool === 'DSCR') ? Math.max(0, num(p.buydown)) : 0;
+    var points = C && C.compPoints
+      ? C.compPoints({ toolType: tool, points: p.points, buydown: buydown })
+      : Math.max(0, num(p.points) - buydown);
+    var tpo = num(p.tpoSpread);
     // Deploy 236.963 (Mike: "if they lower the interest rate before the base
     // rate on the sizer ... it reduces the multiplier used for the comp.
     // Example 10.5 and 1.5 base ... 10% 1.5 points then its 1 point") — the
@@ -91,7 +98,8 @@
       parts = points.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + (p.tpoAssumed ? ' (assumed — set at closing)' : (p.tpoAdmin ? ' (Admin Mode)' : '')) +
         (spread > 0 ? ' + ' + tpoDelta.toFixed(2) + ' TPO for ' + spread.toFixed(2) + ' over sizer base'
           : spread < 0 ? ' − ' + Math.abs(tpoDelta).toFixed(2) + ' TPO for ' + Math.abs(spread).toFixed(2) + ' under sizer base' : '') +
-        ((spread !== 0 && k !== 1) ? ' (' + k.toFixed(2) + ' pts per 1%)' : '');
+        ((spread !== 0 && k !== 1) ? ' (' + k.toFixed(2) + ' pts per 1%)' : '') +
+        (buydown > 0 ? ' \u00b7 ' + buydown.toFixed(2) + ' buy-down pts excluded (paid to the investor)' : '');
     } else {
       margin = points + spread;
       parts = spread > 0
@@ -101,7 +109,7 @@
           : points.toFixed(2) + ' pts (at the sizer rate — no markup)';
     }
     return {
-      tool: tool, amount: amount, ratePct: ratePct, points: points, tpoSpread: tpo,
+      tool: tool, amount: amount, ratePct: ratePct, points: points, buydown: buydown, tpoSpread: tpo,
       margin: margin, marginParts: parts, marginMissing: false,
       closeDate: p.closeDate || (C ? C.todayISO() : ''),
       source: String(p.source || '').toLowerCase() === 'company' ? 'company' : 'lo',
@@ -143,7 +151,8 @@
       amount: (eff.loan != null) ? eff.loan : calc.loan,
       ratePct: effRate,
       basePct: (adminTpo != null) ? effRate : calc.finalRate,
-      points: (o.points != null) ? o.points : (1 + (num(calc.buydown) || 0)),
+      points: (o.points != null) ? o.points : (1 + (num(calc.buydown) || 0)),   // the TOTAL on the term sheet
+      buydown: num(calc.buydown) || 0,                                          // 237.214 — rowFrom takes it back off
       tpoSpread: tpo, tpoAssumed: adminTpo == null, tpoAdmin: adminTpo != null,
     });
   }

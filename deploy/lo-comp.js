@@ -126,9 +126,34 @@
     return { ladder: ladder, current: ladder[cur], next: next, need: next ? Math.max(0, ladder[cur].max - m) : 0 };
   }
 
+  // Deploy 237.214 (Mike): "if an LO adds buydown points it increases their
+  // spread and thus their commission. Buydown points go to our end investor and
+  // dont increase our revenue at all so it shouldnt effect their commission in
+  // any way." The DSCR sizers save loan.points as the TOTAL the borrower pays
+  // (1.00 origination + buy-down, or the LO's override of that total) and the
+  // buy-down itself as loan.buydown. The comp points are what SLA keeps: the
+  // total less the buy-down, never below zero. Only the DSCR family has a
+  // buy-down; RTL / GUC loans carry none, so they pass through untouched.
+  function buydownOf(l) {
+    if (!l) return 0;
+    var tool = String(l.toolType || l.tool || '').toLowerCase();
+    if (tool !== 'dscr') return 0;
+    var bd = num(l.buydown);
+    if (!(bd > 0) && l.formData) bd = num(l.formData.buydown);
+    return bd > 0 ? bd : 0;
+  }
+  function compPoints(l) {
+    var pts = num(l && l.points);
+    var bd = buydownOf(l);
+    return bd > 0 ? Math.max(0, pts - bd) : pts;
+  }
+  function buydownNote(bd) {
+    return bd > 0 ? ' (' + bd.toFixed(2) + ' buy-down pts excluded \u2014 paid to the investor)' : '';
+  }
+
   // Margin per Mike: DSCR = points + TPO spread; RTL/GUC = points + (rate − buy rate).
   function marginOf(l) {
-    var pts = num(l.points);
+    var pts = compPoints(l);   // 237.214 — net of the buy-down
     var tool = String(l.toolType || '').toLowerCase();
     if (tool === 'dscr') {
       // Deploy 237.059 (Mike: "a TPO of 0 is acceptable") -- take the first field
@@ -136,7 +161,7 @@
       // to the migrated tpoPremium (num()||num() treated 0 as unset).
       var _set = function (v) { return v != null && String(v).trim() !== ''; };
       var tpo = num(_set(l.tpoSpread) ? l.tpoSpread : (_set(l.tpo) ? l.tpo : l.tpoPremium));
-      return { margin: pts + tpo, parts: pts.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO', missing: false };
+      return { margin: pts + tpo, parts: pts.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO' + buydownNote(buydownOf(l)), missing: false };
     }
     // Deploy 236.941 (Mike) — the RTL base is the SIZER's engine rate, NOT the
     // investor buyRate ("they get paid more if the sizer starts at 11 and they
@@ -255,7 +280,8 @@
         // just the blended margin. Rate normalized to a percent-number
         // (0.105 and 10.5 both → 10.5); TPO spread resolved like marginOf.
         ratePct: (function () { var rr = num(l.rate); return rr > 1 ? rr : rr * 100; })(),
-        points: num(l.points),
+        points: compPoints(l),      // 237.214 — the salary plan reads this; net of the buy-down too
+        buydown: buydownOf(l),
         tpoSpread: num(l.tpoSpread) || num(l.tpo) || num(l.tpoPremium),
         closeDate: l.fundingDate || '',
         margin: m.margin, marginParts: m.parts, marginMissing: m.missing,
@@ -381,7 +407,7 @@
     num: num, money: money, shortDate: shortDate,
     TIER_SCHEDULES: TIER_SCHEDULES, tierScheduleFor: tierScheduleFor, tierBps: tierBps,
     tierLadder: tierLadder, nextTierFor: nextTierFor, SALARY_RATE_STEPS: SALARY_RATE_STEPS, salaryMultiplier: salaryMultiplier, // Deploy 237.128
-    marginOf: marginOf, spreadParts: spreadParts, isClosedWon: isClosedWon, buildRows: buildRows,
+    marginOf: marginOf, buydownOf: buydownOf, compPoints: compPoints, buydownNote: buydownNote, spreadParts: spreadParts, isClosedWon: isClosedWon, buildRows: buildRows,
     clientIsBrokerFor: clientIsBrokerFor, repeatKeyOf: repeatKeyOf,
     isPendingApproved: isPendingApproved, buildPendingRows: buildPendingRows, STAGE_LABEL: STAGE_LABEL, todayISO: todayISO,
     computeRow: computeRow, payoutState: payoutState,

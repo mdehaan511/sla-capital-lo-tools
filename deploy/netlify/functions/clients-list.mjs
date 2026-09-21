@@ -207,6 +207,9 @@ const LOAN_SUMMARY_FIELDS = [
   // Deploy 236.941 — LO-comp margin inputs: the sizer's pre-override pricing
   // snapshot + the hand-entered fallback for legacy overridden RTLs.
   '_pricingOverrideAt', '_pricingOverrideOriginal', 'compBaseRate',
+  // Deploy 237.214 (Mike) — buy-down points are excluded from LO comp, so the
+  // commission page has to be able to SEE them (lo-comp.js compPoints).
+  'buydown',
   // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields.
   'tpoSpread', 'closingFees', 'activelyTrading',
   // Deploy 236.674 — Funding Plan fields (TPO premium migrated from Baseline as

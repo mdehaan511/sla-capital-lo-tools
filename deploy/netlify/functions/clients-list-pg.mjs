@@ -111,6 +111,7 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'processingSubstatus', 'baselineSubstatus',
   // Deploy 236.941 — LO-comp margin inputs (see clients-list.mjs); ride extra.
   '_pricingOverrideAt', '_pricingOverrideOriginal', 'compBaseRate',
+  'buydown', // Deploy 237.214 — excluded from LO comp; rides extra (see clients-list.mjs)
   // Deploy 236.616 — servicing-tracking fields (Closed Loans page); all ride in
   // extra. Without these the PG summary dropped disposition + the servicing
   // scalars, so edits reverted on the next list fetch.
