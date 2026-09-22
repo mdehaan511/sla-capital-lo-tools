@@ -231,13 +231,17 @@
             prov: used ? (e.isAI ? 'AI' : (t.provText ? t.provText(e) : '')) : '',
             note: '', alert: used ? doubtOf(e) : '',
             flag: false, calc: false, unverified: unver, editable: true, account: true,
-            acct: used ? { type: v.type || '', balance: num(v.balance), weight: (v.weight == null || v.weight === '') ? '' : num(v.weight) } : { type: '', balance: '', weight: '' },
+            acct: used ? { type: v.type || '', balance: num(v.balance), weight: (v.weight == null || v.weight === '') ? '' : num(v.weight), name: v.name || '', last4: v.last4 || '' } : { type: '', balance: '', weight: '', name: '', last4: '' },
             hasEntry: !!e });
         });
-        // Blank rows are noise in a narrow column: keep every row in use, plus ONE blank
-        // so there is always somewhere to add the next account.
-        var firstBlank = -1;
-        out = out.filter(function (r, i) { if (!r.empty) return true; if (firstBlank < 0) { firstBlank = i; return true; } return false; });
+        // Deploy 237.226 (Mike: "add in the ability for the UW to add in another account just
+        // in case it doesn't pull in correctly") -- blank rows are gone; an explicit "+ Add an
+        // account" opens the editor on the first free row. A blank row is drawn only while
+        // its editor is open.
+        var free = out.filter(function (r) { return r.empty; }).map(function (r) { return r.key; });
+        out = out.filter(function (r) { return !r.empty || _openAcct[r.key]; });
+        out.push({ key: 'accountsAdd', label: '', from: '', display: '', empty: true, addAccount: true, freeSlot: free.filter(function (k) { return !_openAcct[k]; })[0] || '',
+          prov: '', note: '', flag: false, calc: false, unverified: false, editable: false, hasEntry: false });
         if (inUse) {
           out.push({ key: 'accountsSubtotal', label: 'Subtotal', from: '', display: money(rawSum), empty: false,
             prov: (Math.abs(weightedSum - rawSum) >= 1) ? money(weightedSum) + ' counts toward liquidity after account weights' : '',
@@ -311,7 +315,13 @@
       '.uwm-alert { border:none; background:none; cursor:pointer; color:var(--gold-mid,#b5712d); font-size:13px; line-height:1; padding:0 0 0 5px; vertical-align:baseline; }',
       '.uwm-alert:hover { color:var(--danger,#7c1f1f); }',
       '.uwm-pop { position:absolute; right:0; top:100%; z-index:20; margin-top:4px; max-width:260px; min-width:160px; padding:8px 10px; background:#fffdf7; color:var(--ink,#2b2722); border:1px solid var(--gold-mid,#b5712d); border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.14); font:12px/1.4 inherit; font-family:inherit; font-weight:400; text-align:left; white-space:normal; }',
-      '.uwm-acct-ed { grid-column:1 / -1; display:grid; grid-template-columns:1fr 92px 58px; gap:5px; margin-top:3px; }',
+      '.uwm-acct-ed { grid-column:1 / -1; display:grid; grid-template-columns:1fr 64px; gap:5px; margin-top:3px; }',
+      '.uwm-acct-ed .uw-acct-type { grid-column:1 / -1; }',
+      '.uwm-acct-btns { grid-column:1 / -1; display:flex; justify-content:flex-end; gap:10px; font-size:11px; font-family:inherit; font-weight:400; }',
+      '.uwm-acct-cancel { color:var(--muted,#6b6459); }',
+      '.uwm-add { padding:6px 12px 8px; }',
+      '.uwm-add a { font-size:12px; color:var(--gold-mid,#b5712d); text-decoration:none; font-weight:600; }',
+      '.uwm-add a:hover { text-decoration:underline; }',
       '.uwm-more > summary { cursor:pointer; list-style:none; }',
       '.uwm-more > summary::-webkit-details-marker { display:none; }',
       '.uwm-more > summary::before { content:"\\25B8 "; }',
@@ -331,6 +341,11 @@
 
   function rowHtml(r) {
     var rootJs = 'document.getElementById(\'' + PANEL_ID + '\')';
+    if (r.addAccount) {
+      return r.freeSlot
+        ? '<div class="uwm-row uwm-add"><a href="#" onclick="event.preventDefault();SLA_UW_METRICS._addAcct(\'' + escA(r.freeSlot) + '\')">+ Add an account</a></div>'
+        : '<div class="uwm-row uwm-add"><span class="uwm-empty">All five account rows are in use</span></div>';
+    }
     var cls = 'uw-r-value' + (r.flag ? ' uw-flag' : '') + (r.unverified ? ' uw-unverified' : '') + (r.editable ? ' uw-editable' : '') + (r.account ? ' uw-acct' : '');
     var click = '';
     if (r.editable && !r.account) click = ' onclick="SLA_UW_TAB._edit(\'uw\',\'' + escA(r.key) + '\',' + rootJs + ')" title="Click to edit"';
@@ -395,13 +410,20 @@
     var opts = '<option value="">— type —</option>' + weights.map(function (w) {
       return '<option value="' + escA(w.type) + '"' + (a.type === w.type ? ' selected' : '') + '>' + esc(w.type) + '</option>';
     }).join('');
-    var on = ' onclick="event.stopPropagation()" onchange="SLA_UW_TAB._acct(\'uw\',\'' + escA(r.key) + '\',' + rootJs + ')"';
+    // Deploy 237.226 -- one Save, not a save per field (a half-typed account used to be
+    // written on every change); "what it is" and the last four are the person's to type
+    // too. The tab's _acct reads all five controls by class, scoped to this panel.
+    var on = ' onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();SLA_UW_METRICS._saveAcct(\'' + escA(r.key) + '\')}else if(event.key===\'Escape\'){SLA_UW_METRICS._cancelAcct(\'' + escA(r.key) + '\')}"';
     return '<div class="uwm-acct-ed">' +
+      '<input class="uw-acct-name" type="text" placeholder="What it is (e.g. Chase Business Checking)" value="' + escA(a.name || '') + '"' + on + ' />' +
+      '<input class="uw-acct-last4" type="text" inputmode="numeric" maxlength="4" placeholder="Last 4" title="Last four digits of the account number" value="' + escA(a.last4 || '') + '"' + on + ' />' +
       '<select class="uw-acct-type"' + on + '>' + opts + '</select>' +
-      '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="' + escA(a.balance !== '' && a.balance != null ? money(a.balance) : '') + '"' + on + ' />' +
-      '<input class="uw-acct-wt" type="text" placeholder="wt %" title="weight % (defaults from the type)" value="' + escA(a.weight === '' || a.weight == null ? '' : (num(a.weight) * 100) + '%') + '"' + on + ' />' +
-      // The open editor takes the cell's own click away, so it needs its own way out.
-      '<a href="#" class="uwm-acct-done" onclick="event.stopPropagation();SLA_UW_METRICS._toggleAcct(\'' + escA(r.key) + '\');return false">Done</a>' +
+      '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="Balance" value="' + escA(a.balance !== '' && a.balance != null ? money(a.balance) : '') + '"' + on + ' />' +
+      '<input class="uw-acct-wt" type="text" placeholder="Wt %" title="weight % (defaults from the type)" value="' + escA(a.weight === '' || a.weight == null ? '' : (num(a.weight) * 100) + '%') + '"' + on + ' />' +
+      '<span class="uwm-acct-btns">' +
+        '<a href="#" class="uwm-acct-cancel" onclick="event.stopPropagation();SLA_UW_METRICS._cancelAcct(\'' + escA(r.key) + '\');return false">Cancel</a>' +
+        '<a href="#" class="uwm-acct-done uw-confirm" onclick="event.stopPropagation();SLA_UW_METRICS._saveAcct(\'' + escA(r.key) + '\');return false">Save</a>' +
+      '</span>' +
       '</div>';
   }
 
@@ -440,6 +462,31 @@
     el.parentNode.innerHTML = html(ctx.loan);
   }
   function _toggleAcct(key) { _openAcct[key] = !_openAcct[key]; repaint(); }
+  // Deploy 237.226 -- add / save / cancel for the account editor.
+  function _addAcct(key) {
+    if (!key) return;
+    _openAcct[key] = true;
+    repaint();
+    try {
+      var el = document.querySelector('#' + PANEL_ID + ' .uw-acct[data-key="' + key + '"] .uw-acct-name');
+      if (el) el.focus();
+    } catch (_) {}
+  }
+  function _saveAcct(key) {
+    var t = T();
+    var root = (typeof document !== 'undefined') ? document.getElementById(PANEL_ID) : null;
+    if (!t || !t._acct || !root) return;
+    var cell = root.querySelector('.uw-acct[data-key="' + key + '"]');
+    var bal = cell && cell.querySelector('.uw-acct-bal');
+    var type = cell && cell.querySelector('.uw-acct-type');
+    if (!(bal && String(bal.value || '').trim()) && !(type && type.value)) {
+      if (typeof showToast === 'function') showToast('Give the account a balance or a type first.');
+      return;
+    }
+    _openAcct[key] = false;           // close now; the save's own redraw shows the row
+    t._acct('uw', key, root);
+  }
+  function _cancelAcct(key) { _openAcct[key] = false; repaint(); }
 
   // ── "as they're uploaded" ────────────────────────────────────────────────
   // A review writes its values to the loan on the SERVER. Ask for the loan again, a beat
@@ -472,7 +519,7 @@
     });
   }
 
-  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _moreToggled: _moreToggled, _note: _note, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
+  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _addAcct: _addAcct, _saveAcct: _saveAcct, _cancelAcct: _cancelAcct, _moreToggled: _moreToggled, _note: _note, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
   if (typeof window !== 'undefined') window.SLA_UW_METRICS = _API;
   if (typeof module !== 'undefined' && module.exports) module.exports = _API;
 })();

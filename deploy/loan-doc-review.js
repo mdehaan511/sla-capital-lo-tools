@@ -248,6 +248,7 @@
       // review column itself is wide enough -- a container query, because this sits inside
       // Loan Details beside a 400px notes column and the window width says nothing about
       // the room actually left. A browser without container queries keeps the stack.
+      '.dr-root .dr-review-all { display:flex; align-items:center; gap:10px; margin:2px 0 8px; }', // Deploy 237.226
       '.dr-root .dr-uw-wrap { container-type:inline-size; container-name:druw; }',
       '.dr-root .dr-uw-cols { display:flex; flex-direction:column-reverse; gap:16px; }',
       '.dr-root .dr-uw-main { min-width:0; }',
@@ -1627,7 +1628,12 @@
     var docs = (_review && _review.docs) || {};
     return Object.keys(docs).sort().map(function(s) {
       var d = docs[s] || {};
-      return s + ':' + (d.aiReviewedAt || '') + ':' + (d.aiReviewing ? 'r' : '');
+      // Deploy 237.226 -- per-document too: a review of a tray's second, third, fourth
+      // document stamps its OWN entry, never the tray, and used to land without a refresh.
+      var per = (Array.isArray(d.documents) ? d.documents : []).map(function(e) {
+        return e ? (e.docId + ':' + (e.aiReviewedAt || '') + (e.aiReviewing ? 'r' : '')) : '';
+      }).join(',');
+      return s + ':' + (d.aiReviewedAt || '') + ':' + (d.aiReviewing ? 'r' : '') + '[' + per + ']';
     }).join('|');
   }
   function _metricsAfterRender() {
@@ -2313,6 +2319,16 @@
           '</div>' +
         '</div>';
     });
+    // Deploy 237.226 (Mike: Luna's four bank statements, "it only grabbed one") -- a Retry
+    // reads the tray's CURRENT document; the others only ever had the review they got at
+    // upload. One button reads every document on the tray, one after another.
+    if (liveDocsList.length > 1 && !d.hidden && !d.noReview) {
+      currentHtml +=
+        '<div class="dr-review-all">' +
+          '<button class="small-btn" onclick="dr_reviewAllDocs(\'' + escJs(slug) + '\',this)" title="Run the AI against every document on this tray, one after another">\u21bb Review all ' + liveDocsList.length + ' documents</button>' +
+          '<span class="doc-meta">each document is read for its own values</span>' +
+        '</div>';
+    }
     if (hiddenDocsList.length) {
       currentHtml += '<details class="dr-hidden-docs"><summary>Show ' + hiddenDocsList.length + ' hidden document' + (hiddenDocsList.length === 1 ? '' : 's') + '</summary>';
       hiddenDocsList.forEach(function(hd) {
@@ -3112,6 +3128,65 @@
       showToast('Retry failed: ' + ((err && err.message) || 'unknown'), 'error');
     });
   };
+
+  // Deploy 237.226 (Mike) -- review every live document on a tray, in turn. Each one
+  // takes the same path as its own Retry (a long one is handed to the background reviewer);
+  // the button counts up; when the last returns, anything still in the background is polled
+  // per DOCUMENT, because the tray-level flag only ever tracks the current one.
+  global.dr_reviewAllDocs = function(slug, btn) {
+    if (!_review || !_review.id) return;
+    var ids = _liveDocs(slug).map(function(ld) { return ld.docId; });
+    if (ids.length < 2) return;
+    var originalHTML = btn ? btn.innerHTML : '';
+    var i = 0, background = 0, failed = 0;
+    function step() {
+      if (i >= ids.length) return done();
+      if (btn) { btn.disabled = true; btn.innerHTML = 'Reviewing ' + (i + 1) + ' of ' + ids.length + '\u2026'; }
+      var id = ids[i++];
+      global.SLA.LoanReviews.retryAi(_review.id, slug, id).then(function(r) {
+        _review = (r && r.review) || _review;
+        if (r && r.aiReviewing) background++;
+        step();
+      }).catch(function(err) {
+        failed++;
+        showToast('Document ' + i + ' of ' + ids.length + ' could not be reviewed: ' + ((err && err.message) || 'unknown'), 'error');
+        step();
+      });
+    }
+    function done() {
+      if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+      render();
+      if (background) {
+        showToast((ids.length - failed - background) + ' reviewed; ' + background + ' long document' + (background === 1 ? ' is' : 's are') + ' finishing in the background.', 'info');
+        _pollDocsReviewing(slug);
+      } else if (!failed) {
+        showToast('All ' + ids.length + ' documents reviewed.', 'success');
+      }
+    }
+    step();
+  };
+  function _docsStillReviewing(dd) {
+    if (!dd) return false;
+    if (dd.aiReviewing) return true;
+    return (Array.isArray(dd.documents) ? dd.documents : []).some(function(e) { return e && !e.hidden && e.aiReviewing; });
+  }
+  function _pollDocsReviewing(slug) {
+    if (_pollTimers['docs:' + slug]) return;
+    var tries = 0, MAX = 60; // 60 × 5s = 5 min: several long documents can queue behind each other
+    _pollTimers['docs:' + slug] = setInterval(function() {
+      tries++;
+      global.SLA.LoanReviews.get(_review.id).then(function(r) {
+        if (!r || !r.review) return;
+        _review = r.review;
+        var dd = (_review.docs && _review.docs[slug]) || {};
+        if (!_docsStillReviewing(dd) || tries >= MAX) {
+          clearInterval(_pollTimers['docs:' + slug]); delete _pollTimers['docs:' + slug];
+          render();
+          showToast(_docsStillReviewing(dd) ? 'The background reviews are taking longer than expected \u2014 refresh the page shortly.' : 'Background reviews done.', _docsStillReviewing(dd) ? 'info' : 'success');
+        }
+      }).catch(function() { /* transient network — keep polling */ });
+    }, 5000);
+  }
 
   // Deploy 236.690 — switch the active Collateral property tab (portfolio loans).
   global.dr_setCollateralProperty = function(i) {

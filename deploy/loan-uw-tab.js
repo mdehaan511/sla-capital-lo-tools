@@ -496,8 +496,14 @@
     var _dataNow = (dataset === 'uw' ? (_ctx.loan && _ctx.loan.uwData) : (_ctx.loan && _ctx.loan.lightningData)) || {};
     var _curV = (_dataNow[key] && _dataNow[key].value && typeof _dataNow[key].value === 'object') ? _dataNow[key].value : {};
     var _val = { type:type, balance:num(bal), weight:weight };
-    if (_curV.name)  _val.name  = _curV.name;
-    if (_curV.last4) _val.last4 = _curV.last4;
+    // Deploy 237.226 -- the key-metrics panel's editor has "what it is" and "last 4" inputs
+    // (a person adding an account by hand describes it too); an editor without them (this
+    // tab's own) keeps what the statement said.
+    var _nameEl = cell.querySelector('.uw-acct-name'), _l4El = cell.querySelector('.uw-acct-last4');
+    if (_nameEl) { var _nm = String(_nameEl.value || '').trim().slice(0, 80); if (_nm) _val.name = _nm; }
+    else if (_curV.name) _val.name = _curV.name;
+    if (_l4El) { var _l4 = String(_l4El.value || '').replace(/\D/g, '').slice(-4); if (_l4) _val.last4 = _l4; }
+    else if (_curV.last4) _val.last4 = _curV.last4;
     _save(dataset, key, _val);
   }
 

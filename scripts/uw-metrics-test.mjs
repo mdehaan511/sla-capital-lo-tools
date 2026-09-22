@@ -83,8 +83,8 @@ check('Underwriting rows', plain(b.sections[0].rows.map((r) => r.label)),
   ['ARV', 'As-is Price', 'Purchase Price', 'Assignment Fee', 'Down Payment', 'Title/Escrow Fees', 'Low Credit', 'Middle Credit',
     'Monthly Payment', 'LTARV', 'LTC', 'LTAIV', 'Assignment to Purchase', 'Loan Amount', 'Holdback']);
 check('US Citizen and Marital Status are NOT shown', flat(b).filter((r) => /citizen|marital/i.test(r.label + r.key)).length, 0);
-check('Liquidity rows: accounts in use + ONE blank, subtotal, then EMD, Total, Requirement',
-  plain(b.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'account3', 'accountsSubtotal', 'emd', 'liquidityTotal', 'liquidityRequirement']);
+check('Liquidity rows: accounts in use, "+ Add an account", subtotal, then EMD, Total, Requirement',
+  plain(b.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'accountsAdd', 'accountsSubtotal', 'emd', 'liquidityTotal', 'liquidityRequirement']);
 check('where each comes from, as the sheet says', plain(['purchasePrice', 'downPayment', 'titleEscrowFees', 'lowCredit', 'emd'].map((k) => row(b, k).from)),
   ['PSA / Assignment', 'Term Sheet', 'HUD Statement', 'Credit Report', 'EMD Receipt from Title']);
 check('Loan Amount and Holdback come off the loan, and cannot be edited here', plain(['loanAmount', 'constructionHoldback'].map((k) => [row(b, k).display, row(b, k).editable])), [['$648,750', false], ['$0', false]]);
@@ -154,7 +154,7 @@ console.log('\nAccount rows: number, amount, what exactly it is, subtotal, alert
   check('a row with no printed name falls back to the category', row(w.SLA_UW_METRICS.build(RTL()), 'account1').sub, 'Checking/Savings');
   check('the weird thing is an ALERT on the row, not a line of text', plain([row(pb, 'account1').alert, row(pb, 'account2').alert, row(pb, 'account1').note]), ['account is jointly held with a non-guarantor', '', '']);
   check('subtotal = the balances; weighted (100% + 50%) beside it', [row(pb, 'accountsSubtotal').display, row(pb, 'accountsSubtotal').prov], ['$114,545', '$66,470 counts toward liquidity after account weights']);
-  check('the liquidity block reads: accounts, one blank, subtotal, EMD, Total, Requirement', plain(pb.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'account3', 'accountsSubtotal', 'emd', 'liquidityTotal', 'liquidityRequirement']);
+  check('the liquidity block reads: accounts, add, subtotal, EMD, Total, Requirement', plain(pb.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'accountsAdd', 'accountsSubtotal', 'emd', 'liquidityTotal', 'liquidityRequirement']);
   const h = w.SLA_UW_METRICS.html(loan);
   assert('the alert is a clickable icon carrying the note, on that row only', (h.match(/class="uwm-alert"/g) || []).length === 1 && /data-note="account is jointly held with a non-guarantor"/.test(h) && /SLA_UW_METRICS\._note\(this\)/.test(h));
   assert('the sub text is drawn, escaped', /<div class="uwm-sub">Chase Business Complete Checking · Business Checking Acct\. ••1432<\/div>/.test(h));
@@ -238,9 +238,39 @@ console.log('\nEditing from the panel');
   assert('a hostile account type is escaped', !/<img src=x/.test(w.SLA_UW_METRICS.html(hostile)));
   w.SLA_UW_METRICS._toggleAcct('account1');
   const open = w.SLA_UW_METRICS.html(RTL());
-  assert('an open account row has the tab\'s three controls, scoped, and a way out', /class="uw-acct-type"/.test(open) && /class="uw-acct-bal"/.test(open) && /class="uw-acct-wt"/.test(open) &&
-    /_acct\('uw','account1',document\.getElementById\('uwMetricsPanel'\)\)/.test(open) && /uwm-acct-done/.test(open));
+  assert('an open account row has the tab\'s three controls plus what-it-is and last 4, and Save / Cancel', /class="uw-acct-type"/.test(open) && /class="uw-acct-bal"/.test(open) && /class="uw-acct-wt"/.test(open) &&
+    /class="uw-acct-name"/.test(open) && /class="uw-acct-last4"/.test(open) && /_saveAcct\('account1'\)/.test(open) && /_cancelAcct\('account1'\)/.test(open));
+  assert('...and nothing saves until Save (no per-field onchange)', !/onchange="SLA_UW_TAB\._acct/.test(open));
   w.SLA_UW_METRICS._toggleAcct('account1');
+}
+
+// ── 7b. "+ Add an account" (Deploy 237.226, Mike) ───────────────────────────
+console.log('\nAdding an account by hand');
+{
+  const h = w.SLA_UW_METRICS.html(RTL());
+  assert('no blank account rows; an explicit link that opens the first free row', !/>Account 3</.test(h) && /_addAcct\('account3'\)">\+ Add an account</.test(h));
+  const full = RTL(); for (let i = 1; i <= 5; i++) full.uwData['account' + i] = { value: { type: 'Checking/Savings', balance: 1000 * i } };
+  assert('all five in use: says so instead of a link', /All five account rows are in use/.test(w.SLA_UW_METRICS.html(full)) && !/_addAcct/.test(w.SLA_UW_METRICS.html(full)));
+  w.SLA_UW_METRICS._addAcct('account3');
+  const opened = w.SLA_UW_METRICS.html(RTL());
+  assert('the free row appears WITH its editor open, and the link moves to the next free row', />Account 3</.test(opened) && /uw-acct\b[^>]*data-key="account3"/.test(opened) && /class="uw-acct-name"/.test(opened) && /_addAcct\('account4'\)/.test(opened));
+  w.SLA_UW_METRICS._cancelAcct('account3');
+  assert('Cancel puts it away again', !/>Account 3</.test(w.SLA_UW_METRICS.html(RTL())));
+  // Save goes through the tab's own _acct, which now reads the two new inputs
+  const saved = [];
+  w.SLA = { api: (m, p, body) => { saved.push(body); return Promise.resolve({}); } };
+  w.SLA_UW_TAB.mount({ loan: RTL(), clientId: 'c_1', loanId: 'l_1' });
+  const inputs = { '.uw-acct-type': { value: 'Checking/Savings' }, '.uw-acct-bal': { value: '$5,000' }, '.uw-acct-wt': { value: '' }, '.uw-acct-name': { value: '  BofA Advantage Savings ' }, '.uw-acct-last4': { value: 'xx-9001' } };
+  const cell = { querySelector: (s) => inputs[s] || null };
+  const root = { querySelector: () => cell };
+  w.SLA_UW_TAB._acct('uw', 'account3', root);
+  check('the saved row carries type, balance, the type\'s default weight, what it is and the last four', saved[0] && saved[0].value, { type: 'Checking/Savings', balance: 5000, weight: 0.7, name: 'BofA Advantage Savings', last4: '9001' });
+  check('...to the right endpoint, for the right loan', [saved[0].key, saved[0].loanId, saved[0].dataset], ['account3', 'l_1', 'uw']);
+  const bare = { querySelector: (s) => ({ '.uw-acct-type': { value: 'Checking/Savings' }, '.uw-acct-bal': { value: '7000' }, '.uw-acct-wt': { value: '' } })[s] || null };
+  const loanWithName = RTL(); loanWithName.uwData.account1.value.name = 'Chase'; loanWithName.uwData.account1.value.last4 = '1432';
+  w.SLA_UW_TAB.mount({ loan: loanWithName, clientId: 'c_1', loanId: 'l_1' });
+  w.SLA_UW_TAB._acct('uw', 'account1', { querySelector: () => bare });
+  check('the tab\'s own editor (no such inputs) keeps what the statement said', [saved[1].value.name, saved[1].value.last4, saved[1].value.balance], ['Chase', '1432', 7000]);
 }
 
 // ── 8. "as they're uploaded" ────────────────────────────────────────────────
@@ -301,6 +331,13 @@ console.log('\nloan-doc-review.js gives it a column and tells it when to look');
   rev.docs.bank_stmt_current = { aiReviewing: false, aiReviewedAt: 'T3' };
   vm.runInContext('_metricsAfterRender()', c);
   assert('...including one that finishes in the background', c.refreshed >= 2);
+  // Deploy 237.226 -- a tray's SECOND document reviewed: its own entry is stamped, the tray is not
+  const before = c.refreshed;
+  rev.docs.bank_stmt_current.documents = [{ docId: 'd_1', aiReviewedAt: 'T3' }, { docId: 'd_2', aiReviewedAt: '' }];
+  vm.runInContext('_metricsAfterRender()', c);
+  rev.docs.bank_stmt_current.documents[1].aiReviewedAt = 'T4';
+  vm.runInContext('_metricsAfterRender()', c);
+  check('a review landing on a tray\'s second document refreshes too (the tray itself is untouched)', c.refreshed - before, 2);
   c = mk({ source: { loanId: 'l_OTHER' }, docs: {} }, { id: 'l_1' });
   check('a review that is not for the loan on screen gets no panel', vm.runInContext('_metricsHtml()', c), '');
   c = mk(rev, { id: 'l_1' }); c.global.SLA_UW_METRICS = undefined;
@@ -311,6 +348,52 @@ console.log('\nloan-doc-review.js gives it a column and tells it when to look');
   const sideCss = (DR.match(/\.dr-root \.dr-uw-side \{[^}]*\}/g) || []).join(' ');
   assert('the panel holds its place on the page: not sticky, no scrollbar of its own', sideCss.length > 0 && !/sticky|overflow-y|max-height/.test(sideCss), sideCss);
   assert('a new review resets the baseline', /_mxSig = null;\s+\/\/ Deploy/.test(DR));
+}
+
+// ── 9b. "Review all N documents" (Deploy 237.226, Mike: Luna's four statements) ──
+console.log('\nA multi-document tray reads every document');
+{
+  const DR = read('loan-doc-review.js');
+  assert('the button is drawn under the list of a multi-document tray', /if \(liveDocsList\.length > 1 && !d\.hidden && !d\.noReview\) \{[\s\S]{0,400}dr_reviewAllDocs\(/.test(DR));
+  const a = DR.indexOf('  global.dr_reviewAllDocs = function(slug, btn) {'), z = DR.indexOf('\n  // Deploy 236.690 — switch the active Collateral property tab');
+  assert('the handler was found', a > 0 && z > a);
+  const mk = (retry) => {
+    const c = { _review: { id: 'r_1', docs: { bank_stmt_current: { documents: [] } } }, calls: [], toasts: [], renders: 0, intervals: [], _pollTimers: {}, Array, Object, JSON };
+    c.global = { SLA: { LoanReviews: { retryAi: (id, slug, docId) => { c.calls.push(docId); return Promise.resolve(retry(docId)); }, get: async () => ({ review: c._review }) } } };
+    c._liveDocs = () => ['d_1', 'd_2', 'd_3', 'd_4'].map((id) => ({ docId: id }));
+    c.render = () => { c.renders++; };
+    c.showToast = (m, k) => { c.toasts.push(m); };
+    c.setInterval = (fn, ms) => { c.intervals.push({ fn, ms }); return c.intervals.length; };
+    c.clearInterval = () => {};
+    vm.createContext(c); vm.runInContext(DR.slice(a, z), c); return c;
+  };
+  let c = mk((id) => ({ review: { id: 'r_1', docs: { bank_stmt_current: { documents: [] } } } }));
+  const btn = { innerHTML: 'orig', disabled: false, texts: [] };
+  Object.defineProperty(btn, 'innerHTMLLog', { value: [] });
+  c.btn = new Proxy(btn, { set(t, k, v) { if (k === 'innerHTML') t.texts.push(v); t[k] = v; return true; } });
+  vm.runInContext('global.dr_reviewAllDocs("bank_stmt_current", btn)', c);
+  await new Promise((r) => setTimeout(r, 30));
+  check('every document, one after another, in order', c.calls, ['d_1', 'd_2', 'd_3', 'd_4']);
+  check('the button counts up and comes back', [btn.texts.slice(0, 2), btn.texts[btn.texts.length - 1], btn.disabled], [['Reviewing 1 of 4…', 'Reviewing 2 of 4…'], 'orig', false]);
+  check('then one redraw and a plain toast', [c.renders, c.toasts], [1, ['All 4 documents reviewed.']]);
+  // two long ones go to the background: polled per DOCUMENT
+  c = mk((id) => ({ review: { id: 'r_1', docs: { bank_stmt_current: { documents: [{ docId: 'd_2', aiReviewing: true }, { docId: 'd_3', aiReviewing: true }] } } }, aiReviewing: (id === 'd_2' || id === 'd_3') }));
+  c.btn = { innerHTML: '' };
+  vm.runInContext('global.dr_reviewAllDocs("bank_stmt_current", btn)', c);
+  await new Promise((r) => setTimeout(r, 30));
+  check('says how many are still running, and starts the per-document poll', [c.toasts[0], c.intervals.length], ['2 reviewed; 2 long documents are finishing in the background.', 1]);
+  c._review.docs.bank_stmt_current.documents = [{ docId: 'd_2', aiReviewing: false, aiReviewedAt: 'T' }, { docId: 'd_3', aiReviewing: true }];
+  c.intervals[0].fn(); await new Promise((r) => setTimeout(r, 20));
+  check('...which keeps waiting while ANY document is still reviewing (tray flag or not)', c.toasts.length, 1);
+  c._review.docs.bank_stmt_current.documents[1].aiReviewing = false;
+  c.intervals[0].fn(); await new Promise((r) => setTimeout(r, 20));
+  check('...and reports when the last one lands', c.toasts[1], 'Background reviews done.');
+  c = mk(() => { throw new Error('boom'); });
+  c.global.SLA.LoanReviews.retryAi = () => Promise.reject(new Error('502'));
+  c.btn = { innerHTML: '' };
+  vm.runInContext('global.dr_reviewAllDocs("bank_stmt_current", btn)', c);
+  await new Promise((r) => setTimeout(r, 30));
+  check('a failure on one document does not stop the rest', c.toasts.filter((t) => /could not be reviewed/.test(t)).length, 4);
 }
 
 // ── 10. the page loads a matched set ────────────────────────────────────────
