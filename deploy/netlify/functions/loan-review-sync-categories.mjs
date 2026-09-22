@@ -41,6 +41,8 @@ import { locateLoan } from './_shared/loan-locate.mjs';
 // OFAC / citizenship / LOE / PFS trays. Re-exported for the gate script.
 import { adoptGuarantorsFromLoan, expandGuarantorTrays, isMultiGuarantorReview, isPerPersonSlug } from './_shared/guarantor-trays.mjs';
 import { resolveGuarantorNames } from './_shared/review-truth.mjs';
+// Deploy 237.237 -- re-name a multi-document tray as a set (see doc-naming.mjs).
+import { renameTrayDocuments } from './_shared/doc-naming.mjs';
 export { adoptGuarantorsFromLoan, expandGuarantorTrays };
 
 export default async (req, context) => {
@@ -421,11 +423,24 @@ async function handle(req, context) {
     console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
   }
 
+  // Deploy 237.237 (Jessy: "I did a Zip upload of different Operating Agreements but
+  // it named each file with the same name") -- a tray whose documents were named one
+  // at a time, under a rule that has since changed, stays wrong until something
+  // re-names them. Re-name each multi-document tray as a SET on page open. It is pure
+  // CPU (no AI, no blob reads), it only touches names this namer wrote itself, and a
+  // tray that is already right recomputes to itself, so the common case writes nothing.
+  let renamed = 0;
+  try {
+    for (const slug of Object.keys(review.docs || {})) renamed += renameTrayDocuments(review, slug);
+  } catch (e) {
+    console.warn('sync-categories: tray re-name failed (non-fatal):', e && e.message);
+  }
+
   // Deploy 237.160 -- a guarantor LEAVING is a change too: without it the trays got
   // re-hidden on every page open and the result was never written down.
   const _gChanged = guarantors.adopted || guarantors.migrated.length || guarantors.renamed ||
     (guarantors.removed && guarantors.removed.length) || (guarantors.restored && guarantors.restored.length);
-  if (added.length || relabeled || healed || healQueue.length || portfolio.adopted || _gChanged) {
+  if (added.length || relabeled || healed || renamed || healQueue.length || portfolio.adopted || _gChanged) {
     review.updatedAt = new Date().toISOString();
     await reviewStore.setJSON(keySafe(review.id), review);
   }
@@ -437,5 +452,5 @@ async function handle(req, context) {
   }
 
   return json(200, {
-    portfolio, guarantors, loanTypeMismatch: loanTypeMismatch || undefined, ok: true, review, added, relabeled, healed, aiQueued: healQueue });
+    portfolio, guarantors, loanTypeMismatch: loanTypeMismatch || undefined, ok: true, review, added, relabeled, healed, renamed, aiQueued: healQueue });
 }

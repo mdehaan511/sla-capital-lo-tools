@@ -7,9 +7,10 @@
  *
  * Run: node scripts/doc-naming-test.mjs
  */
+import { readFileSync } from 'node:fs';
 import {
   canonicalDocName, applyCanonicalDocName, docSubject, docTypeLabel, statementPeriod,
-  zipFolderFor, zipNameFor, baseSlugOf,
+  zipFolderFor, zipNameFor, baseSlugOf, renameTrayDocuments, entityFromFilename, distinguisher,
 } from '../deploy/netlify/functions/_shared/doc-naming.mjs';
 
 let failures = 0;
@@ -111,8 +112,16 @@ check('the tray\'s OWN label wins over the cross-checklist lookup; a portfolio s
     [a, e.filename, r.docs.psa.currentFilename, e.originalFilename, e.nameAuto],
     [{ name: 'Purchase Agreement - 11415 Prairie Ct SE.pdf', changed: true }, 'Purchase Agreement - 11415 Prairie Ct SE.pdf', 'Purchase Agreement - 11415 Prairie Ct SE.pdf', 'Prairie PSA.pdf', true]);
   check('apply again: idempotent', applyCanonicalDocName(r, 'psa', 'd3', {}).changed, false);
+  // Deploy 237.237 (Jessy) -- a second document on the tray takes what the
+  // uploader's own name says and the canonical name does not, before "(2)".
   r.docs.psa.documents.unshift({ docId: 'd3b', filename: 'addendum.pdf', hidden: false });
-  check('a second document on the tray never collides', applyCanonicalDocName(r, 'psa', 'd3b', { incomingFilename: 'addendum.pdf' }).name, 'Purchase Agreement - 11415 Prairie Ct SE (2).pdf');
+  check('a second document on the tray says what it is, not "(2)"',
+    applyCanonicalDocName(r, 'psa', 'd3b', { incomingFilename: 'addendum.pdf' }).name,
+    'Purchase Agreement - 11415 Prairie Ct SE - addendum.pdf');
+  r.docs.psa.documents.unshift({ docId: 'd3c', filename: 'x.pdf', hidden: false });
+  check('…and a junk name still falls back to the counter',
+    applyCanonicalDocName(r, 'psa', 'd3c', { incomingFilename: '4h789215nu9snamf25.pdf' }).name,
+    'Purchase Agreement - 11415 Prairie Ct SE (2).pdf');
   r.docs.cpl.documents[0].nameManual = true;
   check('a hand-typed name is never overwritten', applyCanonicalDocName(r, 'cpl', 'd12', {}), { name: 'cpl.pdf', changed: false });
   r.docs.loan_application.documents[0].nameLocked = true;
@@ -165,6 +174,129 @@ check('the tray\'s OWN label wins over the cross-checklist lookup; a portfolio s
     ['Appraisal - 919 Mission Oaks Dr.pdf', '4 - Collateral/919 Mission Oaks Dr']);
   const solo = makeReview(); solo.guarantors = [{ index: 0, name: 'Jeremy Wilson' }]; solo.docs.guarantor_id = tray('dg', 'dl.png');
   check('single guarantor: no per-person folder, shared tray names them', [zipFolderFor(solo, 'guarantor_id', solo.docs.guarantor_id), canonicalDocName(solo, 'guarantor_id', 'dg')], ['3 - Guarantor', 'Guarantor ID - Jeremy Wilson.png']);
+}
+
+// ── Deploy 237.237: a ZIP of different companies' operating agreements ─────
+// Jessy: "I did a Zip upload of different Operating Agreements but it named each
+// file with the same name. If we could please add a function where it accepts the
+// original file name from how each file is named from my computer that would be
+// super nice." Mike: "I have renaming things because most times people (borrowers
+// especially) upload documents with names like 4h789215nu9snamf25.pdf."
+//
+// This is SLA-20260616-2306 (5909 Cates) as it actually sits on disk: the entity of
+// record is Kalahari Capital LLC, six operating agreements for six different
+// companies in the ownership chain are all "Operating Agreement - Kalahari Capital
+// LLC (n).pdf", and only two of the six were ever individually AI-reviewed.
+console.log('\n5909 Cates: six companies, one name');
+{
+  const oa = (n, orig, llc) => ({
+    docId: 'oa' + n, filename: 'Operating Agreement - Kalahari Capital LLC' + (n > 1 ? ' (' + n + ')' : '') + '.pdf',
+    originalFilename: orig, nameAuto: true, hidden: false,
+    aiExtractedEntities: llc ? { llcName: llc } : undefined,
+  });
+  const z = {
+    id: 'r_cates', address: '5909 Cates Ave, St. Louis, MO, 63112', borrowerName: 'Donato Callahan',
+    guarantors: [{ index: 0, name: 'Donato Callahan' }],
+    sourceLoanSnapshot: { address: '5909 Cates Ave, St. Louis, MO, 63112' },
+    docs: {
+      articles_of_organization: { aiReviewedAt: '2026-09-18T00:00:00Z', aiExtractedEntities: { llcName: 'Kalahari Capital LLC' }, section: 'borrower', documents: [] },
+      operating_agreement: {
+        section: 'borrower', label: 'Operating Agreement',
+        currentDocId: 'oa1', currentFilename: 'Operating Agreement - Kalahari Capital LLC.pdf',
+        documents: [
+          oa(1, 'Kalahari -Operating Agreement - Borrower - 5909 Cates Ave LLC.pdf', ''),
+          oa(2, 'Treeline Capital LLC - OA - Borrower - 5909 Cates Ave LLC.pdf', ''),
+          oa(3, 'OA - DEER TRAIL RE HOLDINGS LIMITED PARTNERSHIP - Borrower - 5909 Cates Ave LLC.pdf', ''),
+          oa(4, 'Operating Agreement - Borrower - 5909 Cates Ave LLC.pdf', '5909 Cates Ave, LLC'),
+          oa(5, 'DTCM Management LLC - OA - Borrower - 5909 Cates Ave LLC.pdf', 'DTCM Management, L.L.C.'),
+          oa(6, 'DEER TRAIL RE TRUST - TRUST AGREEMENT - Borrower - 5909 Cates Ave LLC.pdf', ''),
+        ],
+      },
+    },
+  };
+  const moved = renameTrayDocuments(z, 'operating_agreement');
+  const names = z.docs.operating_agreement.documents.map((d) => d.filename);
+  check('every one of the six is named for the company it is actually about', names, [
+    // read off the page by the AI, or — for the four nobody reviewed — taken from
+    // the name the uploader gave it, which is what Jessy asked for.
+    'Operating Agreement - 5909 Cates Ave, LLC - Kalahari.pdf',
+    'Operating Agreement - Treeline Capital LLC.pdf',
+    'Operating Agreement - DEER TRAIL RE HOLDINGS LIMITED PARTNERSHIP.pdf',
+    'Operating Agreement - 5909 Cates Ave, LLC.pdf',
+    'Operating Agreement - DTCM Management, L.L.C.pdf',
+    'Operating Agreement - DEER TRAIL RE TRUST.pdf',
+  ]);
+  check('all six moved, and no two files share a name', [moved, new Set(names.map((s) => s.toLowerCase())).size], [6, 6]);
+  check('the tray\'s current document keeps up', z.docs.operating_agreement.currentFilename, names[0]);
+  check('running it again changes nothing', [renameTrayDocuments(z, 'operating_agreement'), z.docs.operating_agreement.documents.map((d) => d.filename)], [0, names]);
+  // The loan's own spelling wins for the loan's own entity — one company, one
+  // spelling across the file, however each document happened to print it.
+  const one = JSON.parse(JSON.stringify(z));
+  one.docs.operating_agreement.documents = [
+    { docId: 'k1', filename: 'a.pdf', originalFilename: 'KALAHARI CAPITAL, L.L.C. - OA.pdf', nameAuto: true },
+    { docId: 'k2', filename: 'b.pdf', originalFilename: 'kalahari capital llc operating agreement.pdf', nameAuto: true },
+  ];
+  renameTrayDocuments(one, 'operating_agreement');
+  check('the same company two ways is still one company, spelled the loan\'s way',
+    one.docs.operating_agreement.documents.map((d) => d.filename),
+    ['Operating Agreement - Kalahari Capital LLC.pdf', 'Operating Agreement - Kalahari Capital LLC (2).pdf']);
+}
+
+{
+  // The re-name is a set operation over a whole tray, so the trays it must NOT
+  // disturb matter as much as the one it fixes.
+  const b = makeReview();
+  b.docs.bank_stmt_current = { section: 'borrower', currentDocId: 'b1', currentFilename: 'Bank Statement - Imagine Investors LLC - Aug 2026.pdf', documents: [
+    { docId: 'b1', filename: 'Bank Statement - Imagine Investors LLC - Aug 2026.pdf', originalFilename: 'Statement_082026_8251.pdf', documentDate: '2026-08-31', nameAuto: true },
+    { docId: 'b2', filename: 'Bank Statement - Imagine Investors LLC - Jul 2026.pdf', originalFilename: 'stmt.pdf', documentDate: '2026-07-31', nameAuto: true },
+  ] };
+  check('a tray that is already right is left alone, months and all',
+    [renameTrayDocuments(b, 'bank_stmt_current'), b.docs.bank_stmt_current.documents.map((d) => d.filename)],
+    [0, ['Bank Statement - Imagine Investors LLC - Aug 2026.pdf', 'Bank Statement - Imagine Investors LLC - Jul 2026.pdf']]);
+  b.docs.bank_stmt_current.documents[1].nameManual = true;
+  b.docs.bank_stmt_current.documents[1].filename = 'July statement FINAL.pdf';
+  b.docs.bank_stmt_current.documents[0].filename = 'wrong.pdf';
+  renameTrayDocuments(b, 'bank_stmt_current');
+  check('a name a person typed survives a re-name of everything around it',
+    b.docs.bank_stmt_current.documents.map((d) => d.filename),
+    ['Bank Statement - Imagine Investors LLC - Aug 2026.pdf', 'July statement FINAL.pdf']);
+  const single = makeReview();
+  check('a one-document tray is never re-named as a set', renameTrayDocuments(single, 'psa'), 0);
+  // It runs on page open, which is how the loans already in this state get fixed.
+  const SYNC = readFileSync(new URL('../deploy/netlify/functions/loan-review-sync-categories.mjs', import.meta.url), 'utf8');
+  check('the page-open self-heal calls it for every tray, and writes when it moved something',
+    [/import \{ renameTrayDocuments \}/.test(SYNC),
+     /for \(const slug of Object\.keys\(review\.docs \|\| \{\}\)\) renamed \+= renameTrayDocuments\(review, slug\);/.test(SYNC),
+     /if \(added\.length \|\| relabeled \|\| healed \|\| renamed \|\|/.test(SYNC)],
+    [true, true, true]);
+}
+
+console.log('\nWhat a file name is allowed to contribute');
+{
+  // A company is a phrase ending in LLC / Inc / Corp / Trust / Limited Partnership.
+  // Everything else a borrower types is ignored — Mike's half of the bargain.
+  check('a company is found where there is one', [
+    'Treeline Capital LLC - OA - Borrower - 5909 Cates Ave LLC.pdf',
+    'OA - DEER TRAIL RE HOLDINGS LIMITED PARTNERSHIP - Borrower.pdf',
+    'Kalahari Capital LLC Operating Agreement.pdf',
+    'Operating_Agreement_Treeline Capital LLC.pdf',
+    'OA DTCM Management LLC.pdf',
+  ].map(entityFromFilename), [
+    'Treeline Capital LLC', 'DEER TRAIL RE HOLDINGS LIMITED PARTNERSHIP',
+    'Kalahari Capital LLC', 'Treeline Capital LLC', 'DTCM Management LLC']);
+  check('and nothing is invented where there is not', [
+    '4h789215nu9snamf25.pdf', 'IMG_2044.jpg', 'Scan_001.pdf', 'document.pdf',
+    '20260918_140233.pdf', 'articles of organization.pdf', 'LLC.pdf', '5909 LLC.pdf',
+  ].map(entityFromFilename), ['', '', '', '', '', '', '', '']);
+  // The tie-breaker when two documents still land on the same name.
+  check('the tie-breaker says what the canonical name does not',
+    ['Operating Agreement - Amendment 2.pdf', 'OA - First Amendment.pdf', 'restated 2019.pdf']
+      .map((f) => distinguisher(f, 'Operating Agreement - Kalahari Capital LLC')),
+    ['Amendment 2', 'First Amendment', 'restated 2019']);
+  check('…and stays quiet when the file name is noise',
+    ['4h789215nu9snamf25.pdf', 'IMG_2044.jpg', 'Kalahari Capital LLC.pdf', 'scan copy final.pdf']
+      .map((f) => distinguisher(f, 'Operating Agreement - Kalahari Capital LLC')),
+    ['', '', '', '']);
 }
 
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'all checks pass'));

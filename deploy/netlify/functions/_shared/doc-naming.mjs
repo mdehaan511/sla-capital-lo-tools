@@ -144,7 +144,11 @@ function streetOf(review, slug) {
   const loan = r.sourceLoanSnapshot || r.snapshotLoan || {};
   return cleanPart(String(loan.address || r.address || '').split(',')[0]);
 }
-const tokens = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
+// Deploy 237.237 -- collapse a dotted abbreviation before tokenizing, so the same
+// company written "L.L.C." and "LLC" is one company ("KALAHARI CAPITAL, L.L.C."
+// otherwise tokenized to l / l / c and matched nothing).
+const tokens = (s) => String(s || '').replace(/(?:\b[a-z]\.){2,}/gi, (m) => m.replace(/\./g, ''))
+  .toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
 const ENTITY_NOISE = { llc: 1, inc: 1, corp: 1, co: 1, ltd: 1, lp: 1, llp: 1, the: 1, company: 1, trust: 1 };
 function sameEntity(a, b) {
   const ta = tokens(a).filter((t) => !ENTITY_NOISE[t]), tb = tokens(b).filter((t) => !ENTITY_NOISE[t]);
@@ -192,13 +196,104 @@ function holderFor(review, docState, entities) {
   return llc || person || entity || roster[0] || '';
 }
 
-export function docSubject(review, slug, docState, entities) {
+// ── WHICH COMPANY an entity document is about ──────────────────────────────
+// Deploy 237.237 (Jessy, via Mike: "I did a Zip upload of different Operating
+// Agreements but it named each file with the same name"). A borrower-section
+// document used to be named after the entity OF RECORD — the LLC on the Articles
+// — whatever company the document itself was about. On 5909 Cates that is exactly
+// wrong: the borrowing entity is one of several LLCs in the ownership chain, and
+// six operating agreements for six different companies all came out as
+// "Operating Agreement - Kalahari Capital LLC (3..8).pdf".
+//
+// Same rule the guarantor documents have had since 237.133: the party ON the
+// document beats the tray it was dropped in. When the AI has read an LLC off this
+// page and it is a DIFFERENT company than the loan's, that is the name. When it is
+// the same company, the loan's spelling wins, so one entity is spelled one way
+// across the file ("IMAGINE INVESTORS LLC" → "Imagine Investors, LLC").
+//
+// A document that is never individually reviewed has no read name at all — three
+// of Jessy's six did not. For those, the uploader's own file name is the only
+// evidence there is, and it is usually good evidence, which is what Jessy asked
+// for ("if we could please add a function where it accepts the original file
+// name"). We do not take the file name wholesale — Mike's objection stands,
+// borrowers upload "4h789215nu9snamf25.pdf" — we look in it for a COMPANY: a
+// phrase ending in LLC / Inc / Corp / Trust / Limited Partnership and so on.
+// "Treeline Capital LLC - OA - Borrower - 5909 Cates Ave LLC.pdf" gives
+// "Treeline Capital LLC"; a hash of a file name gives nothing and the entity of
+// record is used, exactly as before.
+const ENTITY_SUFFIX = /^(llc|l\.l\.c\.?|inc|inc\.|incorporated|corp|corp\.|corporation|ltd|ltd\.|limited|lp|l\.p\.?|llp|l\.l\.p\.?|partnership|trust|company|holdings|associates|group|enterprises|properties|ventures)$/i;
+// Words that are about the DOCUMENT, not the company. Stripped off the front of a
+// mined phrase ("OA DTCM Management LLC" → "DTCM Management LLC").
+const DOC_WORDS = /^(oa|op|operating|agreement|articles|article|art|org|organization|ein|w9|w-9|cogs|certificate|cert|good|standing|ofac|background|check|entity|borrower|guarantor|signed|executed|final|copy|scan|scanned|doc|document|file|the|of|and|for|fully)$/i;
+
+export function entityFromFilename(name) {
+  const stem = stripExt(String(name || ''));
+  if (!stem) return '';
+  // The separators people actually type between the parts of a file name.
+  const phrases = stem.split(/\s+[-–—]\s+|\s*[_|]\s*|\s+[-–—](?=[A-Za-z])|(?<=[A-Za-z])[-–—]\s+/);
+  for (const raw of phrases) {
+    const words = String(raw).trim().split(/\s+/).filter(Boolean);
+    // Cut the phrase AT the company suffix: "Kalahari Capital LLC Operating
+    // Agreement" is a company followed by a document type, not a company.
+    let end = -1;
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i].replace(/[,.;:]+$/, '');
+      if (ENTITY_SUFFIX.test(w)) end = i;
+      // "LIMITED PARTNERSHIP" / "LIMITED LIABILITY COMPANY" keep going.
+      else if (end >= 0 && i === end + 1 && ENTITY_SUFFIX.test(w)) end = i;
+      else if (end >= 0) break;
+    }
+    if (end < 0) continue;
+    let start = 0;
+    while (start < end && DOC_WORDS.test(words[start].replace(/[,.;:]+$/, ''))) start++;
+    if (start >= end) continue; // nothing but document words in front of the suffix
+    const phrase = cleanPart(words.slice(start, end + 1).join(' '));
+    // A bare "LLC", or a suffix with only a number in front of it, is not a name.
+    if (!phrase || phrase.length < 4) continue;
+    if (!/[a-z]{3}/i.test(phrase.replace(new RegExp(words[end], 'i'), ''))) continue;
+    return phrase;
+  }
+  return '';
+}
+
+// Every spelling of a company this review has seen, the loan's own first. One
+// company must be spelled ONE way across a loan file, however each document (or
+// each uploader) happened to write it — otherwise the same LLC shows up as
+// "5909 Cates Ave, LLC" on one file and "5909 Cates Ave LLC" on the next, and the
+// tray looks like it holds two companies' papers when it holds one company's twice.
+function knownEntities(review) {
+  const out = [];
+  const push = (v) => {
+    const c = cleanPart(v);
+    if (c && !out.some((x) => sameEntity(x, c))) out.push(c);
+  };
+  push(entityOf(review));
+  const docs = (review && review.docs) || {};
+  for (const k of Object.keys(docs)) {
+    const d = docs[k] || {};
+    push((d.aiExtractedEntities || {}).llcName);
+    (Array.isArray(d.documents) ? d.documents : []).forEach((x) => push(((x && x.aiExtractedEntities) || {}).llcName));
+  }
+  return out;
+}
+
+function entityFor(review, entities, incomingFilename) {
+  const known = knownEntities(review);
+  const settle = (name) => known.find((x) => sameEntity(x, name)) || name;
+  const read = cleanPart((entities || {}).llcName);
+  if (read) return settle(read);
+  const mined = entityFromFilename(incomingFilename);
+  if (mined) return settle(mined);
+  return entityOf(review) || rosterOf(review)[0] || '';
+}
+
+export function docSubject(review, slug, docState, entities, incomingFilename) {
   const base = baseSlugOf(slug);
   const d = docState || {};
   if (HOLDER_SLUGS[base]) return holderFor(review, d, entities);
   const section = sectionOf(slug, d);
   if (section === 'guarantor' || d.guarantorIndex != null || PERSON_SLUGS[base]) return personFor(review, d, entities) || entityOf(review);
-  if (section === 'borrower') return entityOf(review) || cleanPart((entities || {}).llcName) || rosterOf(review)[0] || '';
+  if (section === 'borrower') return entityFor(review, entities, incomingFilename) || cleanPart((entities || {}).llcName) || rosterOf(review)[0] || '';
   return streetOf(review, slug) || entityOf(review) || rosterOf(review)[0] || '';
 }
 
@@ -217,7 +312,38 @@ function entryOf(docState, docId) {
   const docs = Array.isArray(docState && docState.documents) ? docState.documents : [];
   return docs.find((x) => x && x.docId === docId) || null;
 }
-function dedupe(docState, selfId, name, takenExtra) {
+// Deploy 237.237 — when two documents in ONE tray still land on the same name
+// (the same company's operating agreement twice, two versions of one certificate,
+// an amendment beside the original), "(2)" says nothing about which is which.
+// Before falling back to the counter, take from the uploader's own file name
+// whatever it says that the canonical name does not: "Operating Agreement -
+// Kalahari Capital LLC - Amendment 2.pdf". A junk file name contributes nothing
+// and still gets the counter, which is Mike's half of the bargain
+// ("most times people upload documents with names like 4h789215nu9snamf25.pdf").
+const JUNK_WORD = /^(img|image|scan|scanned|photo|dsc|dscn|pxl|screenshot|copy|final|new|untitled|document|doc|file|pdf|page|pages|version|v|signed|fully|executed|borrower|guarantor|the|of|and|for|a)$/i;
+function hashish(w) {
+  if (/^\d+$/.test(w)) return w.length > 4;                             // a bare long number
+  if (/[a-z]/i.test(w) && /\d/.test(w) && w.length >= 8) return true;   // 4h789215nu9snamf25
+  return /^[a-z]{6,}$/i.test(w) && !/[aeiouy]/i.test(w);                // no vowels, not a word
+}
+export function distinguisher(given, base) {
+  const stem = stripExt(String(given || ''));
+  if (!stem) return '';
+  const have = {};
+  tokens(base).forEach((t) => { have[t] = true; });
+  const out = [];
+  for (const raw of stem.split(/[\s_|—–-]+/)) {
+    const w = raw.replace(/[^A-Za-z0-9]/g, '');
+    if (!w) continue;
+    const lc = w.toLowerCase();
+    if (have[lc] || JUNK_WORD.test(lc) || DOC_WORDS.test(lc) || hashish(lc)) continue;
+    out.push(raw.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, ''));
+  }
+  const tail = cleanPart(out.join(' ')).slice(0, 40).trim();
+  return /[a-z]{3}/i.test(tail) ? tail : '';
+}
+
+function dedupe(docState, selfId, name, takenExtra, given) {
   const taken = Object.assign({}, takenExtra || {});
   (Array.isArray(docState && docState.documents) ? docState.documents : []).forEach((x) => {
     if (x && x.docId !== selfId && x.filename) taken[String(x.filename).toLowerCase()] = true;
@@ -225,6 +351,8 @@ function dedupe(docState, selfId, name, takenExtra) {
   if (!taken[name.toLowerCase()]) return name;
   const dot = name.lastIndexOf('.');
   const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+  const tail = distinguisher(given, stem);
+  if (tail && !taken[(stem + ' - ' + tail + ext).toLowerCase()]) return stem + ' - ' + tail + ext;
   let i = 2;
   while (taken[(stem + ' (' + i + ')' + ext).toLowerCase()]) i++;
   return stem + ' (' + i + ')' + ext;
@@ -244,7 +372,10 @@ export function canonicalDocName(review, slug, docId, opts) {
   const tray = (isCurrent && !o.ignoreTray) ? docState : {};
   const entities = o.entities || entry.aiExtractedEntities || tray.aiExtractedEntities || {};
   const ext = extOf(o.incomingFilename) || extOf(entry.filename) || (isCurrent ? extOf(docState.currentFilename) : '') || 'pdf';
-  const parts = [docTypeLabel(slug, docState), docSubject(review, slug, docState, entities)];
+  // Deploy 237.237 — the name the UPLOADER gave it, for entityFromFilename. Never
+  // entry.filename: that is this namer's own output, so mining it is circular.
+  const given = o.incomingFilename || entry.originalFilename || '';
+  const parts = [docTypeLabel(slug, docState), docSubject(review, slug, docState, entities, given)];
   if (PERIOD_SLUGS[baseSlugOf(slug)]) {
     parts.push(statementPeriod(o.documentDate || entry.documentDate || entities.documentDate || tray.documentDate || ''));
   }
@@ -259,10 +390,10 @@ export function canonicalDocName(review, slug, docId, opts) {
 // or by a person — and is usually MORE specific than the tray's type, so it stays.
 // The retired namer's three-part names ("Credit Report - Guarantor - Jeremy
 // Wilson") do not qualify, and statements always get their month.
-function alreadyNamed(stored, review, slug, docState, entities) {
+function alreadyNamed(stored, review, slug, docState, entities, given) {
   if (!stored || PERIOD_SLUGS[baseSlugOf(slug)]) return false;
   const stem = stripExt(stored).replace(/\s+V\d+\s*$/i, '').replace(/\s+\(\d+\)\s*$/, '').trim();
-  const subject = docSubject(review, slug, docState, entities);
+  const subject = docSubject(review, slug, docState, entities, given);
   if (!subject) return false;
   const cut = stem.toLowerCase().lastIndexOf(' - ' + subject.toLowerCase());
   if (cut <= 0 || cut + 3 + subject.length !== stem.length) return false;
@@ -289,7 +420,8 @@ export function applyCanonicalDocName(review, slug, docId, opts) {
     {
       const stored = (entry && entry.filename) || (isCurrent ? docState.currentFilename : '') || '';
       const ents = o.entities || (entry && entry.aiExtractedEntities) || {};
-      if (!(entry && entry.nameAuto) && alreadyNamed(stored, review, slug, docState, ents)) return { name: stored, changed: false };
+      const given = o.incomingFilename || (entry && entry.originalFilename) || '';
+      if (!(entry && entry.nameAuto) && alreadyNamed(stored, review, slug, docState, ents, given)) return { name: stored, changed: false };
     }
     let version = entry ? Number(entry.nameVersion) || 0 : 0;
     if (!version && String(o.mode || '').toLowerCase() === 'replace') {
@@ -297,7 +429,7 @@ export function applyCanonicalDocName(review, slug, docId, opts) {
       if (entry && version > 1) entry.nameVersion = version;
     }
     const wanted = canonicalDocName(review, slug, docId, Object.assign({}, o, { version }));
-    const name = dedupe(docState, docId, wanted);
+    const name = dedupe(docState, docId, wanted, null, o.incomingFilename || (entry && entry.originalFilename) || '');
     const before = (entry && entry.filename) || (isCurrent ? docState.currentFilename : '') || '';
     if (entry) {
       if (!entry.originalFilename && before && before !== name) entry.originalFilename = String(o.incomingFilename || before).slice(0, 200);
@@ -309,6 +441,65 @@ export function applyCanonicalDocName(review, slug, docId, opts) {
   } catch (e) {
     console.warn('[doc-naming] apply failed (non-fatal):', e && e.message);
     return { name: '', changed: false };
+  }
+}
+
+/**
+ * Deploy 237.237 — re-name every AUTO-named document on one tray, together.
+ *
+ * A tray is named one document at a time, each one seeing only the names already
+ * stored beside it, so a tray that filled up under an older rule stays wrong
+ * forever: on 5909 Cates six operating agreements for six different companies are
+ * all "Operating Agreement - Kalahari Capital LLC (3..8).pdf", and nothing the
+ * processor does short of re-running every AI review would fix them.
+ *
+ * Doing them as a set is what makes it safe to re-run: the current names are
+ * cleared first, so the dedupe counter is not deciding against names that are
+ * themselves about to change. A name a person typed (nameManual) or the app
+ * generated (nameLocked) is never touched, a document that kept its uploaded name
+ * is never touched, and a tray that is already right recomputes to itself and
+ * reports no change. Returns how many names actually moved.
+ */
+export function renameTrayDocuments(review, slug) {
+  try {
+    const ds = review && review.docs && review.docs[slug];
+    const docs = Array.isArray(ds && ds.documents) ? ds.documents : [];
+    if (docs.length < 2) return 0;
+    // One auto-named document is enough to be worth recomputing, as long as the tray
+    // holds more than one: its name had to dodge a sibling's, and the sibling may be
+    // the reason it is wrong.
+    const auto = docs.filter((d) => d && d.docId && d.nameAuto && !d.nameManual && !d.nameLocked);
+    if (!auto.length) return 0;
+    const before = {};
+    auto.forEach((d) => { before[d.docId] = d.filename || ''; d.filename = ''; });
+    let changed = 0;
+    // A document the AI has actually read takes the clean name; one identified only
+    // from its file name takes the tie-breaker if they land on the same company.
+    // Naming order only — documents[] keeps the order the tray displays.
+    const order = auto.slice().sort((a, b) => {
+      const read = (x) => (((x.aiExtractedEntities || {}).llcName || (x.aiExtractedEntities || {}).borrowerName) ? 0 : 1);
+      return read(a) - read(b);
+    });
+    for (const d of order) {
+      const r = applyCanonicalDocName(review, slug, d.docId, {
+        // undefined, not {} — an empty object would short-circuit the fall-back
+        // chain inside canonicalDocName and lose the tray's own reading.
+        entities: d.aiExtractedEntities || undefined,
+        incomingFilename: d.originalFilename || before[d.docId] || '',
+        documentDate: d.documentDate || '',
+        // ignoreTray exists so a tray's stale reading cannot name a document that
+        // just arrived. Here nothing just arrived, and for the tray's CURRENT
+        // document that reading is its own.
+        ignoreTray: ds.currentDocId !== d.docId,
+      });
+      if (!d.filename) d.filename = before[d.docId]; // never leave a document nameless
+      if (d.filename !== before[d.docId]) changed++;
+      if (ds.currentDocId === d.docId) ds.currentFilename = d.filename;
+    }
+    return changed;
+  } catch (e) {
+    console.warn('[doc-naming] tray rename failed (non-fatal):', e && e.message);
+    return 0;
   }
 }
 
