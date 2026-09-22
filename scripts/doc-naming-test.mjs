@@ -136,9 +136,14 @@ check('the tray\'s OWN label wins over the cross-checklist lookup; a portfolio s
   // Deploy 237.150 (Dan) -- Application & Terms leads, "Loan" is retired into it, and
   // BOTH custom trays land in the one Other folder even though custom_1 was filed
   // under Collateral. That last pair is the change: one Other area, at the bottom.
+  // Deploy 237.228 (Dan) -- Post Close became section 6, so Other is 7. The number
+  // is the section's place on the page; the ZIP reads in the order the tab does.
   check('folders = the tab\'s sections, numbered; a folder per guarantor; bank statements are NOT "Income"',
     ['bank_stmt_current', 'guarantor_id__g1', 'ofac_personal', 'psa', 'loan_application', 'cpl', 'custom_1', 'custom_2'].map((s) => zipFolderFor(z, s, z.docs[s])),
-    ['2 - Borrower Entity', '3 - Guarantor/Dilma Herrera Aguilar', '3 - Guarantor', '4 - Collateral', '1 - Application & Terms', '5 - Closing', '6 - Other', '6 - Other']);
+    ['2 - Borrower Entity', '3 - Guarantor/Dilma Herrera Aguilar', '3 - Guarantor', '4 - Collateral', '1 - Application & Terms', '5 - Closing', '7 - Other', '7 - Other']);
+  check('a post-close document files into its own folder',
+    ['executed_deed', 'final_hud'].map((s) => zipFolderFor(z, s, { slug: s })),
+    ['6 - Post Close', '6 - Post Close']);
   z.docs.bank_stmt_current.documents[0].documentDate = '2026-08-31';
   z.docs.bank_stmt_current.documents[0].aiExtractedEntities = { borrowerName: 'Jeremy Wilson' };
   check('zip names: a legacy raw upload name is canonical in the ZIP with no re-review',

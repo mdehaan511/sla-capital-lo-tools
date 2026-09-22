@@ -29,12 +29,18 @@
 // files under 'loan' now renders with them under Application & Terms. Checklist
 // entries still SAY section: 'loan' -- displaySection() below does the mapping, so
 // no review data has to be migrated.
+// Deploy 237.228 (Dan) -- "Post Close" joins them, between Closing and Other: the
+// documents that only exist AFTER the loan funds (executed docs, the recorded
+// security instrument, the final HUD and title policy) were sitting in the middle
+// of Closing, where a processor working a file still in escrow had to scroll past
+// them. Its trays are all storage-only, so nothing on it asks to be reviewed.
 export const SECTIONS = [
   { key: 'application', label: 'Application & Terms' },
   { key: 'borrower',  label: 'Borrower Documents'  },
   { key: 'guarantor', label: 'Guarantor Documents' },
   { key: 'collateral',label: 'Collateral Documents'},
   { key: 'closing',   label: 'Closing Documents'   },
+  { key: 'post_close',label: 'Post Close'          },
   { key: 'other',     label: 'Other Documents'     },
 ];
 /**
@@ -59,43 +65,37 @@ export function displaySection(section, slug) {
 // Any prior slug not on this list is removed from the checklist —
 // old reviews retain their docs but won't require them going forward.
 export const DSCR_DOCS = [
-  // ── Borrower ──────────────────────────────────────────────────
-  { slug: 'operating_agreement', label: 'Operating Agreement', section: 'borrower',
-    conditions: 'LLC name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it); identify all owners with 20%+ ownership; all signatures + initials present.' },
+  // ── Borrower ──────────────────────────────────────────────────────────
   { slug: 'articles_of_organization', label: 'Recorded Articles of Organization', section: 'borrower',
     // Deploy 237.041 (Dan, via Mike) -- the Articles are the SOURCE OF TRUTH for the entity
     // name; the loan application / COGS / EIN are checked against them, never the reverse.
     conditions: 'Must be the recorded copy stamped by the Secretary of State. This document is the SOURCE OF TRUTH for the borrowing entity name: do NOT fail it because the loan application, COGS, or EIN letter spells the name differently (those are checked against these Articles). Extract the entity name exactly as filed. The name to identify on this document is the LLC / ENTITY NAME as filed with the state (Deploy 237.074, Mike): the organizer, member, manager, or registered-agent names printed on the filing are NOT the entity name - do NOT compare this document to the guarantor or borrower name, and report the LLC name (with its LLC / L.L.C. suffix exactly as filed) as llcName.' },
   { slug: 'certificate_of_good_standing', label: 'Certificate of Good Standing', section: 'borrower',
     conditions: 'Within last 90 days; entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it); state seal; Secretary of State signature.' },
-  { slug: 'entity_background_check', label: 'Entity Background Check', section: 'borrower',
-    conditions: 'Report run on the entity name of record (compare the name searched to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). No bankruptcies, liens, or judgements within 90 days of close date.' },
+  { slug: 'ein_letter', label: 'EIN Letter (Entity & Guarantors)', section: 'borrower',
+    conditions: 'SS-4 form or filed tax return showing the entity\'s EIN. The entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it).' },
   { slug: 'ofac_entity', label: 'OFAC Check (Entity)', section: 'borrower',
     // Deploy 237.043 (Dan, via Mike) -- the name SEARCHED must be the Articles' spelling; matching
     // the loan application proves nothing (3528 Park: an OFAC run on the app's misspelling was approved).
     conditions: 'The entity name SEARCHED on the OFAC report matches the recorded Articles of Organization exactly (compare to the ENTITY NAME OF RECORD provided, NOT the loan application - a search run under a different spelling of the entity name, such as the loan application\'s, is a defect on this report; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). No matches, or every match conclusively ruled out.' },
-  { slug: 'ein_letter', label: 'EIN Letter (Entity & Guarantors)', section: 'borrower',
-    conditions: 'SS-4 form or filed tax return showing the entity\'s EIN. The entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it).' },
-  { slug: 'foreign_entity_registration', label: 'Registration as a Foreign Entity', section: 'borrower',
-    conditions: 'Required when the borrowing LLC is formed in a different state than the subject property.', optional: true },
-  { slug: 'track_record_reo', label: 'Real Estate Schedule & Track Record', section: 'borrower',
-    conditions: 'Confirm all cells filled with reasonable info; addresses, values, mortgages, cash flow.' },
+  { slug: 'operating_agreement', label: 'Operating Agreement', section: 'borrower',
+    conditions: 'LLC name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it); identify all owners with 20%+ ownership; all signatures + initials present.' },
   { slug: 'bank_stmt_current', label: 'This Month\'s Bank Statements', section: 'borrower',
     conditions: 'Liquidity requirements met? Borrower\'s ownership of accounts verified? Account holder: the borrowing entity (ENTITY NAME OF RECORD) or ANY of the guarantors listed in ACCEPTABLE ACCOUNT HOLDERS - any one of those names is acceptable; the account must be 100% owned by those parties (a non-guarantor person or a different entity on the account is not acceptable). Full bank-generated statement or bank-generated Account Transaction History only - NOT a screenshot or photo.' },
   { slug: 'bank_stmt_previous', label: 'Last Month\'s Bank Statements', section: 'borrower',
     conditions: 'Liquidity requirements met? Borrower\'s ownership of accounts verified? Account holder: the borrowing entity (ENTITY NAME OF RECORD) or ANY of the guarantors listed in ACCEPTABLE ACCOUNT HOLDERS - any one of those names is acceptable; the account must be 100% owned by those parties (a non-guarantor person or a different entity on the account is not acceptable). Full bank-generated statement or bank-generated Account Transaction History only - NOT a screenshot or photo.' },
   { slug: 'voided_check_ach', label: 'Voided Check', section: 'borrower',
     conditions: 'Scan of a voided check for the account the loan payments will come from. Account holder should match borrower or a third-party payee form is required.' },
+  { slug: 'track_record_reo', label: 'Real Estate Schedule & Track Record', section: 'borrower',
+    conditions: 'Confirm all cells filled with reasonable info; addresses, values, mortgages, cash flow.' },
+  { slug: 'entity_background_check', label: 'Entity Background Check', section: 'borrower',
+    conditions: 'Report run on the entity name of record (compare the name searched to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). No bankruptcies, liens, or judgements within 90 days of close date.' },
+  { slug: 'foreign_entity_registration', label: 'Registration as a Foreign Entity', section: 'borrower',
+    conditions: 'Required when the borrowing LLC is formed in a different state than the subject property.', optional: true },
 
-  // ── Guarantor ─────────────────────────────────────────────────
-  // Deploy 236.708 — PFS is an OPTIONAL guarantor document (per Mike).
-  { slug: 'pfs', label: 'Personal Financial Statement (PFS)', section: 'guarantor',
-    conditions: 'Signed by all guarantors. Assets, liabilities, income, contingent liabilities.', optional: true },
+  // ── Guarantor ─────────────────────────────────────────────────────────
   { slug: 'guarantor_id', label: 'ID for each Guarantor', section: 'guarantor',
     conditions: 'Driver\'s License or Passport for each guarantor; matches name on application; not expired. Report the full legal name EXACTLY as printed on the ID (first, middle, last) as borrowerName - it governs this guarantor\'s legal name (Deploy 237.075, Mike): a nickname or a dropped middle name on the application, credit report, OFAC, or background check is a name discrepancy on THAT document. State which guarantor this ID belongs to.' },
-  // Deploy 236.670 — added per Mike.
-  { slug: 'proof_of_citizenship', label: 'Proof of Citizenship', section: 'guarantor',
-    conditions: 'Citizenship / permanent-residency evidence for each guarantor (passport, birth certificate, naturalization certificate, or green card). Name matches the application. Name matches the government ID including the middle name. State which guarantor this document covers.', optional: true },
   { slug: 'credit_authorization', label: 'Credit Authorization', section: 'guarantor',
     conditions: 'Signed and dated by the guarantor this tray belongs to. Deploy 237.152 (Mike): each guarantor signs their OWN authorization — a signature from one guarantor does not cover another, so a form naming a different person is the wrong document for this tray. The signed loan application carries one "Authorization to Conduct Prequal Credit & Background Checks" page per signer; that page for THIS guarantor is what belongs here.' },
   { slug: 'credit_report', label: 'Credit Report', section: 'guarantor',
@@ -104,10 +104,24 @@ export const DSCR_DOCS = [
     conditions: 'No bankruptcies, liens, or judgements; criminal report < 90 days old. Run on the full legal name per the government ID including the middle name. State which guarantor this report covers - every guarantor needs one.' },
   { slug: 'ofac_personal', label: 'OFAC Check (Personal)', section: 'guarantor',
     conditions: 'Personal name of all guarantors must match exactly. The name searched matches the guarantor\'s full legal name per the government ID including the middle name. State which guarantor this report covers - every guarantor needs one.' },
+  // Deploy 236.708 — PFS is an OPTIONAL guarantor document (per Mike).
+  { slug: 'pfs', label: 'Personal Financial Statement (PFS)', section: 'guarantor',
+    conditions: 'Signed by all guarantors. Assets, liabilities, income, contingent liabilities.', optional: true },
+  // Deploy 236.670 — added per Mike.
+  { slug: 'proof_of_citizenship', label: 'Proof of Citizenship', section: 'guarantor',
+    conditions: 'Citizenship / permanent-residency evidence for each guarantor (passport, birth certificate, naturalization certificate, or green card). Name matches the application. Name matches the government ID including the middle name. State which guarantor this document covers.', optional: true },
 
-  // ── Collateral ────────────────────────────────────────────────
+  // ── Collateral ────────────────────────────────────────────────────────
+  { slug: 'appraisal', label: 'Appraisal', section: 'collateral',
+    conditions: 'Value >= loan amount; does NOT say "subject to"; appraiser certified; comps recent + within 1 mile. Report the as-is value as asIsValue and the after-repair value as afterRepairValue. FLAG (not_met) when the as-is value is below the purchase price or below the loan amount.' },
   { slug: 'psa', label: 'Purchase Agreement', section: 'collateral',
     conditions: 'Borrower listed as buyer; all parties signed; price matches application.', purchaseOnly: true },
+  { slug: 'evidence_of_insurance', label: 'Property Insurance — Dec Page', section: 'collateral',
+    conditions: 'Mortgagee clause; loan number; borrower/LLC name; coverage >= loan value; $1M liability; effective dates through closing. The mortgagee clause reads the EXPECTED MORTGAGEE CLAUSE provided in the prompt (ISAOA/ATIMA) - a different lender name is a defect. Named insured is the borrowing entity of record or a guarantor. Report the policy number as policyNumber.' },
+  { slug: 'proof_of_insurance_pif', label: 'Proof of Property Insurance Paid-Through Date', section: 'collateral',
+    conditions: 'Receipt or invoice (NOT a screenshot) showing a $0 balance owed / paid in full for the property insurance policy; the property address matches the subject; the policy number is shown (report it as policyNumber) and matches the Evidence of Insurance. Coverage amounts are NOT verified on this document.' },
+  { slug: 'flood_certificate', label: 'Flood Certificates', section: 'collateral',
+    conditions: 'Life-of-loan flood cert; zone determination.' },
   { slug: 'cost_basis', label: 'Cost Basis', section: 'collateral',
     conditions: 'Documentation of borrower\'s total invested basis (purchase price + rehab + closing costs). Buyer is the borrowing entity of record or a guarantor (ENTITY NAME OF RECORD / ACCEPTABLE ACCOUNT HOLDERS). Contract price equals the purchase price in LOAN TERMS OF RECORD. Property address matches. Closing date matches the expected close date in LOAN TERMS OF RECORD. Fully signed and dated by every party. Report buyerName, sellerName, contractPrice, and closingDate in extracted_entities.', optional: true },
   { slug: 'lease_agreements', label: 'Lease Agreements', section: 'collateral',
@@ -115,8 +129,6 @@ export const DSCR_DOCS = [
   // Deploy 236.670 — added per Mike (DSCR docs from the S7 Holdings package).
   { slug: 'proof_of_security_deposit', label: 'Proof of Security Deposit', section: 'collateral',
     conditions: 'Evidence the tenant security deposit(s) are held (bank record, ledger, or receipt). Amount is consistent with the lease(s).', optional: true },
-  { slug: 'insurance_invoice', label: 'Insurance Invoice', section: 'collateral',
-    conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured (borrower / LLC) shown; premium reasonable for the coverage.', optional: true },
   { slug: 'property_mgmt_summary', label: 'Property Management Summary', section: 'collateral',
     conditions: 'Summary of PM company\'s scope; fees; contact info.', optional: true },
   { slug: 'property_mgmt_agreement', label: 'Property Management Agreement', section: 'collateral',
@@ -129,16 +141,10 @@ export const DSCR_DOCS = [
     conditions: 'Existing mortgage information verified.', optional: true },
   { slug: 'property_insurance_binder', label: 'Property Insurance — Binder', section: 'collateral',
     conditions: 'Provided if the Dec Page is not yet available. Mortgagee clause; loan number; borrower name; coverage >= loan value; $1M liability. The mortgagee clause reads the EXPECTED MORTGAGEE CLAUSE provided in the prompt (ISAOA/ATIMA) - a different lender name is a defect. Named insured is the borrowing entity of record or a guarantor. Report the policy number as policyNumber.', optional: true },
-  { slug: 'evidence_of_insurance', label: 'Property Insurance — Dec Page', section: 'collateral',
-    conditions: 'Mortgagee clause; loan number; borrower/LLC name; coverage >= loan value; $1M liability; effective dates through closing. The mortgagee clause reads the EXPECTED MORTGAGEE CLAUSE provided in the prompt (ISAOA/ATIMA) - a different lender name is a defect. Named insured is the borrowing entity of record or a guarantor. Report the policy number as policyNumber.' },
   { slug: 'flood_insurance_policy', label: 'Flood Insurance Policy', section: 'collateral',
     conditions: 'Required if property is in a FEMA flood zone. Mortgagee clause; coverage meets guidelines.', optional: true },
-  { slug: 'proof_of_insurance_pif', label: 'Proof of Property Insurance Paid-Through Date', section: 'collateral',
-    conditions: 'Receipt or invoice (NOT a screenshot) showing a $0 balance owed / paid in full for the property insurance policy; the property address matches the subject; the policy number is shown (report it as policyNumber) and matches the Evidence of Insurance. Coverage amounts are NOT verified on this document.' },
   { slug: 'property_profile', label: 'Property Profile', section: 'collateral',
     conditions: 'Ownership history, parcel details, tax history, comparable properties.' },
-  { slug: 'appraisal', label: 'Appraisal', section: 'collateral',
-    conditions: 'Value >= loan amount; does NOT say "subject to"; appraiser certified; comps recent + within 1 mile. Report the as-is value as asIsValue and the after-repair value as afterRepairValue. FLAG (not_met) when the as-is value is below the purchase price or below the loan amount.' },
   { slug: 'appraisal_receipt', label: 'Appraisal Receipt', section: 'collateral',
     conditions: 'Paid-in-full receipt for the appraisal.' },
   { slug: 'air', label: 'AIR (Appraisal Independence Report)', section: 'collateral',
@@ -147,14 +153,12 @@ export const DSCR_DOCS = [
     conditions: 'Value >= Appraised value.' },
   { slug: 'property_condition_assessment', label: 'Property Condition Assessment (PCA)', section: 'collateral',
     conditions: 'PCA report on subject property; deferred maintenance itemized; capital reserves recommended.', optional: true },
-  { slug: 'flood_certificate', label: 'Flood Certificates', section: 'collateral',
-    conditions: 'Life-of-loan flood cert; zone determination.' },
   { slug: 'condo_documents', label: 'Condo Documents', section: 'collateral',
     conditions: 'HOA docs, master insurance, budget, reserve study — for condo units only.', optional: true },
   { slug: 'environmental_survey', label: 'Environmental Survey (5+ MF)', section: 'collateral',
     conditions: 'Required for 5+ unit multifamily properties. Phase I ESA or transaction screen.', optional: true },
 
-  // ── Loan ──────────────────────────────────────────────────────
+  // ── Loan / Application ────────────────────────────────────────────────
   { slug: 'letter_of_intent', label: 'Letter of Intent', section: 'loan',
     conditions: 'LOI signed and dated; terms consistent with final loan.' },
   { slug: 'revised_loan_terms', label: 'New / Revised Loan Terms', section: 'loan',
@@ -169,54 +173,62 @@ export const DSCR_DOCS = [
     conditions: 'Log of any remaining conditions that need resolution before funding.', optional: true },
   { slug: 'exception_request', label: 'Exception Request Form (TPO / Borrower)', section: 'loan',
     conditions: 'Signed exception form when a guideline exception is being requested.', optional: true },
-
-  // ── Closing ───────────────────────────────────────────────────
-  { slug: 'title_escrow_contact', label: 'Title / Escrow Contact Information', section: 'closing',
-    conditions: 'Title company name; address; primary contact name; phone; email.' },
-  { slug: 'title_commitment', label: 'Title Commitment / Preliminary Title Report', section: 'closing',
-    conditions: 'Mortgagee Clause; loan number; borrower name; property address(es); 125% of loan value; date; exceptions reviewed.' },
-  { slug: 'cpl', label: 'Title — Closing Protection Letter (CPL)', section: 'closing',
-    conditions: 'Mortgagee Clause; loan number; property address; date. The borrower / entity named on the CPL is the borrowing entity of record (compare to the ENTITY NAME OF RECORD; a guarantor\'s name is acceptable only when the guarantor is the borrower). The lender named is the lender in the EXPECTED MORTGAGEE CLAUSE (its LLC name, without the ISAOA/ATIMA suffix); any other lender name is a defect.' },
-  { slug: 'title_eo_insurance', label: 'Title — E&O Insurance', section: 'closing',
-    conditions: 'Title company name; $1 million in protection; policy dates current.' },
-  { slug: 'wire_instructions', label: 'Settlement Agent Wire Instructions', section: 'closing',
-    conditions: 'Wire instructions for the title company. Verified via callback to a known number.' },
-  { slug: 'prelim_settlement', label: 'Escrow — Estimated Closing Statement', section: 'closing',
-    conditions: 'Loan amount correct; fees correct; prepaid interest; property address; borrower named.' },
-  { slug: 'final_hud', label: 'Final HUD / Settlement Statement', section: 'closing',
-    conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
-  { slug: 'tax_certificate', label: 'Tax Certificates', section: 'closing',
-    conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed.' },
-  // Deploy 236.670 — added per Mike (payoff of the existing lien on a refi).
-  { slug: 'payoff_demand', label: 'Payoff Demand', section: 'closing',
-    conditions: 'Payoff statement from the existing lender (refinance). Payoff amount, per-diem interest, and good-through date are current; lender + loan match the subject property.', optional: true },
-  { slug: 'borrower_closing_funds_receipt', label: 'Borrower Closing Funds Receipt', section: 'closing',
-    conditions: 'Requested day of closing.', purchaseOnly: true },
-  { slug: 'emd_receipt', label: 'EMD Receipt', section: 'closing',
-    conditions: 'Receipt showing borrower provided EMD to the title company.', purchaseOnly: true },
-  { slug: 'invoice', label: 'Invoice', section: 'closing',
-    conditions: 'Third-party fees invoiced (appraisal, PCA, environmental, etc.).', optional: true },
   // Deploy 236.945 (Mike) — SLA's commitment letter, generated + sent from the tray
   // for the borrower's acknowledgment; storage-only (see _shared/borrower-forms.mjs).
   { slug: 'commitment_letter', label: 'Loan Commitment Letter', section: 'loan',
     conditions: '', optional: true, noReview: true },
+
+  // ── Closing ───────────────────────────────────────────────────────────
+  { slug: 'title_eo_insurance', label: 'Title — E&O Insurance', section: 'closing',
+    conditions: 'Title company name; $1 million in protection; policy dates current.' },
+  { slug: 'emd_receipt', label: 'EMD Receipt', section: 'closing',
+    conditions: 'Receipt showing borrower provided EMD to the title company.', purchaseOnly: true },
+  { slug: 'cpl', label: 'Title — Closing Protection Letter (CPL)', section: 'closing',
+    conditions: 'Mortgagee Clause; loan number; property address; date. The borrower / entity named on the CPL is the borrowing entity of record (compare to the ENTITY NAME OF RECORD; a guarantor\'s name is acceptable only when the guarantor is the borrower). The lender named is the lender in the EXPECTED MORTGAGEE CLAUSE (its LLC name, without the ISAOA/ATIMA suffix); any other lender name is a defect.' },
+  { slug: 'tax_certificate', label: 'Tax Certificates', section: 'closing',
+    conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed.' },
+  { slug: 'title_commitment', label: 'Title Commitment / Preliminary Title Report', section: 'closing',
+    conditions: 'Mortgagee Clause; loan number; borrower name; property address(es); 125% of loan value; date; exceptions reviewed.' },
+  { slug: 'wire_instructions', label: 'Settlement Agent Wire Instructions', section: 'closing',
+    conditions: 'Wire instructions for the title company. Verified via callback to a known number.' },
+  { slug: 'prelim_settlement', label: 'Escrow — Estimated Closing Statement', section: 'closing',
+    conditions: 'Loan amount correct; fees correct; prepaid interest; property address; borrower named.' },
+  { slug: 'borrower_closing_funds_receipt', label: 'Borrower Closing Funds Receipt', section: 'closing',
+    conditions: 'Requested day of closing.', purchaseOnly: true },
+  { slug: 'title_escrow_contact', label: 'Title / Escrow Contact Information', section: 'closing',
+    conditions: 'Title company name; address; primary contact name; phone; email.' },
+  // Deploy 236.670 — added per Mike (payoff of the existing lien on a refi).
+  { slug: 'payoff_demand', label: 'Payoff Demand', section: 'closing',
+    conditions: 'Payoff statement from the existing lender (refinance). Payoff amount, per-diem interest, and good-through date are current; lender + loan match the subject property.', optional: true },
+  { slug: 'invoice', label: 'Invoice', section: 'closing',
+    conditions: 'Third-party fees invoiced (appraisal, PCA, environmental, etc.).', optional: true },
+  { slug: 'original_doc_tracking', label: 'Original Doc Tracking', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+
+  // ── Post Close ────────────────────────────────────────────────────────
   // Deploy 236.752 — record-keeping vault for the executed/signed closing package.
   // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
   // required-missing doc. Backfilled onto existing reviews by sync-categories.
-  { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'closing',
+  { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'post_close',
     conditions: '', optional: true, noReview: true },
   // Deploy 236.838 — post-closing record-keeping trays on EVERY loan (Mike):
   // executed ACH authorization, closing W9, the executed/recorded deed, and
   // the original-document tracking record. Storage-only like the executed
   // closing package; sync-categories backfills them onto existing reviews.
-  { slug: 'executed_ach_form', label: 'Executed ACH Form', section: 'closing',
+  { slug: 'executed_ach_form', label: 'Executed ACH Form', section: 'post_close',
     conditions: '', optional: true, noReview: true },
-  { slug: 'closing_w9', label: 'Closing W9', section: 'closing',
+  { slug: 'executed_deed', label: 'Executed Deed', section: 'post_close',
     conditions: '', optional: true, noReview: true },
-  { slug: 'executed_deed', label: 'Executed Deed', section: 'closing',
+  { slug: 'closing_w9', label: 'Closing W9', section: 'post_close',
     conditions: '', optional: true, noReview: true },
-  { slug: 'original_doc_tracking', label: 'Original Doc Tracking', section: 'closing',
-    conditions: '', optional: true, noReview: true },
+  { slug: 'final_hud', label: 'Final HUD / Settlement Statement', section: 'post_close',
+    conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
+  { slug: 'recorded_security_instrument', label: 'Recorded Deed of Trust / Mortgage', section: 'post_close',
+    optional: true, noReview: true,
+    conditions: 'The security instrument as recorded by the county -- recording stamp, instrument number and recording date visible. Storage only: filed after closing, not underwritten.' },
+  { slug: 'final_title_policy', label: 'Final Title Policy', section: 'post_close',
+    optional: true, noReview: true,
+    conditions: 'The final lender\'s title policy issued after recording (the commitment made final). Storage only: filed after closing, not underwritten.' },
 ];
 
 // Deploy 236.681 — RTL rubrics rewritten to the Colchis RTL Underwriting
@@ -226,11 +238,17 @@ export const DSCR_DOCS = [
 // has the complete ruleset + tier structure + geographic exclusions as context.
 // HARD STOP = an item the guidelines allow no exception on at any tier.
 export const RTL_DOCS = [
-  // ── Borrower ──────────────────────────────────────────────────
+  // ── Borrower ──────────────────────────────────────────────────────────
   { slug: 'articles_of_organization', label: 'Articles of Organization', section: 'borrower',
     conditions: 'Government-filed certificate (state file number/stamp visible; NOT a screenshot, template, or unfiled draft). This document is the SOURCE OF TRUTH for the borrowing entity name (Deploy 237.041) - do NOT fail it because the loan application, COGS, or EIN letter spells the name differently; those are checked against these Articles, never the reverse. Extract the entity name exactly as filed. The name to identify on this document is the LLC / ENTITY NAME as filed with the state (Deploy 237.074, Mike): the organizer, member, manager, or registered-agent names printed on the filing are NOT the entity name - do NOT compare this document to the guarantor or borrower name, and report the LLC name (with its LLC / L.L.C. suffix exactly as filed) as llcName. Entity type is LLC, LP, LLP, C-Corp, or S-Corp — NOT an irrevocable trust, religious entity, tenant-in-common, non-profit, land trust, IRA-owned/managed entity, or an entity with more than 4 members/managers. U.S.-domiciled. If formed in a different state than the property, a Certificate of Foreign Qualification is required.' },
-  { slug: 'entity_background_check', label: 'Entity Background Check', section: 'borrower',
-    conditions: 'Report within 60 days of origination (and still within 60 days at the note date). Entity status Active (no expired registration, lapsed reports, termination, or recent agent change). Zero judgments, liens, bankruptcies, foreclosures, or NODs — or disclosed and resolved before closing; UCC filings zero or tied to a disclosed obligation. Entity name searched (compare to the ENTITY NAME OF RECORD provided, NOT the loan application), formation state, date, and filing number reconcile to the Articles. Related parties (seller, assignor, contractor, title/closing agent, insurance agent, valuation provider, referring broker/LO) screened.' },
+  { slug: 'certificate_of_good_standing', label: 'Certificate of Good Standing', section: 'borrower',
+    conditions: 'State-issued certificate (seal, signature, or filing number visible; NOT a screenshot). Entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). States the entity is active / in good standing (NOT delinquent, suspended, or administratively dissolved). Dated within 90 days of the note date. (Entity formed <60 days ago with no COGS available: active status confirmed directly with the Secretary of State and documented.)' },
+  { slug: 'ein_or_w9', label: 'EIN Letter or W9', section: 'borrower',
+    conditions: 'EIN letter is an IRS CP 575 or 147C showing an entity name matching the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it) and a readable EIN. If no EIN letter is available, a completed and signed W-9 instead (entity name, EIN, and a tax classification matching the entity type). An individual/single-member borrower with no EIN uses a W-9 with SSN.' },
+  { slug: 'ofac_entity', label: 'OFAC Check (Entity)', section: 'borrower',
+    conditions: 'OFAC run on the entity\'s legal name plus any DBA; the name searched matches the recorded Articles of Organization exactly (compare to the ENTITY NAME OF RECORD provided, NOT the loan application - a search run under a different spelling of the entity name, such as the loan application\'s, is a defect on this report; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). No matches — or all matches conclusively ruled out via secondary identifiers (address, EIN, state of formation). Re-run if more than 30 days pass before closing. Any match that cannot be ruled out is escalated (Tier 3).' },
+  { slug: 'operating_agreement', label: 'Operating Agreement', section: 'borrower',
+    conditions: 'Entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it); filing state matches the Articles/COGS; no termination/expiration date. Every owner of 25%+ is named and is a natural person (chase any entity/trust owner down the chain to a natural person). The guarantors\' combined ownership interest is at least 51%. Management structure (member- vs manager-managed) is identified and the signer has authority to bind the entity. All owners signed with printed names beneath each signature; all referenced attachments/addenda are present and all pages complete.' },
   { slug: 'bank_stmt_current', label: 'Current-Month Bank Statements', section: 'borrower',
     // Deploy 237.040 (Dan, via Mike) — ONE statement per tray. This tray holds the
     // current month only; last month's statement lives in bank_stmt_previous. The
@@ -240,58 +258,50 @@ export const RTL_DOCS = [
   { slug: 'bank_stmt_previous', label: 'Previous-Month Bank Statements', section: 'borrower',
     // Deploy 237.040 (Dan, via Mike) — ONE statement per tray (see bank_stmt_current).
     conditions: 'ONE statement: the statement for the month immediately before the current-month statement (the current month is filed in its own tray — do NOT expect two statements here and do NOT fail this tray because the current month is absent). All pages present (no summary). Bank name, account number, account holder, and full transaction history shown. Account holder: the borrowing entity (ENTITY NAME OF RECORD) or ANY of the guarantors listed in ACCEPTABLE ACCOUNT HOLDERS - any one of those names is acceptable. The account must be 100% owned by those parties: an account holder who is a non-guarantor person or a different entity is NOT acceptable (do NOT count it at 50% - flag it not_met and name the extra holder). Must be a FULL bank-generated statement or a bank-generated Account Transaction History - NOT a screenshot, photo, or partial capture of an online banking page. Balances support the liquidity requirement (down payment + 20% of rehab + 6 months interest) under the same asset weighting as the current-month statement.' },
-  { slug: 'certificate_of_good_standing', label: 'Certificate of Good Standing', section: 'borrower',
-    conditions: 'State-issued certificate (seal, signature, or filing number visible; NOT a screenshot). Entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). States the entity is active / in good standing (NOT delinquent, suspended, or administratively dissolved). Dated within 90 days of the note date. (Entity formed <60 days ago with no COGS available: active status confirmed directly with the Secretary of State and documented.)' },
-  { slug: 'ein_or_w9', label: 'EIN Letter or W9', section: 'borrower',
-    conditions: 'EIN letter is an IRS CP 575 or 147C showing an entity name matching the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it) and a readable EIN. If no EIN letter is available, a completed and signed W-9 instead (entity name, EIN, and a tax classification matching the entity type). An individual/single-member borrower with no EIN uses a W-9 with SSN.' },
-  { slug: 'ofac_entity', label: 'OFAC Check (Entity)', section: 'borrower',
-    conditions: 'OFAC run on the entity\'s legal name plus any DBA; the name searched matches the recorded Articles of Organization exactly (compare to the ENTITY NAME OF RECORD provided, NOT the loan application - a search run under a different spelling of the entity name, such as the loan application\'s, is a defect on this report; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it). No matches — or all matches conclusively ruled out via secondary identifiers (address, EIN, state of formation). Re-run if more than 30 days pass before closing. Any match that cannot be ruled out is escalated (Tier 3).' },
-  { slug: 'operating_agreement', label: 'Operating Agreement', section: 'borrower',
-    conditions: 'Entity name matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided, NOT the loan application; if the Articles have not been reviewed yet, mark that condition unclear rather than failing it); filing state matches the Articles/COGS; no termination/expiration date. Every owner of 25%+ is named and is a natural person (chase any entity/trust owner down the chain to a natural person). The guarantors\' combined ownership interest is at least 51%. Management structure (member- vs manager-managed) is identified and the signer has authority to bind the entity. All owners signed with printed names beneath each signature; all referenced attachments/addenda are present and all pages complete.' },
-  { slug: 'track_record', label: 'Track Record', section: 'borrower',
-    conditions: 'Track Record / SREO covering the last 36 months, with each claimed project supported by a settlement statement/HUD-1 (or third-party property report) showing BOTH an acquisition and a disposition or refinance. Residential investment property only (SFR, multi-family, condo, PUD — NOT a primary/second home or vacant land). Counts combine all guarantors in the borrowing entity; partially documented projects do not count.' },
   { slug: 'voided_check', label: 'Voided Check', section: 'borrower',
     conditions: 'For the account payments will be drafted from. The borrower\'s and/or the borrowing entity\'s name is printed on the check; account number and routing number are clearly visible. A bank letter on letterhead showing account name, account number, and routing number is an acceptable substitute.' },
+  { slug: 'track_record', label: 'Track Record', section: 'borrower',
+    conditions: 'Track Record / SREO covering the last 36 months, with each claimed project supported by a settlement statement/HUD-1 (or third-party property report) showing BOTH an acquisition and a disposition or refinance. Residential investment property only (SFR, multi-family, condo, PUD — NOT a primary/second home or vacant land). Counts combine all guarantors in the borrowing entity; partially documented projects do not count.' },
+  { slug: 'entity_background_check', label: 'Entity Background Check', section: 'borrower',
+    conditions: 'Report within 60 days of origination (and still within 60 days at the note date). Entity status Active (no expired registration, lapsed reports, termination, or recent agent change). Zero judgments, liens, bankruptcies, foreclosures, or NODs — or disclosed and resolved before closing; UCC filings zero or tied to a disclosed obligation. Entity name searched (compare to the ENTITY NAME OF RECORD provided, NOT the loan application), formation state, date, and filing number reconcile to the Articles. Related parties (seller, assignor, contractor, title/closing agent, insurance agent, valuation provider, referring broker/LO) screened.' },
   { slug: 'borrower_loe', label: 'Borrower Letter of Explanation', section: 'borrower',
     conditions: 'As required — explains a specific flagged item (e.g. a non-arm\'s-length transaction or a background/credit finding). Dated and signed by the borrower; addresses the specific issue.', optional: true },
 
-  // ── Guarantor ─────────────────────────────────────────────────
-  { slug: 'guarantor_background_check', label: 'Guarantor Background Check', section: 'guarantor',
-    conditions: 'Report within 60 days of origination (and still within 60 days at the note date); run on the full legal name from the government ID plus date of birth. SSN matches the application and credit report; residence identified (no PO Box). Zero judgments, liens, bankruptcies, foreclosures, or NODs — or disclosed and resolved. Driving offenses are noted; any other offense escalates. HARD STOP (no exception, any age): a financial-crime conviction (fraud, embezzlement, money laundering) or a violent-crime conviction. Run on the full legal name per the government ID including the middle name. State which guarantor this report covers - every guarantor needs one.' },
+  // ── Guarantor ─────────────────────────────────────────────────────────
+  { slug: 'guarantor_id', label: 'Guarantor ID (Driver’s License or Passport)', section: 'guarantor',
+    conditions: 'Unexpired government-issued photo ID. Name matches the loan application, credit report, and entity documents; date of birth matches the application. A non-citizen provides a green card (both sides) or a visa plus passport. Any name discrepancy (nickname, maiden name) is resolved and documented. Report the full legal name EXACTLY as printed on the ID (first, middle, last) as borrowerName - it governs this guarantor\'s legal name (Deploy 237.075, Mike): a nickname or a dropped middle name on the application, credit report, OFAC, or background check is a name discrepancy on THAT document. State which guarantor this ID belongs to.' },
   { slug: 'credit_authorization', label: 'Credit Authorization', section: 'guarantor',
     conditions: 'Signed and dated by the guarantor this tray belongs to. Deploy 237.152 (Mike): each guarantor signs their OWN authorization — a signature from one guarantor does not cover another, so a form naming a different person is the wrong document for this tray. The signed loan application carries one "Authorization to Conduct Prequal Credit & Background Checks" page per signer; that page for THIS guarantor is what belongs here.' },
   { slug: 'credit_report', label: 'Credit Report', section: 'guarantor',
     conditions: 'Tri-merge report dated within 90 days of the note date. The file-representative score — the LOWEST of the per-guarantor middle scores across all guarantors and any 25%+ owner — is at least 680. Every late payment in the last 36 months and every derogatory item in the last 24 months has a Letter of Explanation. HARD STOP (4-year lookback, no exception): no foreclosure, short sale, deed-in-lieu, bankruptcy, lis pendens, or judgment. HARD STOP: no felony conviction of any age. SSN verified (credit-report notation, Social Security card, or SSA-89). The name on the report is the guarantor\'s full legal name per the government ID (GUARANTOR LEGAL NAMES OF RECORD), including the middle name. State which guarantor(s) this report covers - every guarantor needs one.' },
-  { slug: 'guarantor_id', label: 'Guarantor ID (Driver’s License or Passport)', section: 'guarantor',
-    conditions: 'Unexpired government-issued photo ID. Name matches the loan application, credit report, and entity documents; date of birth matches the application. A non-citizen provides a green card (both sides) or a visa plus passport. Any name discrepancy (nickname, maiden name) is resolved and documented. Report the full legal name EXACTLY as printed on the ID (first, middle, last) as borrowerName - it governs this guarantor\'s legal name (Deploy 237.075, Mike): a nickname or a dropped middle name on the application, credit report, OFAC, or background check is a name discrepancy on THAT document. State which guarantor this ID belongs to.' },
+  { slug: 'guarantor_background_check', label: 'Guarantor Background Check', section: 'guarantor',
+    conditions: 'Report within 60 days of origination (and still within 60 days at the note date); run on the full legal name from the government ID plus date of birth. SSN matches the application and credit report; residence identified (no PO Box). Zero judgments, liens, bankruptcies, foreclosures, or NODs — or disclosed and resolved. Driving offenses are noted; any other offense escalates. HARD STOP (no exception, any age): a financial-crime conviction (fraud, embezzlement, money laundering) or a violent-crime conviction. Run on the full legal name per the government ID including the middle name. State which guarantor this report covers - every guarantor needs one.' },
   { slug: 'ofac_personal', label: 'OFAC Check (Personal)', section: 'guarantor',
     conditions: 'OFAC run on the full legal name including middle name; matches the government ID exactly. No matches — or partial matches conclusively ruled out via secondary identifiers (DOB, address, SSN fragment). Re-run if more than 30 days pass before closing. Any partial match that cannot be ruled out is escalated (Tier 3). The name searched matches the guarantor\'s full legal name per the government ID including the middle name. State which guarantor this report covers - every guarantor needs one.' },
-  { slug: 'guarantor_loe', label: 'Guarantor Letter of Explanation', section: 'guarantor',
-    conditions: 'As required — explains a specific credit/background item. Dated and signed by the guarantor; addresses the specific issue.', optional: true },
   // Deploy 236.708 — PFS added to RTL/GUC as an OPTIONAL guarantor document (per Mike).
   { slug: 'pfs', label: 'Personal Financial Statement (PFS)', section: 'guarantor',
     conditions: 'Signed and dated by each guarantor. Lists assets, liabilities, income, and contingent liabilities; net worth and liquidity reconcile to the bank statements and the loan file.', optional: true },
+  { slug: 'guarantor_loe', label: 'Guarantor Letter of Explanation', section: 'guarantor',
+    conditions: 'As required — explains a specific credit/background item. Dated and signed by the guarantor; addresses the specific issue.', optional: true },
 
-  // ── Collateral ────────────────────────────────────────────────
-  { slug: 'assignment_agreement', label: 'Assignment Agreement', section: 'collateral',
-    conditions: 'Assignor matches the seller on the Purchase Agreement; assignee is the borrower. Price including the assignment fee matches the term sheet. Closing date on or after the date requested on the application. Signed by both the assignor and the borrower. Assignment fee is at most 15% of the Purchase Agreement price AND at most $75,000; total seller concessions are at most 5% of the gross purchase price. A fee above either cap requires a restructure (Tier 3). The assignor (seller on the assignment) is the buyer named on the PSA; the assignee (buyer) is the borrowing entity of record or a guarantor. The assignment fee is clearly stated and is at most 15% of the purchase price (flag not_met above that). Contract price, property address, and closing date match LOAN TERMS OF RECORD. Fully signed and dated by every party. Report buyerName, sellerName, assignmentFee, contractPrice, and closingDate in extracted_entities.', optional: true },
+  // ── Collateral ────────────────────────────────────────────────────────
   { slug: 'bpo_valuation', label: 'BPO / Valuation', section: 'collateral',
     conditions: 'A BPO / hybrid appraisal / AVM-with-interior-photos is acceptable ONLY for Light Rehab under $500,000 (Heavy Rehab, or Light Rehab of $500,000+, requires a full appraisal). Dated within 60 days of the note date. Comparables: at least 2 within 1 mile, or at least 3 in the same zip code, all sold within the last 12 months. Concluded value is at least the loan amount. Report the as-is value as asIsValue and the after-repair value as afterRepairValue. FLAG (not_met) when the as-is value is below the purchase price or below the loan amount.' },
-  { slug: 'evidence_of_insurance', label: 'Evidence of Insurance', section: 'collateral',
-    conditions: 'A dec page, binder, or ACORD 27/28 EOI/COI — NOT a quote. Builder\'s Risk / Course-of-Construction (or equivalent) for any property with a rehab budget (a Dwelling Policy DP/DP-3 only for a no-renovation SFR/2–4). Coverage equals the loan amount or 100% of replacement cost, whichever is less, on a Replacement-Cost (RCV) basis — not ACV. Liability at least $1,000,000 ($500,000 acceptable only if documented as the insurer\'s maximum). Every deductible (incl. wind/hail/named-storm) is at most 5% of the loan amount or $5,000, whichever is less. Named insured matches the Articles entity exactly; mortgagee clause and loan number correct; property address matches the title commitment (all units if multi-unit); coverage effective on or before closing; a purchase policy runs at least 12 months. Vacancy is addressed in writing (vacant-property/Builder\'s Risk form or a written vacancy permit/endorsement). The mortgagee clause reads the EXPECTED MORTGAGEE CLAUSE provided in the prompt (ISAOA/ATIMA) - a different lender name is a defect. Named insured is the borrowing entity of record or a guarantor. Report the policy number as policyNumber.' },
-  { slug: 'flood_certificate', label: 'Flood Certificate & Insurance', section: 'collateral',
-    conditions: 'A flood certificate is pulled for the subject property; address matches exactly; flood zone stated. If the property is in Zone A or V, flood insurance is required: coverage is the lesser of 100% replacement cost, $250,000, or the unpaid principal balance; deductible at most $10,000; mortgagee clause and loan number correct; effective on or before closing; proof of payment on file.', optional: true },
-  { slug: 'proof_of_insurance_pif', label: 'Proof of Insurance Paid in Full (PIF)', section: 'collateral',
-    conditions: 'An actual receipt or invoice (NOT a screenshot) showing the borrower/entity name; the policy number matches the Evidence of Insurance; property address matches the subject; effective on or before closing; shows $0 owed or states paid in full. Confirmed within 3 days before closing — or the premium is collected on the settlement statement with coverage already bound. Report the policy number as policyNumber. Coverage amounts are NOT verified on this document.' },
-  { slug: 'psa', label: 'Purchase and Sale Agreement (PSA)', section: 'collateral',
-    conditions: 'Buyer is the borrowing entity (not an individual, unless the loan is not entity-vested); seller matches the currently vested owner on the title commitment; purchase price matches the term sheet (plus the assignment fee if an assignment contract is used). All addenda/amendments included; all contract dates valid (not expired without extension); all parties signed. A price mismatch means the loan is rebuilt — never proceed on a mismatch. Back-to-back/double-close spreads are treated as a wholesale fee (15% / $75,000 caps); a non-arm\'s-length transaction requires a borrower Letter of Explanation.', purchaseOnly: true },
-  { slug: 'sow', label: 'Statement of Work (SOW)', section: 'collateral',
-    conditions: 'A line-item budget (no lump sums) with a material/work description per line; the total equals the rehab amount on the term sheet. Contingency is at most 10% of the budget. A feasibility study is required if the total budget is $150,000 or more. The ARV is at least 115% of total project cost (the lesser of as-is value or purchase price, plus the rehab budget). Ineligible costs are stripped out (financing/closing costs, inspections, insurance, taxes, staging, late/extension fees, interest carry). Cash-in-hand to the borrower at settlement is at most 35% of the rehab budget. Buyer is the borrowing entity of record or a guarantor (ENTITY NAME OF RECORD / ACCEPTABLE ACCOUNT HOLDERS). Contract price equals the purchase price in LOAN TERMS OF RECORD. Property address matches. Closing date matches the expected close date in LOAN TERMS OF RECORD. Fully signed and dated by every party. Report buyerName, sellerName, contractPrice, and closingDate in extracted_entities. The total renovation / rehab amount equals the rehab budget in LOAN TERMS OF RECORD (the term sheet figure); a different total is flagged.' },
   // Deploy 236.670 — added to RTL per Mike (Appraisal + Insurance Invoice).
   { slug: 'appraisal', label: 'Appraisal', section: 'collateral',
     conditions: 'A full appraisal dated within 90 days of the note date (required for Heavy Rehab, or Light Rehab of $500,000+). Does NOT read "subject to" an unresolved condition. Comparables: at least 2 within 1 mile, or at least 3 in the same zip, sold within the last 12 months (a renovation loan needs at least 3 As-Is and 3 ARV comps). Value at least the loan amount; if the property was listed in the last 12 months use the lower of list price or value; a loan over $2,000,000 needs a second appraisal (use the lesser). Property is an eligible type — SFR, 2–4 unit, PUD, or condo — at least 700 sq ft (single) or 500 sq ft per unit; NOT a mobile/manufactured home, co-op, working farm, B&B, timeshare, condemned, care/assisted-living facility, log/dome/geothermal home, agricultural/industrial-zoned, without legal access, historically designated, environmentally hazardous, or owner/family-occupied. NOT in a geographic hard-stop — Illinois (statewide), Orange County NY, Lakewood NJ, Monsey NY, or Newark NJ. Rural test: the valuation is not designated rural AND the RUCA code is 2 or less. Report the as-is value as asIsValue and the after-repair value as afterRepairValue. FLAG (not_met) when the as-is value is below the purchase price or below the loan amount.', optional: true },
-  { slug: 'insurance_invoice', label: 'Insurance Invoice', section: 'collateral',
-    conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured (borrower / entity) shown; the premium is reasonable for the coverage and matches the bound policy.', optional: true },
+  { slug: 'psa', label: 'Purchase and Sale Agreement (PSA)', section: 'collateral',
+    conditions: 'Buyer is the borrowing entity (not an individual, unless the loan is not entity-vested); seller matches the currently vested owner on the title commitment; purchase price matches the term sheet (plus the assignment fee if an assignment contract is used). All addenda/amendments included; all contract dates valid (not expired without extension); all parties signed. A price mismatch means the loan is rebuilt — never proceed on a mismatch. Back-to-back/double-close spreads are treated as a wholesale fee (15% / $75,000 caps); a non-arm\'s-length transaction requires a borrower Letter of Explanation.', purchaseOnly: true },
+  { slug: 'assignment_agreement', label: 'Assignment Agreement', section: 'collateral',
+    conditions: 'Assignor matches the seller on the Purchase Agreement; assignee is the borrower. Price including the assignment fee matches the term sheet. Closing date on or after the date requested on the application. Signed by both the assignor and the borrower. Assignment fee is at most 15% of the Purchase Agreement price AND at most $75,000; total seller concessions are at most 5% of the gross purchase price. A fee above either cap requires a restructure (Tier 3). The assignor (seller on the assignment) is the buyer named on the PSA; the assignee (buyer) is the borrowing entity of record or a guarantor. The assignment fee is clearly stated and is at most 15% of the purchase price (flag not_met above that). Contract price, property address, and closing date match LOAN TERMS OF RECORD. Fully signed and dated by every party. Report buyerName, sellerName, assignmentFee, contractPrice, and closingDate in extracted_entities.', optional: true },
+  { slug: 'evidence_of_insurance', label: 'Evidence of Insurance', section: 'collateral',
+    conditions: 'A dec page, binder, or ACORD 27/28 EOI/COI — NOT a quote. Builder\'s Risk / Course-of-Construction (or equivalent) for any property with a rehab budget (a Dwelling Policy DP/DP-3 only for a no-renovation SFR/2–4). Coverage equals the loan amount or 100% of replacement cost, whichever is less, on a Replacement-Cost (RCV) basis — not ACV. Liability at least $1,000,000 ($500,000 acceptable only if documented as the insurer\'s maximum). Every deductible (incl. wind/hail/named-storm) is at most 5% of the loan amount or $5,000, whichever is less. Named insured matches the Articles entity exactly; mortgagee clause and loan number correct; property address matches the title commitment (all units if multi-unit); coverage effective on or before closing; a purchase policy runs at least 12 months. Vacancy is addressed in writing (vacant-property/Builder\'s Risk form or a written vacancy permit/endorsement). The mortgagee clause reads the EXPECTED MORTGAGEE CLAUSE provided in the prompt (ISAOA/ATIMA) - a different lender name is a defect. Named insured is the borrowing entity of record or a guarantor. Report the policy number as policyNumber.' },
+  { slug: 'proof_of_insurance_pif', label: 'Proof of Insurance Paid in Full (PIF)', section: 'collateral',
+    conditions: 'An actual receipt or invoice (NOT a screenshot) showing the borrower/entity name; the policy number matches the Evidence of Insurance; property address matches the subject; effective on or before closing; shows $0 owed or states paid in full. Confirmed within 3 days before closing — or the premium is collected on the settlement statement with coverage already bound. Report the policy number as policyNumber. Coverage amounts are NOT verified on this document.' },
+  { slug: 'flood_certificate', label: 'Flood Certificate & Insurance', section: 'collateral',
+    conditions: 'A flood certificate is pulled for the subject property; address matches exactly; flood zone stated. If the property is in Zone A or V, flood insurance is required: coverage is the lesser of 100% replacement cost, $250,000, or the unpaid principal balance; deductible at most $10,000; mortgagee clause and loan number correct; effective on or before closing; proof of payment on file.', optional: true },
+  { slug: 'sow', label: 'Statement of Work (SOW)', section: 'collateral',
+    conditions: 'A line-item budget (no lump sums) with a material/work description per line; the total equals the rehab amount on the term sheet. Contingency is at most 10% of the budget. A feasibility study is required if the total budget is $150,000 or more. The ARV is at least 115% of total project cost (the lesser of as-is value or purchase price, plus the rehab budget). Ineligible costs are stripped out (financing/closing costs, inspections, insurance, taxes, staging, late/extension fees, interest carry). Cash-in-hand to the borrower at settlement is at most 35% of the rehab budget. Buyer is the borrowing entity of record or a guarantor (ENTITY NAME OF RECORD / ACCEPTABLE ACCOUNT HOLDERS). Contract price equals the purchase price in LOAN TERMS OF RECORD. Property address matches. Closing date matches the expected close date in LOAN TERMS OF RECORD. Fully signed and dated by every party. Report buyerName, sellerName, contractPrice, and closingDate in extracted_entities. The total renovation / rehab amount equals the rehab budget in LOAN TERMS OF RECORD (the term sheet figure); a different total is flagged.' },
   // Deploy 236.709 — Lease Agreements is DSCR-only (Mike removed it from RTL/GUC).
   // Deploy 236.681 — condo-specific docs (per the RTL guidelines C.7/C.8); optional (condos only).
   { slug: 'condo_hoa_docs', label: 'Condo HOA Documents', section: 'collateral',
@@ -299,59 +309,67 @@ export const RTL_DOCS = [
   { slug: 'condo_insurance', label: 'Condo Insurance (Master + HO-6)', section: 'collateral',
     conditions: 'For a condo: an active master/HOA policy covering 100% of building replacement cost. If the master is not "all-in", an HO-6 policy covers at least 20% of the appraised value or purchase price (whichever is lower) and includes loss-assessment coverage. Combined master + HO-6 meets the loan amount or 100% replacement cost (whichever is less). A unit under renovation carries a course-of-construction endorsement. Mortgagee clause and loan number correct on any policy naming SLA.', optional: true },
 
-  // ── Loan ──────────────────────────────────────────────────────
+  // ── Loan / Application ────────────────────────────────────────────────
   { slug: 'loan_application', label: 'Loan Application', section: 'loan',
     conditions: 'Complete (no missing fields or cut-offs) and signed by every guarantor. The borrowing entity name on this application matches the recorded Articles of Organization (compare to the ENTITY NAME OF RECORD provided) - a mismatch is a defect on THIS application, not on the Articles; if the Articles have not been reviewed yet, mark that condition unclear. Loan amount, rehab budget, and ARV match the term sheet. The transaction is a Purchase or Refinance Fix & Flip; loan amount is between $125,000 and $3,500,000; term is 6–24 months; citizenship confirmed. Aggregate SLA exposure (incl. affiliated/cross-guaranteed entities) is at most $10,000,000 UPB or 4 active transactions. No payment on an existing SLA loan is past its grace period. Any "Yes" declaration answer other than citizenship is escalated. CRITICAL: if ANY guarantor answered Yes to "Do you intend to occupy the subject property?", flag this application as a hard stop — SLA makes business-purpose loans only and cannot fund an owner-occupied property. A loan over $3,500,000 or over the exposure cap is Tier 3.' },
   { slug: 'term_sheet', label: 'Term Sheet', section: 'loan',
     conditions: 'Loan amount, rehab amount, fees, and borrower name all match the loan application; term is 6–24 months; no escrow account is reflected (SLA does not escrow).' },
-
-  // ── Closing ───────────────────────────────────────────────────
-  { slug: 'borrower_closing_funds_receipt', label: 'Borrower Closing Funds Receipt', section: 'closing',
-    conditions: 'Requested the day of closing. Shows the borrower funded the required cash-to-close to the title company.', purchaseOnly: true },
-  { slug: 'cpl', label: 'Closing Protection Letter (CPL)', section: 'closing',
-    conditions: 'Mortgagee clause matches the funding-source template exactly; loan number, borrower/entity, property address, and commitment number match the title commitment. CPL dated on or before the origination date and no more than 60 days before the note date. (New York uses an Agent Authorization Letter instead of a CPL.) The borrower / entity named on the CPL is the borrowing entity of record (compare to the ENTITY NAME OF RECORD; a guarantor\'s name is acceptable only when the guarantor is the borrower). The lender named is the lender in the EXPECTED MORTGAGEE CLAUSE (its LLC name, without the ISAOA/ATIMA suffix); any other lender name is a defect.' },
-  { slug: 'emd_receipt', label: 'EMD Receipt', section: 'closing',
-    conditions: 'Shows the title company received the earnest-money deposit from the borrower; amount matches the Purchase Agreement or assignment contract (an email confirmation from the title company is an acceptable substitute).', purchaseOnly: true },
-  { slug: 'prelim_settlement', label: 'Pre-Lim Settlement Statement', section: 'closing',
-    conditions: 'Loan amount, fees, prepaid interest, property address, and borrower are correct and reconcile to the approved term sheet.' },
-  { slug: 'final_hud', label: 'Final HUD / Settlement Statement', section: 'closing',
-    conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
-  { slug: 'tax_certificate', label: 'Tax Certificate', section: 'closing',
-    conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed; real-estate taxes are current.' },
-  // Deploy 236.670 — added to RTL per Mike (payoff of the existing lien on a refi).
-  { slug: 'payoff_demand', label: 'Payoff Demand', section: 'closing',
-    conditions: 'Payoff statement from the existing lender (refinance). Payoff amount, per-diem interest, and good-through date are current; lender + loan match the subject property.', optional: true },
-  { slug: 'title_commitment', label: 'Title Commitment', section: 'closing',
-    conditions: 'Mortgagee clause matches the funding-source template; borrower name(s) match the Articles (or the ID if individual); property address complete (all units if multi-unit); dated within 60 days of closing. Lender\'s coverage is 125% of the loan amount (100% minimum); owner\'s coverage equals the purchase price; Fee Simple; chain of title at least 24 months with the current vested owner matching the Purchase Agreement seller; real-estate taxes current. NO subordinate/junior liens (SLA allows no subordinate financing). HARD STOP (no exception): any lis pendens must be fully removed, and an oil/gas lease granting surface rights makes the property ineligible. Required endorsements present (ALTA 9/100, 8.1, and 4/5 as applicable); survey/affidavit on file; HOA dues current; solar/HERO liens subordinated or paid off.' },
-  { slug: 'title_eo_insurance', label: 'Title E&O Insurance', section: 'closing',
-    conditions: 'Insured name matches the title company; coverage at least $1,000,000 per occurrence; policy effective through the note date.' },
-  { slug: 'wire_instructions', label: 'Wire Instructions', section: 'closing',
-    conditions: 'Wire instructions for the title company; verified against the CPL / title commitment.' },
-  // Deploy 236.945 (Mike) — the borrower's own account for construction draws;
-  // sent from the tray as a borrower form (see _shared/borrower-forms.mjs).
-  { slug: 'draw_wire_form', label: 'Construction Draw Wire Information', section: 'closing',
-    conditions: '', optional: true, noReview: true },
   // Deploy 236.945 (Mike) — SLA's commitment letter, generated + sent from the tray
   // for the borrower's acknowledgment; storage-only (see _shared/borrower-forms.mjs).
   { slug: 'commitment_letter', label: 'Loan Commitment Letter', section: 'loan',
     conditions: '', optional: true, noReview: true },
+
+  // ── Closing ───────────────────────────────────────────────────────────
+  { slug: 'title_eo_insurance', label: 'Title E&O Insurance', section: 'closing',
+    conditions: 'Insured name matches the title company; coverage at least $1,000,000 per occurrence; policy effective through the note date.' },
+  { slug: 'emd_receipt', label: 'EMD Receipt', section: 'closing',
+    conditions: 'Shows the title company received the earnest-money deposit from the borrower; amount matches the Purchase Agreement or assignment contract (an email confirmation from the title company is an acceptable substitute).', purchaseOnly: true },
+  { slug: 'cpl', label: 'Closing Protection Letter (CPL)', section: 'closing',
+    conditions: 'Mortgagee clause matches the funding-source template exactly; loan number, borrower/entity, property address, and commitment number match the title commitment. CPL dated on or before the origination date and no more than 60 days before the note date. (New York uses an Agent Authorization Letter instead of a CPL.) The borrower / entity named on the CPL is the borrowing entity of record (compare to the ENTITY NAME OF RECORD; a guarantor\'s name is acceptable only when the guarantor is the borrower). The lender named is the lender in the EXPECTED MORTGAGEE CLAUSE (its LLC name, without the ISAOA/ATIMA suffix); any other lender name is a defect.' },
+  { slug: 'tax_certificate', label: 'Tax Certificate', section: 'closing',
+    conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed; real-estate taxes are current.' },
+  { slug: 'title_commitment', label: 'Title Commitment', section: 'closing',
+    conditions: 'Mortgagee clause matches the funding-source template; borrower name(s) match the Articles (or the ID if individual); property address complete (all units if multi-unit); dated within 60 days of closing. Lender\'s coverage is 125% of the loan amount (100% minimum); owner\'s coverage equals the purchase price; Fee Simple; chain of title at least 24 months with the current vested owner matching the Purchase Agreement seller; real-estate taxes current. NO subordinate/junior liens (SLA allows no subordinate financing). HARD STOP (no exception): any lis pendens must be fully removed, and an oil/gas lease granting surface rights makes the property ineligible. Required endorsements present (ALTA 9/100, 8.1, and 4/5 as applicable); survey/affidavit on file; HOA dues current; solar/HERO liens subordinated or paid off.' },
+  { slug: 'wire_instructions', label: 'Wire Instructions', section: 'closing',
+    conditions: 'Wire instructions for the title company; verified against the CPL / title commitment.' },
+  { slug: 'prelim_settlement', label: 'Pre-Lim Settlement Statement', section: 'closing',
+    conditions: 'Loan amount, fees, prepaid interest, property address, and borrower are correct and reconcile to the approved term sheet.' },
+  { slug: 'borrower_closing_funds_receipt', label: 'Borrower Closing Funds Receipt', section: 'closing',
+    conditions: 'Requested the day of closing. Shows the borrower funded the required cash-to-close to the title company.', purchaseOnly: true },
+  // Deploy 236.670 — added to RTL per Mike (payoff of the existing lien on a refi).
+  { slug: 'payoff_demand', label: 'Payoff Demand', section: 'closing',
+    conditions: 'Payoff statement from the existing lender (refinance). Payoff amount, per-diem interest, and good-through date are current; lender + loan match the subject property.', optional: true },
+  // Deploy 236.945 (Mike) — the borrower's own account for construction draws;
+  // sent from the tray as a borrower form (see _shared/borrower-forms.mjs).
+  { slug: 'draw_wire_form', label: 'Construction Draw Wire Information', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'original_doc_tracking', label: 'Original Doc Tracking', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+
+  // ── Post Close ────────────────────────────────────────────────────────
   // Deploy 236.752 — record-keeping vault for the executed/signed closing package.
   // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
   // required-missing doc. Backfilled onto existing reviews by sync-categories.
-  { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'closing',
+  { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'post_close',
     conditions: '', optional: true, noReview: true },
   // Deploy 236.838 — post-closing record-keeping trays on EVERY loan (Mike):
   // executed ACH authorization, closing W9, the executed/recorded deed, and
   // the original-document tracking record. Storage-only like the executed
   // closing package; sync-categories backfills them onto existing reviews.
-  { slug: 'executed_ach_form', label: 'Executed ACH Form', section: 'closing',
+  { slug: 'executed_ach_form', label: 'Executed ACH Form', section: 'post_close',
     conditions: '', optional: true, noReview: true },
-  { slug: 'closing_w9', label: 'Closing W9', section: 'closing',
+  { slug: 'executed_deed', label: 'Executed Deed', section: 'post_close',
     conditions: '', optional: true, noReview: true },
-  { slug: 'executed_deed', label: 'Executed Deed', section: 'closing',
+  { slug: 'closing_w9', label: 'Closing W9', section: 'post_close',
     conditions: '', optional: true, noReview: true },
-  { slug: 'original_doc_tracking', label: 'Original Doc Tracking', section: 'closing',
-    conditions: '', optional: true, noReview: true },
+  { slug: 'final_hud', label: 'Final HUD / Settlement Statement', section: 'post_close',
+    conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
+  { slug: 'recorded_security_instrument', label: 'Recorded Deed of Trust / Mortgage', section: 'post_close',
+    optional: true, noReview: true,
+    conditions: 'The security instrument as recorded by the county -- recording stamp, instrument number and recording date visible. Storage only: filed after closing, not underwritten.' },
+  { slug: 'final_title_policy', label: 'Final Title Policy', section: 'post_close',
+    optional: true, noReview: true,
+    conditions: 'The final lender\'s title policy issued after recording (the commitment made final). Storage only: filed after closing, not underwritten.' },
 ];
 
 // Deploy 236.702 — GUC (Ground-Up Construction) document set. Construction runs
@@ -374,6 +392,55 @@ export const GUC_CONSTRUCTION_DOCS = [
 export const GUC_DOCS = [
   ...RTL_DOCS.filter((d) => d.slug !== 'bpo_valuation'),
   ...GUC_CONSTRUCTION_DOCS,
+];
+
+// ── Tray order (Deploy 237.228, Dan) ───────────────────────────────
+// The order the trays RENDER in, inside their section. It has to live somewhere
+// other than the checklist arrays: a review snapshots its trays at creation and
+// the page lists them with Object.keys(review.docs), which is creation order and
+// is frozen for every review that already exists. Reordering the arrays alone
+// would only have moved the trays on brand-new reviews.
+//
+// One list covers all three checklists, so the two products' variants of the
+// same document sit next to each other (ein_or_w9 / ein_letter, voided_check /
+// voided_check_ach, track_record / track_record_reo) -- no checklist holds both,
+// so their relative order never shows. Anything not listed here (a custom tray,
+// a per-property or per-guarantor suffix on an unknown base) sorts after the
+// ones that are, in the order the review created it.
+//
+// Keep it in step with the arrays above and with TRAY_ORDER in
+// deploy/loan-doc-review.js -- scripts/doc-tray-order-test.mjs fails if either
+// drifts.
+export const TRAY_ORDER = [
+  // Borrower
+  'articles_of_organization', 'certificate_of_good_standing', 'ein_or_w9', 'ein_letter',
+  'ofac_entity', 'operating_agreement', 'bank_stmt_current', 'bank_stmt_previous',
+  'voided_check', 'voided_check_ach', 'track_record', 'track_record_reo',
+  'entity_background_check', 'borrower_loe', 'foreign_entity_registration',
+  // Guarantor
+  'guarantor_id', 'credit_authorization', 'credit_report', 'guarantor_background_check',
+  'ofac_personal', 'pfs', 'guarantor_loe', 'proof_of_citizenship', 'voh_corrfirst',
+  // Collateral
+  'bpo_valuation', 'appraisal', 'psa', 'assignment_agreement', 'evidence_of_insurance',
+  'proof_of_insurance_pif', 'flood_certificate', 'sow', 'cost_basis', 'lease_agreements',
+  'proof_of_security_deposit', 'property_mgmt_summary', 'property_mgmt_agreement',
+  'property_mgmt_questionnaire', 'mortgage_statements_payoffs', 'vom',
+  'property_insurance_binder', 'flood_insurance_policy', 'property_profile',
+  'appraisal_receipt', 'air', 'cda_report', 'property_condition_assessment',
+  'condo_documents', 'condo_hoa_docs', 'condo_insurance', 'environmental_survey',
+  'insurance_invoice', // retired 237.228 -- listed so a legacy tray still sorts here
+  'architectural_plans', 'building_permits', 'feasibility_study', 'gc_review',
+  // Application & Terms (the application and term sheet are pinned above these)
+  'letter_of_intent', 'revised_loan_terms', 'loan_application', 'term_sheet',
+  'outstanding_conditions', 'exception_request', 'commitment_letter',
+  // Closing
+  'title_eo_insurance', 'emd_receipt', 'cpl', 'tax_certificate', 'title_commitment',
+  'wire_instructions', 'prelim_settlement', 'borrower_closing_funds_receipt',
+  'title_escrow_contact', 'payoff_demand', 'invoice', 'draw_wire_form',
+  'original_doc_tracking',
+  // Post Close
+  'executed_closing_documents', 'executed_ach_form', 'executed_deed', 'closing_w9',
+  'final_hud', 'recorded_security_instrument', 'final_title_policy',
 ];
 
 export function getChecklist(loanType) {
@@ -438,8 +505,25 @@ export function findCategory(slug) {
   return DSCR_DOCS.find((d) => d.slug === s)
     || RTL_DOCS.find((d) => d.slug === s)
     || GUC_CONSTRUCTION_DOCS.find((d) => d.slug === s)
+    // Deploy 237.228 -- a retired category still resolves here (see RETIRED_DOCS).
+    || RETIRED_DOCS.find((d) => d.slug === s)
     || null;
 }
+
+// ── Retired categories ─────────────────────────────────────────────
+// Deploy 237.228 (Dan: "Remove the document tray for insurance invoice") -- off
+// every checklist, so no NEW review gets the tray and no existing review is
+// asked for one again. The definition stays here for the reviews that already
+// have the tray: findCategory keeps resolving the label, the section and the
+// rubric, so a legacy Insurance Invoice keeps its name and still files under
+// Collateral in the loan-file ZIP. The page drops the tray when it is EMPTY and
+// keeps it when something was filed in it (RETIRED_SLUGS in loan-doc-review.js)
+// -- removing a checklist item must never hide a document somebody uploaded.
+export const RETIRED_DOCS = [
+  { slug: 'insurance_invoice', label: 'Insurance Invoice', section: 'collateral',
+    conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured (borrower / entity) shown; the premium is reasonable for the coverage and matches the bound policy.', optional: true },
+];
+export const RETIRED_SLUGS = RETIRED_DOCS.map((d) => d.slug);
 
 // ── Portfolio per-property collateral ──────────────────────────────
 // Deploy 236.782 — on a Portfolio loan every property gets its own set of
@@ -447,10 +531,12 @@ export function findCategory(slug) {
 // these five collected PER PROPERTY on every portfolio review regardless of
 // tool type — even where the loan type's own checklist doesn't carry the
 // category (SOW is normally RTL-only; Lease Agreements is DSCR-only since
-// 236.709). psa / evidence_of_insurance / insurance_invoice are already in
-// both checklists and are listed here as the guarantee, not an override.
+// 236.709). psa / evidence_of_insurance are already in both checklists and are
+// listed here as the guarantee, not an override.
+// Deploy 237.228 (Dan) -- insurance_invoice dropped with the tray itself; a
+// portfolio review was the one place that still minted one per property.
 export const PORTFOLIO_EXTRA_COLLATERAL = [
-  'sow', 'psa', 'lease_agreements', 'evidence_of_insurance', 'insurance_invoice',
+  'sow', 'psa', 'lease_agreements', 'evidence_of_insurance',
 ];
 
 // The collateral entries a portfolio review should expand per property:

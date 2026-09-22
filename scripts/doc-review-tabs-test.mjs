@@ -26,6 +26,9 @@ const cut = (from, to) => {
 };
 const code =
   cut('  var APP_SLUGS = {', '  var DOC_META = {') +
+  // Deploy 237.228 -- renderSections sorts every section by TRAY_ORDER now, so the
+  // rank helpers that sit just after DOC_META have to come along.
+  cut('  var RETIRED_SLUGS = {', '  var PROP_TYPE_LABELS = {') +
   // _secOf calls _isOtherSlug, which lives much further down the file.
   cut('  function _isOtherSlug(slug) {', '  function _fmtMoney(') +
   cut('  var _STATUSES = [', '  var STAGE_EMPTY = {');
@@ -213,6 +216,7 @@ const rctx = {
 vm.createContext(rctx);
 vm.runInContext(
   cut('  var APP_SLUGS = {', '  var DOC_META = {') +
+  cut('  var RETIRED_SLUGS = {', '  var PROP_TYPE_LABELS = {') + // Deploy 237.228 -- TRAY_ORDER + the rank helpers
   cut('  function _isOtherSlug(slug) {', '  function _fmtMoney(') +
   cut('  var _STATUSES = [', '  var STAGE_EMPTY = {') +
   cut('  function renderSections(slugs) {', '  // Deploy 236.501 \u2014 a slug is an'),
@@ -248,9 +252,12 @@ const procHtml = render(FILE, 'processor');
 check('the page renders the new section order, with no "Loan Documents" heading',
   headings(procHtml), ['Application & Terms', 'Borrower Documents', 'Guarantor Documents',
     'Collateral Documents', 'Closing Documents', 'Other Documents']);
+// Deploy 237.228 (Dan) -- the two still lead, and what follows them is now in
+// checklist order (letter of intent, then the commitment letter) instead of the
+// order this review happened to mint the trays in.
 check('the application and term sheet lead, then what used to be Loan Documents',
   trayOrder(procHtml).slice(0, 4),
-  ['loan_application', 'term_sheet', 'commitment_letter', 'letter_of_intent']);
+  ['loan_application', 'term_sheet', 'letter_of_intent', 'commitment_letter']);
 check('BOTH custom trays render in the one Other section at the very bottom',
   trayOrder(procHtml).slice(-2), ['custom_1', 'custom_2']);
 check('…and exactly one "Other Documents" heading exists (Dan saw two)',

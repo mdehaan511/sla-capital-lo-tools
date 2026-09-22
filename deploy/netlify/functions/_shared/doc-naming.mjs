@@ -318,7 +318,10 @@ export function applyCanonicalDocName(review, slug, docId, opts) {
 // Deploy 237.150 (Dan) -- 'loan' folds into Application & Terms and every
 // non-checklist tray into one Other folder, so the ZIP mirrors what the processor
 // sees on the page (displaySection is the single source for that mapping).
-const SECTION_FOLDER = { application: 'Application & Terms', borrower: 'Borrower Entity', guarantor: 'Guarantor', collateral: 'Collateral', closing: 'Closing', other: 'Other' };
+// Deploy 237.228 (Dan) -- Post Close is its own section on the page, so it is its
+// own folder in the ZIP. A section with no folder name here would fall back to the
+// raw section key, which is not a folder name anyone wants to read.
+const SECTION_FOLDER = { application: 'Application & Terms', borrower: 'Borrower Entity', guarantor: 'Guarantor', collateral: 'Collateral', closing: 'Closing', post_close: 'Post Close', other: 'Other' };
 export function zipFolderFor(review, slug, docState, docId) {
   const section = displaySection(sectionOf(slug, docState), slug);
   const idx = SECTIONS.findIndex((s) => s.key === section);

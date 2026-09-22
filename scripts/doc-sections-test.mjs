@@ -48,8 +48,9 @@ const assert = (name, cond, why) => {
 
 // ── sections ───────────────────────────────────────────────────────────────
 console.log('\nSections (_shared/loan-review-checklists.mjs)');
+// Deploy 237.228 (Dan) -- Post Close joined, between Closing and Other.
 check('the on-screen order, with Other last', SECTIONS.map((s) => s.key),
-  ['application', 'borrower', 'guarantor', 'collateral', 'closing', 'other']);
+  ['application', 'borrower', 'guarantor', 'collateral', 'closing', 'post_close', 'other']);
 check('"Loan Documents" is gone', SECTIONS.filter((s) => s.key === 'loan').length, 0);
 
 check('a checklist entry still filed under \'loan\' renders under the application',
@@ -87,7 +88,7 @@ check('the commitment letter files with the application, at the top of the ZIP',
 check('the other sections keep their place',
   [folder('appraisal'), folder('cpl')], ['4 - Collateral', '5 - Closing']);
 check('a non-checklist doc gets the one Other folder, last',
-  folder('custom_9'), '6 - Other');
+  folder('custom_9'), '7 - Other'); // Deploy 237.228 -- 6 is Post Close now
 assert('every ZIP folder number matches the section\'s place on the page',
   SECTIONS.every((s, i) => {
     const f = zipFolderFor(review, 'probe', { section: s.key }, '');

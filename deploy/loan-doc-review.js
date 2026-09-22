@@ -47,6 +47,8 @@
     { key: 'guarantor', label: 'Guarantor Documents' },
     { key: 'collateral',label: 'Collateral Documents'},
     { key: 'closing',   label: 'Closing Documents'   },
+    // Deploy 237.228 (Dan) -- everything that only exists after the loan funds.
+    { key: 'post_close',label: 'Post Close'          },
     { key: 'other',     label: 'Other Documents'     },
   ];
   var DOC_META = {
@@ -107,21 +109,88 @@
     cpl:                      { label: 'Closing Protection Letter (CPL)', section: 'closing', conditions: 'Mortgagee Clause; loan number; property address; date.' },
     emd_receipt:              { label: 'EMD Receipt', section: 'closing', conditions: 'Receipt showing borrower provided EMD to the title company.' },
     prelim_settlement:        { label: 'Pre-Lim Settlement Statement', section: 'closing', conditions: 'Loan amount correct; fees correct; prepaid interest; property address; borrower.' },
-    final_hud:                { label: 'Final HUD / Settlement Statement', section: 'closing', conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
+    // Deploy 237.228 (Dan) -- the final HUD is collected after closing, so it moved
+    // to Post Close with the executed documents.
+    final_hud:                { label: 'Final HUD / Settlement Statement', section: 'post_close', conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
     tax_certificate:          { label: 'Tax Certificate', section: 'closing', conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed.' },
     title_commitment:         { label: 'Title Commitment', section: 'closing', conditions: 'Mortgagee Clause; loan number; borrower name; property address(es); 125% of loan value; date.' },
     title_eo_insurance:       { label: 'Title E&O Insurance', section: 'closing', conditions: 'Title company name; $1 million in protection; policy dates current.' },
     wire_instructions:        { label: 'Wire Instructions', section: 'closing', conditions: 'Wire instructions for the title company.' },
-    // Deploy 236.752 — record-keeping vault; never AI-reviewed (noReview).
-    executed_closing_documents: { label: 'Executed Closing Documents', section: 'closing', conditions: '', noReview: true },
-    // Deploy 236.838 — post-closing record-keeping trays (Mike): storage-only.
-    executed_ach_form:     { label: 'Executed ACH Form',     section: 'closing', conditions: '', noReview: true },
-    closing_w9:            { label: 'Closing W9',            section: 'closing', conditions: '', noReview: true },
     draw_wire_form:        { label: 'Construction Draw Wire Information', section: 'closing', conditions: '', noReview: true }, // Deploy 236.945
     commitment_letter:     { label: 'Loan Commitment Letter', section: 'loan', conditions: '', noReview: true },             // Deploy 236.945
-    executed_deed:         { label: 'Executed Deed',         section: 'closing', conditions: '', noReview: true },
     original_doc_tracking: { label: 'Original Doc Tracking', section: 'closing', conditions: '', noReview: true },
+    // ── Post Close (Deploy 237.228, Dan) ──
+    // Record-keeping vault; never AI-reviewed (noReview). These were filed under
+    // Closing since 236.752 / 236.838; they only exist after the loan funds, so
+    // they now have their own section under Closing.
+    executed_closing_documents: { label: 'Executed Closing Documents', section: 'post_close', conditions: '', noReview: true },
+    executed_ach_form:     { label: 'Executed ACH Form',     section: 'post_close', conditions: '', noReview: true },
+    executed_deed:         { label: 'Executed Deed',         section: 'post_close', conditions: '', noReview: true },
+    closing_w9:            { label: 'Closing W9',            section: 'post_close', conditions: '', noReview: true },
+    // Deploy 237.228 (Dan) -- two new post-close trays. Both are storage-only:
+    // they arrive from the title company / county after funding and are filed,
+    // not underwritten.
+    recorded_security_instrument: { label: 'Recorded Deed of Trust / Mortgage', section: 'post_close', conditions: '', noReview: true },
+    final_title_policy:    { label: 'Final Title Policy',    section: 'post_close', conditions: '', noReview: true },
   };
+  // Deploy 237.228 (Dan: "Remove the document tray for insurance invoice") -- off
+  // the checklist (see RETIRED_DOCS in _shared/loan-review-checklists.mjs), so no
+  // new review gets one. A review that already has the tray keeps it ONLY while
+  // something is filed in it; an empty one stops rendering. Its DOC_META entry
+  // stays above so a legacy tray keeps its name and its section.
+  var RETIRED_SLUGS = { insurance_invoice: 1 };
+  // Deploy 237.228 (Dan) -- the order trays render in INSIDE their section.
+  // render() lists trays with Object.keys(_review.docs), which is the order the
+  // review created them in and is frozen for every review that already exists, so
+  // reordering the checklist arrays alone would only have moved the trays on new
+  // reviews. Mirrors TRAY_ORDER in _shared/loan-review-checklists.mjs --
+  // scripts/doc-tray-order-test.mjs fails if the two drift apart.
+  var TRAY_ORDER = [
+    // Borrower
+    'articles_of_organization', 'certificate_of_good_standing', 'ein_or_w9', 'ein_letter',
+    'ofac_entity', 'operating_agreement', 'bank_stmt_current', 'bank_stmt_previous',
+    'voided_check', 'voided_check_ach', 'track_record', 'track_record_reo',
+    'entity_background_check', 'borrower_loe', 'foreign_entity_registration',
+    // Guarantor
+    'guarantor_id', 'credit_authorization', 'credit_report', 'guarantor_background_check',
+    'ofac_personal', 'pfs', 'guarantor_loe', 'proof_of_citizenship', 'voh_corrfirst',
+    // Collateral
+    'bpo_valuation', 'appraisal', 'psa', 'assignment_agreement', 'evidence_of_insurance',
+    'proof_of_insurance_pif', 'flood_certificate', 'sow', 'cost_basis', 'lease_agreements',
+    'proof_of_security_deposit', 'property_mgmt_summary', 'property_mgmt_agreement',
+    'property_mgmt_questionnaire', 'mortgage_statements_payoffs', 'vom',
+    'property_insurance_binder', 'flood_insurance_policy', 'property_profile',
+    'appraisal_receipt', 'air', 'cda_report', 'property_condition_assessment',
+    'condo_documents', 'condo_hoa_docs', 'condo_insurance', 'environmental_survey',
+    'insurance_invoice',
+    'architectural_plans', 'building_permits', 'feasibility_study', 'gc_review',
+    // Application & Terms (APP_SLUGS pins the application and term sheet above these)
+    'letter_of_intent', 'revised_loan_terms', 'loan_application', 'term_sheet',
+    'outstanding_conditions', 'exception_request', 'commitment_letter',
+    // Closing
+    'title_eo_insurance', 'emd_receipt', 'cpl', 'tax_certificate', 'title_commitment',
+    'wire_instructions', 'prelim_settlement', 'borrower_closing_funds_receipt',
+    'title_escrow_contact', 'payoff_demand', 'invoice', 'draw_wire_form',
+    'original_doc_tracking',
+    // Post Close
+    'executed_closing_documents', 'executed_ach_form', 'executed_deed', 'closing_w9',
+    'final_hud', 'recorded_security_instrument', 'final_title_policy',
+  ];
+  var TRAY_RANK = (function() {
+    var m = {};
+    for (var i = 0; i < TRAY_ORDER.length; i++) m[TRAY_ORDER[i]] = i + 1;
+    return m;
+  })();
+  // A tray's place in its section. Application & Terms keeps its own rule (the
+  // loan application and term sheet lead it, 237.150). A tray nobody listed --
+  // a custom category, an unknown base slug -- sorts after every listed one and
+  // keeps the order the review created it in.
+  function _trayRank(slug) {
+    var base = String(slug || '').replace(/__[pg]\d+$/, '');
+    if (APP_SLUGS[base]) return APP_SLUGS[base];
+    return 1000 + (TRAY_RANK[base] || 900);
+  }
+  function _byTrayOrder(a, b) { return _trayRank(a) - _trayRank(b); }
 
   var PROP_TYPE_LABELS = {
     sfr: 'Single Family (1 Unit)', '2-4': '2–4 Unit', condo: 'Condo',
@@ -950,7 +1019,14 @@
   function render() {
     var _anchor = _captureScrollAnchor(); // Deploy 237.046 -- keep the viewport steady across the re-render
     var docs = _review.docs || {};
-    var allSlugs = Object.keys(docs);
+    // Deploy 237.228 (Dan: "Remove the document tray for insurance invoice") -- a
+    // retired tray that nobody filed anything into stops rendering. One that HOLDS
+    // a document stays exactly where it was: taking a category off the checklist
+    // must never make an uploaded file unreachable.
+    var allSlugs = Object.keys(docs).filter(function(s) {
+      if (!RETIRED_SLUGS[String(s).replace(/__[pg]\d+$/, '')]) return true;
+      return _trayHasDoc(docs[s]);
+    });
     // Deploy 236.778 (Mike) — publish felony findings so Loan Details can raise
     // its top-of-page banner (above the tabs) straight from the document review,
     // instead of waiting on the AI's loan-field write to land.
@@ -1671,12 +1747,10 @@
     // Deploy 237.150 -- Application & Terms now also holds what used to be "Loan
     // Documents" (commitment letter, LOI, revised terms, exception request), so pin
     // the application and term sheet to the top of it by APP_SLUGS order.
-    if (bySection.application) {
-      bySection.application.sort(function(a, b) {
-        return (APP_SLUGS[String(a).replace(/__[pg]\d+$/, '')] || 99) -
-               (APP_SLUGS[String(b).replace(/__[pg]\d+$/, '')] || 99);
-      });
-    }
+    // Deploy 237.228 (Dan) -- and every OTHER section is ordered too, by the
+    // checklist's TRAY_ORDER rather than by the order the review happened to mint
+    // the trays in. _trayRank keeps the application rule intact.
+    Object.keys(bySection).forEach(function(k) { bySection[k].sort(_byTrayOrder); });
     // Deploy 236.161 — section header now includes a "Show N hidden"
     // toggle when this section has any hidden trays. Hidden trays
     // are rendered below the visible ones, dimmed, with an "Unhide"
@@ -1688,6 +1762,7 @@
       if (!docs[s].hiddenConfirmedAt) return; // Deploy 237.071 -- unconfirmed hides live in Ready for UW
       (hiddenBySection[_secOf(s)] = hiddenBySection[_secOf(s)] || []).push(s);
     });
+    Object.keys(hiddenBySection).forEach(function(k) { hiddenBySection[k].sort(_byTrayOrder); }); // Deploy 237.228
     return SECTIONS.map(function(sec) {
       var slugsInSec = bySection[sec.key] || [];
       var hiddenInSec = hiddenBySection[sec.key] || [];
@@ -3593,12 +3668,15 @@
     // review's existing custom/"Other" trays. Excludes the source + hidden trays.
     // Deploy 237.150 -- the checklist still files these under 'loan'; the picker
     // shows them where the page does.
-    var SEC_LABELS = { loan: 'Application & Terms', borrower: 'Borrower', guarantor: 'Guarantor', collateral: 'Collateral', closing: 'Closing' };
-    var SEC_ORDER = ['loan', 'borrower', 'guarantor', 'collateral', 'closing'];
+    // Deploy 237.228 (Dan) -- Post Close is a section now; without it here its
+    // trays would have no optgroup and quietly disappear as move destinations.
+    var SEC_LABELS = { loan: 'Application & Terms', borrower: 'Borrower', guarantor: 'Guarantor', collateral: 'Collateral', closing: 'Closing', post_close: 'Post Close' };
+    var SEC_ORDER = ['loan', 'borrower', 'guarantor', 'collateral', 'closing', 'post_close'];
     var stdBySec = {}, cust = [];
     // Standard categories from the client checklist mirror.
     Object.keys(DOC_META).forEach(function(s) {
       if (s === fromSlug) return;
+      if (RETIRED_SLUGS[s]) return; // Deploy 237.228 -- retired: not a destination
       var onReview = _review.docs[s];
       if (onReview && onReview.hidden) return;         // hidden on this review — skip
       var m = DOC_META[s];
@@ -4370,6 +4448,9 @@
     var docs = (_review && _review.docs) || {};
     var out = [];
     Object.keys(docs).forEach(function(slug) {
+      // Deploy 237.228 -- an empty retired tray isn't on the page, so don't offer
+      // it as a destination for a file either.
+      if (RETIRED_SLUGS[String(slug).replace(/__[pg]\d+$/, '')] && !_trayHasDoc(docs[slug])) return;
       out.push({ slug: slug, label: _slugLabel(slug) });
     });
     out.sort(function(a, b) { return a.label < b.label ? -1 : a.label > b.label ? 1 : 0; });
