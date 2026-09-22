@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/open-conditions-test.mjs — Deploy 237.244
+ * scripts/open-conditions-test.mjs — Deploy 237.244 / 237.248
  *
  * Mike: "Let me add a page that shows all open conditions for all loans. Make it
  * look like the closed loans page that has the address that has a drop down menu
@@ -15,7 +15,7 @@
  */
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { openConditionsOf } from '../deploy/netlify/functions/conditions-open.mjs';
+import { openConditionsOf, openTraysOf } from '../deploy/netlify/functions/conditions-open.mjs';
 
 let fail = 0;
 const check = (name, got, want) => {
@@ -68,6 +68,48 @@ console.log('what counts as open\n');
     openConditionsOf({ docs: { t: { conditions: [cond('c', 'x', 'outstanding', 'docs', '')] } } })[0].ageDays, null);
 }
 
+console.log('\ngrouped by document tray, with its notes (237.248)');
+{
+  const review = {
+    docs: {
+      title_commitment: {
+        label: 'Title Commitment',
+        conditions: [
+          cond('c1', 'Remove exception 12', 'outstanding', 'docs', '2026-09-10T00:00:00Z'),
+          cond('c2', 'Mortgagee clause', 'outstanding', 'funding', '2026-09-12T00:00:00Z'),
+        ],
+        noteLog: [
+          { id: 'n1', ts: '2026-09-18T15:00:00Z', author: 'Raissa Dalimocon', authorEmail: 'raissa@slacapital.com', text: 'emailed the borrower 9/18' },
+          { id: 'n2', ts: '2026-09-19T15:00:00Z', author: 'Dee', authorEmail: 'dee@slacapital.com', text: '' },
+        ],
+      },
+      // a tray that only ever had the old free-text field
+      sow: { label: 'Statement of Work (SOW)', processorNotes: 'square footage mismatch, asked Dee', aiReviewedAt: '2026-09-20T00:00:00Z',
+        conditions: [cond('c3', 'SOW total does not match', 'received', 'docs', '2026-09-20T00:00:00Z')] },
+      // conditions all cleared → the tray is not on the list at all
+      psa: { label: 'PSA', noteLog: [{ id: 'x', ts: '', author: 'A', text: 'note' }],
+        conditions: [cond('c4', 'done', 'cleared', 'docs', '2026-09-01T00:00:00Z')] },
+    },
+  };
+  const trays = openTraysOf(review);
+  check('one entry per tray, and only trays with something open',
+    trays.map((t) => [t.slug, t.open]), [['title_commitment', 2], ['sow', 1]]);
+  check('a tray blocking the docs outranks one that does not, then the oldest',
+    trays.map((t) => t.label), ['Title Commitment', 'Statement of Work (SOW)']);
+  check('the tray counts what is prior to docs and what is prior to funding',
+    trays.map((t) => [t.priorToDocs, t.priorToFunding]), [[1, 1], [1, 0]]);
+  check('its notes come with it, newest last, empty ones dropped',
+    trays[0].notes.map((n) => [n.author, n.text]), [['Raissa Dalimocon', 'emailed the borrower 9/18']]);
+  check('a tray that only has the old free-text note still shows it, labelled as earlier',
+    trays[1].notes.map((n) => [n.author, n.text]), [['Earlier note', 'square footage mismatch, asked Dee']]);
+  check('a tray whose conditions are all cleared brings no notes either',
+    trays.some((t) => t.slug === 'psa'), false);
+  check('the flat list is still the same items, for the counts',
+    openConditionsOf(review).map((c) => c.id), ['c1', 'c2', 'c3']);
+  assert('a malformed noteLog does not throw',
+    openTraysOf({ docs: { t: { conditions: [cond('c', 'x', 'outstanding', 'docs', '')], noteLog: [null, 'nope', {}] } } })[0].notes.length === 0);
+}
+
 console.log('\nwho can see what');
 {
   const F = S('netlify/functions/conditions-open.mjs');
@@ -113,11 +155,25 @@ console.log('\nthe tab');
     loans: [
       { reviewId: 'rev1', address: '5909 Cates Ave, St. Louis, MO', borrowerName: 'Donato Callahan', open: 2, oldestDays: 12, href: '/loan-details/l_1#documents', source: { loanId: 'l_1' },
         conditions: [
-          { id: 'c1', title: 'Remove exception 12', priorTo: 'docs', status: 'outstanding', docLabel: 'Title Commitment', ageDays: 12, createdBy: 'raissa@slacapital.com' },
-          { id: 'c3', title: 'Raise dwelling coverage', priorTo: 'funding', status: 'received', docLabel: 'Evidence of Insurance', ageDays: 8, createdBy: '' },
+          { id: 'c1', title: 'Remove exception 12', slug: 'title_commitment', priorTo: 'docs', status: 'outstanding', docLabel: 'Title Commitment', ageDays: 12, createdBy: 'raissa@slacapital.com' },
+          { id: 'c3', title: 'Raise dwelling coverage', slug: 'evidence_of_insurance', priorTo: 'funding', status: 'received', docLabel: 'Evidence of Insurance', ageDays: 8, createdBy: '' },
+        ],
+        trays: [
+          { slug: 'title_commitment', label: 'Title Commitment', open: 1, priorToDocs: 1, priorToFunding: 0, oldestDays: 12,
+            conditions: [{ id: 'c1', title: 'Remove exception 12', priorTo: 'docs', status: 'outstanding', docLabel: 'Title Commitment', ageDays: 12, createdBy: 'raissa@slacapital.com' }],
+            notes: [
+              { id: 'n1', ts: '2026-09-18T15:00:00Z', author: 'Raissa Dalimocon', text: 'emailed the borrower 9/18, title says Thursday' },
+              { id: 'n2', ts: '', author: 'Earlier note', text: 'ordered 9/12' },
+            ] },
+          { slug: 'evidence_of_insurance', label: 'Evidence of Insurance', open: 1, priorToDocs: 0, priorToFunding: 1, oldestDays: 8,
+            conditions: [{ id: 'c3', title: 'Raise dwelling coverage', priorTo: 'funding', status: 'received', docLabel: 'Evidence of Insurance', ageDays: 8, createdBy: '' }],
+            notes: [] },
         ] },
       { reviewId: 'rev2', address: '<img src=x onerror=alert(1)>', borrowerName: 'X', open: 1, oldestDays: 0, href: '', source: { loanId: 'l_2' },
-        conditions: [{ id: 'c9', title: '<b>hax</b>', priorTo: 'docs', status: 'outstanding', docLabel: 'PSA', ageDays: 0, createdBy: '' }] },
+        conditions: [{ id: 'c9', title: '<b>hax</b>', slug: 'psa', priorTo: 'docs', status: 'outstanding', docLabel: 'PSA', ageDays: 0, createdBy: '' }],
+        trays: [{ slug: 'psa', label: '<i>PSA</i>', open: 1, priorToDocs: 1, priorToFunding: 0, oldestDays: 0,
+          conditions: [{ id: 'c9', title: '<b>hax</b>', priorTo: 'docs', status: 'outstanding', docLabel: 'PSA', ageDays: 0, createdBy: '' }],
+          notes: [{ id: 'n9', ts: '', author: '<u>who</u>', text: '<script>alert(1)</script>' }] }] },
     ],
   };
   const render = (d) => { ctx._condData = d; ctx._condState = ''; vm.runInContext('renderConditions()', ctx); return el.innerHTML; };
@@ -129,15 +185,45 @@ console.log('\nthe tab');
   assert('it splits prior-to-docs from prior-to-funding', /2 prior to docs · 1 prior to funding/.test(h));
   assert('a hostile address is escaped', h.indexOf('<img src=x') < 0 && h.indexOf('&lt;img src=x') > 0);
 
+  // Deploy 237.248 (Mike: "the same form of the Conditions tab in the loan, with
+  // the Document Tray that you can click down and see the conditions and notes
+  // inside"). Two levels: loan → tray → the items and the notes.
   vm.runInContext("toggleCondRow('rev1')", ctx);
   h = el.innerHTML;
-  assert('opening a row shows its conditions and which document each is on',
-    /Remove exception 12/.test(h) && /Title Commitment/.test(h) && /Raise dwelling coverage/.test(h), h.slice(0, 600));
-  assert('a received item says it is waiting on sign-off, not that it is done', /received, awaiting sign-off/.test(h));
+  assert('opening a LOAN shows its document trays, not the condition text yet',
+    /Title Commitment/.test(h) && /Evidence of Insurance/.test(h) && !/Remove exception 12/.test(h), h.slice(0, 900));
+  assert('a tray says how many are open and how many notes it carries',
+    /pc-tray[\s\S]{0,400}1 open[\s\S]{0,300}pc-badge note">2 notes/.test(h), h.slice(0, 1200));
   assert('the row offers the way through to the loan', /href="\/loan-details\/l_1#documents"/.test(h));
   assert('the OTHER loan stays collapsed', h.indexOf('&lt;b&gt;hax&lt;/b&gt;') < 0);
+
+  vm.runInContext("toggleCondTray('rev1','title_commitment')", ctx);
+  h = el.innerHTML;
+  assert('opening the TRAY shows the condition inside it', /Remove exception 12/.test(h), h.slice(0, 1200));
+  assert('…and the notes on that tray, with who wrote them',
+    /Notes<\/div>[\s\S]{0,400}Raissa[\s\S]{0,400}emailed the borrower/.test(h), h.slice(0, 1600));
+  assert('the OTHER tray on the same loan stays closed', h.indexOf('Raise dwelling coverage') < 0);
+  vm.runInContext("toggleCondTray('rev1','evidence_of_insurance')", ctx);
+  h = el.innerHTML;
+  assert('a received item says it is waiting on sign-off, not that it is done', /received, awaiting sign-off/.test(h));
+  assert('a tray with no notes simply has none', h.indexOf('pc-badge note">1 note') < 0 || !/Evidence of Insurance[\s\S]{0,200}pc-badge note/.test(h));
+  vm.runInContext("toggleCondTray('rev1','title_commitment')", ctx);
+  assert('clicking a tray again closes it', el.innerHTML.indexOf('Remove exception 12') < 0);
   vm.runInContext("toggleCondRow('rev1')", ctx);
-  assert('clicking again closes it', el.innerHTML.indexOf('Remove exception 12') < 0);
+  assert('clicking the loan again closes the whole thing', el.innerHTML.indexOf('Title Commitment') < 0);
+
+  // An answer cached before 237.248 has conditions but no trays; it must still
+  // render rather than showing an opened loan with nothing in it.
+  ctx._condOpenRows = {}; ctx._condOpenTrays = {};
+  const legacy = JSON.parse(JSON.stringify(data));
+  legacy.loans.forEach(function(L) { delete L.trays; });
+  render(legacy);
+  vm.runInContext("toggleCondRow('rev1')", ctx);
+  assert('a pre-237.248 response is grouped into trays on the fly',
+    /Title Commitment/.test(el.innerHTML) && /Evidence of Insurance/.test(el.innerHTML), el.innerHTML.slice(0, 700));
+  vm.runInContext("toggleCondTray('rev1','title_commitment')", ctx);
+  assert('…and its conditions still open', /Remove exception 12/.test(el.innerHTML));
+  ctx._condOpenRows = {}; ctx._condOpenTrays = {};
 
   ctx._condData = null; ctx._condState = 'error'; ctx._condError = 'Server error: nope';
   vm.runInContext('renderConditions()', ctx);
