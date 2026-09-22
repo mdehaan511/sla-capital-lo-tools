@@ -248,6 +248,22 @@ const assignmentSplit = (c) => {
   return { purchase: pp, fee: 0 };
 };
 const basisOf = (c) => { const s = assignmentSplit(c); return s.purchase == null ? null : s.purchase + s.fee; };
+// Deploy 237.230 (Mike: "the same formulas in columns should be used in the printed Loan
+// Trade sheet") -- the six formula cells of "SLA Trade #23.xlsx", verbatim, one column to
+// the left (his sheet carries an untitled column A). `r` is the sheet row; the cached value
+// is our own arithmetic so the number paints before Excel's first recalc, and a formula
+// whose inputs are blank carries no cache and computes on open exactly as his sheet would.
+// The column letters are the tape's fixed positions; scripts/colchis-tape-test.mjs pins each
+// one to its header, so inserting a column fails the gate instead of mis-referencing.
+const fx = (f, v, s) => ({ f, v: (typeof v === 'number' && isFinite(v)) ? v : undefined, s });
+const COLCHIS_FORMULAS = {
+  'Total Cost Basis':    (r) => 'N' + r + '+O' + r + '+P' + r + '+Q' + r,   // purchase + fee + remaining rehab + rehab spent
+  'Original P&I Amount': (r) => 'AJ' + r + '*AD' + r + '/12',               // note rate × total loan ÷ 12
+  'Initial LTC':         (r) => 'AF' + r + '/(N' + r + '+O' + r + ')',     // initial loan ÷ (purchase + fee)
+  'LTAIV':               (r) => 'AF' + r + '/S' + r,                        // initial loan ÷ third-party AIV
+  'Total LTC':           (r) => 'AD' + r + '/R' + r,                        // total loan ÷ total cost basis
+  'LTARV':               (r) => 'AD' + r + '/T' + r,                        // total loan ÷ third-party ARV
+};
 const COLCHIS_TRADE_COLS = [
   ['Lender Loan ID', (c) => c.sla],
   ['Record Identifier', () => 'Loan'],
@@ -270,7 +286,7 @@ const COLCHIS_TRADE_COLS = [
   ['Assignment Fee', (c) => cur(assignmentSplit(c).purchase == null ? null : assignmentSplit(c).fee)],
   ['Remaining Rehab Budget', (c) => cur(rehabAmt(c.loan))],
   ['Rehab Spent to Date', () => cur(0)],
-  ['Total Cost Basis', (c) => { const b = basisOf(c); const v = (b || 0) + rehabAmt(c.loan); return v ? cur(v) : ''; }],
+  ['Total Cost Basis', (c, r) => { const b = basisOf(c); const v = (b || 0) + rehabAmt(c.loan); return fx(COLCHIS_FORMULAS['Total Cost Basis'](r), v || null, 'cur'); }],
   ['Third Party AIV', (c) => cur(thirdPartyAiv(c))],
   ['Third Party ARV', (c) => cur(num(c.loan.arvBpo) || num(c.loan.arv))],
   // Deploy 237.229 (Mike: "Valuation Date and Third Party Valuation Provider should be
@@ -303,34 +319,35 @@ const COLCHIS_TRADE_COLS = [
   ['Appraisal Holdback', () => cur(0)],
   ['Note Rate (%)', (c) => pct(rateFrac(c.loan.rate))],
   ['Orig Points (%)', (c) => { const p = num(c.loan.points); return p == null ? '' : pct(p / 100); }],
-  ['Original P&I Amount', (c) => {
-    const t = totalAmt(c.loan), r = rateFrac(c.loan.rate);
-    return (t && r) ? cur(round2(t * r / 12)) : '';
+  ['Original P&I Amount', (c, r) => {
+    const t = totalAmt(c.loan), rf = rateFrac(c.loan.rate);
+    return fx(COLCHIS_FORMULAS['Original P&I Amount'](r), (t && rf) ? round2(t * rf / 12) : null, 'cur');
   }],
   ['Interest Accrual Methodology', () => '30/360'],
   // A purchase has no cash out: $0.00. A refi's cash-out is not on the loan record -- left
   // for hand-fill rather than guessed.
   ['Cash Out Amount (Refi)', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? cur(0) : '')],
   ['Dutch/Non-Dutch', (c) => dutchLabel(c.loan)],
-  ['Initial LTC', (c) => {
+  ['Initial LTC', (c, r) => {
     const t = totalAmt(c.loan), b = basisOf(c);
-    return (t && b) ? pct(round4((t - rehabAmt(c.loan)) / b)) : '';
+    return fx(COLCHIS_FORMULAS['Initial LTC'](r), (t && b) ? round4((t - rehabAmt(c.loan)) / b) : null, 'pct');
   }],
-  ['LTAIV', (c) => {
+  ['LTAIV', (c, r) => {
     // Deploy 237.223 (Mike: "LTAIV should use the initial advance in ... the colchis
     // tape") -- initial advance (total less the rehab holdback) over the as-is value, the
-    // same basis as Initial LTC two cells up. Was the full loan.
+    // same basis as Initial LTC two cells up. Was the full loan. The sheet's own formula
+    // (AG/T there, AF/S here) says the same thing.
     const t = totalAmt(c.loan), aiv = thirdPartyAiv(c);
-    return (t && aiv) ? pct(round4((t - rehabAmt(c.loan)) / aiv)) : '';
+    return fx(COLCHIS_FORMULAS['LTAIV'](r), (t && aiv) ? round4((t - rehabAmt(c.loan)) / aiv) : null, 'pct');
   }],
-  ['Total LTC', (c) => {
+  ['Total LTC', (c, r) => {
     const t = totalAmt(c.loan);
     const basis = (basisOf(c) || 0) + rehabAmt(c.loan);
-    return (t && basis) ? pct(round4(t / basis)) : '';
+    return fx(COLCHIS_FORMULAS['Total LTC'](r), (t && basis) ? round4(t / basis) : null, 'pct');
   }],
-  ['LTARV', (c) => {
+  ['LTARV', (c, r) => {
     const t = totalAmt(c.loan), arv = num(c.loan.arvBpo) || num(c.loan.arv);
-    return (t && arv) ? pct(round4(t / arv)) : '';
+    return fx(COLCHIS_FORMULAS['LTARV'](r), (t && arv) ? round4(t / arv) : null, 'pct');
   }],
   ['Borrower Name', (c) => borrowerName(c)],
   ['Borrower Type', (c) => (entityNameOf(c) ? 'Entity' : 'Individual')],
@@ -846,7 +863,8 @@ export const TRADE_TAPES = {
       const rows = [COLCHIS_TRADE_COLS.map((col) => col[0])];
       const missing = [];
       for (const c of ctxs) {
-        const row = COLCHIS_TRADE_COLS.map((col) => { try { return col[1](c); } catch (e) { return ''; } });
+        const r = rows.length + 1; // Deploy 237.230 -- the sheet row this loan lands on (header is row 1)
+        const row = COLCHIS_TRADE_COLS.map((col) => { try { return col[1](c, r); } catch (e) { return ''; } });
         rows.push(row);
         COLCHIS_TRADE_COLS.forEach((col, i) => {
           if (COLCHIS_TRADE_REQUIRED.indexOf(col[0]) >= 0 && (row[i] === '' || row[i] == null)) {

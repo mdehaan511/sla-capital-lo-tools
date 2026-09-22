@@ -118,6 +118,31 @@ console.log('\nPurchase price and assignment fee, from the documents');
   assert('...and it has a home on the registry (so a person can confirm or correct it)', /key: 'psaPrice'/.test(readFileSync(new URL('../deploy/loan-uw-fields.js', import.meta.url), 'utf8')));
 }
 
+// ── 3b. the sheet's six formulas, live (Deploy 237.230) ─────────────────────
+console.log('\nThe six formulas of "SLA Trade #23.xlsx", one column to the left, live');
+{
+  const b = build(luna());
+  // every letter a formula names must be the column the sheet means by it
+  const at = (L) => b.hdr[b.hdr.findIndex((h, i) => letter(i) === L)];
+  check('the referenced columns sit where the formulas expect them',
+    ['N', 'O', 'P', 'Q', 'R', 'S', 'T', 'AD', 'AF', 'AJ'].map(at),
+    ['Property Purchase Price', 'Assignment Fee', 'Remaining Rehab Budget', 'Rehab Spent to Date', 'Total Cost Basis', 'Third Party AIV', 'Third Party ARV', 'Total Loan Amount', 'Initial Loan Amount', 'Note Rate (%)']);
+  const f = (name) => { const v = cell(b, name); return v && typeof v === 'object' ? [v.f, v.v, v.s] : v; };
+  check('Total Cost Basis  = N+O+P+Q  (sheet: O+P+Q+R)', f('Total Cost Basis'), ['N2+O2+P2+Q2', 229000, 'cur']);
+  check('Original P&I      = AJ*AD/12 (sheet: AK*AE/12)', f('Original P&I Amount'), ['AJ2*AD2/12', round2(206000 * 0.11 / 12), 'cur']);
+  check('Initial LTC       = AF/(N+O) (sheet: AG/(O+P))', f('Initial LTC'), ['AF2/(N2+O2)', Number((117000 / 140000).toFixed(4)), 'pct']);
+  check('LTAIV             = AF/S     (sheet: AG/T)', f('LTAIV'), ['AF2/S2', 0.9, 'pct']);
+  check('Total LTC         = AD/R     (sheet: AE/S)', f('Total LTC'), ['AD2/R2', Number((206000 / 229000).toFixed(4)), 'pct']);
+  check('LTARV             = AD/T     (sheet: AE/U)', f('LTARV'), ['AD2/T2', Number((206000 / 325000).toFixed(4)), 'pct']);
+  const two = TRADE_TAPES.colchis_trade.build([luna(), luna()]);
+  const row3 = two.sheets[0].rows[2];
+  check('the second loan\'s formulas point at row 3', [row3[col(two.sheets[0].rows[0], 'Total Cost Basis')].f, row3[col(two.sheets[0].rows[0], 'LTARV')].f], ['N3+O3+P3+Q3', 'AD3/T3']);
+  const blank = build(Object.assign(luna(), { loan: Object.assign(luna().loan, { aivBpo: '', arvBpo: '', arv: '' }) }));
+  check('no AIV / ARV: the formula is still there with no cached value (Excel computes it on open, as the sheet would)', [cell(blank, 'LTAIV').f, cell(blank, 'LTAIV').v, cell(blank, 'LTARV').v], ['AF2/S2', undefined, undefined]);
+  check('...and the AIV is still reported for hand-fill', blank.missing.some((m) => /Third Party AIV/.test(m)), true);
+}
+function round2(n) { return Math.round(n * 100) / 100; }
+
 // ── 4. valuation date / provider off the valuation docs ─────────────────────
 console.log('\nValuation Date and Provider reach the tape');
 {
