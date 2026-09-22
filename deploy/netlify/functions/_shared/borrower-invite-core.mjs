@@ -52,10 +52,12 @@ function _signPayload(payloadB64) {
 // link already in someone's inbox keeps working.
 export function mintDurablePortalLink(email, origin, opts) {
   if (!_linkSecret() || !email) return null;
-  const kind = (opts && opts.kind === 'staff') ? 'staff' : 'borrower';
+  // Deploy 237.236 -- 'broker' too: the redeem page and the resend email then point at
+  // the partner portal instead of the borrower portal.
+  const kind = (opts && (opts.kind === 'staff' || opts.kind === 'broker')) ? opts.kind : 'borrower';
   const expiresMs = Date.now() + PORTAL_LINK_TTL_HOURS * 3600 * 1000;
   const claims = { e: String(email).toLowerCase(), x: expiresMs, v: 1 };
-  if (kind === 'staff') claims.k = 'staff';
+  if (kind !== 'borrower') claims.k = kind;
   const payloadB64 = _b64url(JSON.stringify(claims));
   const token = payloadB64 + '.' + _signPayload(payloadB64);
   const base = String(origin || 'https://portal.slacapital.ai').replace(/\/+$/, '');
@@ -82,7 +84,7 @@ export function verifyDurablePortalToken(token) {
     const p = JSON.parse(_b64urlDecode(parts[0]));
     if (!p || !p.e || !p.x) return null;
     return { email: String(p.e).toLowerCase(), expiresMs: Number(p.x), expired: Date.now() > Number(p.x),
-      kind: p.k === 'staff' ? 'staff' : 'borrower' };
+      kind: (p.k === 'staff' || p.k === 'broker') ? p.k : 'borrower' };
   } catch (_) { return null; }
 }
 

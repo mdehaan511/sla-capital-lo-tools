@@ -1518,8 +1518,15 @@
     var body = { loanId: loanId, primaryClientId: clientId, recipient: recipient };
     if (_review.loEmail) body.owner = _review.loEmail;
     showToast('Sending invite…', 'info');
-    global.SLA.api('POST', '/api/borrower-intake-invite', body).then(function(r) {
-      if (r && r.ok) { showToast('✓ Invite sent to ' + (r.email || recipient) + (r.emailed ? '' : ' (access granted; email pending)'), 'success'); dr_loadInviteStatus(); }
+    // Deploy 237.236 -- a broker is invited to the Preferred Partner portal, not the borrower portal.
+    var path = recipient === 'broker' ? '/api/broker-portal-invite' : '/api/borrower-intake-invite';
+    global.SLA.api('POST', path, body).then(function(r) {
+      if (r && r.ok) {
+        showToast((recipient === 'broker' ? '✓ Broker portal invite sent to ' : '✓ Invite sent to ') + (r.email || recipient) +
+          (r.emailed ? '' : (recipient === 'broker' ? ' (email did not send: ' + (r.emailError || 'unknown') + ')' : ' (access granted; email pending)')), r.emailed === false ? 'error' : 'success');
+        if (r.linkNote) showToast(r.linkNote, 'error');
+        dr_loadInviteStatus();
+      }
       else showToast('Invite failed.', 'error');
     }).catch(function(err) {
       showToast('Invite failed: ' + ((err && err.message) || 'unknown'), 'error');
@@ -1543,7 +1550,9 @@
       if (!e || !e.email) return;
       var sent = e.sentAt ? formatDateOnly(e.sentAt) : '—';
       var last = e.lastSignInAt ? formatDateOnly(e.lastSignInAt) : '<span class="never">not yet logged in</span>';
-      lines.push('<span class="who">' + (who === 'broker' ? 'Broker' : 'Borrower') + ':</span> ' +
+      // Deploy 237.236 -- a broker invited before the split got a BORROWER login; say so, so it gets re-sent.
+      var whoLabel = who === 'broker' ? (e.portal === 'broker' ? 'Broker (partner portal)' : 'Broker (old borrower-portal invite — re-send)') : 'Borrower';
+      lines.push('<span class="who">' + whoLabel + ':</span> ' +
         escHtml(e.email) + ' &middot; invited ' + sent + ' &middot; last login ' + last);
     });
     return lines.join('<br>');

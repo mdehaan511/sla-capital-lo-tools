@@ -82,13 +82,16 @@
       var name = meta.full_name || meta.name || '';
       var role = (Array.isArray(roles) && roles[0]) || '';
       var humanRole = role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager'
-        : role === 'processor' ? 'Processor' : role === 'borrower' ? 'Borrower' : 'Loan Officer';
+        : role === 'processor' ? 'Processor' : role === 'borrower' ? 'Borrower' : role === 'broker' ? 'Preferred Partner' : 'Loan Officer';
       // Deploy 236.531 — route borrowers to their portal, staff to the app.
       // A same-origin ?next= path (single leading slash) wins, for deep-links.
       var STAFF = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor'];
       var isStaff = Array.isArray(roles) && roles.some(function (r) { return STAFF.indexOf(r) >= 0; });
       var isBorrower = Array.isArray(roles) && roles.indexOf('borrower') >= 0;
-      var dest = (!isStaff && isBorrower) ? '/borrower-portal.html' : '/';
+      // Deploy 237.236 -- a Preferred Partner goes straight to their portal (index.html
+      // would bounce them there anyway; this saves the hop and says so on the card).
+      var isBroker = Array.isArray(roles) && roles.indexOf('broker') >= 0;
+      var dest = (!isStaff && isBroker) ? '/broker-portal.html' : (!isStaff && isBorrower) ? '/borrower-portal.html' : '/';
       try {
         var nx = new URLSearchParams(window.location.search).get('next');
         if (nx && nx.charAt(0) === '/' && nx.charAt(1) !== '/') dest = nx; // same-origin path only

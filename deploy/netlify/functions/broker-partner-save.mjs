@@ -41,42 +41,10 @@ import { purgeActivity } from './_shared/broker-activity.mjs';
 // Deploy 236.870 — the saved quote history goes with the record too.
 import { purgeQuotes } from './_shared/broker-quotes.mjs';
 import { syncRoleTable } from './_shared/sla-roles.mjs';
+import { sendPartnerInviteEmail } from './_shared/broker-invite-email.mjs';
 
-// Deploy 237.234 -- the invite email. Plain and short: who invited them, what the portal is
-// for, the one link. Never throws; the caller reports `emailed: false` and shows the link.
-async function sendInviteEmail({ toEmail, inviteUrl, rec, actor }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, error: 'RESEND_API_KEY not set' };
-  const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const first = String(rec.firstName || '').trim();
-  const subject = 'Your SLA Capital Preferred Partner login';
-  const text = (first ? 'Hi ' + first + ',\n\n' : '') +
-    'You have been invited to the SLA Capital Preferred Partner portal: see the loans you have with us, ' +
-    'the terms being negotiated, and upload documents for your borrowers.\n\n' +
-    'Set up your login here (the link is yours alone and works once):\n' + inviteUrl + '\n\n' +
-    'Questions? Just reply to this email.\n\nSLA Capital';
-  const html = '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0ece5;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="max-width:560px;margin:0 auto;padding:32px 24px">' +
-      '<div style="background:#fff;border:1px solid #ddd8d0;border-radius:12px;padding:28px">' +
-        '<p style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#C8813A;margin:0 0 6px">SLA Capital · Preferred Partners</p>' +
-        '<h1 style="font-size:20px;margin:0 0 14px;color:#261a36">Your partner login</h1>' +
-        (first ? '<p style="font-size:14px;line-height:1.6;color:#1a1520">Hi ' + escH(first) + ',</p>' : '') +
-        '<p style="font-size:14px;line-height:1.6;color:#1a1520">You have been invited to the SLA Capital Preferred Partner portal: see the loans you have with us, the terms being negotiated, and upload documents for your borrowers.</p>' +
-        '<p style="margin:22px 0"><a href="' + escH(inviteUrl) + '" style="display:inline-block;background:#261a36;color:#f2ede6;text-decoration:none;font-weight:600;font-size:14px;padding:12px 18px;border-radius:8px">Set up my login</a></p>' +
-        '<p style="font-size:12px;line-height:1.6;color:#7a7488">The link is yours alone and works once. If the button does not open, copy this address:<br>' + escH(inviteUrl) + '</p>' +
-        '<p style="font-size:12px;color:#7a7488;margin-top:24px">Questions? Just reply to this email.<br>Sir Lends A Lot LLC dba SLA Capital.</p>' +
-      '</div></div></body></html>';
-  try {
-    const resp = await fetch('https://api.resend.com/emails', {
-      signal: AbortSignal.timeout(15000),
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'SLA Capital <noreply@leads.slacapital.com>', to: [toEmail], subject, text, html, ...(actor ? { reply_to: actor } : {}) }),
-    });
-    if (!resp.ok) { const t = await resp.text().catch(() => ''); return { ok: false, error: 'Resend ' + resp.status + ' ' + t.slice(0, 160) }; }
-    return { ok: true };
-  } catch (e) { return { ok: false, error: (e && e.message) || 'send failed' }; }
-}
+// Deploy 237.236 -- the invite email lives in _shared/broker-invite-email.mjs now, so the
+// desk and the LO's "Invite Broker" on a loan (broker-portal-invite.mjs) send the SAME email.
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -138,7 +106,7 @@ async function handle(req, context) {
     // per partner: nothing mails anyone unless a person clicked "Email it".
     let emailed = false, emailError = '';
     if (body.send === true) {
-      const r = await sendInviteEmail({ toEmail: email, inviteUrl, rec, actor });
+      const r = await sendPartnerInviteEmail({ toEmail: email, url: inviteUrl, rec, actor, mode: 'claim' });
       emailed = r.ok; emailError = r.error || '';
     }
     return json(200, { ok: true, partner: rec, inviteUrl, emailed, emailError });

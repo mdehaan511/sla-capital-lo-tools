@@ -3239,6 +3239,17 @@
         return api('GET', '/api/loan-access-list' + (qs.length ? '?' + qs.join('&') : ''));
       },
     },
+    // Deploy 237.236 -- the Preferred Partner portal invite (brokers never get a borrower login).
+    BrokerPortal: {
+      invite: function (data) { return api('POST', '/api/broker-portal-invite', data); },
+      status: function (opts) {
+        opts = opts || {};
+        var qs = [];
+        if (opts.brokerClientId) qs.push('brokerClientId=' + encodeURIComponent(opts.brokerClientId));
+        if (opts.owner) qs.push('owner=' + encodeURIComponent(opts.owner));
+        return api('GET', '/api/broker-portal-invite' + (qs.length ? '?' + qs.join('&') : ''));
+      },
+    },
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,

@@ -8,6 +8,11 @@
  *
  * Body: { clientId, owner? }
  * Auth: the client's owner (LO) or an admin.
+ *
+ * Deploy 237.236 -- a BROKER record (a Broker Book entry, _isBroker) is refused here: a
+ * broker gets the Preferred Partner portal via /api/broker-portal-invite, never a borrower
+ * login. A broker who also has loans of their own (pre-split history) may still be invited
+ * for those.
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -101,6 +106,11 @@ async function handle(req, context) {
   }
 
   // ── POST → invite borrower to the portal ──
+  // Deploy 237.236 (Mike: "completely diverge the borrowers and brokers") -- never a borrower
+  // login for a broker record.
+  if (client._isBroker && !loans.some((l) => !(l._isBrokerLoan || l.brokerId))) {
+    return json(409, { error: 'This is a broker record. Invite them to the Preferred Partner portal instead (Invite to Broker Portal).' });
+  }
   const inviteEmail = normalizeEmail(String((body && body.emailOverride) || client.email || '').trim());
   if (!inviteEmail || inviteEmail.indexOf('@') < 0) {
     return json(400, { error: 'This client has no email on file. Add one first.' });

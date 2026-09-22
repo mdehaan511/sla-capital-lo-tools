@@ -5,10 +5,11 @@
  * chooses WHO to send to (borrower or broker), and the loan keeps an audit
  * record so the UI can show recipient + date sent + last sign-in.
  *
- *   POST { loanId, primaryClientId, recipient?: 'borrower'|'broker',
- *          owner?, emailOverride? }
+ *   POST { loanId, primaryClientId, recipient?: 'borrower', owner?, emailOverride? }
  *        → create/find the Supabase borrower user (role 'borrower'), grant
  *          loan_access, email a one-click magic-link sign-in, record the invite.
+ *        recipient 'broker' is REFUSED (410) since Deploy 237.236: a broker gets the
+ *        Preferred Partner portal via /api/broker-portal-invite, never a borrower login.
  *   GET  ?loanId=&owner=  → { borrower?: {email,sentAt,sentBy,lastSignInAt},
  *                             broker?: {...} }  (invite status for the loan)
  * Auth: any staff (owning LO, processor, or admin). POST is owner-scoped —
@@ -29,9 +30,12 @@ function _isStaff(user) {
 }
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
 import { isLoanInProcessing } from './_shared/access.mjs';
+// Deploy 237.236 -- a broker's "last login" comes from their partner record (broker-claim
+// mints their login, so the loan's invite record has no user id for a claim-mode invite).
+import { getPartner, markPortalInvite } from './_shared/broker-partners.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
-  getSb, ensureBorrowerUser, borrowerMagicLink, lastSignInByUserId,
+  getSb, ensureBorrowerUser, borrowerMagicLink, lastSignInByUserId, findUserIdByEmail,
   mintDurablePortalLink, linkExpiryCopy,
   sendBorrowerEmail, readLoanInvites, writeLoanInvite, escHtml,
 } from './_shared/borrower-invite-core.mjs';
@@ -63,9 +67,24 @@ async function handle(req, context) {
     for (const who of ['borrower', 'broker']) {
       const e = rec && rec[who];
       if (e && e.email) {
+        let uid = e.userId || '';
+        if (who === 'broker' && !uid) {
+          // Deploy 237.236 -- a claim-mode partner invite has no user id until the broker sets
+          // up their login; the partner record remembers it once looked up (one paged lookup
+          // per claimed broker, ever), so the status line is not stuck on "not yet logged in".
+          try {
+            const p = await getPartner(e.email);
+            uid = (p && p.portalInvite && p.portalInvite.userId) || '';
+            if (!uid && p && p.inviteAcceptedAt) {
+              uid = await findUserIdByEmail(sb, e.email);
+              if (uid) await markPortalInvite(e.email, { userId: uid });
+            }
+          } catch (_) { uid = ''; }
+        }
         out[who] = {
           email: e.email, sentAt: e.sentAt || '', sentBy: e.sentBy || '',
-          lastSignInAt: await lastSignInByUserId(sb, e.userId || ''),
+          lastSignInAt: await lastSignInByUserId(sb, uid),
+          portal: e.portal || (who === 'broker' ? 'borrower-legacy' : 'borrower'),
         };
       }
     }
@@ -81,6 +100,12 @@ async function handle(req, context) {
   const loanId = String(body.loanId).trim();
   const primaryClientId = String(body.primaryClientId).trim();
   const recipient = body.recipient === 'broker' ? 'broker' : 'borrower';
+  // Deploy 237.236 (Mike: "instead of invite to borrower portal it should be invite to
+  // broker portal") -- this endpoint minted a BORROWER login and a borrower-role grant for
+  // the broker. Brokers have their own portal now; nothing here may send one there.
+  if (recipient === 'broker') {
+    return json(410, { error: 'Brokers are invited to the Preferred Partner portal, not the borrower portal. Use Invite Broker (it now calls /api/broker-portal-invite).' });
+  }
   const selfEmail = normalizeEmail(user.email);
   // Owner override (act on another LO's loan) is allowed for admins + processors;
   // a plain LO always resolves to their own book.

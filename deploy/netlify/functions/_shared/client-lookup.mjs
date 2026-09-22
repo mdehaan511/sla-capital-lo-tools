@@ -31,14 +31,14 @@ function _escLike(s) {
  * Find a client under `ownerKey` whose email equals `email`
  * (case-insensitive). Returns { key, client } or null.
  */
-export async function findClientByEmail(ownerKey, email, clientsStore) {
+export async function findClientByEmail(ownerKey, email, clientsStore, opts) {
   const wanted = normalizeEmail(email);
   if (!wanted || !ownerKey) return null;
   const store = clientsStore || _store();
   let rows;
   try {
     rows = await db.select('clients', {
-      select: 'id,email',
+      select: 'id,email,is_broker',
       eq: { owner_email: normalizeEmail(ownerKey) },
       ilike: { email: _escLike(wanted) },
       limit: 5,
@@ -47,6 +47,11 @@ export async function findClientByEmail(ownerKey, email, clientsStore) {
     console.warn('[client-lookup] byEmail PG query failed:', e && e.message);
     return null;
   }
+  // Deploy 237.236 -- borrowers and brokers are separate records now, and one email can
+  // sit on both. Borrower flows (the default) get the borrower; broker-link asks for the
+  // broker. Stable otherwise, so a single match behaves exactly as before.
+  const preferBroker = !!(opts && opts.prefer === 'broker');
+  rows = (rows || []).slice().sort((a, b) => (!!a.is_broker === preferBroker ? 0 : 1) - (!!b.is_broker === preferBroker ? 0 : 1));
   for (const row of (rows || [])) {
     if (normalizeEmail(row.email) !== wanted) continue; // ilike is looser than eq
     const key = ownerKey + '/' + keySafe(row.id);

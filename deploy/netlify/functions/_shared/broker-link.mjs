@@ -57,6 +57,14 @@ function splitName(fullName) {
   return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
 }
 
+// Deploy 237.236 (Mike: "completely diverge the borrowers and brokers") -- a BORROWER's
+// record (not flagged, with loans of its own) is never turned into a broker, whatever
+// the email says. A bare contact (no loans) may still be adopted; a borrower gets a
+// SEPARATE broker record created below, so the two lists stay two lists.
+function _isBorrowerRecord(client) {
+  return !!client && !client._isBroker && Array.isArray(client.loans) && client.loans.length > 0;
+}
+
 // Stamp the broker flag on a client that isn't flagged yet (a plain
 // contact used on a broker deal). Non-destructive; best-effort write.
 async function _ensureFlagged(ownerKey, client, incomingComp, clientsStore) {
@@ -94,11 +102,12 @@ export async function linkOrCreateBroker(ownerKey, loan) {
     // 1. Fast path: incoming brokerId → live client under this owner.
     if (incomingId) {
       const rec = await clientsStore.get(ownerKey + '/' + keySafe(incomingId), { type: 'json' }).catch(() => null);
-      if (rec && rec.id === incomingId) {
+      if (rec && rec.id === incomingId && !_isBorrowerRecord(rec)) {
         await _ensureFlagged(ownerKey, rec, incomingComp, clientsStore);
         return { id: rec.id, created: false, broker: clientAsBroker(rec) };
       }
-      // dangling id → fall through to search
+      if (rec && rec.id === incomingId) console.warn('[broker-link] brokerId ' + incomingId + ' is a BORROWER record; not adopting it (Deploy 237.236)');
+      // dangling id (or a borrower's) → fall through to search
     }
 
     // 2. Email match → an existing client (broker or contact) under owner.
@@ -116,8 +125,12 @@ export async function linkOrCreateBroker(ownerKey, loan) {
     // Now: the typed broker name always wins, and a record whose name
     // contradicts it is never silently converted into a broker.
     if (incomingEmail) {
-      const hit = await findClientByEmail(ownerKey, incomingEmail, clientsStore);
-      if (hit && hit.client) {
+      // A broker record first when the same email is on both a borrower and a broker.
+      const hit = await findClientByEmail(ownerKey, incomingEmail, clientsStore, { prefer: 'broker' });
+      if (hit && hit.client && _isBorrowerRecord(hit.client)) {
+        console.warn('[broker-link] email ' + incomingEmail + ' is a BORROWER record ("' +
+          String(((hit.client.firstName || '') + ' ' + (hit.client.lastName || '')).trim()) + '"); creating a separate broker record instead (Deploy 237.236)');
+      } else if (hit && hit.client) {
         const recName = String(hit.client.displayName
           || ((hit.client.firstName || '') + ' ' + (hit.client.lastName || '')).trim()).trim();
         const nameConflict = !!incomingName && !!recName

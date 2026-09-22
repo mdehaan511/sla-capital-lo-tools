@@ -5671,7 +5671,7 @@ function _buildBorrowerAccessSection() {
       '<div id="ldInviteGateNote" style="display:none;font-size:11px;color:var(--gold-mid,#b5712d);margin-bottom:8px;line-height:1.5"></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
         '<button type="button" id="ldInviteBorrowerBtn" class="vesting-llc-save-btn" onclick="ldInvite(\'borrower\')" style="white-space:nowrap">✉ Invite Borrower</button>' +
-        (_ldHasBrokerEmail() ? '<button type="button" class="add-guarantor-btn" onclick="ldInvite(\'broker\')" style="white-space:nowrap">✉ Invite Broker</button>' : '') +
+        (_ldHasBrokerEmail() ? '<button type="button" class="add-guarantor-btn" onclick="ldInvite(\'broker\')" style="white-space:nowrap" title="Invite this broker to the Preferred Partner portal (their own login; they upload for the borrower there)">✉ Invite Broker</button>' : '') +
       '</div>' +
       '<div id="borrowerAccessList" style="margin-bottom:12px"><div style="font-size:12px;color:var(--muted);font-style:italic">Loading…</div></div>' +
       // Deploy 236.592 — invite a GUARANTOR from a dropdown (only people already
@@ -5806,8 +5806,21 @@ function ldInvite(recipient) {
   if (el) el.textContent = 'Sending invite…';
   var body = { loanId: _loanId, primaryClientId: _client.id, recipient: recipient };
   if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
-  SLA.api('POST', '/api/borrower-intake-invite', body).then(function(r) {
-    if (r && r.ok) { showToast('Invite sent to ' + (r.email || recipient)); ldLoadInviteStatus(); refreshBorrowerAccessList(); }
+  // Deploy 237.236 (Mike) -- a broker is invited to the Preferred Partner portal (their own
+  // login, every loan they broker, the borrower's document page for each), never the
+  // borrower portal. borrower-intake-invite refuses recipient 'broker' now.
+  var path = recipient === 'broker' ? '/api/broker-portal-invite' : '/api/borrower-intake-invite';
+  SLA.api('POST', path, body).then(function(r) {
+    if (r && r.ok) {
+      showToast((recipient === 'broker' ? 'Broker portal invite sent to ' : 'Invite sent to ') + (r.email || recipient) + (r.emailed === false ? ' (email did not send)' : ''));
+      if (recipient === 'broker' && (r.emailed === false || r.linkNote) && el) {
+        // The invite exists even when the email did not go out: hand the LO the link.
+        el.innerHTML = (r.emailed === false ? '⚠ The email did not send' + (r.emailError ? ' (' + escH(r.emailError) + ')' : '') + '. Send this link yourself: <a href="' + escAttr(r.inviteUrl || '') + '" target="_blank" rel="noopener">' + escH(r.inviteUrl || '') + '</a><br>' : '') +
+          (r.linkNote ? '⚠ ' + escH(r.linkNote) : '');
+        setTimeout(ldLoadInviteStatus, 8000);
+      } else { ldLoadInviteStatus(); }
+      refreshBorrowerAccessList();
+    }
     else if (el) el.textContent = 'Invite failed.';
   }).catch(function(err) {
     if (el) el.textContent = 'Invite failed: ' + (err && err.message || 'unknown');
@@ -5828,7 +5841,9 @@ function ldRenderInviteStatus(st) {
     var last = e.lastSignInAt
       ? new Date(e.lastSignInAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
       : '<span style="color:#b5712d;font-weight:600">not yet logged in</span>';
-    lines.push('<span style="font-weight:600;color:var(--text,#1a1520)">' + (who === 'broker' ? 'Broker' : 'Borrower') + ':</span> ' +
+    // Deploy 237.236 -- a broker invited before the split got a BORROWER login; say so, so the LO re-sends.
+    var whoLabel = who === 'broker' ? (e.portal === 'broker' ? 'Broker (partner portal)' : 'Broker (old borrower-portal invite — re-send)') : 'Borrower';
+    lines.push('<span style="font-weight:600;color:var(--text,#1a1520)">' + whoLabel + ':</span> ' +
       escH(e.email) + ' &middot; invited ' + sent + ' &middot; last login ' + last);
   });
   return lines.join('<br>');

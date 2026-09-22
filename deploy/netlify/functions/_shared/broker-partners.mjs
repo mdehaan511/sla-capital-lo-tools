@@ -212,6 +212,20 @@ export async function consumeInvite(email) {
   return rec;
 }
 
+/**
+ * Deploy 237.236 -- remember the last portal invite (who sent it, when, claim vs sign-in,
+ * from which loan, the auth user id once known). Merged, never replaced, so a later stamp
+ * of one field keeps the rest. Read by the Broker Book page's status line.
+ */
+export async function markPortalInvite(email, patch) {
+  const rec = await getPartner(email);
+  if (!rec) return null;
+  rec.portalInvite = Object.assign({}, rec.portalInvite || {}, patch || {});
+  rec.updatedAt = new Date().toISOString();
+  await _store().setJSON(partnerKey(email), rec);
+  return rec;
+}
+
 /** Delete a partner record outright. Used for mistakes, not for offboarding
  *  (that's `suspended`, which keeps the history). */
 export async function deletePartner(email) {

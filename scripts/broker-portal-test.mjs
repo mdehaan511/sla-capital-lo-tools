@@ -126,19 +126,24 @@ console.log('\n/api/broker-loans: the partner\'s loans, grouped, borrower-safe')
 }
 
 // ── 2. the invite, emailed ──────────────────────────────────────────────────
+// Deploy 237.236 -- the email itself moved to _shared/broker-invite-email.mjs (the LO's
+// "Invite Broker" on a loan sends the same one); scripts/broker-invite-test.mjs runs that
+// module. Here: partner-save hands the sender the right link, mode and reply-to, and
+// reports what the sender said.
 console.log('\nThe desk can email the invite');
 {
   const sent = [];
-  const mk = (fetchImpl) => loadFunction('broker-partner-save.mjs', {
+  const mk = (sendImpl) => loadFunction('broker-partner-save.mjs', {
     './_shared/auth.mjs': { handleOptions: () => null, json: (status, body) => ({ status, body }), requireAuth: async () => ({ email: 'mike@slacapital.com' }), readJsonBody: async (r) => r.body, isAdmin: () => true, normalizeEmail: (s) => String(s || '').trim().toLowerCase() },
     './_shared/broker-partners.mjs': { getPartner: async (e) => ({ email: e, firstName: 'Bo', status: 'approved' }), mintInvite: async (e) => ({ email: e, firstName: 'Bo', inviteToken: 'tok123' }), ALL_PROGRAMS: ['dscr', 'rtl', 'guc', 'mf'] },
-  }, { fetch: fetchImpl });
-  let fn = (await mk(async (url, o) => { sent.push([url, JSON.parse(o.body)]); return { ok: true, text: async () => '' }; })).default;
+    './_shared/broker-invite-email.mjs': { sendPartnerInviteEmail: sendImpl },
+  }, {});
+  let fn = (await mk(async (a) => { sent.push(a); return { ok: true }; })).default;
   let r = await fn(req('POST', 'https://portal.slacapital.ai/api/broker-partner-save', {}, { email: 'bo@brokerage.com', action: 'invite' }), {});
   check('a plain invite mints the link and emails NOBODY', [r.status, r.body.emailed, sent.length, r.body.inviteUrl], [200, false, 0, 'https://portal.slacapital.ai/broker-signup.html?t=tok123']);
   r = await fn(req('POST', 'https://portal.slacapital.ai/api/broker-partner-save', {}, { email: 'bo@brokerage.com', action: 'invite', send: true }), {});
-  check('send: true emails the partner the same link, reply-to the inviting admin', [r.body.emailed, sent[0][1].to, sent[0][1].reply_to, sent[0][1].text.indexOf(r.body.inviteUrl) >= 0, sent[0][1].html.indexOf(r.body.inviteUrl) >= 0], [true, ['bo@brokerage.com'], 'mike@slacapital.com', true, true]);
-  fn = (await mk(async () => ({ ok: false, status: 422, text: async () => 'bad address' }))).default;
+  check('send: true hands the sender the same link as a CLAIM, to the partner, reply-to the inviting admin', [r.body.emailed, sent.length, sent[0].toEmail, sent[0].actor, sent[0].url === r.body.inviteUrl, sent[0].mode, sent[0].rec && sent[0].rec.firstName], [true, 1, 'bo@brokerage.com', 'mike@slacapital.com', true, 'claim', 'Bo']);
+  fn = (await mk(async () => ({ ok: false, error: 'Resend 422 bad address' }))).default;
   r = await fn(req('POST', 'https://x/api/broker-partner-save', {}, { email: 'bo@brokerage.com', action: 'invite', send: true }), {});
   check('a failed send says so and still hands back the link', [r.status, r.body.emailed, /422/.test(r.body.emailError), !!r.body.inviteUrl], [200, false, true, true]);
   const desk = read('broker-partners.html');

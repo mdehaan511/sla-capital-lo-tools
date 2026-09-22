@@ -1403,6 +1403,13 @@
   to = "/.netlify/functions/broker-loans"
   status = 200
   force = true
+# Deploy 237.236 -- invite a broker to the Preferred Partner portal (from a loan, or from
+# their Broker Book page); GET = their portal status.
+[[redirects]]
+  from = "/api/broker-portal-invite"
+  to = "/.netlify/functions/broker-portal-invite"
+  status = 200
+  force = true
 # Deploy 236.870 — every Get Pricing is saved; this reads it back. A
 # partner sees only their own; admins see every partner's.
 [[redirects]]

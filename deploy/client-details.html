@@ -268,7 +268,7 @@ function render() {
   var html = '<div class="page-header">' +
     '<div class="client-avatar-lg">'+escH(initials)+'</div>' +
     '<div class="page-header-info">' +
-      '<div style="margin-bottom:10px"><a href="clients.html" class="back-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> All Borrowers</a></div>' +
+      '<div style="margin-bottom:10px"><a href="' + (c._isBroker ? 'brokers.html' : 'clients.html') + '" class="back-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> ' + (c._isBroker ? 'Broker Book' : 'All Borrowers') + '</a></div>' +
       '<div class="page-title">'+escH((c.firstName||'')+' '+(c.lastName||''))+' <span id="acctPillSlot"></span></div>' +
       '<div class="page-subtitle">'+escH(c.email||'')+(c.phone?' · '+escH(c.phone):'')+'</div>' +
       '<div class="meta-pills" style="margin-top:8px">' +
@@ -285,42 +285,46 @@ function render() {
   // Send Loan Prequal — emails the borrower a prequal link, CCs the
   // LO, and stamps _prequalLastSentAt so the "Last sent {date}" note
   // below the button (Deploy 236.189) reflects the most recent send.
-  // Deploy 236.226 (Broker Phase C) — Tag / Untag broker button.
-  // Sets or clears _isBroker on the client via /api/client-broker-tag;
-  // Brokers page will pick it up on next load. When set, the client
-  // appears in the Broker Book alongside the existing contact record.
+  // Deploy 237.236 (Mike: "completely diverge the borrowers and brokers") -- the Tag/Untag
+  // broker toggle (236.226) is gone: a broker is a Broker Book record, a borrower is a
+  // client, and this page shows the actions that fit the record. A broker who ALSO has
+  // loans of their own (pre-split history) keeps the borrower actions for those.
   var _isBrokerFlag = !!c._isBroker;
-  var _brokerBtnLabel = _isBrokerFlag ? 'Remove Broker Tag' : 'Tag as Broker';
-  var _brokerBtnStyle = _isBrokerFlag
-    ? 'background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40)'
-    : 'background:var(--surface);color:var(--text);border:1px solid var(--border)';
+  var _brokerOwnLoans = (c.loans || []).some(function(l) { return l && !(l._isBrokerLoan || l.brokerId); });
+  var _borrowerActions = !_isBrokerFlag || _brokerOwnLoans;
   html += '<div class="client-actions" style="display:flex;gap:10px;margin-bottom:0.4rem;flex-wrap:wrap;align-items:flex-start">' +
-    '<button type="button" class="action-btn primary" onclick="openCreateLoanModal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--gold);color:#fff;border:1px solid var(--gold);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
+    (_borrowerActions ? '<button type="button" class="action-btn primary" onclick="openCreateLoanModal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--gold);color:#fff;border:1px solid var(--gold);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
       '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' +
       'Create New Loan' +
-    '</button>' +
-    '<div style="display:flex;flex-direction:column;gap:2px">' +
+    '</button>' : '') +
+    (_borrowerActions ? '<div style="display:flex;flex-direction:column;gap:2px">' +
       '<button type="button" class="action-btn" onclick="sendLoanPrequal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
         '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4l5 4 5-4M2 4v6h10V4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
         'Send Loan Prequal' +
       '</button>' +
       '<div id="prequalLastSent" style="font-size:11px;color:var(--muted);padding:0 4px;line-height:1.4">' + _prequalLastSentLabel(c) + '</div>' +
-    '</div>' +
-    '<button type="button" class="action-btn" id="brokerTagBtn" onclick="toggleBrokerTag()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;' + _brokerBtnStyle + '" title="Toggle whether this contact appears in the Broker Book">' +
-      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4h10M2 7h10M2 10h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-      _brokerBtnLabel +
-    '</button>' +
+    '</div>' : '') +
     (_isBrokerFlag
       ? '<span style="display:inline-flex;align-items:center;padding:6px 12px;background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40);border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase">Broker</span>'
       : '') +
     // Deploy 236.533 — invite this borrower to the portal (all their loans).
-    '<div style="display:flex;flex-direction:column;gap:2px">' +
+    // Deploy 237.236 -- a BROKER record invites to the Preferred Partner portal instead.
+    (_isBrokerFlag
+      ? '<div style="display:flex;flex-direction:column;gap:2px">' +
+          '<button type="button" class="action-btn" id="brokerPortalInviteBtn" onclick="inviteBrokerPortal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer" title="Invite this broker to the Preferred Partner portal: their own login, every loan they broker with us, and the borrower document page for each">' +
+            '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 7.5a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5zM2.5 12c0-2 2-3 4.5-3s4.5 1 4.5 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+            'Invite to Broker Portal' +
+          '</button>' +
+          '<div id="brokerPortalInviteStatus" style="font-size:11px;color:var(--muted);padding:0 4px;line-height:1.4"></div>' +
+        '</div>' +
+        '<a href="/brokers.html?focus=' + encodeURIComponent(c.id) + '" class="action-btn" style="display:inline-flex;align-items:center;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">Broker Book \u2192</a>'
+      : '<div style="display:flex;flex-direction:column;gap:2px">' +
       '<button type="button" class="action-btn" id="portalInviteBtn" onclick="invitePortal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer" title="Give this borrower portal access to all their loans and email a one-click sign-in link">' +
         '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 7.5a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5zM2.5 12c0-2 2-3 4.5-3s4.5 1 4.5 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
         'Invite to Borrower Portal' +
       '</button>' +
       '<div id="portalInviteStatus" style="font-size:11px;color:var(--muted);padding:0 4px;line-height:1.4"></div>' +
-    '</div>' +
+    '</div>') +
   '</div>' +
   '<div style="height:1rem"></div>';
 
@@ -579,7 +583,7 @@ function render() {
   if (window.SLAForms && SLAForms.reformatExisting) {
     SLAForms.reformatExisting(document.getElementById('pageContent'));
   }
-  loadPortalInviteStatus(); // Deploy 236.538 — persistent "invited / last login" line
+  if (c._isBroker) loadBrokerPortalStatus(); else loadPortalInviteStatus(); // Deploy 236.538 / 237.236 — persistent "invited / last login" line
 }
 
 // Deploy 237.167 (Mike) -- the person's executed e-sign documents. The server decides
@@ -1245,29 +1249,61 @@ function _prequalLastSentLabel(c) {
 // Deploy 236.189 — email now CCs the LO who owns the lead, and the
 // backend stamps _prequalLastSentAt on the client record. On success
 // we update the "Last sent" caption in place without a full reload.
-// Deploy 236.226 (Broker Phase C) — flip _isBroker on the client.
-// Optimistic update: label + badge toggle immediately, POST goes to
-// /api/client-broker-tag which re-renders on success or reverts on
-// failure.
-function toggleBrokerTag() {
+// Deploy 237.236 (Mike: "instead of invite to borrower portal it should be invite to broker
+// portal") -- a broker record invites to the Preferred Partner portal: the server creates
+// or approves the partner record under this LO, picks a one-time claim link (no login yet)
+// or a 72h sign-in link (a login exists), emails it, and remembers the invite. The tag
+// toggle that lived here (236.226) is gone: brokers and borrowers are separate lists now.
+function inviteBrokerPortal() {
   if (!_client) { showToast('Client not loaded'); return; }
-  var willBeBroker = !_client._isBroker;
-  var btn = document.getElementById('brokerTagBtn');
-  if (btn) { btn.disabled = true; btn.textContent = willBeBroker ? 'Tagging…' : 'Removing…'; }
-  var body = { clientId: _client.id, isBroker: willBeBroker };
+  var email = (_client.email || '').trim();
+  if (!email) { showToast('This broker has no email on file — add one first.'); return; }
+  if (!confirm('Invite ' + email + ' to the Preferred Partner portal?\n\nThey get their own login, see every loan they broker with us, and can upload documents for those borrowers.')) return;
+  var btn = document.getElementById('brokerPortalInviteBtn');
+  var status = document.getElementById('brokerPortalInviteStatus');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Sending invite…';
+  var body = { brokerClientId: _clientId };
   if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
-  SLA.api('POST', '/api/client-broker-tag', body).then(function(r) {
+  SLA.api('POST', '/api/broker-portal-invite', body).then(function(r) {
+    if (btn) btn.disabled = false;
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
-    _client = r.client;
-    if (Array.isArray(_client.loans) === false) _client.loans = _client.loans || [];
-    showToast(willBeBroker
-      ? 'Tagged as Broker — now visible in the Broker Book.'
-      : 'Removed Broker tag.');
-    render();
+    showToast('Broker portal invite sent to ' + r.email + (r.emailed ? '' : ' (email did not send)'));
+    if (status) {
+      status.innerHTML = r.emailed
+        ? '&#10003; Invited ' + escH(r.email) + (r.mode === 'signin' ? ' &middot; sign-in link (they already had a login)' : ' &middot; claim link')
+        : '&#9888; The email did not send' + (r.emailError ? ' (' + escH(r.emailError) + ')' : '') + '. Send this link yourself: <a href="' + escAttr(r.inviteUrl || '') + '" target="_blank" rel="noopener">' + escH(r.inviteUrl || '') + '</a>';
+    }
+    if (r.emailed) loadBrokerPortalStatus();
   }).catch(function(err) {
-    if (btn) { btn.disabled = false; btn.textContent = willBeBroker ? 'Tag as Broker' : 'Remove Broker Tag'; }
-    showToast('Broker tag failed: ' + (err && err.message || 'unknown'));
+    if (btn) btn.disabled = false;
+    if (status) status.textContent = 'Invite failed: ' + (err && err.message || 'unknown');
+    showToast('Invite failed: ' + (err && err.message || 'unknown'));
   });
+}
+
+// The broker's portal standing: invited / claimed / last sign-in, plus the account pill.
+function loadBrokerPortalStatus() {
+  var status = document.getElementById('brokerPortalInviteStatus');
+  var slot = document.getElementById('acctPillSlot');
+  if (!_clientId || !window.SLA || !SLA.api) return;
+  var url = '/api/broker-portal-invite?brokerClientId=' + encodeURIComponent(_clientId) +
+    (_loEmail && _user && _loEmail !== _user.email ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.api('GET', url).then(function(r) {
+    var base = 'display:inline-flex;align-items:center;vertical-align:middle;padding:2px 9px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;';
+    var fmt = function(iso) { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); };
+    if (slot) {
+      if (r && r.status === 'suspended') slot.innerHTML = '<span title="Portal access suspended" style="' + base + 'background:rgba(124,31,31,0.10);color:#7c1f1f">Partner &middot; suspended</span>';
+      else if (r && r.hasLogin) slot.innerHTML = '<span title="Partner portal login' + (r.lastSignInAt ? ' · last sign-in ' + escH(fmt(r.lastSignInAt)) : '') + '" style="' + base + 'background:rgba(22,101,52,0.10);color:#166534">&#10003; Partner' + (r.lastSignInAt ? ' &middot; ' + escH(fmt(r.lastSignInAt)) : '') + '</span>';
+      else if (r && r.invited) slot.innerHTML = '<span title="Invited to the partner portal — has not set up a login yet" style="' + base + 'background:rgba(200,129,58,0.12);color:#b5712d">Invited</span>';
+      else slot.innerHTML = '<span title="No partner portal login yet" style="' + base + 'background:rgba(38,26,54,0.06);color:var(--muted)">No portal login</span>';
+    }
+    if (!status) return;
+    if (!r || !r.invited) { status.innerHTML = ''; return; }
+    var last = r.lastSignInAt ? fmt(r.lastSignInAt) : '<span style="color:#b5712d;font-weight:600">not yet logged in</span>';
+    status.innerHTML = '&#10003; Portal invited ' + escH(r.email || '') + (r.sentAt ? ' &middot; ' + fmt(r.sentAt) : '') +
+      (r.claimedAt ? ' &middot; login set up ' + fmt(r.claimedAt) : '') + ' &middot; last login ' + last;
+  }).catch(function() { /* the status line is a hint, not critical */ });
 }
 
 // Deploy 236.533 — invite this borrower to the portal: portal access to ALL

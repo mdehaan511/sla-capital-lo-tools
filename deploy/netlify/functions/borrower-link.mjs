@@ -104,6 +104,10 @@ function _maskEmail(email) {
 // The error copy went role-neutral ("whoever invited you"); only the footer
 // button and the resend email actually need to know which side you are on.
 function _portalBtn(kind) {
+  // Deploy 237.236 -- a Preferred Partner's link points at their portal.
+  if (kind === 'broker') {
+    return '<p style="text-align:center;margin-top:18px"><a href="/broker-portal.html" style="color:#b5712d;font-weight:600;text-decoration:none">Go to the partner portal &rarr;</a></p>';
+  }
   if (kind === 'staff') {
     return '<p style="text-align:center;margin-top:18px"><a href="/index.html" style="color:#b5712d;font-weight:600;text-decoration:none">Go to SLA Capital →</a></p>';
   }
@@ -128,8 +132,8 @@ function _page(title, bodyHtml, status) {
 
 function _newLinkEmail(link, expiresText, kind) {
   // 237.219 — same email for both sides, one noun apart.
-  const what = kind === 'staff' ? 'SLA Capital sign-in link' : 'SLA Capital borrower portal sign-in link';
-  const whatShort = kind === 'staff' ? 'sign-in link' : 'borrower portal sign-in link';
+  const what = kind === 'staff' ? 'SLA Capital sign-in link' : kind === 'broker' ? 'SLA Capital partner portal sign-in link' : 'SLA Capital borrower portal sign-in link';
+  const whatShort = kind === 'staff' ? 'sign-in link' : kind === 'broker' ? 'partner portal sign-in link' : 'borrower portal sign-in link';
   const text = [
     'Hi there,', '',
     'Here is your new ' + what + ':', link, '',
