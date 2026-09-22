@@ -240,5 +240,50 @@ console.log('\napply.html?broker=');
   assert('prospects-save still routes a broker submission on the broker email and stamps brokerId on the loan (unchanged)', /brokerEmail/.test(readFn('prospects-save.mjs')) && /loan\.brokerId = linked\.id/.test(readFn('prospects-save.mjs')));
 }
 
+// ── 6. the polishes (Deploy 237.235): program labels + the rep on each loan ─
+console.log('\nProgram labels as Loan Details prints them; reps per loan');
+{
+  const ns = await loadFunction('broker-loans.mjs', { './_shared/auth.mjs': { normalizeEmail: (s) => String(s || '').toLowerCase(), keySafe: (s) => s } });
+  check('RTL types by code', ['light', 'heavy', 'bridge', 'transactional', 'construction'].map((c) => ns.programLabel({ toolType: 'rtl', loanType: c })),
+    ['Light Rehab (<50% of Loan)', 'Heavy Rehab (>50% of Loan)', 'Bridge (No Rehab)', 'Transactional Funding (1-day)', 'Construction']);
+  check('a stored loanTypeLabel (what the sizer captured) wins', ns.programLabel({ toolType: 'rtl', loanType: 'light', loanTypeLabel: 'Light Rehab' }), 'Light Rehab');
+  check('DSCR with and without a product; 5+ unit', [ns.programLabel({ toolType: 'dscr', loanType: '30Y Fixed' }), ns.programLabel({ toolType: 'dscr' }), ns.programLabel({ toolType: 'dscr', mfProgram: true, loanType: '7/6 ARM' })], ['DSCR · 30-Year Fixed', 'DSCR', 'DSCR 5+ Unit · 7/6 ARM']);
+  check('GUC; an unknown RTL code falls back to the family, never the raw code', [ns.programLabel({ toolType: 'guc', loanType: 'construction' }), ns.programLabel({ toolType: 'rtl', loanType: 'zzz' })], ['Ground-Up Construction', 'Bridge / Rehab']);
+  check('purpose', ['purchase', 'cashout', 'rateterm', ''].map((p) => ns.purposeLabel({ loanPurpose: p })), ['Purchase', 'Cash-Out Refinance', 'Rate/Term Refinance', '']);
+  const P = read('broker-portal.html');
+  // Lift the page's helpers + card/rep renderers and RUN them against a fake DOM (a grep for
+  // their shape missed three of six negative mutations).
+  {
+    const lift = (name) => { const m = new RegExp('\\n(function ' + name + '\\([^)]*\\)\\{[\\s\\S]*?\\n\\})\\n').exec(P); if (!m) throw new Error('page function ' + name + ' not found'); return m[1]; };
+    const oneLine = (name) => { const m = new RegExp('\\nfunction ' + name + '\\([^)]*\\)\\{[^\\n]*\\}').exec(P); if (!m) throw new Error('page function ' + name + ' not found'); return m[0]; };
+    const src = ['escH', 'escA', 'money', 'pct', 'pts', 'fmtDate', 'program', 'repOf', 'multiRep'].map(oneLine).join('\n') + '\n' +
+      ['stageChip', 'intakeHref', 'loanCard', 'repHtml', 'renderRep'].map(lift).join('\n');
+    const mkEl = () => { const el = { style: {}, innerHTML: '', textContent: '' }; el.querySelector = () => el.h2 || (el.h2 = mkEl()); return el; };
+    const dom = { repCard: mkEl(), repBody: mkEl() };
+    const c = { ME: null, document: { getElementById: (id) => dom[id] || null }, encodeURIComponent, location: { search: '' } };
+    c.window = c;
+    vm.createContext(c);
+    let ok = true, why = '';
+    try { vm.runInContext(src, c); } catch (e) { ok = false; why = 'page code threw: ' + e.message; }
+    const run = (js) => { try { return vm.runInContext(js, c); } catch (e) { why = 'threw: ' + e.message; return ''; } };
+    const rep1 = { email: 'a@sla.com', name: 'Rep A' }, rep2 = { email: 'b@sla.com', name: 'Rep B' };
+    const loan = { loanId: 'l_1', clientId: 'c_1', ownerKey: 'b_at_sla_com', program: 'Light Rehab (<50% of Loan)', loanType: 'light', purposeLabel: 'Purchase', address: '1 Main St', slaDisplayId: 'SLA-1', stage: { key: 'processing', label: 'Document Collection' } };
+    assert('the page prints the server\'s label, not the raw code', ok && run('program(' + JSON.stringify(loan) + ')') === 'Light Rehab (<50% of Loan)' && run('program({loanType:"light"})') === 'light', why);
+    c.ME = { reps: { b_at_sla_com: rep2 }, rep: rep2 }; // the loan's own rep IS known -- only the single-rep rule keeps it off the card
+    const oneRepCard = String(run('loanCard(' + JSON.stringify(loan) + ', "processing")'));
+    c.ME = { reps: { a_at_sla_com: rep1, b_at_sla_com: rep2 }, rep: rep1 };
+    const twoRepCard = String(run('loanCard(' + JSON.stringify(loan) + ', "processing")'));
+    assert('the loan\'s rep is named only when the broker works with more than one rep', ok && !/Rep:/.test(oneRepCard) && /Rep: Rep B/.test(twoRepCard) && /Purpose/.test(twoRepCard) && /Light Rehab/.test(twoRepCard), why || ('one=' + oneRepCard.slice(0, 220) + ' two=' + twoRepCard.slice(0, 220)));
+    run('renderRep(' + JSON.stringify(rep1) + ')');
+    const two = dom.repBody.innerHTML, twoHead = dom.repCard.h2 && dom.repCard.h2.textContent;
+    c.ME = { reps: { a_at_sla_com: rep1 }, rep: rep1 };
+    run('renderRep(' + JSON.stringify(rep1) + ')');
+    const one = dom.repBody.innerHTML, oneHead = dom.repCard.h2 && dom.repCard.h2.textContent;
+    assert('...and the rep card lists every rep, the inviting rep first, each once', ok && two.indexOf('Rep A') >= 0 && two.indexOf('Rep B') > two.indexOf('Rep A') && twoHead === 'Your Sir Lends A Lot Reps' && one.indexOf('Rep B') < 0 && (one.match(/Rep A/g) || []).length === 1 && oneHead === 'Your Sir Lends A Lot Rep', why || ('two=' + two + ' one=' + one));
+  }
+  const BL = readFn('broker-loans.mjs');
+  assert('reps are resolved per owner on the list (their own reps, never the roster)', /reps\[l\.ownerKey\] = await getRep\(l\.ownerKey\)/.test(BL) && /repKey: normalizeEmail\(partner\.ownerKey \|\| ''\), reps,/.test(BL) && !/listRepsPublic/.test(BL));
+}
+
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(fail ? 1 : 0);

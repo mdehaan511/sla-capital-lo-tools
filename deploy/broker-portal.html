@@ -131,13 +131,10 @@ function money(v){ var n = parseFloat(String(v == null ? '' : v).replace(/[$,\s]
 function pct(v){ var n = parseFloat(String(v == null ? '' : v).replace(/[%\s]/g,'')); return isFinite(n) && n > 0 ? (n > 1 ? n : n * 100).toFixed(3).replace(/0+$/,'').replace(/\.$/,'') + '%' : '—'; }
 function pts(v){ var n = parseFloat(v); return isFinite(n) && n > 0 ? n + ' pt' + (n === 1 ? '' : 's') : '—'; }
 function fmtDate(iso){ if (!iso) return '—'; var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso)); return m ? (parseInt(m[2],10) + '/' + parseInt(m[3],10) + '/' + m[1]) : String(iso).slice(0,10); }
-function program(l){
-  var t = String(l.toolType || '').toLowerCase();
-  if (t === 'dscr') return 'DSCR';
-  if (t === 'guc') return 'Ground-Up';
-  if (t === 'rtl') return l.loanType || 'Bridge / Rehab';
-  return l.loanType || '—';
-}
+// Deploy 237.235 -- the server labels the program the way Loan Details does.
+function program(l){ return l.program || l.loanType || '\u2014'; }
+function repOf(l){ return (ME && ME.reps && ME.reps[l.ownerKey]) || null; }
+function multiRep(){ return !!(ME && ME.reps && Object.keys(ME.reps).filter(function(k){ return ME.reps[k]; }).length > 1); }
 function stageChip(l){
   var k = l.stage && l.stage.key, label = (l.stage && l.stage.label) || l.status || '';
   var cls = k === 'cleartoclose' ? 'ok' : (k === 'denied' ? 'bad' : (k === 'closed' ? 'dim' : ''));
@@ -154,6 +151,7 @@ function loanCard(l, kind){
   var who = l.entity ? l.entity + (l.borrower ? ' · ' + l.borrower : '') : (l.borrower || 'Borrower not on file');
   var facts = '<div class="facts">' +
     '<div><div class="fl">Program</div><div class="fv">' + escH(program(l)) + '</div></div>' +
+    (l.purposeLabel ? '<div><div class="fl">Purpose</div><div class="fv">' + escH(l.purposeLabel) + '</div></div>' : '') +
     '<div><div class="fl">Loan amount</div><div class="fv">' + money(l.loanAmt) + '</div></div>' +
     '<div><div class="fl">Rate</div><div class="fv">' + pct(l.rate) + '</div></div>' +
     '<div><div class="fl">Points</div><div class="fv">' + pts(l.points) + '</div></div>' +
@@ -171,19 +169,32 @@ function loanCard(l, kind){
   }
   return '<div class="loan">' +
     '<div class="loan-head"><div><div class="addr">' + escH(l.address || 'No address on file') + '</div>' +
-      '<div class="sub"><b>' + escH(who) + '</b> · Loan ID ' + escH(l.slaDisplayId) + '</div></div>' + stageChip(l) + '</div>' +
+      '<div class="sub"><b>' + escH(who) + '</b> · Loan ID ' + escH(l.slaDisplayId) +
+        // Deploy 237.235 -- which rep this loan is with, when the broker works with more than one
+        (multiRep() && repOf(l) && (repOf(l).name || repOf(l).email) ? ' · Rep: ' + escH(repOf(l).name || repOf(l).email) : '') +
+      '</div></div>' + stageChip(l) + '</div>' +
     facts + docs + '</div>';
 }
 function paint(list, id, kind, emptyText){
   var el = document.getElementById(id);
   el.innerHTML = list.length ? '<div class="card-body">' + list.map(function(l){ return loanCard(l, kind); }).join('') + '</div>' : '<div class="empty">' + emptyText + '</div>';
 }
-function renderRep(rep){
-  var card = document.getElementById('repCard'), body = document.getElementById('repBody');
-  if (!rep || !(rep.name || rep.email)) { card.style.display = 'none'; return; }
-  body.innerHTML = '<b>' + escH(rep.name || rep.email) + '</b>' +
+function repHtml(rep){
+  return '<b>' + escH(rep.name || rep.email) + '</b>' +
     (rep.email ? '<div><a href="mailto:' + escA(rep.email) + '">' + escH(rep.email) + '</a></div>' : '') +
     (rep.phone ? '<div><a href="tel:' + escA(rep.phone) + '">' + escH(rep.phone) + '</a></div>' : '');
+}
+// Deploy 237.235 -- every rep whose loans are on this list, the one who invited them first.
+function renderRep(rep){
+  var card = document.getElementById('repCard'), body = document.getElementById('repBody');
+  var list = [];
+  var seen = {};
+  var add = function(r){ if (!r || !(r.name || r.email)) return; var k = String(r.email || r.name).toLowerCase(); if (seen[k]) return; seen[k] = 1; list.push(r); };
+  add(rep);
+  Object.keys((ME && ME.reps) || {}).forEach(function(k){ add(ME.reps[k]); });
+  if (!list.length) { card.style.display = 'none'; return; }
+  card.querySelector('h2').textContent = list.length > 1 ? 'Your Sir Lends A Lot Reps' : 'Your Sir Lends A Lot Rep';
+  body.innerHTML = list.map(repHtml).join('<hr style="border:none;border-top:1px solid var(--border);margin:10px 0">');
   card.style.display = '';
 }
 // Supabase sign-out (the borrower portal's pattern), THEN the sign-in page: "/" routes a

@@ -76,8 +76,16 @@ async function handle(req, context) {
   groups.processing.sort(byRecent); groups.quoted.sort(byRecent); groups.closed.sort(byRecent);
 
   const rep = partner.ownerKey ? await getRep(partner.ownerKey) : null;
+  // Deploy 237.235 -- the same broker can sit in several LOs' books, so a loan's rep is
+  // not always the one who invited them. Resolve each owner on the list (their reps only,
+  // never the roster) so the page can name the rep on each loan.
+  const reps = {};
+  for (const l of loans) {
+    if (!l.ownerKey || reps[l.ownerKey]) continue;
+    try { reps[l.ownerKey] = await getRep(l.ownerKey); } catch (_) { reps[l.ownerKey] = null; }
+  }
   return json(200, {
-    ok: true, mode, email, rep,
+    ok: true, mode, email, rep, repKey: normalizeEmail(partner.ownerKey || ''), reps,
     company: partner.company || '',
     name: ((partner.firstName || '') + ' ' + (partner.lastName || '')).trim(),
     phone: partner.phone || '',
@@ -169,6 +177,7 @@ function project(loan, client, ownerKey) {
   const entity = entityOf(loan, client);
   return {
     loanId: loan.id, clientId: client.id, ownerKey,
+    program: programLabel(loan), purposeLabel: purposeLabel(loan), // Deploy 237.235
     slaDisplayId: loan.slaDisplayId || _deriveSlaDisplayId(loan),
     address: loan.address || '',
     borrower, entity, borrowerEmail: client.email || '',
@@ -184,6 +193,29 @@ function project(loan, client, ownerKey) {
     docsApproved: Number(loan.docsApproved) || 0, openConditions: Number(loan.openConditions) || 0,
     createdAt: loan.createdAt || '', updatedAt: loan.updatedAt || '',
   };
+}
+
+// Deploy 237.235 -- the program as Loan Details prints it (its FIN_DROPDOWNS labels; a
+// stored loanTypeLabel, captured by the sizer, wins). The first cut printed the raw code
+// ("light", "bridge").
+const RTL_TYPE_LABELS = { light: 'Light Rehab (<50% of Loan)', heavy: 'Heavy Rehab (>50% of Loan)', bridge: 'Bridge (No Rehab)', transactional: 'Transactional Funding (1-day)', construction: 'Construction' };
+const DSCR_TYPE_LABELS = { '30Y Fixed': '30-Year Fixed', '10/6 ARM': '10/6 ARM', '7/6 ARM': '7/6 ARM', '5/6 ARM': '5/6 ARM' };
+const PURPOSE_LABELS = { purchase: 'Purchase', cashout: 'Cash-Out Refinance', rateterm: 'Rate/Term Refinance', refinance: 'Refinance', refi: 'Refinance' };
+export function programLabel(loan) {
+  const fd = (loan && loan.formData) || {};
+  const tt = String((loan && loan.toolType) || '').toLowerCase();
+  const code = String((loan && loan.loanType) || fd.loanType || '').trim();
+  const stored = String((loan && loan.loanTypeLabel) || fd.loanTypeLabel || '').trim();
+  if (tt === 'guc') return 'Ground-Up Construction';
+  if (tt === 'dscr') {
+    const t = stored || DSCR_TYPE_LABELS[code] || '';
+    return (loan && loan.mfProgram ? 'DSCR 5+ Unit' : 'DSCR') + (t ? ' \u00b7 ' + t : '');
+  }
+  return stored || RTL_TYPE_LABELS[code] || RTL_TYPE_LABELS[code.toLowerCase()] || 'Bridge / Rehab';
+}
+export function purposeLabel(loan) {
+  const p = String((loan && loan.loanPurpose) || '').toLowerCase().trim();
+  return PURPOSE_LABELS[p] || '';
 }
 
 function entityOf(loan, client) {
