@@ -952,7 +952,9 @@ function openLoanInSizer(loanJson) {
   var l = typeof loanJson === 'string' ? JSON.parse(loanJson) : loanJson;
   // Deploy 236.87 — GUC routing.
   var _tt = String(l.toolType || '').toLowerCase();
-  var tool = _tt === 'rtl' ? 'rtl-sizer.html' : _tt === 'guc' ? 'guc-sizer.html' : (l.mfProgram ? 'mf-dscr-sizer.html' : 'dscr-sizer.html');
+  // Deploy 237.245 -- 5+ unit DSCR (propType 'multi' / 5+ units / the MF marker) opens the Multifamily sizer.
+  var _mfRec = l, _mfFd = l.formData || {};
+  var tool = _tt === 'rtl' ? 'rtl-sizer.html' : _tt === 'guc' ? 'guc-sizer.html' : ((_mfRec.mfProgram || _mfFd.mfProgram || String(_mfRec.propType || _mfFd.propType || '').toLowerCase() === 'multi' || parseInt(_mfRec.numUnits || _mfFd.numUnits || 0, 10) >= 5) ? 'mf-dscr-sizer.html' : 'dscr-sizer.html');
   window.location.href = tool + '?loadQuote=' + encodeURIComponent(l.address||'');
 }
 

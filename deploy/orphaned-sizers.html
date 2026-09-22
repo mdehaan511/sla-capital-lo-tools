@@ -164,7 +164,9 @@ function escH(s) {
 // belonging to another LO). After save, the new flow (post-Deploy_143)
 // requires borrower email — so re-saving fixes the orphan.
 function sizerUrlForOrphan(o) {
-  var page = (o.toolType === 'rtl') ? 'rtl-sizer.html' : (o.toolType === 'guc') ? 'guc-sizer.html' : 'dscr-sizer.html';
+  // Deploy 237.245 -- 5+ unit DSCR (propType 'multi' / 5+ units / the MF marker) opens the Multifamily sizer.
+  var _mfRec = o, _mfFd = o.formData || {};
+  var page = (o.toolType === 'rtl') ? 'rtl-sizer.html' : (o.toolType === 'guc') ? 'guc-sizer.html' : ((_mfRec.mfProgram || _mfFd.mfProgram || String(_mfRec.propType || _mfFd.propType || '').toLowerCase() === 'multi' || parseInt(_mfRec.numUnits || _mfFd.numUnits || 0, 10) >= 5) ? 'mf-dscr-sizer.html' : 'dscr-sizer.html');
   var url = '/' + page + '?loadQuote=' + encodeURIComponent(o.address || '');
   if (o.owner) url += '&owner=' + encodeURIComponent(o.owner);
   return url;

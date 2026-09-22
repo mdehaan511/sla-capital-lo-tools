@@ -229,7 +229,9 @@ function openInSizer(prospectJson) {
   var p = typeof prospectJson === 'string' ? JSON.parse(prospectJson) : prospectJson;
   // Store prospect data for the sizer to pick up
   localStorage.setItem('sla_prefill_prospect', JSON.stringify(p));
-  var dest = p.loanProduct === 'fix_flip' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  // Deploy 237.245 -- 5+ unit DSCR (propType 'multi' / 5+ units / the MF marker) opens the Multifamily sizer.
+  var _mfRec = p, _mfFd = {};
+  var dest = p.loanProduct === 'fix_flip' ? 'rtl-sizer.html' : ((_mfRec.mfProgram || _mfFd.mfProgram || String(_mfRec.propType || _mfFd.propType || '').toLowerCase() === 'multi' || parseInt(_mfRec.numUnits || _mfFd.numUnits || 0, 10) >= 5) ? 'mf-dscr-sizer.html' : 'dscr-sizer.html');
   window.location.href = dest + '?fromProspect=1';
 }
 

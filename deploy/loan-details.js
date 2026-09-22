@@ -940,7 +940,9 @@ function render() {
   // GUC Sizer" but this URL only knew DSCR vs RTL, so it landed on the RTL sizer).
   // Deploy 236.748 — Multifamily-program DSCR loans (loan.mfProgram, saved by
   // mf-dscr-sizer.html) reopen in the MF sizer.
-  var sizerPage = isDscr ? (l.mfProgram ? '/mf-dscr-sizer.html' : '/dscr-sizer.html')
+  // Deploy 237.245 -- 5+ unit DSCR (propType 'multi' / 5+ units / the MF marker) opens the Multifamily sizer.
+  var _mfRec = l, _mfFd = fd || {};
+  var sizerPage = isDscr ? ((_mfRec.mfProgram || _mfFd.mfProgram || String(_mfRec.propType || _mfFd.propType || '').toLowerCase() === 'multi' || parseInt(_mfRec.numUnits || _mfFd.numUnits || 0, 10) >= 5) ? '/mf-dscr-sizer.html' : '/dscr-sizer.html')
                 : String(l.toolType || '').toLowerCase() === 'guc' ? '/guc-sizer.html'
                 : '/rtl-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
