@@ -106,6 +106,19 @@ console.log('\nAccounts off a bank statement: what it is, its number, its own ro
   const other = W.buildProposals(spec, { acctStmt1Type: found('Checking/Savings'), acctStmt1Balance: found('5000'), acctStmt1Name: found('BofA Advantage Savings'), acctStmt1Last4: found('9001') }, 'Current-Month Bank Statements');
   W.applyStmtAccountProposals(loan, other, NOW);
   check('a second bank: its own row', [loan.uwData.account3 && loan.uwData.account3.value.last4, loan.uwData.account1.value.last4], ['9001', '1432']);
+  // Deploy 237.227 -- seen live on Luna Court: a 401(k) portal page prints no account number,
+  // and through the per-tray tag it took over the PNC row. A numberless account is known by
+  // its printed name; a numbered row is only ever that number's.
+  const k401 = W.buildProposals(spec, { acctStmt1Type: found('IRA/401k/Retirement Plans'), acctStmt1Balance: found('59353.57'), acctStmt1Name: found('Capital Group American Funds TOP CONSULTING 401K') }, 'Current-Month Bank Statements');
+  W.applyStmtAccountProposals(loan, k401, NOW);
+  check('a numberless 401(k) does NOT take over a numbered row: it gets its own', [loan.uwData.account1.value.last4, loan.uwData.account4 && loan.uwData.account4.value.name], ['1432', 'Capital Group American Funds TOP CONSULTING 401K']);
+  const k401b = W.buildProposals(spec, { acctStmt1Type: found('IRA/401k/Retirement Plans'), acctStmt1Balance: found('60000'), acctStmt1Name: found('Capital Group American Funds - Top Consulting 401k') }, 'Current-Month Bank Statements');
+  W.applyStmtAccountProposals(loan, k401b, NOW);
+  check('...re-read (same name, loosely): updates its own row', [loan.uwData.account4.value.balance, !!loan.uwData.account5], [60000, false]);
+  const other401 = W.buildProposals(spec, { acctStmt1Type: found('IRA/401k/Retirement Plans'), acctStmt1Balance: found('12000'), acctStmt1Name: found('Vanguard Roth IRA') }, 'Current-Month Bank Statements');
+  W.applyStmtAccountProposals(loan, other401, NOW);
+  check('...a DIFFERENT numberless account: another row', [loan.uwData.account5 && loan.uwData.account5.value.name, loan.uwData.account4.value.balance], ['Vanguard Roth IRA', 60000]);
+  delete loan.uwData.account4; delete loan.uwData.account5;
   // a person's row is never replaced
   loan.uwData.account1 = { value: { type: 'Business Checking Acct.', balance: 99999, weight: 1, name: 'Chase', last4: '1432' }, by: 'dee', verified: true };
   W.applyStmtAccountProposals(loan, again, NOW);

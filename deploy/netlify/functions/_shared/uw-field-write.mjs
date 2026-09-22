@@ -146,25 +146,26 @@ export function applyStmtAccountProposals(loan, stmtProps, now) {
     }
     const tag = label + ' (acct ' + i + ')';
     const aiNote = tag + (rowDoubt ? ' — ⚠ VERIFY: ' + rowDoubt.slice(0, 240) : '');
-    // Slot (Deploy 237.224): THIS account's row -- same last four -- whoever wrote it, so a
-    // second statement for the same account updates in place and two banks' statements
-    // get two rows. Then this statement's own prior unverified row (no last four), then
-    // the first genuinely empty row. Never a person's row.
+    // Slot (Deploy 237.224, tightened 237.227): an account's IDENTITY is its last four, else
+    // its printed name (a 401(k) portal page prints no number). THIS account's row -- same
+    // identity -- whoever wrote it, so a re-read updates in place wherever it sits and two
+    // banks' statements get two rows. The per-TRAY tag is only a fallback for rows with no
+    // identity at all (written before 237.224): a row that names a specific account is never
+    // claimed by a different one -- seen live on Luna Court, where a numberless 401(k)
+    // statement took over the PNC ••3091 row through the tag. Then the first empty row.
+    // Never a person's row.
+    const identOf = (v) => (v && typeof v === 'object') ? (v.last4 ? 'n:' + String(v.last4) : (v.name ? 'm:' + _nameKey(v.name) : '')) : '';
+    const ident = last4 ? 'n:' + last4 : (name ? 'm:' + _nameKey(name) : '');
     let slot = null;
-    if (last4) {
+    if (ident) {
       for (let n = 1; n <= 5 && !slot; n++) {
         const e = loan.uwData['account' + n];
-        const v = e && e.value;
-        if (v && typeof v === 'object' && String(v.last4 || '') === last4) slot = 'account' + n;
+        if (e && identOf(e.value) === ident) slot = 'account' + n;
       }
     }
     for (let n = 1; n <= 5 && !slot; n++) {
       const e = loan.uwData['account' + n];
-      const v = e && e.value;
-      // The tag is per TRAY, so two banks' statements share it: a row that already names a
-      // DIFFERENT account (its own last four) is never this one's.
-      const otherAcct = !!(last4 && v && typeof v === 'object' && v.last4 && String(v.last4) !== last4);
-      if (e && e.isAI === true && e.verified !== true && !otherAcct && String(e.aiNote || '').indexOf(tag) === 0) slot = 'account' + n;
+      if (e && e.isAI === true && e.verified !== true && identOf(e.value) === '' && String(e.aiNote || '').indexOf(tag) === 0) slot = 'account' + n;
     }
     for (let n = 1; n <= 5 && !slot; n++) {
       const e = loan.uwData['account' + n];
