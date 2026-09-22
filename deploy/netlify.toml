@@ -1637,6 +1637,11 @@
 # for reviewing the borrower / collateral / closing doc package
 # against SLA + investor requirements before the loan ships.
 [[redirects]]
+  from = "/api/conditions-open"
+  to = "/.netlify/functions/conditions-open"
+  status = 200
+  force = true
+[[redirects]]
   from = "/api/loan-reviews"
   to = "/.netlify/functions/loan-reviews-list"
   status = 200

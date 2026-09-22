@@ -73,6 +73,43 @@
     .pp-view-tab { background: none; border: 1px solid var(--border); color: var(--muted); padding: 6px 16px; border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; }
     .pp-view-tab:hover { border-color: var(--gold); color: var(--gold); }
     .pp-view-tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+    /* Deploy 237.244 — Open Conditions tab: one row per loan, click to open it. */
+    .pp-cond-count { display: inline-block; margin-left: 7px; min-width: 18px; padding: 1px 6px; border-radius: 10px; background: rgba(124,31,31,0.12); color: #7c1f1f; font-size: 11px; font-weight: 700; }
+    .pp-view-tab.active .pp-cond-count { background: rgba(255,255,255,0.18); color: #fff; }
+    .pc-wrap { background: #fff; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .pc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.02); flex-wrap: wrap; }
+    .pc-sum { font-size: 13px; color: var(--muted); }
+    .pc-sum b { color: var(--dark); }
+    .pc-refresh { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 5px 12px; font-family: inherit; font-size: 12px; cursor: pointer; }
+    .pc-refresh:hover { border-color: var(--gold); color: var(--gold); }
+    .pc-empty { padding: 40px 14px; text-align: center; color: var(--muted); }
+    .pc-row { display: flex; align-items: baseline; gap: 10px; padding: 11px 16px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; flex-wrap: wrap; }
+    .pc-row:hover { background: rgba(200,129,58,0.06); }
+    .pc-row.open { background: rgba(200,129,58,0.08); }
+    .pc-caret { color: var(--muted); font-size: 11px; width: 10px; }
+    .pc-addr { font-weight: 600; color: var(--dark); flex: 1; min-width: 220px; }
+    .pc-borrower { color: var(--muted); font-size: 12.5px; }
+    .pc-count { font-size: 11px; font-weight: 700; color: #7c1f1f; background: rgba(124,31,31,0.10); border-radius: 10px; padding: 2px 9px; white-space: nowrap; }
+    .pc-badge { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .pc-badge.docs { color: #7c1f1f; background: rgba(124,31,31,0.08); }
+    .pc-badge.funding { color: #b5712d; background: rgba(200,129,58,0.12); }
+    .pc-age { font-size: 11.5px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+    .pc-panel { padding: 6px 16px 14px 36px; border-bottom: 1px solid rgba(0,0,0,0.05); background: rgba(0,0,0,0.015); }
+    .pc-cond { display: flex; gap: 10px; padding: 7px 0; align-items: flex-start; }
+    .pc-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: none; }
+    .pc-dot.docs { background: #7c1f1f; }
+    .pc-dot.funding { background: #C8813A; }
+    .pc-cond-main { min-width: 0; }
+    .pc-cond-title { font-size: 13px; color: var(--dark); line-height: 1.4; }
+    .pc-cond-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    .pc-recv { color: #b5712d; font-weight: 600; }
+    .pc-open { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--gold); text-decoration: none; font-weight: 600; }
+    .pc-open:hover { text-decoration: underline; }
+    @media (max-width: 760px) {
+      .pc-age { margin-left: 0; width: 100%; }
+      .pc-addr { min-width: 0; flex: 1 1 100%; }
+    }
     .col[data-col^="cl_"] .col-head { background: var(--col-closed-bg); } .col[data-col^="cl_"] .col-head h3 { color: var(--col-closed); }
 
     .col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; min-height: 50vh; }
@@ -250,6 +287,8 @@
       <button type="button" class="pp-view-tab" data-view="closed" onclick="window.location.href='/closed-loans.html'">Closed Loans</button>
       <!-- Deploy 236.562 — manager dashboard (workload / aging / at-risk). -->
       <button type="button" class="pp-view-tab" data-view="overview" onclick="setPipelineView('overview')">Team Overview</button>
+      <!-- Deploy 237.244 (Mike) — every open condition on every loan, one list. -->
+      <button type="button" class="pp-view-tab" data-view="conditions" onclick="setPipelineView('conditions')">Open Conditions<span class="pp-cond-count" id="ppCondCount"></span></button>
     </div>
     <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
   </div>
@@ -769,6 +808,10 @@ function _processPipelineClients(clientsResp) {
   }
 
   render();
+  // Deploy 237.244 — fetch the open conditions in the background so the tab can
+  // carry its count without being opened. Never blocks the board; a failure here
+  // just leaves the badge empty until someone opens the tab.
+  try { loadConditions(false); } catch (e) { /* the board is already up */ }
 }
 
 // ── Render ─────────────────────────────────────────────────────────
@@ -816,6 +859,11 @@ function render() {
     document.getElementById('boardWrap').innerHTML = renderOverview(visible);
     return;
   }
+
+  // Deploy 237.244 (Mike) — Open Conditions. The conditions live on the document
+  // REVIEWS, not on the loans this board already holds, so they are fetched once
+  // the first time the tab is opened and re-used after that.
+  if (_view === 'conditions') { renderConditions(); return; }
 
   // Deploy 236.609 — the Closed Pipeline is now a LIST view (sortable table), not
   // a kanban. renderClosedList reuses the same visible() filter (search + LO +
@@ -952,6 +1000,164 @@ function sortClosed(key) {
   if (_closedSort.key === key) _closedSort.dir = -_closedSort.dir;
   else { _closedSort.key = key; _closedSort.dir = (key === 'amount' || key === 'funded') ? -1 : 1; }
   render();
+}
+
+// ── Deploy 237.244 — Open Conditions (Mike) ────────────────────────
+// "A page that shows all open conditions for all loans … make it look like the
+// closed loans page that has the address that has a drop down menu that can then
+// show all the conditions." One row per loan, click to open its list.
+//
+// The conditions live on the document REVIEWS (review.docs[slug].conditions),
+// which this board does not load — the loan record only carries the count. So the
+// tab fetches /api/conditions-open the first time it is opened and keeps the
+// answer; the ↻ on the card re-reads it.
+var _condData = null;      // { loans, totals } | null
+var _condState = '';       // '' | 'loading' | 'error'
+var _condError = '';
+var _condOpenRows = {};    // reviewId -> bool
+
+function loadConditions(force) {
+  if (_condState === 'loading') return;
+  if (_condData && !force) return;
+  _condState = 'loading';
+  if (_view === 'conditions') renderConditions();
+  SLA.api('GET', '/api/conditions-open').then(function(r) {
+    _condData = r || { loans: [], totals: {} };
+    _condState = '';
+    _condError = '';
+    updateCondBadge();
+    if (_view === 'conditions') renderConditions();
+  }).catch(function(e) {
+    _condState = 'error';
+    _condError = (e && e.message) || 'Could not load conditions';
+    if (_view === 'conditions') renderConditions();
+  });
+}
+
+function updateCondBadge() {
+  var el = document.getElementById('ppCondCount');
+  if (!el) return;
+  var n = (_condData && _condData.totals && _condData.totals.open) || 0;
+  el.textContent = n ? String(n) : '';
+  el.style.display = n ? '' : 'none';
+}
+
+function toggleCondRow(reviewId) {
+  _condOpenRows[reviewId] = !_condOpenRows[reviewId];
+  renderConditions();
+}
+
+function _condPriorLabel(p) { return p === 'funding' ? 'Prior to funding' : 'Prior to docs'; }
+function _condAge(d) {
+  if (d == null) return '';
+  if (d === 0) return 'today';
+  return d + ' day' + (d === 1 ? '' : 's') + ' open';
+}
+
+function renderConditions() {
+  var wrap = document.getElementById('boardWrap');
+  if (!wrap) return;
+  if (_condState === 'loading' && !_condData) { wrap.innerHTML = '<div class="loading">Loading open conditions…</div>'; return; }
+  if (_condState === 'error') {
+    wrap.innerHTML = '<div class="pc-wrap"><div class="pc-empty">' + escH(_condError) +
+      '<div style="margin-top:10px"><button type="button" class="pc-refresh" onclick="loadConditions(true)">Try again</button></div></div></div>';
+    return;
+  }
+  if (!_condData) { loadConditions(false); wrap.innerHTML = '<div class="loading">Loading open conditions…</div>'; return; }
+
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var procFilter = (_loFilterValue || '').toLowerCase();
+  // The board's assignment filters (a processor, "My Loans") are properties of the
+  // LOAN, which this list only has when the loan is also on the board. Join by loan
+  // id where we can; a loan that is not on the board is shown unless one of those
+  // filters is on, in which case it cannot be judged and stays out.
+  var byLoanId = {};
+  Object.keys(_items || {}).forEach(function(k) {
+    (_items[k] || []).forEach(function(it) { if (it && it.loan && it.loan.id) byLoanId[it.loan.id] = it; });
+  });
+
+  var rows = (_condData.loans || []).filter(function(L) {
+    var it = byLoanId[(L.source && L.source.loanId) || ''];
+    if (it) { if (!_condVisibleItem(it)) return false; }
+    else if (procFilter || _myLoansOnly) return false;
+    if (_programFilter !== 'all' && it && programBucket(it.loan) !== _programFilter) return false;
+    if (search) {
+      var hay = (L.address + ' ' + L.borrowerName + ' ' + L.loEmail + ' ' +
+        (L.conditions || []).map(function(c) { return c.title + ' ' + c.docLabel; }).join(' ')).toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  });
+
+  var open = rows.reduce(function(a, L) { return a + L.open; }, 0);
+  var ptd = 0, ptf = 0;
+  rows.forEach(function(L) { (L.conditions || []).forEach(function(c) { if (c.priorTo === 'funding') ptf++; else ptd++; }); });
+
+  var head = '<div class="pc-head">' +
+      '<div class="pc-sum"><b>' + open + '</b> open condition' + (open === 1 ? '' : 's') +
+        ' across <b>' + rows.length + '</b> loan' + (rows.length === 1 ? '' : 's') +
+        (open ? ' · ' + ptd + ' prior to docs · ' + ptf + ' prior to funding' : '') + '</div>' +
+      '<button type="button" class="pc-refresh" onclick="loadConditions(true)" title="Re-read the conditions">↻ Refresh</button>' +
+    '</div>';
+
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="pc-wrap">' + head +
+      '<div class="pc-empty">' + (search || procFilter || _myLoansOnly
+        ? 'No open conditions match the current filters.'
+        : 'No open conditions on any loan. Everything asked for has been cleared.') + '</div></div>';
+    return;
+  }
+
+  var body = rows.map(function(L) {
+    var isOpen = !!_condOpenRows[L.reviewId];
+    var ptdN = (L.conditions || []).filter(function(c) { return c.priorTo !== 'funding'; }).length;
+    var ptfN = L.open - ptdN;
+    var head2 = '<div class="pc-row' + (isOpen ? ' open' : '') + '" onclick="toggleCondRow(\'' + escAttr(L.reviewId) + '\')">' +
+        '<span class="pc-caret">' + (isOpen ? '▾' : '▸') + '</span>' +
+        '<span class="pc-addr">' + escH(L.address || '(no address)') + '</span>' +
+        '<span class="pc-borrower">' + escH(L.borrowerName || '') + '</span>' +
+        '<span class="pc-count">' + L.open + ' open</span>' +
+        (ptdN ? '<span class="pc-badge docs">' + ptdN + ' prior to docs</span>' : '') +
+        (ptfN ? '<span class="pc-badge funding">' + ptfN + ' prior to funding</span>' : '') +
+        '<span class="pc-age">' + escH(_condAge(L.oldestDays)) + '</span>' +
+      '</div>';
+    if (!isOpen) return head2;
+    var items = (L.conditions || []).map(function(c) {
+      return '<div class="pc-cond">' +
+          '<span class="pc-dot ' + (c.priorTo === 'funding' ? 'funding' : 'docs') + '"></span>' +
+          '<div class="pc-cond-main">' +
+            '<div class="pc-cond-title">' + escH(c.title || '(untitled condition)') + '</div>' +
+            '<div class="pc-cond-meta">' + escH(_condPriorLabel(c.priorTo)) + ' · ' + escH(c.docLabel) +
+              (c.status === 'received' ? ' · <span class="pc-recv">received, awaiting sign-off</span>' : '') +
+              (c.ageDays != null ? ' · ' + escH(_condAge(c.ageDays)) : '') +
+              (c.createdBy ? ' · added by ' + escH(c.createdBy) : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+    return head2 + '<div class="pc-panel">' + items +
+      (L.href ? '<a class="pc-open" href="' + escAttr(L.href) + '">Open the Documents tab →</a>' : '') +
+      '</div>';
+  }).join('');
+
+  wrap.innerHTML = '<div class="pc-wrap">' + head + '<div class="pc-list">' + body + '</div></div>';
+}
+
+// The board's own visibility rule, minus the search (this tab searches condition
+// text too). Kept as its own function so render()'s closure stays untouched.
+function _condVisibleItem(it) {
+  var procFilter = (_loFilterValue || '').toLowerCase();
+  function team() {
+    return (it.loan && Array.isArray(it.loan.assignedProcessors) && it.loan.assignedProcessors.length)
+      ? it.loan.assignedProcessors
+      : (it.loan && it.loan.assignedProcessor && it.loan.assignedProcessor.email ? [it.loan.assignedProcessor] : []);
+  }
+  if (procFilter && !team().some(function(p) { return String((p && p.email) || '').toLowerCase() === procFilter; })) return false;
+  if (_myLoansOnly) {
+    var me = String((_user && _user.email) || '').toLowerCase();
+    if (!team().some(function(p) { return String(p.email || '').toLowerCase() === me; })) return false;
+  }
+  return true;
 }
 
 // ── Deploy 236.562 — Team Overview (processing manager dashboard) ──
@@ -1507,7 +1713,8 @@ function onColDrop(e) {
 // Deploy 236.549 — switch between the Active and Closed boards (client-side; the
 // data is already loaded, so just re-render).
 function setPipelineView(view) {
-  _view = (view === 'closed' || view === 'overview') ? view : 'active';
+  // Deploy 237.244 — 'conditions' joins 'overview' as a view of the same page.
+  _view = (view === 'closed' || view === 'overview' || view === 'conditions') ? view : 'active';
   var tabs = document.querySelectorAll('.pp-view-tab');
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === _view);
