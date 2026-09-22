@@ -108,9 +108,29 @@ const isBrokerCtx = (c) => {
   return c._brokerCtx;
 };
 const gPeople = (c) => isBrokerCtx(c) ? c.guarantors : [c.client].concat(c.guarantors);
-const entityNameOf = (c) => isBrokerCtx(c)
-  ? (c.loan.entityName || '')
-  : (c.loan.entityName || (c.client && c.client.entityName) || '');
+// Deploy 237.232 (Mike: "for borrower its always grabbing the guarantor. If an LLC exists it
+// needs to use that and say the borrower type is entity"). This read loan.entityName and
+// client.entityName only -- but the LLC lives first in loan.vestingLLCs (the Vesting Entity
+// the LO sets on Loan Details), then in the long app's companies (client.companies), and
+// the recorded Articles are the document of record. Same chain Loan Details resolves, plus
+// the Articles' extracted name (ctx.reviewEntity, attached by trade-tape-export) and the
+// long app itself. On a broker deal the primary client record IS the broker: its
+// entityName / companies are never the borrower's.
+const _trim = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+export const entityNameOf = (c) => {
+  const v = Array.isArray(c.loan.vestingLLCs) ? c.loan.vestingLLCs.find((x) => x && (typeof x === 'string' ? x.trim() : _trim(x.name))) : null;
+  const vest = typeof v === 'string' ? _trim(v) : _trim(v && v.name);
+  if (vest) return vest;
+  if (_trim(c.loan.entityName)) return _trim(c.loan.entityName);
+  if (_trim(c.reviewEntity)) return _trim(c.reviewEntity);
+  for (const p of gPeople(c)) {
+    const co = ((p && p.companies) || []).find((x) => x && _trim(x.name));
+    if (co) return _trim(co.name);
+  }
+  if (c.longApp && _trim(c.longApp.llcName)) return _trim(c.longApp.llcName);
+  if (!isBrokerCtx(c) && c.client && _trim(c.client.entityName)) return _trim(c.client.entityName);
+  return '';
+};
 const borrowerName = (ctx) => entityNameOf(ctx)
   || (isBrokerCtx(ctx) ? (ctx.loan.borrowerName || clientName(ctx.guarantors[0])) : clientName(ctx.client));
 const propTypeLabel = (pt) => {

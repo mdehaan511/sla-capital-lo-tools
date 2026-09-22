@@ -20,7 +20,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { TRADE_TAPES } from './_shared/trade-tapes.mjs';
+import { TRADE_TAPES, entityNameOf } from './_shared/trade-tapes.mjs'; // Deploy 237.232 -- entityNameOf
 import { buildXlsx } from './_shared/xlsx-write.mjs';
 import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
 import { saveTape } from './_shared/trade-tape-store.mjs';
@@ -145,7 +145,9 @@ export async function attachLongAppAndValuation(ctxs) { // exported for scripts/
   try {
     const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
     for (const c of ctxs) {
-      if (c.loan.exitStrategy) continue;
+      // Deploy 237.232 -- the long app also names the borrowing LLC (llcName); read it
+      // when the loan and client records do not name one.
+      if (c.loan.exitStrategy && entityNameOf(c)) continue;
       try {
         const rec = await loadRecord(biStore, c.ownerKey, c.client.id, c.loan.id, c.client);
         if (rec && rec.data) c.longApp = rec.data;
@@ -161,7 +163,9 @@ export async function attachLongAppAndValuation(ctxs) { // exported for scripts/
     for (const c of ctxs) {
       const onLoan = n(c.loan.aivBpo) || n(uwv(c, 'asIsPrice'));
       const metaMissing = !uwv(c, 'valuationDate') || !uwv(c, 'valuationProvider') || !uwv(c, 'valuationType');
-      if (!onLoan || metaMissing) need[c.loan.id] = c;
+      // Deploy 237.232 -- and a loan with no borrowing entity anywhere on its records: the
+      // recorded Articles, read by the document review, name it.
+      if (!onLoan || metaMissing || !entityNameOf(c)) need[c.loan.id] = c;
     }
     if (!Object.keys(need).length) return;
     const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
@@ -172,8 +176,16 @@ export async function attachLongAppAndValuation(ctxs) { // exported for scripts/
       for (const review of batch) {
         const lid = review && review.source && review.source.loanId;
         const c = lid && need[lid];
-        if (!c || c.reviewValuation) continue;
+        if (!c) continue;
         const docs = review.docs || {};
+        // Deploy 237.232 -- the Articles of Organization are the source of truth for the
+        // borrowing entity's name (their review extracts it as llcName).
+        if (!c.reviewEntity) {
+          const art = docs.articles_of_organization;
+          const nm = art && !art.hidden && art.aiReviewedAt && art.aiExtractedEntities && art.aiExtractedEntities.llcName;
+          if (typeof nm === 'string' && nm.trim()) c.reviewEntity = nm.trim();
+        }
+        if (c.reviewValuation) continue;
         // The appraisal outranks the BPO when both were read; portfolio trays
         // (__p<i>) are skipped -- a per-property value is not the loan's AIV.
         for (const slug of ['appraisal', 'bpo_valuation']) {

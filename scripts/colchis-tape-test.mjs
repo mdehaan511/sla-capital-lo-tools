@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { TRADE_TAPES } from '../deploy/netlify/functions/_shared/trade-tapes.mjs';
+import { TRADE_TAPES, entityNameOf } from '../deploy/netlify/functions/_shared/trade-tapes.mjs';
 import { fieldsForSlug } from '../deploy/netlify/functions/_shared/uw-field-map.mjs';
 
 if (typeof vm.SourceTextModule !== 'function') {
@@ -164,6 +164,7 @@ console.log('\nValuation Date and Provider reach the tape');
   const stubs = {
     '@netlify/blobs': { getStore: ({ name }) => name === 'loan_reviews' ? { list: async () => ({ blobs: [{ key: 'r_1' }] }), get: async () => reviews[0] } : { get: async () => null } },
     './_shared/borrower-info-keys.mjs': { loadRecord: async () => null },
+    './_shared/trade-tapes.mjs': { TRADE_TAPES, entityNameOf }, // the real ones: the export's need-check calls entityNameOf
   };
   const mod = new vm.SourceTextModule(src, { context: ctx, identifier: 'trade-tape-export.mjs' });
   await mod.link(async (spec) => {
@@ -183,6 +184,38 @@ console.log('\nValuation Date and Provider reach the tape');
   let c3 = luna(); c3.loan.exitStrategy = 'sell'; c3.loan.uwData.valuationDate = { value: '2026-08-25' }; c3.loan.uwData.valuationProvider = { value: 'Clear Capital' }; c3.loan.uwData.valuationType = { value: 'BPO' };
   await attach([c3]);
   check('a loan that has it all is not walked', c3.reviewValuation, undefined);
+}
+
+// ── 5. the borrower is the LLC when there is one (Deploy 237.232, Mike) ─────
+console.log('\nBorrower Name is the LLC, Borrower Type is Entity, wherever the LLC is recorded');
+{
+  const who = (c) => { const b = build(c); return [cell(b, 'Borrower Name'), cell(b, 'Borrower Type')]; };
+  let c = luna(); delete c.loan.entityName;
+  check('no LLC anywhere: the person, Individual', who(c), ['Kandiah Lingan', 'Individual']);
+  c = luna(); delete c.loan.entityName; c.loan.vestingLLCs = [{ name: 'Summit Rental Group-AI, LLC', ein: '' }];
+  check('the Vesting Entity on Loan Details (the LO\'s override) wins', who(c), ['Summit Rental Group-AI, LLC', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.loan.vestingLLCs = ['Old String Form LLC'];
+  check('...older string form too', who(c), ['Old String Form LLC', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.loan.vestingLLCs = [{ name: '' }, { name: '  Second Row LLC ' }];
+  check('...a blank first row is skipped, and the name is trimmed', who(c), ['Second Row LLC', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.client.companies = [{ name: 'EKS Services LLC', ein: '12-3456789' }];
+  check('the long app\'s companies on the client record', who(c), ['EKS Services LLC', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.longApp = { llcName: 'Long App Holdings LLC' };
+  check('the long app itself', who(c), ['Long App Holdings LLC', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.reviewEntity = 'Revive Jax, L.L.C.';
+  check('the recorded Articles, as the document review read them', who(c), ['Revive Jax, L.L.C.', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.client.entityName = 'Legacy Field LLC';
+  check('the legacy single-LLC field, last', who(c), ['Legacy Field LLC', 'Entity']);
+  c = luna(); delete c.loan.entityName; c.loan.vestingLLCs = [{ name: 'Vesting LLC' }]; c.reviewEntity = 'Articles LLC'; c.client.companies = [{ name: 'Company LLC' }];
+  check('order: vesting entity > loan record > Articles > companies', who(c)[0], 'Vesting LLC');
+  // a broker deal: the primary client record IS the broker
+  c = luna(); delete c.loan.entityName; c.client = { firstName: 'Nexa', lastName: 'Lending', isBroker: true, entityName: 'Nexa Lending Inc', companies: [{ name: 'Nexa Lending Inc' }] };
+  c.loan.brokerId = 'b_1'; c.loan.brokerName = 'Nexa Lending'; c.guarantors = [{ firstName: 'Kandiah', lastName: 'Lingan', companies: [] }];
+  const brokerRow = who(c);
+  assert('a broker deal never names the broker\'s company as the borrower', brokerRow[0] !== 'Nexa Lending Inc' && brokerRow[0] !== 'Nexa Lending', JSON.stringify(brokerRow));
+  c.guarantors[0].companies = [{ name: 'Borrower Holdings LLC' }];
+  check('...the guarantor\'s own company is the borrower', who(c), ['Borrower Holdings LLC', 'Entity']);
+  assert('the export asks the review store for the Articles when nothing else names the LLC', /!entityNameOf\(c\)\) need\[c\.loan\.id\] = c;/.test(readFileSync(new URL('../deploy/netlify/functions/trade-tape-export.mjs', import.meta.url), 'utf8')));
 }
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));
