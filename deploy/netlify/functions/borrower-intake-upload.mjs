@@ -18,6 +18,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { getLoanGrant } from './_shared/loan-access-store.mjs'; // Deploy 237.234
 import { canReadLoan } from './_shared/access.mjs';
 import { getChecklist, sizerType, reviewTypeForLoan } from './_shared/loan-review-checklists.mjs'; // Deploy 236.934
 import { borrowerSlugSet, borrowerItem } from './_shared/borrower-intake-checklists.mjs';
@@ -45,6 +46,8 @@ const MAX_BYTES = 25 * 1024 * 1024;
 // Deploy 237.183 -- the switch moved to _shared/borrower-ai-feedback.mjs so the
 // STATUS endpoint reads the SAME one. It only honoured it here, and the page is built
 // by the other endpoint, which is how the AI reached a borrower anyway.
+
+function _borrowerNameFor(client) { return client ? ((client.firstName || '') + ' ' + (client.lastName || '')).replace(/\s+/g, ' ').trim() : ''; } // Deploy 237.234
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -80,6 +83,9 @@ async function handle(req, context) {
     }
   } catch (_) {}
   const perm = await canReadLoan(user, loan || { id: loanId, ownerKey }, { ownerKey, loanId });
+  // Deploy 237.234 -- who holds the grant: the borrower, or a broker acting for them.
+  const _grant = await getLoanGrant(normalizeEmail(user.email), loanId).catch(() => null);
+  const _grantRole = (_grant && _grant.role) || 'borrower';
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
 
   let bytes;
@@ -203,6 +209,10 @@ async function handle(req, context) {
     history:         (prior && Array.isArray(prior.history)) ? prior.history : [],
     uploadedByBorrower: normalizeEmail(user.email),
     borrowerUploadedAt: now,
+    // Deploy 237.234 -- a Preferred Partner uploading for the borrower (grant role 'broker')
+    // is recorded as such; everything else about the upload is exactly the borrower's path.
+    uploadedVia: _grantRole === 'broker' ? 'broker' : 'borrower',
+    ...(_grantRole === 'broker' ? { uploadedByBroker: normalizeEmail(user.email) } : {}),
     borrowerStatus:  'submitted',      // submitted → pending processor accept
     manualReviewRequested: false,      // fresh upload clears any prior request
     manualReviewNote: '',
@@ -279,7 +289,7 @@ async function handle(req, context) {
           if (got.value === null || got.value === undefined || got.value === '') return;
           _props.push({
             dataset: spec.dataset, key: k, value: got.value,
-            aiNote: (docState.label || slug) + (got.where ? ' — ' + got.where : '') + ' (borrower upload)',
+            aiNote: (docState.label || slug) + (got.where ? ' — ' + got.where : '') + (_grantRole === 'broker' ? ' (broker upload)' : ' (borrower upload)'),
           });
         });
         if (_props.length) {
@@ -358,7 +368,10 @@ async function handle(req, context) {
     await notifyBorrowerUpload({
       review, docLabel: (docState && docState.label) || slug,
       uploaderEmail: normalizeEmail(user.email),
-      uploaderName: _uploaderName(user),
+      // Deploy 237.234 -- "Bo Broker — broker, for Kandiah Lingan just uploaded ..."
+      uploaderName: _grantRole === 'broker'
+        ? ((_uploaderName(user) || normalizeEmail(user.email)) + ' \u2014 broker, for ' + (_borrowerNameFor(client) || 'the borrower'))
+        : _uploaderName(user),
     });
   } catch (e) { console.warn('[borrower-intake-upload] notify failed (non-fatal):', e && e.message); }
 

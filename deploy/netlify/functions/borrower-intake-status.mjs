@@ -13,7 +13,8 @@
  */
 import { getStore } from '@netlify/blobs';
 import { sizerType, reviewTypeForLoan } from './_shared/loan-review-checklists.mjs'; // Deploy 236.934
-import { handleOptions, json, requireAuth, keySafe } from './_shared/auth.mjs';
+import { handleOptions, json, requireAuth, keySafe, isAdmin, normalizeEmail } from './_shared/auth.mjs'; // Deploy 237.234 -- isAdmin + normalizeEmail for the viewer role
+import { getLoanGrant } from './_shared/loan-access-store.mjs'; // Deploy 237.234
 import { canReadLoan } from './_shared/access.mjs';
 import { borrowerChecklist } from './_shared/borrower-intake-checklists.mjs';
 // Deploy 236.743 — read the long-app record for the hasLLC answer (entity-doc gate).
@@ -167,12 +168,29 @@ async function handle(req, context) {
     });
   }
 
+  // Deploy 237.234 (Mike, broker portal) -- the page can be opened by a Preferred Partner
+  // acting for the borrower (a loan-access grant with role 'broker', kept in sync by
+  // /api/broker-loans). Tell the page whose documents these are and who is looking, so it
+  // can say "uploading on behalf of <borrower>" instead of "Your Documents".
+  let viewerRole = 'borrower';
+  try {
+    const g = await getLoanGrant(normalizeEmail(user.email), loanId);
+    if (g && g.role) viewerRole = g.role;
+    else if (isAdmin(user) || (ownerKey && ownerKey === keySafe(normalizeEmail(user.email)))) viewerRole = 'staff';
+  } catch (_) {}
+  const _bName = client ? ((client.firstName || '') + ' ' + (client.lastName || '')).replace(/\s+/g, ' ').trim() : '';
+  const _vest = loan && Array.isArray(loan.vestingLLCs) ? loan.vestingLLCs.find((x) => x && (typeof x === 'string' ? x.trim() : String(x.name || '').trim())) : null;
+  const _entity = (typeof _vest === 'string' ? _vest.trim() : String((_vest && _vest.name) || '').trim()) || String((loan && loan.entityName) || (client && client.entityName) || '').trim();
+
   return json(200, {
     ok: true,
     loanType,
     address: (review && review.address) || (loan && loan.address) || '',
     items,
     team,
+    borrower: _bName,
+    entity: _entity,
+    viewer: { role: viewerRole, email: normalizeEmail(user.email) },
   });
 }
 

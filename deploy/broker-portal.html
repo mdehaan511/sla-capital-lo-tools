@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <script>/* clean-url (Deploy 237.220, Mike): the address bar never shows ".html". Netlify serves /pipeline and /pipeline.html as the SAME page, so nothing is redirected and every old link, bookmark and emailed URL keeps working - this only tidies what is displayed. Query and #hash are kept (sign-in tokens arrive in the hash). First script in <head> so it runs before anything reads the path. */(function(){try{var l=window.location;if(!/^https?:$/.test(l.protocol))return;var p=l.pathname,n=p.replace(/\/index\.html$/i,'/').replace(/\.html$/i,'');if(n!==p&&window.history&&history.replaceState){history.replaceState(history.state,'',n+l.search+l.hash);}}catch(e){}})();</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Loans — SLA Capital Preferred Partners</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="/sla-api.js?v=237162"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* Deploy 237.234 (Mike) — the Preferred Partner portal's HOME, the simplified
+       portal: sign in, see your loans (quoted + in processing), open a loan in processing
+       and upload the borrower's documents for them. No pricing here — the sizer is a
+       separate page and this one loads no pricing module (same rule as broker-sizer). */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold:#C8813A; --gold-mid:#b5712d; --gold-light:rgba(200,129,58,0.10);
+      --gold-border:rgba(200,129,58,0.28); --dark:#261a36; --bg:#f0ece5;
+      --surface:#fff; --text:#1a1520; --muted:#7a7488; --border:#ddd8d0;
+      --success:#166534; --danger:#7c1f1f; --warn:#7a5218; --r:12px;
+    }
+    body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    #auth-gate { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .gate-msg { text-align:center; color:var(--muted); font-size:14px; max-width:440px; line-height:1.65; }
+    .gate-msg strong { display:block; color:var(--text); font-size:17px; margin-bottom:8px; font-family:'Lora',serif; }
+    .gate-msg a { color:var(--gold-mid); }
+    .top { background:var(--dark); border-bottom:3px solid var(--gold); padding:20px 24px; }
+    .top-in { max-width:1120px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+    .brand { font-family:'Lora',serif; font-size:20px; font-weight:600; color:#f2ede6; }
+    .brand span { display:block; font-family:'DM Mono',monospace; font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); margin-bottom:3px; }
+    .whoami { font-size:12.5px; color:rgba(242,237,230,.62); text-align:right; }
+    .whoami b { color:#f2ede6; font-weight:500; }
+    .whoami a { color:var(--gold); text-decoration:none; margin-left:12px; }
+    .preview-chip { display:inline-block; background:var(--gold-light); border:1px solid var(--gold-border); color:var(--gold); border-radius:20px; padding:2px 10px; font-size:11px; font-weight:600; margin-top:4px; }
+    .page { max-width:1120px; margin:0 auto; padding:24px 24px 80px; }
+    .cols { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:20px; align-items:start; }
+    @media (max-width:900px){ .cols { grid-template-columns:1fr; } }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); overflow:hidden; margin-bottom:20px; }
+    .card-head { padding:13px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+    .card-head h2 { font-family:'Lora',serif; font-size:16px; font-weight:600; color:var(--dark); }
+    .card-head .n { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); }
+    .card-body { padding:18px; }
+    .hint { font-size:13px; color:var(--muted); line-height:1.6; }
+    .empty { padding:22px 18px; color:var(--muted); font-size:13.5px; line-height:1.6; }
+    .loan { border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:12px; background:#fff; }
+    .loan:last-child { margin-bottom:0; }
+    .loan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+    .addr { font-family:'Lora',serif; font-size:15.5px; font-weight:600; color:var(--dark); }
+    .sub { font-size:12.5px; color:var(--muted); margin-top:2px; }
+    .sub b { color:var(--text); font-weight:500; }
+    .chip { display:inline-block; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; white-space:nowrap; background:var(--gold-light); color:var(--gold-mid); border:1px solid var(--gold-border); }
+    .chip.ok { background:rgba(22,101,52,.09); color:var(--success); border-color:rgba(22,101,52,.25); }
+    .chip.bad { background:rgba(124,31,31,.08); color:var(--danger); border-color:rgba(124,31,31,.25); }
+    .chip.dim { background:#f3f0ea; color:var(--muted); border-color:var(--border); }
+    .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px 16px; margin-top:12px; }
+    .fl { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+    .fv { font-family:'DM Mono',monospace; font-size:13.5px; color:var(--text); margin-top:2px; }
+    .docs { margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .bar { flex:1; min-width:120px; height:6px; background:#ece8e1; border-radius:3px; overflow:hidden; }
+    .bar i { display:block; height:100%; background:var(--gold); }
+    .docs .t { font-size:12px; color:var(--muted); white-space:nowrap; }
+    .cta { display:inline-block; margin-top:12px; background:var(--dark); color:#f2ede6; text-decoration:none; font-weight:600; font-size:13px; padding:9px 14px; border-radius:8px; }
+    .cta:hover { background:#3a2a52; }
+    .cta.ghost { background:transparent; color:var(--dark); border:1px solid var(--border); }
+    .rep b { display:block; font-size:14px; }
+    .rep a { color:var(--gold-mid); text-decoration:none; }
+    .rep div { margin-top:4px; font-size:13px; }
+    .apply { font-size:13px; line-height:1.6; color:var(--muted); }
+    .apply a { color:var(--gold-mid); font-weight:600; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking your access.</div></div>
+
+  <div id="app" style="display:none">
+    <div class="top">
+      <div class="top-in">
+        <div class="brand"><span>SLA Capital · Preferred Partners</span>My Loans</div>
+        <div class="whoami" id="whoami"></div>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="cols">
+        <div>
+          <div class="card">
+            <div class="card-head"><h2>In processing</h2><span class="n" id="nProc"></span></div>
+            <div id="procList"><div class="empty">Loading…</div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Quoted — terms being negotiated</h2><span class="n" id="nQuoted"></span></div>
+            <div id="quotedList"><div class="empty">Loading…</div></div>
+          </div>
+          <div class="card" id="closedCard" style="display:none">
+            <div class="card-head"><h2>Closed &amp; not proceeding</h2><span class="n" id="nClosed"></span></div>
+            <div id="closedList"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" id="repCard" style="display:none">
+            <div class="card-head"><h2>Your Sir Lends A Lot Rep</h2></div>
+            <div class="card-body rep" id="repBody"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Start a new loan</h2></div>
+            <div class="card-body apply" id="applyBody">
+              Submit an application for a borrower and it lands here under your name, with your rep.<br>
+              <a id="applyLink" href="/apply.html">Start an application →</a>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>How this works</h2></div>
+            <div class="card-body hint">
+              <b>Quoted</b> loans are the deals your rep is pricing with you — the terms shown are the ones on the table.<br><br>
+              <b>In processing</b> loans have an open document collection. Open one to upload the borrower's documents yourself — each tray tells you what is needed and what has been accepted.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+var ME = null;
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escA(s){ return escH(s).replace(/"/g,'&quot;'); }
+function money(v){ var n = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g,'')); return isFinite(n) && n > 0 ? '$' + Math.round(n).toLocaleString('en-US') : '—'; }
+function pct(v){ var n = parseFloat(String(v == null ? '' : v).replace(/[%\s]/g,'')); return isFinite(n) && n > 0 ? (n > 1 ? n : n * 100).toFixed(3).replace(/0+$/,'').replace(/\.$/,'') + '%' : '—'; }
+function pts(v){ var n = parseFloat(v); return isFinite(n) && n > 0 ? n + ' pt' + (n === 1 ? '' : 's') : '—'; }
+function fmtDate(iso){ if (!iso) return '—'; var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso)); return m ? (parseInt(m[2],10) + '/' + parseInt(m[3],10) + '/' + m[1]) : String(iso).slice(0,10); }
+function program(l){
+  var t = String(l.toolType || '').toLowerCase();
+  if (t === 'dscr') return 'DSCR';
+  if (t === 'guc') return 'Ground-Up';
+  if (t === 'rtl') return l.loanType || 'Bridge / Rehab';
+  return l.loanType || '—';
+}
+function stageChip(l){
+  var k = l.stage && l.stage.key, label = (l.stage && l.stage.label) || l.status || '';
+  var cls = k === 'cleartoclose' ? 'ok' : (k === 'denied' ? 'bad' : (k === 'closed' ? 'dim' : ''));
+  if (!l.inProcessing && k !== 'closed' && k !== 'denied') { label = String(l.status || '').toLowerCase() === 'on_hold' ? 'On hold' : 'Quoted'; cls = 'dim'; }
+  return '<span class="chip ' + cls + '">' + escH(label) + '</span>';
+}
+// The borrower's own document page, opened AS this broker (Deploy 237.234): the page and
+// its endpoints accept a Preferred Partner whose loan this is.
+function intakeHref(l){
+  return '/borrower-intake.html?loanId=' + encodeURIComponent(l.loanId) + '&clientId=' + encodeURIComponent(l.clientId) +
+    '&owner=' + encodeURIComponent(l.ownerKey) + '&via=broker' + (ME && ME.mode === 'admin-preview' ? '&as=' + encodeURIComponent(ME.email) : '');
+}
+function loanCard(l, kind){
+  var who = l.entity ? l.entity + (l.borrower ? ' · ' + l.borrower : '') : (l.borrower || 'Borrower not on file');
+  var facts = '<div class="facts">' +
+    '<div><div class="fl">Program</div><div class="fv">' + escH(program(l)) + '</div></div>' +
+    '<div><div class="fl">Loan amount</div><div class="fv">' + money(l.loanAmt) + '</div></div>' +
+    '<div><div class="fl">Rate</div><div class="fv">' + pct(l.rate) + '</div></div>' +
+    '<div><div class="fl">Points</div><div class="fv">' + pts(l.points) + '</div></div>' +
+    (l.brokerFee ? '<div><div class="fl">Your fee</div><div class="fv">' + pts(l.brokerFee) + '</div></div>' : '') +
+    (l.purchasePrice ? '<div><div class="fl">Purchase</div><div class="fv">' + money(l.purchasePrice) + '</div></div>' : '') +
+    (l.rehabBudget && parseFloat(l.rehabBudget) > 0 ? '<div><div class="fl">Rehab</div><div class="fv">' + money(l.rehabBudget) + '</div></div>' : '') +
+    (l.expectedCloseDate || l.fundingDate ? '<div><div class="fl">' + (kind === 'closed' ? 'Closed' : 'Target close') + '</div><div class="fv">' + fmtDate(l.fundingDate || l.expectedCloseDate) + '</div></div>' : '') +
+  '</div>';
+  var docs = '';
+  if (kind === 'processing') {
+    var p = l.docsActive ? Math.round(100 * l.docsCollected / l.docsActive) : 0;
+    docs = '<div class="docs"><div class="bar"><i style="width:' + p + '%"></i></div>' +
+      '<span class="t">' + l.docsCollected + ' of ' + l.docsActive + ' documents in' + (l.openConditions ? ' · ' + l.openConditions + ' condition' + (l.openConditions === 1 ? '' : 's') + ' open' : '') + '</span></div>' +
+      '<a class="cta" href="' + escA(intakeHref(l)) + '">📄 Upload documents for this borrower →</a>';
+  }
+  return '<div class="loan">' +
+    '<div class="loan-head"><div><div class="addr">' + escH(l.address || 'No address on file') + '</div>' +
+      '<div class="sub"><b>' + escH(who) + '</b> · Loan ID ' + escH(l.slaDisplayId) + '</div></div>' + stageChip(l) + '</div>' +
+    facts + docs + '</div>';
+}
+function paint(list, id, kind, emptyText){
+  var el = document.getElementById(id);
+  el.innerHTML = list.length ? '<div class="card-body">' + list.map(function(l){ return loanCard(l, kind); }).join('') + '</div>' : '<div class="empty">' + emptyText + '</div>';
+}
+function renderRep(rep){
+  var card = document.getElementById('repCard'), body = document.getElementById('repBody');
+  if (!rep || !(rep.name || rep.email)) { card.style.display = 'none'; return; }
+  body.innerHTML = '<b>' + escH(rep.name || rep.email) + '</b>' +
+    (rep.email ? '<div><a href="mailto:' + escA(rep.email) + '">' + escH(rep.email) + '</a></div>' : '') +
+    (rep.phone ? '<div><a href="tel:' + escA(rep.phone) + '">' + escH(rep.phone) + '</a></div>' : '');
+  card.style.display = '';
+}
+// Supabase sign-out (the borrower portal's pattern), THEN the sign-in page: "/" routes a
+// still-signed-in broker straight back here.
+function doLogout(){
+  var done = function(){ window.location.replace('/'); };
+  try {
+    if (window._slaSupabase && window._slaSupabase.auth) { window._slaSupabase.auth.signOut().then(done, done); return; }
+    if (window.netlifyIdentity && typeof window.netlifyIdentity.logout === 'function') window.netlifyIdentity.logout();
+  } catch (_) {}
+  done();
+}
+(function init(){
+  if (!(window.SLA && SLA.getCurrentUser)) { setTimeout(init, 120); return; }
+  SLA.getCurrentUser().then(function(user){
+    if (!user) { window.location.replace('/'); return; }
+    var as = '';
+    try { as = new URLSearchParams(window.location.search).get('as') || ''; } catch (_) {}
+    return SLA.api('GET', '/api/broker-loans' + (as ? '?as=' + encodeURIComponent(as) : '')).then(function(r){
+      ME = r;
+      document.getElementById('auth-gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      var bits = [];
+      if (r.company) bits.push('<b>' + escH(r.company) + '</b>');
+      bits.push(escH(r.email));
+      document.getElementById('whoami').innerHTML = bits.join(' · ') +
+        (r.mode === 'admin-preview' ? '<br><span class="preview-chip">Admin preview of ' + escH(r.email) + '</span>' : '') +
+        '<br><a href="/broker-sizer' + (as ? '?as=' + encodeURIComponent(as) : '') + '">Price a deal</a><a href="#" onclick="doLogout();return false">Sign out</a>';
+      renderRep(r.rep);
+      // Deploy 237.234 -- an application started here is stamped with the broker AND the rep.
+      var a = document.getElementById('applyLink');
+      a.href = '/apply.html?broker=' + encodeURIComponent(r.email) + (r.rep && r.rep.email ? '&lo=' + encodeURIComponent(r.rep.email) : '') +
+        (r.name ? '&brokerName=' + encodeURIComponent(r.name) : '') + (r.company ? '&brokerCompany=' + encodeURIComponent(r.company) : '') + (r.phone ? '&brokerPhone=' + encodeURIComponent(r.phone) : '');
+      var g = r.groups || { processing: [], quoted: [], closed: [] };
+      document.getElementById('nProc').textContent = g.processing.length ? g.processing.length + ' loan' + (g.processing.length === 1 ? '' : 's') : '';
+      document.getElementById('nQuoted').textContent = g.quoted.length ? g.quoted.length + ' loan' + (g.quoted.length === 1 ? '' : 's') : '';
+      paint(g.processing, 'procList', 'processing', 'None yet. A loan appears here once your rep moves it into processing — then you can upload the borrower\'s documents.');
+      paint(g.quoted, 'quotedList', 'quoted', 'No quoted loans on file. Start an application on the right, or ask your rep to link an existing one to you.');
+      if (g.closed.length) {
+        document.getElementById('closedCard').style.display = '';
+        document.getElementById('nClosed').textContent = g.closed.length + ' loan' + (g.closed.length === 1 ? '' : 's');
+        paint(g.closed, 'closedList', 'closed', '');
+      }
+    });
+  }).catch(function(e){
+    var code = e && e.data && e.data.code;
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>' + (code === 'partner_not_approved' ? 'Not approved yet' : 'Not available') + '</strong>' +
+      escH((e && e.message) || 'This account is not set up as a Preferred Partner.') +
+      '<br><br><a href="/">Back to sign in</a></div>';
+  });
+})();
+</script>
+</body>
+</html>

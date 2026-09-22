@@ -110,7 +110,7 @@
   <div id="login-screen">
     <div class="login-card">
       <h1>Submit Your Documents</h1>
-      <p>Sign in with the email your loan officer invited to upload your loan documents.</p>
+      <p id="loginLead">Sign in with the email your loan officer invited to upload your loan documents.</p>
       <button class="login-btn" id="googleBtn">Continue with Google</button>
       <div class="login-or"><span>or</span></div>
       <input class="login-email" id="loginEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
@@ -195,6 +195,23 @@
   var _clientId = _params.get('clientId') || _params.get('primaryClientId') || '';
   var _owner   = _params.get('owner') || _params.get('ownerKey') || '';
   var _items = [];
+  // Deploy 237.234 (Mike, broker portal) -- opened from the Preferred Partner portal. The
+  // server says who is looking (viewer.role from the loan-access grant); this hint only
+  // shapes the sign-in card and the back link before the first response.
+  var _viaBroker = _params.get('via') === 'broker';
+  var _asBroker = false;
+  function _paintOnBehalf(data){
+    _asBroker = !!(data && data.viewer && data.viewer.role === 'broker');
+    var back = document.querySelector('.back-link');
+    if (_viaBroker || _asBroker) { if (back) { back.setAttribute('href', '/broker-portal'); } }
+    if (!_asBroker) return;
+    var who = data.entity || data.borrower || 'this borrower';
+    var t = document.getElementById('pageTitle'); if (t) t.textContent = who + ' \u2014 Documents';
+    var b = document.getElementById('onBehalf');
+    if (!b) { b = document.createElement('div'); b.id = 'onBehalf'; b.className = 'err-box'; b.style.cssText = 'background:rgba(200,129,58,.10);border-color:rgba(200,129,58,.35);color:#7a5218;margin:0 0 14px'; var sub = document.getElementById('pageSub'); if (sub && sub.parentNode) sub.parentNode.insertBefore(b, sub.nextSibling); }
+    b.innerHTML = '<b>You are uploading on behalf of ' + escH(data.borrower || who) + (data.borrower && data.entity ? ' (' + escH(data.entity) + ')' : '') + '</b>' +
+      (data.address ? ' \u00b7 ' + escH(data.address) : '') + '<br>Everything you add here goes to the SLA loan team exactly as if the borrower had uploaded it.';
+  }
 
   function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   // Deploy 236.531 — borrowers authenticate via SUPABASE (Google + magic link).
@@ -241,6 +258,7 @@
     loadStatus();
   }
   function showLogin(){
+    if (_viaBroker) { var _ll = document.getElementById('loginLead'); if (_ll) _ll.textContent = 'Sign in with your Preferred Partner login to upload documents for this borrower.'; }
     document.getElementById('login-screen').style.display='flex';
     document.getElementById('app-screen').style.display='none';
     document.getElementById('signout').style.display='none';
@@ -255,7 +273,7 @@
 
   function loadStatus(){
     var c = document.getElementById('itemsContainer');
-    c.innerHTML = '<div class="empty">Loading your document list…</div>';
+    c.innerHTML = '<div class="empty">Loading ' + (_viaBroker ? 'the' : 'your') + ' document list…</div>';
     if (!_loanId){ c.innerHTML = '<div class="err-box">This link is missing its loan reference. Please use the link from your invite email.</div>'; return; }
     _borrowerJwt().then(function(token){
       return fetch('/api/borrower-intake-status' + _qs(), { headers:{ 'Authorization':'Bearer '+token } });
@@ -270,6 +288,7 @@
       // (see _wsCard); fetch the worksheet statuses and re-render with them.
       _wsAddress = data.address || '';
       loadWorksheetStatus();
+      _paintOnBehalf(data); // Deploy 237.234 -- a broker acting for the borrower
       renderTeam((data && data.team) || []);
     }).catch(function(err){
       c.innerHTML = '<div class="err-box">Couldn’t load your documents: ' + escH(err && err.message || 'unknown') + '</div>';

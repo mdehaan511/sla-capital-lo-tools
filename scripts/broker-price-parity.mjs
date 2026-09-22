@@ -206,7 +206,7 @@ console.log(`${rateFail ? 'FAIL' : 'ok  '}  fee.slaRate is a percentage on every
 //    copied <script> tag reintroduces silently — so it's a gate, not a
 //    comment. Checks real script tags only; the warning comment in
 //    broker-sizer.html mentions *-pricing.js on purpose.
-const BROKER_PAGES = ['deploy/broker-sizer.html', 'deploy/broker-signup.html', 'deploy/broker-partners.html'];
+const BROKER_PAGES = ['deploy/broker-sizer.html', 'deploy/broker-signup.html', 'deploy/broker-partners.html', 'deploy/broker-portal.html']; // Deploy 237.234 -- the portal home too
 let leakFail = 0;
 for (const page of BROKER_PAGES) {
   let html;

@@ -1396,6 +1396,13 @@
   to = "/.netlify/functions/broker-me"
   status = 200
   force = true
+# Deploy 237.234 (Mike) -- the broker portal home: the partner's loans (quoted + in
+# processing), read through the loans' broker link.
+[[redirects]]
+  from = "/api/broker-loans"
+  to = "/.netlify/functions/broker-loans"
+  status = 200
+  force = true
 # Deploy 236.870 — every Get Pricing is saved; this reads it back. A
 # partner sees only their own; admins see every partner's.
 [[redirects]]

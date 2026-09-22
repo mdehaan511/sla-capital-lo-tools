@@ -562,6 +562,13 @@
         var _em = String(user.email || '').toLowerCase();
         var _isStaff = isProcessor(user) || isAdmin(user) || isSuperAdmin(user)
                      || _em.endsWith('@slacapital.com');
+        // Deploy 237.234 (Mike) -- a Preferred Partner (role `broker`, stamped at approval)
+        // has their own portal. Checked before the borrower bounce: a broker is not staff
+        // and was landing on the borrower portal, which has nothing of theirs.
+        if (!_isStaff && getRoles(user).indexOf('broker') >= 0) {
+          window.location.replace('/broker-portal.html');
+          return;
+        }
         if (!_isStaff) {
           window.location.replace('/borrower-portal.html');
           return;

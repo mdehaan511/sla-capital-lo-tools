@@ -252,3 +252,7 @@ function _sanitize(loan, client, grant) {
     role:            grant.role || 'borrower',
   };
 }
+
+// Deploy 237.234 -- shared with broker-loans.mjs (a trailing export: scripts/borrower-stage-test.mjs lifts
+// _borrowerStage by its plain "function" line and runs it, so the declaration itself stays unexported).
+export { _borrowerStage, _deriveSlaDisplayId };

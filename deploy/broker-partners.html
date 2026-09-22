@@ -226,7 +226,12 @@
         <input type="text" id="inviteUrl" readonly onclick="this.select()" />
         <button class="act primary" onclick="copyInvite()">Copy</button>
       </div>
-      <div class="macts"><button class="act" onclick="document.getElementById('inviteBg').classList.remove('show')">Done</button></div>
+      <!-- Deploy 237.234 (Mike) -- or have SLA send it. -->
+      <div class="mhint" id="inviteEmailMsg" style="margin-top:10px"></div>
+      <div class="macts">
+        <button class="act primary" id="inviteEmailBtn" onclick="emailInvite()">✉ Email it to the partner</button>
+        <button class="act" onclick="document.getElementById('inviteBg').classList.remove('show')">Done</button>
+      </div>
     </div>
   </div>
 
@@ -405,12 +410,29 @@ function promote(email) {
   window._promoteClientId = c.clientId;
 }
 
+var _inviteEmail = '';
 function invite(email) {
   post({ email: email, action: 'invite' }).then(function (r) {
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    _inviteEmail = email;
     document.getElementById('inviteUrl').value = r.inviteUrl;
+    document.getElementById('inviteEmailMsg').textContent = '';
+    var b = document.getElementById('inviteEmailBtn'); if (b) { b.disabled = false; b.textContent = '\u2709 Email it to ' + email; }
     document.getElementById('inviteBg').classList.add('show');
   }).catch(function (e) { alert('Could not create an invite: ' + (e && e.message || 'unknown')); });
+}
+// Deploy 237.234 -- same invite, delivered by SLA. Re-mints (the newest link is the one
+// that works), so the box updates too.
+function emailInvite() {
+  if (!_inviteEmail) return;
+  var b = document.getElementById('inviteEmailBtn'), m = document.getElementById('inviteEmailMsg');
+  b.disabled = true; b.textContent = 'Sending\u2026';
+  post({ email: _inviteEmail, action: 'invite', send: true }).then(function (r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    document.getElementById('inviteUrl').value = r.inviteUrl;
+    if (r.emailed) { m.textContent = 'Sent to ' + _inviteEmail + '. The link above is the one in their inbox.'; b.textContent = '\u2713 Sent'; }
+    else { m.textContent = 'Could not send' + (r.emailError ? ': ' + r.emailError : '') + ' \u2014 copy the link and send it yourself.'; b.disabled = false; b.textContent = 'Try again'; }
+  }).catch(function (e) { m.textContent = 'Could not send: ' + (e && e.message || 'unknown'); b.disabled = false; b.textContent = 'Try again'; });
 }
 
 function copyInvite() {

@@ -755,6 +755,25 @@ var _ref = '';
   // as ?lo=: persist to sessionStorage so it survives an accidental reload,
   // back-button, or session restore that drops the query string, then attach
   // it to the prospect on submit. Length-capped since it's a public form.
+  // Deploy 237.234 (Mike: "If they submit an application as a broker it gets mapped there")
+  // -- opened from the Preferred Partner portal with ?broker=<email>: the form starts in
+  // broker mode with the broker filled in and the email locked, so the application is
+  // stamped with THIS broker (prospects-save routes on the broker email; the loan carries
+  // brokerId) and shows up on their portal. ?lo= (their rep) rides along as before.
+  var brokerFromUrl = (params.get('broker') || '').toLowerCase().trim();
+  if (brokerFromUrl && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(brokerFromUrl)) {
+    setTimeout(function () {
+      try {
+        if (typeof setSubmitter === 'function') setSubmitter('broker');
+        var set = function (id, v, lock) { var el = document.getElementById(id); if (!el) return; if (v) el.value = v; if (lock) { el.readOnly = true; el.style.background = '#f3f0ea'; } };
+        set('brokerEmail', brokerFromUrl, true);
+        set('brokerName', (params.get('brokerName') || '').slice(0, 120));
+        set('brokerCompany', (params.get('brokerCompany') || '').slice(0, 120));
+        set('brokerPhone', (params.get('brokerPhone') || '').slice(0, 30));
+        var seg = document.querySelector('.submitter-card'); if (seg) seg.style.display = 'none'; // the choice is made
+      } catch (_) {}
+    }, 0);
+  }
   var refFromUrl = (params.get('ref') || '').trim();
   if (refFromUrl) {
     _ref = refFromUrl.slice(0, 200);

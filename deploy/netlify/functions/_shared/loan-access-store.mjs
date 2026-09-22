@@ -62,6 +62,22 @@ export async function hasLoanGrant(email, loanId) {
   }
 }
 
+// Deploy 237.234 -- the live grant itself (role included), or null. hasLoanGrant answers
+// yes/no; the intake endpoints now also need to know whether the person holding the
+// grant is the borrower or a broker acting for them.
+export async function getLoanGrant(email, loanId) {
+  if (!email || !loanId) return null;
+  try {
+    const rec = await _store().get(keySafe(normalizeEmail(email)), { type: 'json' });
+    if (!rec || !Array.isArray(rec.grants)) return null;
+    const g = rec.grants.find((x) => x && x.loanId === loanId && !x.revokedAt);
+    return g ? { loanId: g.loanId, primaryClientId: g.primaryClientId || '', ownerKey: g.ownerKey || '', role: g.role || 'borrower', grantedAt: g.grantedAt || '' } : null;
+  } catch (e) {
+    console.warn('[loan-access] getLoanGrant read failed:', e && e.message);
+    return null;
+  }
+}
+
 // List every loanId this email is currently granted on. Used by
 // the future borrower portal to render "your loans".
 export async function listAccessibleLoans(email) {
