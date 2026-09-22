@@ -282,8 +282,11 @@ const COLCHIS_TRADE_COLS = [
     return (t && pp) ? pct(round4((t - rehabAmt(c.loan)) / pp)) : '';
   }],
   ['LTAIV', (c) => {
+    // Deploy 237.223 (Mike: "LTAIV should use the initial advance in ... the colchis
+    // tape") -- initial advance (total less the rehab holdback) over the as-is value, the
+    // same basis as Initial LTC two cells up. Was the full loan.
     const t = totalAmt(c.loan), aiv = thirdPartyAiv(c);
-    return (t && aiv) ? pct(round4(t / aiv)) : '';
+    return (t && aiv) ? pct(round4((t - rehabAmt(c.loan)) / aiv)) : '';
   }],
   ['Total LTC', (c) => {
     const t = totalAmt(c.loan), pp = num(c.loan.purchasePrice);

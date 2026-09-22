@@ -264,7 +264,7 @@
       case 'brokerOriginationFee':return { value: money(v.brokerOriginationFee), editable:false, prov:'Broker % × loan', calc:true };
       case 'ltarv':               return { value: pct(v.ltarv), editable:false, prov:'Loan ÷ ARV · vs Colchis cap', calc:true, flag:!!flg.ltarv };
       case 'ltc':                 return { value: pct(v.ltc), editable:false, prov:'Loan ÷ (Purchase + Reno) · vs Colchis cap', calc:true, flag:!!flg.ltc };
-      case 'ltaiv':               return { value: pct(v.ltaiv), editable:false, prov:'Loan ÷ As-is (RED > 90%)', calc:true, flag:!!flg.ltaiv };
+      case 'ltaiv':               return { value: pct(v.ltaiv), editable:false, prov:'Initial advance ÷ As-is (RED > 90%)', calc:true, flag:!!flg.ltaiv }; // Deploy 237.223
       case 'assignmentFeeEffective': return { value: money(v.assignmentFeeEffective), editable:false, prov: v.assignmentDerived ? 'Derived: Assign price − PSA price' : 'Listed on contract', calc:true };
       case 'assignmentToPurchase':return { value: pct(v.assignmentToPurchase), editable:false, prov:'Assign ÷ Purchase (RED > 15%)', calc:true, flag:!!flg.assignmentToPurchase };
       case 'prepaidInterest':     return { value: money(v.prepaidInterest), editable:false, prov: v.prepaidInterestDays+' days × per-diem (365)', calc:true };
@@ -382,12 +382,12 @@
     if (_ctx.loan && !_ctx.loan.entityName && _ctx.entityName) _ctx.loan.entityName = _ctx.entityName;
     // Deploy 236.511 — RTL + DSCR both supported now.
     var tt = String((_ctx.loan&&_ctx.loan.toolType)||'').toLowerCase();
-    var supported = (tt === 'rtl' || tt === 'dscr');
+    var supported = (tt === 'rtl' || tt === 'dscr' || tt === 'guc'); // Deploy 237.223 -- GUC = RTL rules (Mike)
     ['underwriting','lightning'].forEach(function(which){
       var pane = document.getElementById(which==='underwriting'?'ldPaneUnderwriting':'ldPaneLightning');
       if (!pane) return;
       if (!supported) {
-        pane.innerHTML = '<div class="uw-gate">These tabs are set up for RTL and DSCR loans.</div>';
+        pane.innerHTML = '<div class="uw-gate">These tabs are set up for RTL, GUC and DSCR loans.</div>';
         return;
       }
       pane.innerHTML = renderDataset(which==='underwriting'?'uw':'lightning');

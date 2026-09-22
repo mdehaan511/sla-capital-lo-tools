@@ -119,12 +119,12 @@
     var t = T(), f = F();
     if (!t || !f || !f.fieldsFor || !t.computeCalc || !t.resolve || !t.programOf) return null;
     loan = loan || {};
-    // The SAME gate as the Underwriting tab's mount(): RTL and DSCR only. programOf() on
-    // its own calls everything that is not 'dscr' RTL -- a GUC loan, or a legacy loan with
-    // no toolType (a DSCR loan by this page's own default) -- and RTL ratios on a loan
-    // the engine was never vetted for are worse than no panel.
+    // The SAME gate as the Underwriting tab's mount(). Deploy 237.223 (Mike: "the GUC
+    // loans have the same basic rules as RTLs") -- GUC runs the RTL engine; its loanType is
+    // 'construction', which the Colchis cap tables already carry. A legacy loan with no
+    // toolType still gets nothing: programOf() alone would run RTL math on it.
     var tt = String(loan.toolType || '').toLowerCase();
-    if (tt !== 'rtl' && tt !== 'dscr') return null;
+    if (tt !== 'rtl' && tt !== 'dscr' && tt !== 'guc') return null;
     var program = t.programOf(loan) === 'dscr' ? 'dscr' : 'rtl';
     var data = (loan.uwData && typeof loan.uwData === 'object') ? loan.uwData : {};
     var byKey = {};
@@ -158,6 +158,11 @@
         note = 'Using ' + money(cv.assignmentFeeEffective) + ' (assignment price less PSA price)';
       }
       if (def.k === 'ltarv' && program === 'rtl') prov = val.arv.read ? 'Loan ÷ the valuation’s ARV' : 'Loan ÷ term-sheet ARV (no valuation read yet)';
+      // Deploy 237.223 (Mike) -- LTAIV is the INITIAL advance over as-is, so on a rehab
+      // loan say which number went on top; "just to verify" means showing the work.
+      if (def.k === 'ltaiv' && program === 'rtl' && num(cv.initialAdvance) > 0 && num(cv.initialAdvance) < num(loan.loanAmt)) {
+        note = 'Initial advance ' + money(cv.initialAdvance) + ' (loan less the holdback) over as-is';
+      }
       if (unver) unverified++;
       return { key: def.k, label: def.label || field.label, from: def.from || (r.calc ? 'Calculated' : (field.sourceNote || '')),
         display: display, empty: empty, prov: prov, note: note, flag: !!r.flag, calc: !!r.calc,
@@ -226,8 +231,21 @@
       });
       return { title: sec.title, rows: rows };
     });
+    // Deploy 237.223 (Mike: "you can hide the old underwriting tab now") -- everything
+    // else that tab held (valuation date / provider / sq ft, entity TIN, flood zone,
+    // insurance, the SOW budget...) feeds the trade tapes and must keep a place where a
+    // person can see, correct and confirm it. Folded below the sheet, collapsed.
+    var shownKeys = { arv: 1, asIsPrice: 1, loanAmount: 1, constructionHoldback: 1, usCitizen: 1, maritalStatus: 1 };
+    sections.forEach(function (s) { s.rows.forEach(function (r) { shownKeys[r.key] = 1; }); });
+    var moreRows = [];
+    f.fieldsFor(program, 'uw').forEach(function (x) {
+      if (x.accountRow || shownKeys[x.key]) return;
+      var r = regRow({ k: x.key, from: x.sourceNote || '' });
+      if (r) moreRows.push(r);
+    });
     var checks = (t.buildChecksSummary ? t.buildChecksSummary(calcLoan, calc) : []) || [];
-    return { program: program, sections: sections, checks: checks, unverified: unverified };
+    return { program: program, sections: sections, checks: checks, unverified: unverified,
+      more: { rows: moreRows, filled: moreRows.filter(function (r) { return !r.empty; }).length } };
   }
 
   // ── drawing ───────────────────────────────────────────────────────────────
@@ -262,6 +280,10 @@
       '.uwm-row.is-flag .uwm-note { color:var(--danger,#7c1f1f); font-weight:600; }',
       '.uwm-row.is-total { background:rgba(0,0,0,0.025); font-weight:600; }',
       '.uwm-acct-ed { grid-column:1 / -1; display:grid; grid-template-columns:1fr 92px 58px; gap:5px; margin-top:3px; }',
+      '.uwm-more > summary { cursor:pointer; list-style:none; }',
+      '.uwm-more > summary::-webkit-details-marker { display:none; }',
+      '.uwm-more > summary::before { content:"\\25B8 "; }',
+      '.uwm-more[open] > summary::before { content:"\\25BE "; }',
       '.uwm-acct-done { grid-column:1 / -1; text-align:right; font-size:11px; font-family:inherit; font-weight:400; color:var(--muted,#6b6459); }',
       '.uwm-acct-ed select, .uwm-acct-ed input { width:100%; box-sizing:border-box; padding:4px 5px; font-size:12px; border:1px solid var(--border,#ddd8d0); border-radius:5px; background:#fff; }'
     ].join('\n');
@@ -272,6 +294,8 @@
   }
 
   var _openAcct = {}; // account rows whose editor is open (page session)
+  var _moreOpen = false; // "More from the documents" stays open across repaints once opened
+  function _moreToggled(open) { _moreOpen = !!open; }
 
   function rowHtml(r) {
     var rootJs = 'document.getElementById(\'' + PANEL_ID + '\')';
@@ -337,6 +361,10 @@
       '<div class="uwm-secs">' + b.sections.map(function (s) {
         return '<div class="uwm-sec"><div class="uwm-st">' + esc(s.title) + '</div>' + s.rows.map(rowHtml).join('') + '</div>';
       }).join('') + '</div>' +
+      (b.more && b.more.rows.length
+        ? '<details class="uwm-more"' + (_moreOpen ? ' open' : '') + ' ontoggle="SLA_UW_METRICS._moreToggled(this.open)"><summary class="uwm-st">More from the documents · ' + b.more.filled + ' of ' + b.more.rows.length + ' filled</summary>' +
+            b.more.rows.map(rowHtml).join('') + '</details>'
+        : '') +
     '</div>';
   }
 
@@ -381,7 +409,7 @@
     });
   }
 
-  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
+  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _moreToggled: _moreToggled, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
   if (typeof window !== 'undefined') window.SLA_UW_METRICS = _API;
   if (typeof module !== 'undefined' && module.exports) module.exports = _API;
 })();

@@ -8,7 +8,11 @@
  *   monthlyPayment       = loanAmt × rate ÷ 12
  *   ltarv                = loanAmt ÷ arv
  *   ltc                  = loanAmt ÷ (purchasePrice + renovation)  [= term sheet]
- *   ltaiv                = loanAmt ÷ asIsValue
+ *   ltaiv                = (loanAmt − renovation) ÷ asIsValue   -- the INITIAL ADVANCE
+ *                          over as-is (Deploy 237.223, Mike: "LTAIV should use the
+ *                          initial advance"; same rule Loan Financials has used since
+ *                          236.767 -- the full loan bundles the rehab escrow and
+ *                          overstated it on every fix-flip)
  *   assignmentToPurchase = assignmentFee ÷ purchasePrice          (RED > 15%)
  *   prepaidInterest      = loanAmt × rate ÷ 365 × daysFundingToMonthEnd
  *   liquidityTotal       = Σ(account.balance × account.weight) + emdPaid
@@ -78,7 +82,12 @@
 
     var ltarv = ratio(loanAmt, ctx.arv);
     var ltc   = ratio(loanAmt, num(ctx.purchasePrice) + reno);
-    var ltaiv = ratio(loanAmt, ctx.asIsValue);
+    // Deploy 237.223 (Mike) -- LTAIV runs off the INITIAL advance (loan less the rehab
+    // holdback), not the full loan: as-is is the value at close, and the holdback is not
+    // advanced at close. Matches Loan Financials (_rtlInitAdv) and the RTL submission
+    // template (initial loan ÷ AIV). LTC and LTARV keep the full loan on purpose.
+    var initialAdvance = Math.max(0, loanAmt - reno);
+    var ltaiv = ratio(initialAdvance, ctx.asIsValue);
 
     // Assignment Fee (Mike): use the fee explicitly listed on the assignment
     // contract ONLY when it's present AND not larger than the purchase price.
@@ -121,6 +130,7 @@
     var brokerOriginationFee = loanAmt * num(ctx.brokerFeePct) / 100;
 
     var values = {
+      initialAdvance: initialAdvance, // Deploy 237.223
       monthlyPayment: monthly,
       originationFee: originationFee,
       brokerOriginationFee: brokerOriginationFee,

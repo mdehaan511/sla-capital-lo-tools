@@ -254,7 +254,9 @@
       '.dr-root .dr-uw-side { min-width:0; }',
       '@container druw (min-width: 900px) {',
       '  .dr-root .dr-uw-cols { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:18px; align-items:start; }',
-      '  .dr-root .dr-uw-side { position:sticky; top:12px; max-height:calc(100vh - 24px); overflow-y:auto; }',
+      // Deploy 237.223 (Mike: "instead of making it sticky and have a scroll bar ... make
+      // it hold its position on the page and remove the scroll bar") -- a plain column now.
+      '  .dr-root .dr-uw-side { position:static; }',
       '}',
       '.dr-root .source-grid .k { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:2px; }',
       '.dr-root .source-grid .v { font-size:13px; color:var(--text); font-family:"DM Mono", monospace; word-break:break-word; }',

@@ -13,7 +13,7 @@
  *   monthlyPayment       = Loan × Rate ÷ 12
  *   ltarv                = Loan ÷ ARV
  *   ltc                  = same as the term sheet (Loan ÷ (Purchase + Reno))
- *   ltaiv                = Loan ÷ As-is Value
+ *   ltaiv                = Initial Advance (Loan − Holdback) ÷ As-is Value  (Deploy 237.223, Mike)
  *   prepaidInterest      = Loan × Rate ÷ 365 × days, where days = funding
  *                          date → end of that month (365-day basis)
  *   liquidityTotal       = Σ(account balance × its weight) + EMD paid

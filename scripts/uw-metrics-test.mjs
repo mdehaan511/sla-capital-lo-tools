@@ -158,9 +158,33 @@ console.log('\nA DSCR loan gets the DSCR sheet');
   const pb = w.SLA_UW_METRICS.build({ id: 'l_2', toolType: 'dscr', loanAmt: '300000', rate: '7', propValue: '400000', rent: '3000', taxes: '250', insurance: '100', hoa: '0', uwData: {} });
   const keys = flat(pb).map((r) => r.key);
   assert('LTV + DSCR + reserves, no RTL ratios', keys.indexOf('ltv') >= 0 && keys.indexOf('dscr') >= 0 && keys.indexOf('reservesRequirement') >= 0 && keys.indexOf('ltarv') < 0 && keys.indexOf('constructionHoldback') < 0);
-  // programOf() alone would call both of these RTL. The tab's mount() refuses them; so does the panel.
-  check('GUC and legacy no-toolType loans get NO panel rather than RTL math (the tab\'s own gate)',
-    [w.SLA_UW_METRICS.build({ id: 'x', toolType: 'guc', loanAmt: '1', uwData: {} }), w.SLA_UW_METRICS.build({ id: 'y', loanAmt: '1', uwData: {} }), w.SLA_UW_METRICS.html({ id: 'y' })], [null, null, '']);
+  // Deploy 237.223 (Mike: "the GUC loans have the same basic rules as RTLs") -- GUC runs the RTL
+  // sheet. A legacy loan with no toolType still gets nothing (programOf() alone would call it RTL).
+  const guc = w.SLA_UW_METRICS.build({ id: 'g', toolType: 'guc', loanType: 'construction', loanAmt: '500000', rehabBudget: '200000', arv: '900000', purchasePrice: '250000', aivBpo: '300000', arvBpo: '900000', fico: '740', experience: '3', uwData: {} });
+  check('a GUC loan gets the RTL sheet, on the RTL engine', [guc && guc.program, guc && row(guc, 'ltaiv').display, guc && row(guc, 'constructionHoldback').display], ['rtl', '100.00%', '$200,000']);
+  check('legacy no-toolType loans get NO panel rather than RTL math (the tab\'s own gate)',
+    [w.SLA_UW_METRICS.build({ id: 'y', loanAmt: '1', uwData: {} }), w.SLA_UW_METRICS.html({ id: 'y' })], [null, '']);
+  assert('...and the Underwriting tab\'s own mount agrees', /tt === 'rtl' \|\| tt === 'dscr' \|\| tt === 'guc'/.test(read('loan-uw-tab.js')));
+}
+
+// ── 6b. LTAIV is the initial advance; the rest of the tab is still reachable ─
+console.log('\nLTAIV, and what the hidden tab used to hold');
+{
+  const loan = RTL(); loan.rehabBudget = '89000'; loan.loanAmt = '206000'; loan.aivBpo = '130000';
+  const pb = w.SLA_UW_METRICS.build(loan);
+  check('LTAIV = (loan − holdback) ÷ as-is, and says so', [row(pb, 'ltaiv').display, row(pb, 'ltaiv').note, row(pb, 'ltaiv').prov], ['90.00%', 'Initial advance $117,000 (loan less the holdback) over as-is', 'Initial advance ÷ As-is (RED > 90%)']);
+  check('no holdback: no note to make', row(w.SLA_UW_METRICS.build(RTL()), 'ltaiv').note, '');
+  // Deploy 237.223 -- the old tab is hidden, so everything it held that the sheet does not
+  // show (trade-tape fields) folds under "More from the documents", still editable.
+  const more = pb.more.rows.map((r) => r.key);
+  check('the rest of the registry is under "More", nothing lost', ['valuationDate', 'valuationProvider', 'valuationSqft', 'entityTin', 'floodZone', 'insuranceLiability', 'rehabBudget', 'propertySqFt', 'liquidityNotes'].filter((k) => more.indexOf(k) < 0), []);
+  check('...but not what is already on the sheet, the accounts, or the two Mike excluded', ['ltaiv', 'purchasePrice', 'account1', 'usCitizen', 'maritalStatus', 'asIsPrice'].filter((k) => more.indexOf(k) >= 0), []);
+  loan.uwData.floodZone = { value: 'X', isAI: true, verified: false };
+  const h = w.SLA_UW_METRICS.html(loan);
+  assert('drawn collapsed, with a count, and its AI values carry Confirm too', /<details class="uwm-more"[^>]*><summary[^>]*>More from the documents · 2 of \d+ filled<\/summary>/.test(h) && /_confirm\('uw','floodZone'\)/.test(h), (h.match(/More from the documents[^<]*/) || [])[0]);
+  const LDJS = read('loan-details.js');
+  assert('the old Underwriting tab is hidden behind a flag, not deleted', /var LD_SHOW_UNDERWRITING = false;/.test(LDJS) && /\(_uwOK && LD_SHOW_UNDERWRITING\)/.test(LDJS));
+  assert('...and its pane is still mounted (that mount is the panel\'s context)', /ldPaneUnderwriting/.test(LDJS) && /SLA_UW_TAB\.mount\(\{/.test(LDJS));
 }
 
 // ── 7. the click edits THIS cell ────────────────────────────────────────────
@@ -251,6 +275,9 @@ console.log('\nloan-doc-review.js gives it a column and tells it when to look');
   check('a page without the panel script is the single column it always was', vm.runInContext('_metricsHtml()', c), '');
   assert('only on the Underwriting subtab', /var _mx = \(_activeTab === 'uw'\) \? _metricsHtml\(\) : '';/.test(DR));
   assert('stacked unless the REVIEW column is wide enough (container query, not window width)', /container-type:inline-size/.test(DR) && /@container druw \(min-width: 900px\)/.test(DR) && /flex-direction:column-reverse/.test(DR));
+  // Deploy 237.223 (Mike: "instead of making it sticky and have a scroll bar ... hold its position")
+  const sideCss = (DR.match(/\.dr-root \.dr-uw-side \{[^}]*\}/g) || []).join(' ');
+  assert('the panel holds its place on the page: not sticky, no scrollbar of its own', sideCss.length > 0 && !/sticky|overflow-y|max-height/.test(sideCss), sideCss);
   assert('a new review resets the baseline', /_mxSig = null;\s+\/\/ Deploy/.test(DR));
 }
 
@@ -266,7 +293,7 @@ console.log('\nloan-details.html');
   check('every export the panel calls exists on SLA_UW_TAB', need.filter((k) => typeof page().SLA_UW_TAB[k] !== 'function'), []);
   const bare = page(); bare.SLA_UW_TAB = { mount() {} };
   check('an OLD cached loan-uw-tab.js means no panel, not a crash', bare.SLA_UW_METRICS.html(RTL()), '');
-  assert('the big Underwriting tab is still there (it is replaced when Mike says so, not as a side effect)', /ldPaneUnderwriting/.test(read('loan-details.js')));
+  assert('loan-uw-calc.js is pinned too (its LTAIV changed; an old cached copy would disagree with the tape)', /loan-uw-calc\.js\?v=[0-9A-Za-z@]+/.test(LD));
 }
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));

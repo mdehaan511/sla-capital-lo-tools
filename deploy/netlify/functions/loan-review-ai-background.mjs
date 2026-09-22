@@ -55,10 +55,21 @@ async function handle(req, context) {
   // LO's, who can't call this directly). Either credential works.
   const hdrSig = (req.headers && typeof req.headers.get === 'function') ? (req.headers.get('x-sla-internal') || '') : '';
   const wantSig = internalBgSig(body.reviewId, body.slug);
+  // Deploy 237.223 -- THE reason big BPOs / appraisals / bank statements reviewed fine and
+  // still put nothing on the loan. 236.818 moved `const user` INSIDE this `if`, and the
+  // field-proposal write at the bottom kept reading `user.email` -- a ReferenceError on
+  // every call, staff JWT or internal signature alike, swallowed by that write's own
+  // try/catch. Three weeks of extracted AIV / ARV / credit scores / liquidity accounts
+  // were thrown away here. node --check cannot see an undeclared identifier (the rateEl
+  // class of bug); scripts/review-path-run-test.mjs now RUNS this function instead.
+  // Same shape as the other internal-signature functions: the actor is hoisted, and the
+  // refresher's re-grades (no person behind them) go into the audit log as the AI.
+  let actorEmail = '';
   if (!(wantSig && hdrSig && hdrSig === wantSig)) {
     const user = await requireAuth(context, req);
     if (!user) return json(401, { error: 'Not authenticated' });
     if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
+    actorEmail = normalizeEmail(user.email);
   }
 
   // Deploy 237.098 (spend) -- queued re-grades arrive staggered (delayMs) so the
@@ -263,7 +274,7 @@ async function handle(req, context) {
   // Write the loan fields AFTER the review is saved, so a proposal-write failure
   // can never lose the review itself (same ordering as the upload path).
   if (_props && _canWriteFields) {
-    try { await writeFieldProposals(review.source, _props, normalizeEmail(user.email)); }
+    try { await writeFieldProposals(review.source, _props, actorEmail); } // Deploy 237.223 -- was user.email, out of scope
     catch (e) { console.error('loan-review-ai-background: field-proposal write failed:', e && e.message); }
   }
   return json(200, { ok: true, review: saved || review, dropped: !saved });

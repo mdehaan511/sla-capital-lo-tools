@@ -2771,7 +2771,14 @@ function render() {
   var _inProc = isInProcessing(l);
   var _uwOK   = _inProc && _isRtlLoan;
   var _tabDocuments    = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="documents" onclick="switchLdTab(\'documents\')"><span class="ld-tab-icon">\u{1F4C4}</span>Documents</button>' : '';
-  var _tabUnderwriting = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' : '';
+  // Deploy 237.223 (Mike: "you can hide the old underwriting tab now") -- replaced by the
+  // key-metrics panel on Documents > Underwriting (loan-uw-metrics.js), which draws from the
+  // same registry / engine / save path. The pane element stays: SLA_UW_TAB.mount() still
+  // renders into it (hidden) and that mount is what gives the panel its context. An old
+  // #underwriting link lands on Loan (switchLdTab falls back when the button is gone).
+  // Flip to true to bring the tab back.
+  var LD_SHOW_UNDERWRITING = false;
+  var _tabUnderwriting = (_uwOK && LD_SHOW_UNDERWRITING) ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' : '';
   var _tabClosing      = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="closing" onclick="switchLdTab(\'closing\')"><span class="ld-tab-icon">\u{1F3C1}</span>Closing</button>' : '';
   // Deploy 237.007 (Mike): Lightning Docs tab HIDDEN for now — not in use yet;
   // likely replaced by a Lightning Docs API integration. Flip to true to restore.
