@@ -84,17 +84,21 @@
     .pc-refresh { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 5px 12px; font-family: inherit; font-size: 12px; cursor: pointer; }
     .pc-refresh:hover { border-color: var(--gold); color: var(--gold); }
     .pc-empty { padding: 40px 14px; text-align: center; color: var(--muted); }
-    .pc-row { display: flex; align-items: baseline; gap: 10px; padding: 11px 16px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; flex-wrap: wrap; }
+    /* A table, like the Closed Loans list: the address column takes the slack,
+       everything else keeps its own column so a wide window does not strand the
+       counts against the far edge and leave the row looking empty. */
+    .pc-row { display: grid; grid-template-columns: 12px minmax(200px, 3fr) minmax(0, 1.4fr) auto auto; align-items: baseline; gap: 4px 14px; padding: 11px 16px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; }
     .pc-row:hover { background: rgba(200,129,58,0.06); }
     .pc-row.open { background: rgba(200,129,58,0.08); }
-    .pc-caret { color: var(--muted); font-size: 11px; width: 10px; }
-    .pc-addr { font-weight: 600; color: var(--dark); flex: 1; min-width: 220px; }
-    .pc-borrower { color: var(--muted); font-size: 12.5px; }
+    .pc-caret { color: var(--muted); font-size: 11px; }
+    .pc-addr { font-weight: 600; color: var(--dark); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pc-borrower { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pc-tags { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; }
     .pc-count { font-size: 11px; font-weight: 700; color: #7c1f1f; background: rgba(124,31,31,0.10); border-radius: 10px; padding: 2px 9px; white-space: nowrap; }
     .pc-badge { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
     .pc-badge.docs { color: #7c1f1f; background: rgba(124,31,31,0.08); }
     .pc-badge.funding { color: #b5712d; background: rgba(200,129,58,0.12); }
-    .pc-age { font-size: 11.5px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+    .pc-age { font-size: 11.5px; color: var(--muted); white-space: nowrap; text-align: right; min-width: 92px; }
     .pc-panel { padding: 6px 16px 14px 36px; border-bottom: 1px solid rgba(0,0,0,0.05); background: rgba(0,0,0,0.015); }
     .pc-cond { display: flex; gap: 10px; padding: 7px 0; align-items: flex-start; }
     .pc-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: none; }
@@ -107,8 +111,12 @@
     .pc-open { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--gold); text-decoration: none; font-weight: 600; }
     .pc-open:hover { text-decoration: underline; }
     @media (max-width: 760px) {
-      .pc-age { margin-left: 0; width: 100%; }
-      .pc-addr { min-width: 0; flex: 1 1 100%; }
+      /* One line for the address, one for everything about it. */
+      .pc-row { grid-template-columns: 12px 1fr auto; }
+      .pc-borrower { grid-column: 2 / -1; }
+      .pc-tags { grid-column: 2 / -1; justify-content: flex-start; }
+      .pc-age { grid-column: 2 / -1; text-align: left; min-width: 0; }
+      .pc-panel { padding-left: 22px; }
     }
     .col[data-col^="cl_"] .col-head { background: var(--col-closed-bg); } .col[data-col^="cl_"] .col-head h3 { color: var(--col-closed); }
 
@@ -1116,9 +1124,11 @@ function renderConditions() {
         '<span class="pc-caret">' + (isOpen ? '▾' : '▸') + '</span>' +
         '<span class="pc-addr">' + escH(L.address || '(no address)') + '</span>' +
         '<span class="pc-borrower">' + escH(L.borrowerName || '') + '</span>' +
-        '<span class="pc-count">' + L.open + ' open</span>' +
-        (ptdN ? '<span class="pc-badge docs">' + ptdN + ' prior to docs</span>' : '') +
-        (ptfN ? '<span class="pc-badge funding">' + ptfN + ' prior to funding</span>' : '') +
+        '<span class="pc-tags">' +
+          '<span class="pc-count">' + L.open + ' open</span>' +
+          (ptdN ? '<span class="pc-badge docs">' + ptdN + ' prior to docs</span>' : '') +
+          (ptfN ? '<span class="pc-badge funding">' + ptfN + ' prior to funding</span>' : '') +
+        '</span>' +
         '<span class="pc-age">' + escH(_condAge(L.oldestDays)) + '</span>' +
       '</div>';
     if (!isOpen) return head2;
