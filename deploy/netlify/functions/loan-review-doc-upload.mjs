@@ -46,6 +46,7 @@ import { writeFieldProposals, felonyAlertFor, bpoAlertFor } from './_shared/uw-f
 import { writeClient } from './_shared/client-write.mjs';
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
+import { entityOfRecord } from './_shared/ownership-chain.mjs'; // Deploy 237.243
 import { statusAfterUpload } from './_shared/doc-status.mjs'; // Deploy 237.213 (Jessy)
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
@@ -668,7 +669,10 @@ function buildLoanContext(review) {
     borrowerName:  borrowerName,
     borrowerEmail: client.email || '',
     entityName:    client.entityName || (function () { var v = Array.isArray(loan.vestingLLCs) ? loan.vestingLLCs[0] : null; return typeof v === 'string' ? v.trim() : ((v && v.name) ? String(v.name).trim() : ''); })(), // Deploy 237.080 -- Vesting Entity
-    articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
+    // Deploy 237.243 -- the Articles still govern the entity name (237.041/237.074);
+    // entityOfRecord decides WHICH Articles when a file holds several companies'.
+    // Reading the tray alone made the name of record whichever one was reviewed last.
+    articlesEntityName: entityOfRecord(review),
     guarantorNames: (Array.isArray(review.guarantorNames) && review.guarantorNames.length) ? review.guarantorNames.slice() : (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
     idNames: guarantorIdNames(review), // Deploy 237.075 -- legal names per the IDs on file
     mortgagee: expectedMortgagee({ loanType: review.loanType, investor: review.investor, investorName: loan.investorName }), // Deploy 237.075

@@ -78,17 +78,86 @@ function ownershipDocs(review) {
 // ── the root ───────────────────────────────────────────────────────────────
 // The borrowing entity: the Articles are the name of record (237.074), then the
 // loan's vesting LLC, then the entity on the client record.
-export function borrowingEntity(review) {
+// Every LLC name the AI has read off an ENTITY document, with how many documents
+// said it. Borrower-section trays only: a title company on a CPL and the lender on
+// a HUD are also "an LLC name on a document" and neither is the borrower.
+const ENTITY_TRAYS = /^(articles_of_organization|certificate_of_good_standing|ein_letter|ein_or_w9|ofac_entity|operating_agreement|entity_background_check|bank_stmt_current|bank_stmt_previous|voided_check|voided_check_ach|foreign_entity_registration|borrower_loe)(__[pg]\d+)?$/;
+function entityVotes(review) {
+  const votes = new Map(); // key -> { name, n }
+  const cast = (v) => {
+    const name = String(v == null ? '' : v).trim();
+    const k = nameKey(name);
+    if (!k) return;
+    const got = votes.get(k) || { name, n: 0 };
+    got.n += 1;
+    votes.set(k, got);
+  };
+  const docs = (review && review.docs) || {};
+  for (const slug of Object.keys(docs)) {
+    if (!ENTITY_TRAYS.test(slug)) continue;
+    const tray = docs[slug] || {};
+    const entries = Array.isArray(tray.documents) ? tray.documents : [];
+    if (entries.length) entries.forEach((e) => { if (e && !e.hidden) cast((e.aiExtractedEntities || {}).llcName); });
+    else cast((tray.aiExtractedEntities || {}).llcName);
+  }
+  return votes;
+}
+
+/**
+ * The borrowing entity — the root of the chain.
+ *
+ * Deploy 237.243 (found while checking the chain on 5909 Cates). It used to be the
+ * ARTICLES TRAY's reading, full stop. That tray holds one document on a normal
+ * loan and four on this one — one each for Treeline, Kalahari, 5909 Cates Ave and
+ * DTCM — and the tray-level reading is simply whichever was reviewed most recently.
+ * So the loan's "entity of record" was Kalahari last week and Treeline today, which
+ * is the root of this chain, the subject a file is named after, and the name every
+ * entity document is GRADED against. Eight operating agreements failing "entity
+ * name matches the entity name of record" is that, not eight bad documents.
+ *
+ * The Articles still govern the SPELLING (237.074, Mike). What changes is WHICH
+ * Articles, when there are several: the loan record decides if it names an entity,
+ * otherwise the company the rest of the entity documents agree on. On a loan with
+ * one Articles — every loan before this one — all three roads lead to the same name.
+ */
+export function entityOfRecord(review) {
   const r = review || {};
-  const art = (r.docs && r.docs.articles_of_organization) || {};
-  const fromArticles = art.aiReviewedAt ? String((art.aiExtractedEntities || {}).llcName || '').trim() : '';
-  if (fromArticles) return fromArticles;
   const loan = r.sourceLoanSnapshot || r.snapshotLoan || {};
-  const v = Array.isArray(loan.vestingLLCs) ? loan.vestingLLCs[0] : null;
-  const vest = String((v && typeof v === 'object' ? v.name : v) || '').trim();
-  if (vest) return vest;
   const client = r.sourceClientSnapshot || {};
-  return String(loan.entityName || client.entityName || '').trim();
+  const v = Array.isArray(loan.vestingLLCs) ? loan.vestingLLCs[0] : null;
+  const stated = String((v && typeof v === 'object' ? v.name : v) || loan.entityName || client.entityName || '').trim();
+
+  // What the Articles on file actually say — one candidate per document.
+  const art = (r.docs && r.docs.articles_of_organization) || {};
+  const entries = Array.isArray(art.documents) ? art.documents : [];
+  const candidates = [];
+  const push = (v2) => {
+    const name = String(v2 == null ? '' : v2).trim();
+    if (name && !candidates.some((c) => nameKey(c) === nameKey(name))) candidates.push(name);
+  };
+  entries.forEach((e) => { if (e && !e.hidden) push((e.aiExtractedEntities || {}).llcName); });
+  if (art.aiReviewedAt) push((art.aiExtractedEntities || {}).llcName);
+
+  if (!candidates.length) return stated;
+  if (candidates.length === 1) return candidates[0];
+  // Several companies have Articles on this file. The loan record picks, if it
+  // says anything; the Articles' spelling is what comes back either way.
+  if (stated) {
+    const hit = candidates.find((c) => nameKey(c) === nameKey(stated));
+    if (hit) return hit;
+  }
+  const votes = entityVotes(review);
+  let best = '', bestN = 0;
+  for (const c of candidates) {
+    const n = (votes.get(nameKey(c)) || { n: 0 }).n;
+    if (n > bestN) { bestN = n; best = c; }
+  }
+  if (best) return best;
+  return stated || candidates[0];
+}
+
+export function borrowingEntity(review) {
+  return entityOfRecord(review);
 }
 
 function rosterOf(review) {

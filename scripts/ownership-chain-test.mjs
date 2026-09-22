@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/ownership-chain-test.mjs — Deploy 237.242
+ * scripts/ownership-chain-test.mjs — Deploy 237.242 / 237.243
  *
  * Mike, on 5909 Cates: "the borrower had a bunch of LLCs with ownership interests
  * in the others … lets do the one where it reads the chain of ownership."
@@ -16,7 +16,7 @@
  */
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { buildOwnershipChain, parentOf, nameKey, borrowingEntity } from '../deploy/netlify/functions/_shared/ownership-chain.mjs';
+import { buildOwnershipChain, parentOf, nameKey, borrowingEntity, entityOfRecord } from '../deploy/netlify/functions/_shared/ownership-chain.mjs';
 import { renameTrayDocuments } from '../deploy/netlify/functions/_shared/doc-naming.mjs';
 
 let fail = 0;
@@ -190,6 +190,58 @@ console.log('\nthe file name says which company this is');
   renameTrayDocuments(lone, 'operating_agreement');
   check('a company nothing places gets no parent invented for it',
     lone.docs.operating_agreement.documents[0].filename, 'Operating Agreement - Somebody Else LLC.pdf');
+}
+
+console.log('\nwhich company is the borrower (237.243)');
+{
+  // The Articles tray on 5909 Cates holds FOUR articles — one each for Treeline,
+  // Kalahari, 5909 Cates Ave and DTCM — and the tray-level reading is whichever was
+  // reviewed last. That name is this chain's root, the subject a file is named
+  // after, and the name every entity document is graded against.
+  const art = (docs) => ({ aiReviewedAt: '2026-09-22T21:13:03Z', aiExtractedEntities: { llcName: 'TREELINE CAPITAL, L.L.C.' }, documents: docs });
+  const ent = (llc) => ({ aiExtractedEntities: { llcName: llc }, documents: [] });
+  const r = {
+    id: 'r1', guarantors: [{ index: 0, name: 'Donato Callahan' }],
+    docs: {
+      articles_of_organization: art([
+        { docId: 'a1', aiExtractedEntities: { llcName: 'TREELINE CAPITAL, L.L.C.' }, aiReviewedAt: '2026-09-22T21:13:03Z' },
+        { docId: 'a2', aiExtractedEntities: { llcName: 'Kalahari Capital LLC' }, aiReviewedAt: '2026-09-17T22:01:38Z' },
+        { docId: 'a3', aiExtractedEntities: { llcName: '5909 CATES AVE LLC' }, aiReviewedAt: '2026-09-16T17:26:23Z' },
+        { docId: 'a4', aiExtractedEntities: { llcName: 'DTCM MANAGEMENT, L.L.C.' }, aiReviewedAt: '2026-09-16T17:25:56Z' },
+      ]),
+      // what the rest of the entity documents say
+      certificate_of_good_standing: ent('5909 CATES AVE LLC'),
+      bank_stmt_current: ent('5909 CATES AVE LLC'),
+      bank_stmt_previous: ent('5909 CATES AVE LLC'),
+      voided_check: ent('5909 CATES AVE LLC'),
+      entity_background_check: ent('5909 CATES AVE LLC'),
+      ein_or_w9: ent('DTCM MANAGEMENT, L.L.C.'),
+      // a title company on a closing document is an LLC name too, and is not the borrower
+      title_eo_insurance: ent('Legacy Title Services, LLC'),
+      wire_instructions: ent('Legacy Title Services, LLC'),
+      cpl: ent('Legacy Title Services, LLC'),
+    },
+  };
+  check('the borrower is the company the entity documents agree on, not the last Articles reviewed',
+    entityOfRecord(r), '5909 CATES AVE LLC');
+  check('a title company cannot win the vote off the closing documents',
+    entityOfRecord(r) !== 'Legacy Title Services, LLC', true);
+  // The loan record decides when it says anything — and the ARTICLES' spelling is
+  // still what comes back (237.074: the Articles govern the entity name).
+  const withLoan = JSON.parse(JSON.stringify(r));
+  withLoan.sourceLoanSnapshot = { vestingLLCs: [{ name: 'Kalahari Capital, LLC' }] };
+  check('the loan record picks, and the Articles spell', entityOfRecord(withLoan), 'Kalahari Capital LLC');
+  // The ordinary loan — one Articles — is untouched.
+  const one = { docs: { articles_of_organization: { aiReviewedAt: 'x', aiExtractedEntities: { llcName: 'Imagine Investors, LLC' }, documents: [{ docId: 'a', aiExtractedEntities: { llcName: 'Imagine Investors, LLC' } }] } } };
+  check('one Articles: exactly what it said, as before', entityOfRecord(one), 'Imagine Investors, LLC');
+  check('no Articles reviewed: the loan record, as before',
+    entityOfRecord({ sourceLoanSnapshot: { vestingLLCs: ['Somebody LLC'] }, docs: {} }), 'Somebody LLC');
+  check('nothing at all: empty, not a crash', entityOfRecord({}), '');
+  // And every review path grades documents against the same answer.
+  const S2 = (p) => readFileSync(new URL('../deploy/netlify/functions/' + p, import.meta.url), 'utf8');
+  for (const f of ['loan-review-ai-background.mjs', 'loan-review-ai-retry.mjs', 'loan-review-doc-upload.mjs']) {
+    assert(f + ' grades against entityOfRecord', /articlesEntityName: entityOfRecord\(review\),/.test(S2(f)));
+  }
 }
 
 console.log('\nthe card the processor actually sees');

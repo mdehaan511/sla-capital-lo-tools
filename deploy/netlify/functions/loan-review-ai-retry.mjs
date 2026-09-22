@@ -38,6 +38,7 @@ import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { applyCanonicalDocName } from './_shared/doc-naming.mjs'; // Deploy 237.133
+import { entityOfRecord } from './_shared/ownership-chain.mjs'; // Deploy 237.243
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.162
 
@@ -345,7 +346,10 @@ function _buildLoanContext(review) {
     rehabBudget:     pick('rehabBudget'),
     borrowerName:    ((client.firstName || '') + ' ' + (client.lastName || '')).trim(),
     entityName:      client.entityName || (function () { var v = Array.isArray(loan.vestingLLCs) ? loan.vestingLLCs[0] : null; return typeof v === 'string' ? v.trim() : ((v && v.name) ? String(v.name).trim() : ''); })(), // Deploy 237.080 -- Vesting Entity
-    articlesEntityName: (function () { var d = (review.docs && review.docs.articles_of_organization) || {}; var e = d.aiExtractedEntities || {}; return (d.aiReviewedAt && typeof e.llcName === 'string') ? e.llcName.trim() : ''; })(), // Deploy 237.041 -- Articles govern the entity name
+    // Deploy 237.243 -- the Articles still govern the entity name (237.041/237.074);
+    // entityOfRecord decides WHICH Articles when a file holds several companies'.
+    // Reading the tray alone made the name of record whichever one was reviewed last.
+    articlesEntityName: entityOfRecord(review),
     guarantorNames: (Array.isArray(review.guarantorNames) && review.guarantorNames.length) ? review.guarantorNames.slice() : (function () { var gs = Array.isArray(loan.guarantors) ? loan.guarantors : []; var out = []; gs.forEach(function (g) { var n = g ? String(((g.firstName || '') + ' ' + (g.lastName || '')).trim() || g.name || '').replace(/\s+/g, ' ').trim() : ''; if (n) out.push(n); }); return out; })(), // Deploy 237.074 -- every guarantor may own the bank account
     idNames: guarantorIdNames(review), // Deploy 237.075 -- legal names per the IDs on file
     mortgagee: expectedMortgagee({ loanType: review.loanType, investor: review.investor, investorName: loan.investorName }), // Deploy 237.075
