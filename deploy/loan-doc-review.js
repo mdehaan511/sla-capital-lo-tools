@@ -801,7 +801,11 @@
       // trays. Idempotent + processor-gated — a non-processor viewer just skips it.
       if (global.SLA.LoanReviews.syncCategories) {
         global.SLA.LoanReviews.syncCategories(_opts.reviewId).then(function(sr) {
-          if (sr && sr.review && sr.added && sr.added.length) {
+          // Deploy 237.239 -- a re-name (237.237) changes what every document is
+          // CALLED without adding a tray, so the old `added.length` test left the
+          // page showing the names it had already painted and the fix only appeared
+          // on the next load. Re-render whenever the sync changed anything.
+          if (sr && sr.review && ((sr.added && sr.added.length) || sr.renamed)) {
             _review = sr.review;
             render();
           }

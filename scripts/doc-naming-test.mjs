@@ -269,6 +269,12 @@ console.log('\n5909 Cates: six companies, one name');
      /for \(const slug of Object\.keys\(review\.docs \|\| \{\}\)\) renamed \+= renameTrayDocuments\(review, slug\);/.test(SYNC),
      /if \(added\.length \|\| relabeled \|\| healed \|\| renamed \|\|/.test(SYNC)],
     [true, true, true]);
+  // Deploy 237.239 -- and the page shows the new names on the load that fixes them.
+  // It used to re-render only when the sync ADDED a tray, so a re-name landed in the
+  // store and the processor went on reading the old names until the next visit.
+  const PAGE = readFileSync(new URL('../deploy/loan-doc-review.js', import.meta.url), 'utf8');
+  check('the page re-renders when the sync re-named something, not only when it added a tray',
+    /\(\(sr\.added && sr\.added\.length\) \|\| sr\.renamed\)/.test(PAGE), true);
 }
 
 console.log('\nWhat a file name is allowed to contribute');
