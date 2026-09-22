@@ -31,6 +31,7 @@ import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { attachPdfToReviewSlug } from './_shared/loan-review-auto-attach.mjs';
+import { recordGuarantorScore, deriveGuarantorCredit } from './_shared/uw-field-write.mjs'; // Deploy 237.224
 import {
   xactusConfigured, xactusMissingVars, xactusSoftConfigured, xactusSoftMissingVars,
   buildCreditRequestXml, postXactus, parseCreditResponse, ficoBucketForScore,
@@ -246,6 +247,12 @@ async function handle(req, context) {
       loan.creditPulledAt = nowIso;
       loan.creditReportId = parsed.reportId;
     }
+    // Deploy 237.224 (Mike) -- EVERY subject's middle score goes on the loan by name, and
+    // Low / Middle Credit (lowest / highest middle across all guarantors) are derived from
+    // the whole set. A pull is structured truth: the derived values are verified when every
+    // guarantor's score was pulled.
+    recordGuarantorScore(loan, { name: subjectName, mid: parsed.mid, source: 'xactus', reportType, at: nowIso });
+    deriveGuarantorCredit(loan, nowIso);
     appendNoteEntry(loan, {
       kind: 'system',
       text: 'Credit report pulled (' + (reportType === 'SoftCheck' ? 'soft pull' : 'tri-merge') + ') for ' + subjectName +

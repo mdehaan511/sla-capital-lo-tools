@@ -42,6 +42,9 @@ export function buildProposals(extractSpec, extractedFields, docLabel) {
       key:     k,
       value:   got.value,
       aiNote:  String(docLabel || "") + (got.where ? " — " + got.where : ""),
+      // Deploy 237.224 -- which tray, and whether the key belongs to ONE guarantor
+      perGuarantor: spec.perGuarantor === true,
+      traySlug: String(spec.traySlug || ""),
     });
   });
   return props.length ? props : null;
@@ -123,28 +126,45 @@ export function applyStmtAccountProposals(loan, stmtProps, now) {
   stmtProps.forEach((p) => {
     if (!label) label = String(p.aiNote || '').split(' — ')[0]; // aiNote = docLabel [— where]
     if (p.key === 'acctStmtDoubt') { doubt = String(p.value || '').trim(); return; }
-    const m = /^acctStmt([1-3])(Type|Balance)$/.exec(p.key);
+    // Deploy 237.224 -- five accounts, each with its printed name and last four
+    const m = /^acctStmt([1-5])(Type|Balance|Name|Last4)$/.exec(p.key);
     if (m) (byIdx[m[1]] = byIdx[m[1]] || {})[m[2].toLowerCase()] = p.value;
   });
   let wrote = 0;
   Object.keys(byIdx).sort().forEach((i) => {
     const balance = Number(String(byIdx[i].balance == null ? '' : byIdx[i].balance).replace(/[^0-9.\-]/g, ''));
     if (!isFinite(balance) || balance < 0) return;
+    const name  = String(byIdx[i].name == null ? '' : byIdx[i].name).trim().slice(0, 80);
+    const last4 = String(byIdx[i].last4 == null ? '' : byIdx[i].last4).replace(/\D/g, '').slice(-4);
     let rowDoubt = doubt;
-    let t = normStmtType(byIdx[i].type);
+    // The category the AI answered, else read it off the printed name ("Fidelity Brokerage").
+    let t = normStmtType(byIdx[i].type) || normStmtType(name);
     if (!t) {
       // Unrecognized category → safest common bucket, and force a human look.
       t = STMT_TYPES[STMT_TYPES.length - 1];
-      rowDoubt = (rowDoubt ? rowDoubt + '; ' : '') + 'account type unclear ("' + String(byIdx[i].type || '').slice(0, 60) + '")';
+      rowDoubt = (rowDoubt ? rowDoubt + '; ' : '') + 'account type unclear ("' + String(byIdx[i].type || name || '').slice(0, 60) + '")';
     }
     const tag = label + ' (acct ' + i + ')';
     const aiNote = tag + (rowDoubt ? ' — ⚠ VERIFY: ' + rowDoubt.slice(0, 240) : '');
-    // Slot: this statement's own prior unverified row (re-review updates in
-    // place), else the first genuinely empty account row. Never a human's row.
+    // Slot (Deploy 237.224): THIS account's row -- same last four -- whoever wrote it, so a
+    // second statement for the same account updates in place and two banks' statements
+    // get two rows. Then this statement's own prior unverified row (no last four), then
+    // the first genuinely empty row. Never a person's row.
     let slot = null;
+    if (last4) {
+      for (let n = 1; n <= 5 && !slot; n++) {
+        const e = loan.uwData['account' + n];
+        const v = e && e.value;
+        if (v && typeof v === 'object' && String(v.last4 || '') === last4) slot = 'account' + n;
+      }
+    }
     for (let n = 1; n <= 5 && !slot; n++) {
       const e = loan.uwData['account' + n];
-      if (e && e.isAI === true && e.verified !== true && String(e.aiNote || '').indexOf(tag) === 0) slot = 'account' + n;
+      const v = e && e.value;
+      // The tag is per TRAY, so two banks' statements share it: a row that already names a
+      // DIFFERENT account (its own last four) is never this one's.
+      const otherAcct = !!(last4 && v && typeof v === 'object' && v.last4 && String(v.last4) !== last4);
+      if (e && e.isAI === true && e.verified !== true && !otherAcct && String(e.aiNote || '').indexOf(tag) === 0) slot = 'account' + n;
     }
     for (let n = 1; n <= 5 && !slot; n++) {
       const e = loan.uwData['account' + n];
@@ -157,6 +177,8 @@ export function applyStmtAccountProposals(loan, stmtProps, now) {
     const prior = loan.uwData[slot] || null;
     if (prior && prior.verified === true && prior.isAI !== true) return; // human truth wins
     const value = { type: t.type, balance: balance, weight: t.weight };
+    if (name)  value.name  = name;
+    if (last4) value.last4 = last4;
     if (prior && prior.isAI === true && JSON.stringify(prior.value) === JSON.stringify(value)
         && prior.aiNote === aiNote) return; // no churn on identical re-reads
     loan.uwData[slot] = {
@@ -172,6 +194,89 @@ export function applyStmtAccountProposals(loan, stmtProps, now) {
   if (loan.uwAudit.length > _UW_AUDIT_CAP) {
     loan.uwAudit = loan.uwAudit.slice(loan.uwAudit.length - _UW_AUDIT_CAP);
   }
+  return wrote;
+}
+
+// ── Deploy 237.224 (Mike) -- credit across ALL guarantors ─────────────────────────
+// "For Low Credit it should grab the lowest middle credit of all guarantors. For middle
+// credit it should grab the highest middle credit of all the guarantors."
+// Two sources feed one derivation: a Xactus pull (structured, keyed by the person's name,
+// on loan.guarantorCreditScores) and a reviewed credit report (the AI's reading of the
+// middle score on a credit_report__g<i> tray, in uwData.guarantorMidCredit__g<i>). A pull
+// beats a reading of the same person. lowCredit / middleCredit are then written like any
+// proposal -- unverified with Confirm when any input is an unconfirmed AI reading,
+// verified when every input was pulled -- and never over a value a person typed.
+function _nameKey(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const _score = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+
+export function recordGuarantorScore(loan, pull) {
+  const mid = _score(pull && pull.mid);
+  if (!(mid > 0)) return false;
+  const name = String((pull && pull.name) || '').trim();
+  const k = _nameKey(name);
+  const list = Array.isArray(loan.guarantorCreditScores) ? loan.guarantorCreditScores : [];
+  const next = list.filter((x) => x && (k ? _nameKey(x.name) !== k : true));
+  next.push({ name, mid, source: String((pull && pull.source) || 'xactus'), reportType: String((pull && pull.reportType) || ''), at: String((pull && pull.at) || new Date().toISOString()) });
+  loan.guarantorCreditScores = next;
+  return true;
+}
+
+export function guarantorScores(loan) {
+  const out = [];
+  const seen = {};
+  (Array.isArray(loan.guarantorCreditScores) ? loan.guarantorCreditScores : []).forEach((x, i) => {
+    const s = _score(x && x.mid);
+    if (!(s > 0)) return;
+    const k = _nameKey(x.name) || ('pull-' + i);
+    if (seen[k]) return;
+    seen[k] = 1;
+    out.push({ name: String(x.name || '').trim() || 'Pulled', score: s, source: 'pull', verified: true, at: String(x.at || '') });
+  });
+  const uw = (loan.uwData && typeof loan.uwData === 'object') ? loan.uwData : {};
+  Object.keys(uw).filter((key) => /^guarantorMidCredit__g\d+$/.test(key))
+    .sort((a, b) => Number(a.match(/\d+$/)[0]) - Number(b.match(/\d+$/)[0]))
+    .forEach((key) => {
+      const e = uw[key];
+      const s = _score(e && e.value);
+      if (!(s > 0)) return;
+      const gi = Number(key.match(/\d+$/)[0]);
+      const nm = String((e && e.guarantorName) || '').trim();
+      const k = _nameKey(nm) || key;
+      if (seen[k]) return;
+      seen[k] = 1;
+      out.push({ name: nm || ('Guarantor ' + (gi + 1)), score: s, source: 'report', verified: e.verified === true, at: String(e.at || '') });
+    });
+  return out;
+}
+
+export function deriveGuarantorCredit(loan, now) {
+  const scores = guarantorScores(loan);
+  if (!scores.length) return 0;
+  loan.uwData  = (loan.uwData && typeof loan.uwData === 'object') ? loan.uwData : {};
+  loan.uwAudit = Array.isArray(loan.uwAudit) ? loan.uwAudit : [];
+  const low  = scores.reduce((a, s) => Math.min(a, s.score), Infinity);
+  const high = scores.reduce((a, s) => Math.max(a, s.score), 0);
+  const anyUnverified = scores.some((s) => !s.verified);
+  const breakdown = scores.map((s) => s.name + ' ' + s.score + (s.source === 'pull' ? ' (pulled)' : ' (report)')).join(' · ');
+  const n = scores.length;
+  let wrote = 0;
+  [['lowCredit', low, 'Lowest of the ' + n + ' guarantor' + (n === 1 ? '' : 's') + '\' middle score' + (n === 1 ? '' : 's')],
+   ['middleCredit', high, 'Highest of the ' + n + ' guarantor' + (n === 1 ? '' : 's') + '\' middle score' + (n === 1 ? '' : 's')]].forEach(([key, val, what]) => {
+    const prior = loan.uwData[key] || null;
+    if (prior && prior.verified === true && prior.isAI !== true && prior.derived !== true) return; // a person typed it
+    const entry = {
+      value: String(val), source: 'doc', sourceNote: what + ' — ' + breakdown, derived: true,
+      isAI: anyUnverified, aiNote: anyUnverified ? 'from the guarantors\' credit reports' : '',
+      verified: !anyUnverified, by: anyUnverified ? 'ai' : 'system', byName: anyUnverified ? 'AI' : 'Credit pulls', at: now,
+    };
+    if (prior && String(prior.value) === entry.value && prior.sourceNote === entry.sourceNote && !!prior.verified === entry.verified) return;
+    loan.uwData[key] = entry;
+    loan.uwAudit.push({ key, from: prior ? prior.value : undefined, to: entry.value, by: entry.by, byName: entry.byName, isAI: entry.isAI, aiNote: entry.sourceNote, at: now });
+    wrote++;
+  });
+  if (loan.uwAudit.length > _UW_AUDIT_CAP) loan.uwAudit = loan.uwAudit.slice(loan.uwAudit.length - _UW_AUDIT_CAP);
   return wrote;
 }
 
@@ -206,6 +311,38 @@ export async function writeFieldProposals(source, proposals, actorEmail) {
   if (stmtProps.length) {
     proposals = proposals.filter(function (p) { return !/^acctStmt/.test(p.key); });
     wrote += applyStmtAccountProposals(loan, stmtProps, now);
+  }
+
+  // Deploy 237.224 -- per-guarantor keys: grouped by tray, written to that guarantor's
+  // slot (credit_report__g2 → guarantorMidCredit__g2; a legacy base tray is Guarantor 1's,
+  // which is where adoptGuarantorsFromLoan files it), then Low / Middle derived below.
+  const perG = proposals.filter(function (p) { return p && p.perGuarantor === true; });
+  if (perG.length) {
+    proposals = proposals.filter(function (p) { return !(p && p.perGuarantor === true); });
+    const byTray = {};
+    perG.forEach(function (p) { (byTray[p.traySlug || ''] = byTray[p.traySlug || ''] || []).push(p); });
+    Object.keys(byTray).forEach(function (tray) {
+      const gm = /__g(\d+)$/.exec(tray);
+      const gi = gm ? Number(gm[1]) : 0;
+      const mid = byTray[tray].find(function (p) { return p.key === 'guarantorMidCredit'; });
+      const nm  = byTray[tray].find(function (p) { return p.key === 'guarantorReportName'; });
+      const score = mid ? _score(mid.value) : 0;
+      if (!(score > 0)) return;
+      const key = 'guarantorMidCredit__g' + gi;
+      loan.uwData  = (loan.uwData && typeof loan.uwData === 'object') ? loan.uwData : {};
+      loan.uwAudit = Array.isArray(loan.uwAudit) ? loan.uwAudit : [];
+      const prior = loan.uwData[key] || null;
+      if (prior && prior.verified === true && prior.isAI !== true) return;
+      const entry = {
+        value: String(score), guarantorName: nm ? String(nm.value || '').trim().slice(0, 120) : '',
+        source: 'doc', sourceNote: '', isAI: true, aiNote: mid.aiNote || '', verified: false, by: 'ai', byName: 'AI', at: now,
+      };
+      if (prior && prior.isAI === true && String(prior.value) === entry.value && prior.guarantorName === entry.guarantorName) return;
+      loan.uwData[key] = entry;
+      loan.uwAudit.push({ key, from: prior ? prior.value : undefined, to: entry.value, by: 'ai', byName: 'AI', isAI: true, aiNote: entry.aiNote, at: now });
+      wrote++;
+    });
+    wrote += deriveGuarantorCredit(loan, now);
   }
 
   proposals.forEach(function (p) {

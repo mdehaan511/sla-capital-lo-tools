@@ -83,8 +83,8 @@ check('Underwriting rows', plain(b.sections[0].rows.map((r) => r.label)),
   ['ARV', 'As-is Price', 'Purchase Price', 'Assignment Fee', 'Down Payment', 'Title/Escrow Fees', 'Low Credit', 'Middle Credit',
     'Monthly Payment', 'LTARV', 'LTC', 'LTAIV', 'Assignment to Purchase', 'Loan Amount', 'Holdback']);
 check('US Citizen and Marital Status are NOT shown', flat(b).filter((r) => /citizen|marital/i.test(r.label + r.key)).length, 0);
-check('Liquidity rows: accounts in use + ONE blank, then EMD, Total, Requirement',
-  plain(b.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'account3', 'emd', 'liquidityTotal', 'liquidityRequirement']);
+check('Liquidity rows: accounts in use + ONE blank, subtotal, then EMD, Total, Requirement',
+  plain(b.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'account3', 'accountsSubtotal', 'emd', 'liquidityTotal', 'liquidityRequirement']);
 check('where each comes from, as the sheet says', plain(['purchasePrice', 'downPayment', 'titleEscrowFees', 'lowCredit', 'emd'].map((k) => row(b, k).from)),
   ['PSA / Assignment', 'Term Sheet', 'HUD Statement', 'Credit Report', 'EMD Receipt from Title']);
 check('Loan Amount and Holdback come off the loan, and cannot be edited here', plain(['loanAmount', 'constructionHoldback'].map((k) => [row(b, k).display, row(b, k).editable])), [['$648,750', false], ['$0', false]]);
@@ -134,8 +134,40 @@ console.log('\nUnverified AI values');
   const h = w.SLA_UW_METRICS.html(RTL());
   check('each gets a Confirm; nothing else does', (h.match(/class="uw-confirm"/g) || []).length, 3);
   assert('the panel says so in words', /3 values were read by AI and have not been confirmed/.test(h));
-  assert('an account with no saved weight counts at its TYPE default, as the tab does', /Counts \$112,382 at 70%/.test(row(b, 'account1').note), row(b, 'account1').note);
-  assert('a weight a person set is kept', /Counts \$96,151 at 100%/.test(row(b, 'account2').note), row(b, 'account2').note);
+  // Deploy 237.224 (Mike: "remove the sub note like you added in Luna") -- the per-account
+  // weight line is gone; the weights still show up once, on the subtotal.
+  check('no per-account weight note', plain([row(b, 'account1').note, row(b, 'account2').note]), ['', '']);
+  const sub = row(b, 'accountsSubtotal');
+  check('the subtotal is the statements\' balances; the weighted figure rides beside it (type default 70% for acct 1, a person\'s 100% for acct 2)',
+    [sub.display, sub.prov], ['$256,696', '$208,533 counts toward liquidity after account weights']);
+}
+
+// ── 4b. accounts as Mike described them ─────────────────────────────────────
+console.log('\nAccount rows: number, amount, what exactly it is, subtotal, alert');
+{
+  const loan = RTL();
+  loan.uwData.account1 = { value: { type: 'Business Checking Acct.', balance: 18394.23, weight: 1, name: 'Chase Business Complete Checking', last4: '1432' }, isAI: true, verified: false, aiNote: 'Current-Month Bank Statements (acct 1) — ⚠ VERIFY: account is jointly held with a non-guarantor' };
+  loan.uwData.account2 = { value: { type: 'Stocks/Mutual Funds', balance: 96151.08, name: 'Fidelity Brokerage', last4: '6739' }, by: 'dee', byName: 'Dee', verified: true };
+  const pb = w.SLA_UW_METRICS.build(loan);
+  check('labelled Account 1, Account 2 — the amount on the row', plain([row(pb, 'account1').label, row(pb, 'account1').display, row(pb, 'account2').label, row(pb, 'account2').display]), ['Account 1', '$18,394', 'Account 2', '$96,151']);
+  check('the sub text says what it is and its number', plain([row(pb, 'account1').sub, row(pb, 'account2').sub]), ['Chase Business Complete Checking · Business Checking Acct. ••1432', 'Fidelity Brokerage · Stocks/Mutual Funds ••6739']);
+  check('a row with no printed name falls back to the category', row(w.SLA_UW_METRICS.build(RTL()), 'account1').sub, 'Checking/Savings');
+  check('the weird thing is an ALERT on the row, not a line of text', plain([row(pb, 'account1').alert, row(pb, 'account2').alert, row(pb, 'account1').note]), ['account is jointly held with a non-guarantor', '', '']);
+  check('subtotal = the balances; weighted (100% + 50%) beside it', [row(pb, 'accountsSubtotal').display, row(pb, 'accountsSubtotal').prov], ['$114,545', '$66,470 counts toward liquidity after account weights']);
+  check('the liquidity block reads: accounts, one blank, subtotal, EMD, Total, Requirement', plain(pb.sections[1].rows.map((r) => r.key)), ['account1', 'account2', 'account3', 'accountsSubtotal', 'emd', 'liquidityTotal', 'liquidityRequirement']);
+  const h = w.SLA_UW_METRICS.html(loan);
+  assert('the alert is a clickable icon carrying the note, on that row only', (h.match(/class="uwm-alert"/g) || []).length === 1 && /data-note="account is jointly held with a non-guarantor"/.test(h) && /SLA_UW_METRICS\._note\(this\)/.test(h));
+  assert('the sub text is drawn, escaped', /<div class="uwm-sub">Chase Business Complete Checking · Business Checking Acct\. ••1432<\/div>/.test(h));
+  loan.uwData.account1.value.name = '<img src=x onerror=alert(1)>';
+  assert('a hostile printed name is escaped', !/<img src=x/.test(w.SLA_UW_METRICS.html(loan)));
+  assert('the pop-up exists and closes itself', typeof w.SLA_UW_METRICS._note === 'function' && /removeEventListener\('click', close, true\)/.test(read('loan-uw-metrics.js')));
+  // credit: the derived entries' working shows under the row
+  const lc = RTL();
+  lc.uwData.lowCredit = { value: '678', derived: true, isAI: true, verified: false, sourceNote: 'Lowest of the 2 guarantors\' middle scores — Kandiah Lingan 723 (pulled) · Jane Doe 678 (report)', aiNote: 'from the guarantors\' credit reports' };
+  lc.uwData.middleCredit = { value: '723', derived: true, isAI: false, verified: true, by: 'system', byName: 'Credit pulls', sourceNote: 'Highest of the 2 guarantors\' middle scores — Kandiah Lingan 723 (pulled) · Jane Doe 723 (pulled)' };
+  const pc = w.SLA_UW_METRICS.build(lc);
+  check('Low / Middle Credit show the working across the guarantors', plain([row(pc, 'lowCredit').display, row(pc, 'lowCredit').note, /^Highest of the 2 guarantors' middle scores/.test(row(pc, 'middleCredit').note)]), ['678', 'Lowest of the 2 guarantors\' middle scores — Kandiah Lingan 723 (pulled) · Jane Doe 678 (report)', true]);
+  check('...unverified only when an input is an unconfirmed reading', plain([row(pc, 'lowCredit').unverified, row(pc, 'middleCredit').unverified]), [true, false]);
 }
 
 // ── 5. Holdback, verified against the SOW ───────────────────────────────────

@@ -61,9 +61,18 @@ export const SLUG_FIELD_MAP = {
     { dataset: 'loan', key: 'felonyGuarantorDetail',
       label: 'If a felony appears, one short line: whose it is, the charge, and the year (e.g. "John Smith — felony DUI, 2011"). Null if there is no felony.' },
   ],
+  // Deploy 237.224 (Mike: "for Low Credit it should grab the lowest middle credit of all
+  // guarantors. For middle credit it should grab the highest middle credit of all the
+  // guarantors") -- a credit report contributes ONE number: the middle score of the person
+  // it is for, kept in that guarantor's own slot (uw-field-write writes perGuarantor keys as
+  // guarantorMidCredit__g<i> from the credit_report__g<i> tray). Low / Middle Credit are
+  // DERIVED across every guarantor's report and every Xactus pull (deriveGuarantorCredit),
+  // never read off one report again.
   credit_report: [
-    { dataset: 'uw', key: 'lowCredit',    label: 'The LOWEST of the three bureau credit scores for the primary guarantor (number)' },
-    { dataset: 'uw', key: 'middleCredit', label: 'The MIDDLE of the three bureau credit scores for the primary guarantor (number)' },
+    { dataset: 'uw', key: 'guarantorMidCredit', perGuarantor: true,
+      label: 'The MIDDLE of the three bureau credit scores (Equifax / Experian / TransUnion) for the person this report is for. If only two scores are shown, the lower of the two; if only one, that score. Number only.' },
+    { dataset: 'uw', key: 'guarantorReportName', perGuarantor: true,
+      label: 'The full name of the person this credit report is for, exactly as printed on the report' },
   ],
   bpo_valuation: [
     // NOTE: arv/propValue stay source:'loan' (the BORROWER-stated pricing basis)
@@ -104,21 +113,52 @@ export const SLUG_FIELD_MAP = {
   // writing them under these keys. Only the current-month tray extracts —
   // the previous-month statement shows the SAME accounts and would
   // double-count the borrower's reserves.
+  // Deploy 237.224 (Mike: "showing the account number, amount, and what exactly it is")
+  // -- up to FIVE accounts (the sheet has five rows), each with its printed name and the
+  // last four of its number. The last four is also how a re-read finds its own row.
   bank_stmt_current: [
     { dataset: 'uw', key: 'acctStmt1Type',
       label: 'For the FIRST deposit/investment account shown on this statement: the account category. Answer EXACTLY one of: "Checking/Savings", "Stocks/Mutual Funds", "IRA/401k/Retirement Plans", "HELOC", "Business Checking Acct."' },
     { dataset: 'uw', key: 'acctStmt1Balance',
-      label: 'For the FIRST account shown on this statement: the ENDING / closing balance (number only, no $ or commas)' },
+      label: 'For the FIRST account: the ENDING / closing balance (number only, no $ or commas)' },
+    { dataset: 'uw', key: 'acctStmt1Name',
+      label: 'For the FIRST account: what it is, as printed -- the institution and the account product name (e.g. "Chase Business Complete Checking", "Fidelity Brokerage", "Vanguard Roth IRA")' },
+    { dataset: 'uw', key: 'acctStmt1Last4',
+      label: 'For the FIRST account: the LAST FOUR digits of the account number as printed (digits only)' },
     { dataset: 'uw', key: 'acctStmt2Type',
-      label: 'For the SECOND account, if this statement shows more than one: the account category (same exact choices), or null if only one account' },
+      label: 'For the SECOND deposit/investment account shown on this statement, if this statement shows more than one: the account category. Answer EXACTLY one of: "Checking/Savings", "Stocks/Mutual Funds", "IRA/401k/Retirement Plans", "HELOC", "Business Checking Acct.", or null if only one account' },
     { dataset: 'uw', key: 'acctStmt2Balance',
-      label: 'For the SECOND account, if shown: the ENDING / closing balance (number only), or null if only one account' },
+      label: 'For the SECOND account, if shown: the ENDING / closing balance (number only, no $ or commas), or null' },
+    { dataset: 'uw', key: 'acctStmt2Name',
+      label: 'For the SECOND account, if shown: what it is, as printed -- the institution and the account product name (e.g. "Chase Business Complete Checking", "Fidelity Brokerage", "Vanguard Roth IRA"), or null' },
+    { dataset: 'uw', key: 'acctStmt2Last4',
+      label: 'For the SECOND account, if shown: the LAST FOUR digits of the account number as printed (digits only), or null' },
     { dataset: 'uw', key: 'acctStmt3Type',
-      label: 'For the THIRD account, if this statement shows three or more: the account category (same exact choices), or null' },
+      label: 'For the THIRD deposit/investment account shown on this statement, if this statement shows three or more: the account category. Answer EXACTLY one of: "Checking/Savings", "Stocks/Mutual Funds", "IRA/401k/Retirement Plans", "HELOC", "Business Checking Acct.", or null' },
     { dataset: 'uw', key: 'acctStmt3Balance',
-      label: 'For the THIRD account, if shown: the ENDING / closing balance (number only), or null' },
+      label: 'For the THIRD account, if shown: the ENDING / closing balance (number only, no $ or commas), or null' },
+    { dataset: 'uw', key: 'acctStmt3Name',
+      label: 'For the THIRD account, if shown: what it is, as printed -- the institution and the account product name (e.g. "Chase Business Complete Checking", "Fidelity Brokerage", "Vanguard Roth IRA"), or null' },
+    { dataset: 'uw', key: 'acctStmt3Last4',
+      label: 'For the THIRD account, if shown: the LAST FOUR digits of the account number as printed (digits only), or null' },
+    { dataset: 'uw', key: 'acctStmt4Type',
+      label: 'For the FOURTH deposit/investment account shown on this statement, if this statement shows four or more: the account category. Answer EXACTLY one of: "Checking/Savings", "Stocks/Mutual Funds", "IRA/401k/Retirement Plans", "HELOC", "Business Checking Acct.", or null' },
+    { dataset: 'uw', key: 'acctStmt4Balance',
+      label: 'For the FOURTH account, if shown: the ENDING / closing balance (number only, no $ or commas), or null' },
+    { dataset: 'uw', key: 'acctStmt4Name',
+      label: 'For the FOURTH account, if shown: what it is, as printed -- the institution and the account product name (e.g. "Chase Business Complete Checking", "Fidelity Brokerage", "Vanguard Roth IRA"), or null' },
+    { dataset: 'uw', key: 'acctStmt4Last4',
+      label: 'For the FOURTH account, if shown: the LAST FOUR digits of the account number as printed (digits only), or null' },
+    { dataset: 'uw', key: 'acctStmt5Type',
+      label: 'For the FIFTH deposit/investment account shown on this statement, if this statement shows five or more: the account category. Answer EXACTLY one of: "Checking/Savings", "Stocks/Mutual Funds", "IRA/401k/Retirement Plans", "HELOC", "Business Checking Acct.", or null' },
+    { dataset: 'uw', key: 'acctStmt5Balance',
+      label: 'For the FIFTH account, if shown: the ENDING / closing balance (number only, no $ or commas), or null' },
+    { dataset: 'uw', key: 'acctStmt5Name',
+      label: 'For the FIFTH account, if shown: what it is, as printed -- the institution and the account product name (e.g. "Chase Business Complete Checking", "Fidelity Brokerage", "Vanguard Roth IRA"), or null' },
+    { dataset: 'uw', key: 'acctStmt5Last4',
+      label: 'For the FIFTH account, if shown: the LAST FOUR digits of the account number as printed (digits only), or null' },
     { dataset: 'uw', key: 'acctStmtDoubt',
-      label: 'Anything a human should double-check before counting these balances toward liquidity: joint ownership, an account holder who is not the borrower/guarantor on this loan, missing pages, a statement older than about 60 days, large unexplained recent deposits, margin or loan balances against the account, or more than three accounts on the statement. ONE short line naming the issue, or null if none.' },
+      label: 'Anything a human should double-check before counting these balances toward liquidity: joint ownership, an account holder who is not the borrower/guarantor on this loan, missing pages, a statement older than about 60 days, large unexplained recent deposits, margin or loan balances against the account, or more than five accounts on the statement. ONE short line naming the issue, or null if none.' },
   ],
   // Deploy 236.681 — RTL guideline-driven Underwriting-tab auto-grab. These
   // populate the new RTL UW fields (loan-uw-fields.js) as unverified proposals
@@ -175,6 +215,9 @@ export const SLUG_FIELD_MAP = {
 // inline and feed the LTC/LTARV/liquidity calcs). Belt-and-suspenders choke
 // point so a future SLUG_FIELD_MAP edit can't silently reintroduce an overlay.
 const NEVER_AI_WRITE = {
+  // Deploy 237.224 -- derived across all guarantors (deriveGuarantorCredit); one report
+  // must never write them directly again.
+  lowCredit: 1, middleCredit: 1,
   purchasePrice: 1, arv: 1, loanAmt: 1, interestRate: 1, asIsValue: 1,
   assignmentFeeEffective: 1, monthlyPayment: 1, ltarv: 1, ltc: 1, ltaiv: 1,
   assignmentToPurchase: 1, prepaidInterest: 1, liquidityTotal: 1,
@@ -199,6 +242,11 @@ export function fieldsForSlug(slug, loanType) {
     if (NEVER_AI_WRITE[f.key]) return false;
     if (Array.isArray(f.onlyLoanTypes)) return !!lt && f.onlyLoanTypes.indexOf(lt) >= 0;
     return true;
+  }).map(function (f) {
+    // Deploy 237.224 -- the tray the answer came from rides along (buildProposals copies it
+    // onto each proposal), so a per-guarantor key can land in that guarantor's slot without
+    // every caller having to say which tray it was reviewing.
+    return Object.assign({}, f, { traySlug: String(slug || '') });
   });
   return safe.length ? safe : null;
 }

@@ -491,7 +491,14 @@
       var w = (F.ACCOUNT_WEIGHTS||[]).filter(function(x){return x.type===type;})[0];
       weight = w && w.weight!=null ? w.weight : 0;
     }
-    _save(dataset, key, { type:type, balance:num(bal), weight:weight });
+    // Deploy 237.224 -- the statement's own description of the account (printed name,
+    // last four) survives a person correcting the balance or the type.
+    var _dataNow = (dataset === 'uw' ? (_ctx.loan && _ctx.loan.uwData) : (_ctx.loan && _ctx.loan.lightningData)) || {};
+    var _curV = (_dataNow[key] && _dataNow[key].value && typeof _dataNow[key].value === 'object') ? _dataNow[key].value : {};
+    var _val = { type:type, balance:num(bal), weight:weight };
+    if (_curV.name)  _val.name  = _curV.name;
+    if (_curV.last4) _val.last4 = _curV.last4;
+    _save(dataset, key, _val);
   }
 
   function _save(dataset, key, value) {

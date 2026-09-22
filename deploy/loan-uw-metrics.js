@@ -105,6 +105,14 @@
     return { arv: arv, asIs: asIs };
   }
 
+  // Deploy 237.224 -- the AI's "⚠ VERIFY: ..." tail on an aiNote (uw-field-write): the one
+  // thing a person should look at before trusting the number. Shown as an icon, not a line.
+  function doubtOf(entry) {
+    var s = entry && entry.aiNote ? String(entry.aiNote) : '';
+    var i = s.indexOf('⚠ VERIFY:');
+    return i >= 0 ? s.slice(i + '⚠ VERIFY:'.length).trim() : '';
+  }
+
   function holdbackOf(loan) {
     var v = (typeof window !== 'undefined' && typeof window._ldRehabHoldback === 'function')
       ? window._ldRehabHoldback(loan) : (loan && loan.rehabBudget);
@@ -163,10 +171,15 @@
       if (def.k === 'ltaiv' && program === 'rtl' && num(cv.initialAdvance) > 0 && num(cv.initialAdvance) < num(loan.loanAmt)) {
         note = 'Initial advance ' + money(cv.initialAdvance) + ' (loan less the holdback) over as-is';
       }
+      // Deploy 237.224 (Mike) -- Low / Middle Credit are DERIVED across every guarantor
+      // (lowest / highest of their middle scores, uw-field-write deriveGuarantorCredit);
+      // the entry's sourceNote is the working: "Lowest of the 2 guarantors' middle scores —
+      // K. Lingan 723 (pulled) · J. Doe 678 (report)".
+      if ((def.k === 'lowCredit' || def.k === 'middleCredit') && entry && entry.derived && entry.sourceNote) note = entry.sourceNote;
       if (unver) unverified++;
       return { key: def.k, label: def.label || field.label, from: def.from || (r.calc ? 'Calculated' : (field.sourceNote || '')),
         display: display, empty: empty, prov: prov, note: note, flag: !!r.flag, calc: !!r.calc,
-        unverified: unver, editable: !!r.editable, hasEntry: !!data[def.k] };
+        unverified: unver, editable: !!r.editable, hasEntry: !!data[def.k], alert: doubtOf(entry) };
     }
 
     function specialRows(def) {
@@ -200,17 +213,23 @@
           flag: off, calc: false, unverified: false, editable: false, hasEntry: false }];
       }
       if (def.special === 'accounts') {
-        var out = [];
+        // Deploy 237.224 (Mike: "Account 1: $XXXX (sub text - checking account) ... showing
+        // the account number, amount, and what exactly it is, and then the sub total").
+        // The weight note is gone; anything the AI wants a person to check is an alert icon.
+        var out = [], rawSum = 0, weightedSum = 0, inUse = 0;
         ['account1', 'account2', 'account3', 'account4', 'account5'].forEach(function (k, i) {
           var e = data[k], v = (e && e.value && typeof e.value === 'object') ? e.value : null;
           var used = !!(v && (num(v.balance) > 0 || v.type));
           var unver = !!(used && e.isAI && !e.verified);
           if (unver) unverified++;
           var w = used ? (t.acctWeight ? t.acctWeight(v) : num(v.weight)) : 0;
-          out.push({ key: k, label: used && v.type ? v.type : 'Account ' + (i + 1), from: 'Most Recent Account Statement',
+          if (used) { inUse++; rawSum += num(v.balance); weightedSum += num(v.balance) * w; }
+          var what = used ? [v.name || v.type || '', (v.name && v.type) ? v.type : ''].filter(Boolean).join(' · ') + (v.last4 ? ' ••' + String(v.last4) : '') : '';
+          out.push({ key: k, label: 'Account ' + (i + 1), from: '',
             display: used ? money(v.balance) : '', empty: !used,
-            prov: used && t.provText ? t.provText(e) : '',
-            note: used ? 'Counts ' + money(num(v.balance) * w) + ' at ' + Math.round(w * 100) + '%' : '',
+            sub: what,
+            prov: used ? (e.isAI ? 'AI' : (t.provText ? t.provText(e) : '')) : '',
+            note: '', alert: used ? doubtOf(e) : '',
             flag: false, calc: false, unverified: unver, editable: true, account: true,
             acct: used ? { type: v.type || '', balance: num(v.balance), weight: (v.weight == null || v.weight === '') ? '' : num(v.weight) } : { type: '', balance: '', weight: '' },
             hasEntry: !!e });
@@ -218,7 +237,13 @@
         // Blank rows are noise in a narrow column: keep every row in use, plus ONE blank
         // so there is always somewhere to add the next account.
         var firstBlank = -1;
-        return out.filter(function (r, i) { if (!r.empty) return true; if (firstBlank < 0) { firstBlank = i; return true; } return false; });
+        out = out.filter(function (r, i) { if (!r.empty) return true; if (firstBlank < 0) { firstBlank = i; return true; } return false; });
+        if (inUse) {
+          out.push({ key: 'accountsSubtotal', label: 'Subtotal', from: '', display: money(rawSum), empty: false,
+            prov: (Math.abs(weightedSum - rawSum) >= 1) ? money(weightedSum) + ' counts toward liquidity after account weights' : '',
+            note: '', flag: false, calc: true, unverified: false, editable: false, subtotal: true, hasEntry: false });
+        }
+        return out;
       }
       return [];
     }
@@ -279,6 +304,13 @@
       '.uwm-note { grid-column:1 / -1; font-size:11px; color:var(--ink,#2b2722); }',
       '.uwm-row.is-flag .uwm-note { color:var(--danger,#7c1f1f); font-weight:600; }',
       '.uwm-row.is-total { background:rgba(0,0,0,0.025); font-weight:600; }',
+      '.uwm-row.is-sub { border-top:1px solid var(--border,#ddd8d0); }',
+      '.uwm-row.is-sub .uwm-l { color:var(--muted,#6b6459); font-style:italic; }',
+      '.uwm-sub { grid-column:1 / -1; font-size:11.5px; color:var(--ink,#2b2722); }',
+      '.uwm .uw-r-value { position:relative; }',
+      '.uwm-alert { border:none; background:none; cursor:pointer; color:var(--gold-mid,#b5712d); font-size:13px; line-height:1; padding:0 0 0 5px; vertical-align:baseline; }',
+      '.uwm-alert:hover { color:var(--danger,#7c1f1f); }',
+      '.uwm-pop { position:absolute; right:0; top:100%; z-index:20; margin-top:4px; max-width:260px; min-width:160px; padding:8px 10px; background:#fffdf7; color:var(--ink,#2b2722); border:1px solid var(--gold-mid,#b5712d); border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.14); font:12px/1.4 inherit; font-family:inherit; font-weight:400; text-align:left; white-space:normal; }',
       '.uwm-acct-ed { grid-column:1 / -1; display:grid; grid-template-columns:1fr 92px 58px; gap:5px; margin-top:3px; }',
       '.uwm-more > summary { cursor:pointer; list-style:none; }',
       '.uwm-more > summary::-webkit-details-marker { display:none; }',
@@ -304,13 +336,16 @@
     if (r.editable && !r.account) click = ' onclick="SLA_UW_TAB._edit(\'uw\',\'' + escA(r.key) + '\',' + rootJs + ')" title="Click to edit"';
     if (r.account) click = ' onclick="SLA_UW_METRICS._toggleAcct(\'' + escA(r.key) + '\')" title="Click to edit this account"';
     var val = r.empty ? '<span class="uwm-empty">—</span>' : esc(r.display);
+    // Deploy 237.224 (Mike: "if there is something weird ... have a little alert icon that
+    // appears that can be clicked and a tiny pop up appears with that note")
+    if (r.alert) val += '<button type="button" class="uwm-alert" title="Something to check — click" data-note="' + escA(r.alert) + '" onclick="event.stopPropagation();SLA_UW_METRICS._note(this)">⚠</button>';
     var bits = [];
     if (r.from) bits.push(esc(r.from));
     if (r.prov && r.prov !== r.from) bits.push(esc(r.prov));
     if (r.hasEntry && !r.account) bits.push('<a href="#" onclick="event.stopPropagation();SLA_UW_TAB._history(\'uw\',\'' + escA(r.key) + '\');return false">history</a>');
     if (r.unverified) bits.push('<a href="#" class="uw-confirm" onclick="event.stopPropagation();SLA_UW_TAB._confirm(\'uw\',\'' + escA(r.key) + '\');return false">✓ Confirm</a>');
     var total = (r.key === 'liquidityTotal' || r.key === 'liquidityRequirement' || r.key === 'reservesRequirement');
-    var html = '<div class="uwm-row' + (r.flag ? ' is-flag' : '') + (total ? ' is-total' : '') + '">' +
+    var html = '<div class="uwm-row' + (r.flag ? ' is-flag' : '') + (total ? ' is-total' : '') + (r.subtotal ? ' is-sub' : '') + '">' +
       '<div class="uwm-l">' + esc(r.label) + '</div>';
     if (r.account) {
       // Same three controls, same class names and same handler as the Underwriting tab's
@@ -321,9 +356,37 @@
     } else {
       html += '<div class="' + cls + '" data-key="' + escA(r.key) + '"' + click + '><span class="uw-v">' + val + '</span></div>';
     }
+    // the account as the statement printed it: "Chase Business Complete Checking · Business Checking Acct. ••1234"
+    if (r.sub) html += '<div class="uwm-sub">' + esc(r.sub) + '</div>';
     if (bits.length) html += '<div class="uwm-m">' + bits.join(' · ') + '</div>';
     if (r.note) html += '<div class="uwm-note">' + esc(r.note) + '</div>';
     return html + '</div>';
+  }
+
+  // Deploy 237.224 -- the tiny pop-up behind the alert icon. One at a time; any click
+  // elsewhere, Escape, or the icon again closes it.
+  function _note(btn) {
+    if (typeof document === 'undefined' || !btn) return;
+    var open = document.querySelector('.uwm-pop');
+    var mine = open && open.previousSibling === btn;
+    if (open) open.parentNode.removeChild(open);
+    if (mine) return;
+    var pop = document.createElement('div');
+    pop.className = 'uwm-pop';
+    pop.setAttribute('role', 'note');
+    pop.textContent = btn.getAttribute('data-note') || '';
+    pop.onclick = function (e) { e.stopPropagation(); };
+    btn.parentNode.insertBefore(pop, btn.nextSibling);
+    var close = function () {
+      if (pop.parentNode) pop.parentNode.removeChild(pop);
+      document.removeEventListener('click', close, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
+    var onKey = function (e) { if (e.key === 'Escape') close(); };
+    setTimeout(function () {
+      document.addEventListener('click', close, true);
+      document.addEventListener('keydown', onKey, true);
+    }, 0);
   }
 
   function acctEditorHtml(r, rootJs) {
@@ -409,7 +472,7 @@
     });
   }
 
-  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _moreToggled: _moreToggled, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
+  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _moreToggled: _moreToggled, _note: _note, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
   if (typeof window !== 'undefined') window.SLA_UW_METRICS = _API;
   if (typeof module !== 'undefined' && module.exports) module.exports = _API;
 })();
