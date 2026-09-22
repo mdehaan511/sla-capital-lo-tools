@@ -3,33 +3,13 @@
  *
  * Deploy 237.236 (Mike: "For brokers instead of invite to borrower portal it should be
  * invite to broker portal. In fact we need to completely diverge the borrowers and brokers.")
- *
- * Until now "Invite Broker" on a loan sent the broker to the BORROWER portal: a borrower-role
- * Supabase user and a borrower-role loan grant (borrower-intake-invite.mjs). A broker now
- * gets the Preferred Partner portal (/broker-portal): their own login, every loan they are
- * the broker on, and the borrower's document page for each one in processing.
+ * Deploy 237.241 -- the invite itself moved to _shared/broker-portal-invite-core.mjs so the
+ * application form (prospects-save) sends the same one automatically. This file is the
+ * staff-facing door: auth, owner, resolving the record, and the GET status.
  *
  *   POST { loanId, primaryClientId, owner? }      invite the broker ON a loan
  *   POST { brokerClientId, owner? }               invite a broker from their Broker Book page
  *   GET  ?brokerClientId=&owner=                  portal status for a broker record
- *
- * What a POST does, in order (each step is idempotent, so "Resend" is the same call):
- *   1. resolves the broker (the loan's broker fields, or the broker client record) and
- *      refuses the two mix-ups this exists to end: the broker email being the borrower's
- *      own email, and a team member's address;
- *   2. links the loan to a broker CLIENT record when it has none (linkOrCreateBroker --
- *      the portal finds loans by loan.brokerId), writing the loan;
- *   3. creates-or-updates the partner ACCESS record (broker_partners) as APPROVED, owned
- *      by the loan's LO -- the inviting loan officer vouches; the desk keeps its suspend
- *      switch -- and stamps role `broker` in sla_user_roles (union: a person who is also a
- *      borrower somewhere keeps that);
- *   4. picks the link: no login yet -> a one-time claim (broker-signup.html, choose a
- *      password); a login exists (they were a borrower-portal user before, or signed in
- *      with Google) -> a 72h durable sign-in link (kind 'broker');
- *   5. emails it (reply-to the owning LO), records the invite on the loan (the existing
- *      "Broker: ... invited ... last login" line reads that record) and on the partner
- *      record, and grants the loan (role broker) when it is in processing so the document
- *      page opens on their first visit.
  *
  * Auth: staff (never a borrower or broker login). A plain LO acts in their own book; a
  * processor or admin may pass `owner` (canOverrideOwner). Never sends to an address the
@@ -39,23 +19,10 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { isBrokerRole, canOverrideOwner, isLoanInProcessing } from './_shared/access.mjs';
-import { getPartner, savePartner, mintInvite, markPortalInvite } from './_shared/broker-partners.mjs';
-import { syncRoleTable } from './_shared/sla-roles.mjs';
-import { db } from './_shared/supabase-db.mjs';
-import {
-  getSb, findUserIdByEmail, lastSignInByUserId, mintDurablePortalLink, linkExpiryCopy, writeLoanInvite,
-} from './_shared/borrower-invite-core.mjs';
-import { grantLoanAccess } from './_shared/loan-access-store.mjs';
-import { linkOrCreateBroker } from './_shared/broker-link.mjs';
-import { writeClient } from './_shared/client-write.mjs';
-import { clientAsBroker, splitBrokerName } from './_shared/broker-client.mjs';
-import { sendPartnerInviteEmail } from './_shared/broker-invite-email.mjs';
-import { getOwnerReplyTo } from './_shared/email.mjs';
-
-// Roles that make an address a TEAM MEMBER's. A broker record carrying one of these is a
-// mix-up (an LO's own email typed as the broker), never an invite.
-const STAFF_ROLES = ['super_admin', 'admin', 'senior_lo', 'loan_officer', 'processor', 'office_assistant', 'underwriter'];
+import { isBrokerRole, canOverrideOwner } from './_shared/access.mjs';
+import { getPartner, markPortalInvite } from './_shared/broker-partners.mjs';
+import { getSb, findUserIdByEmail, lastSignInByUserId } from './_shared/borrower-invite-core.mjs';
+import { inviteBrokerToPortal, brokerFieldsOf } from './_shared/broker-portal-invite-core.mjs';
 
 function _rolesOf(user) {
   const am = (user && user.app_metadata) || {};
@@ -122,26 +89,12 @@ async function handle(req, context) {
     return json(400, { error: 'brokerClientId, or loanId + primaryClientId, required' });
   }
 
-  let b;
-  if (brokerClient) {
-    b = clientAsBroker(brokerClient);
-  } else {
-    const fd = loan.formData || {};
-    b = {
-      id:      String(loan.brokerId || '').trim(),
-      name:    String(loan.brokerName || fd.brokerName || '').trim(),
-      company: String(loan.brokerCompany || fd.brokerCompany || '').trim(),
-      email:   String(loan.brokerEmail || fd.brokerEmail || '').trim(),
-      phone:   String(loan.brokerPhone || fd.brokerPhone || '').trim(),
-    };
-  }
-  const email = normalizeEmail(b.email || '');
-  if (!email || email.indexOf('@') < 0) {
-    return json(400, { error: loan ? 'No broker email on this loan. Add it in Broker Info first.' : 'This broker has no email on file. Add one first.' });
-  }
-
   // ── GET: status ───────────────────────────────────────────────────────────
   if (isGet) {
+    const email = normalizeEmail(brokerFieldsOf(loan, brokerClient).email || '');
+    if (!email || email.indexOf('@') < 0) {
+      return json(400, { error: loan ? 'No broker email on this loan. Add it in Broker Info first.' : 'This broker has no email on file. Add one first.' });
+    }
     const partner = await getPartner(email);
     if (!partner) return json(200, { invited: false, email, hasPartner: false });
     const pi = partner.portalInvite || null;
@@ -157,7 +110,7 @@ async function handle(req, context) {
     if (userId && sb) { try { lastSignInAt = await lastSignInByUserId(sb, userId); } catch (_) {} }
     return json(200, {
       invited: !!pi, email, hasPartner: true, status: partner.status,
-      mode: (pi && pi.mode) || '', sentAt: (pi && pi.at) || '', sentBy: (pi && pi.by) || '',
+      mode: (pi && pi.mode) || '', via: (pi && pi.via) || '', sentAt: (pi && pi.at) || '', sentBy: (pi && pi.by) || '',
       emailed: pi ? pi.emailed !== false : false,
       claimedAt: partner.inviteAcceptedAt || '',
       hasLogin: !!userId || !!partner.inviteAcceptedAt,
@@ -165,120 +118,11 @@ async function handle(req, context) {
     });
   }
 
-  // ── the two mix-ups this endpoint exists to end ───────────────────────────
-  // Deploy 237.240 (Mike: "the borrower email is tester@testmail.com") -- on a broker-submitted
-  // application the PARENT client IS the broker (prospects-save files the loan under the
-  // broker and links the real borrower as a guarantor client), so "the borrower's own email"
-  // is the linked guarantor's / the name the broker typed, never the parent's. The first cut
-  // compared against the parent and refused every broker-parent loan.
-  const parentIsBroker = !!(client && client._isBroker &&
-    (loan.brokerId === client.id || loan._isBrokerLoan || (client.email && normalizeEmail(client.email) === email)));
-  const borrowerEmails = [];
-  if (client && !parentIsBroker && client.email) borrowerEmails.push(normalizeEmail(client.email));
-  if (loan && loan.borrowerEmail) borrowerEmails.push(normalizeEmail(loan.borrowerEmail));
-  (loan && Array.isArray(loan.guarantors) ? loan.guarantors : []).forEach((g) => { if (g && g.email) borrowerEmails.push(normalizeEmail(g.email)); });
-  if (borrowerEmails.indexOf(email) >= 0) {
-    return json(409, { error: 'The broker email on this loan is the borrower\'s own email (' + email + '). A broker is a separate person with their own address -- fix Broker Info first.' });
-  }
-  if (/@slacapital\.com$/.test(email)) {
-    return json(409, { error: email + ' is a team address, not a broker.' });
-  }
-  let tableRoles = [];
-  try {
-    const row = await db.first('sla_user_roles', { select: 'email,roles', eq: { email } });
-    tableRoles = row && Array.isArray(row.roles) ? row.roles.map((r) => String(r).toLowerCase()) : [];
-  } catch (_) { tableRoles = []; }
-  if (tableRoles.some((r) => STAFF_ROLES.indexOf(r) >= 0)) {
-    return json(409, { error: email + ' belongs to a team member, not a broker.' });
-  }
-
-  const now = new Date().toISOString();
-
-  // ── link the loan to a broker record (the portal lists loans by brokerId) ─
-  let linked = !!(loan && loan.brokerId), linkNote = '';
-  if (loan && !loan.brokerId) {
-    let r = null;
-    try { r = await linkOrCreateBroker(ownerKey, { brokerId: '', brokerName: b.name, brokerCompany: b.company, brokerEmail: email, brokerPhone: b.phone }); }
-    catch (_) { r = null; }
-    if (r && r.id) {
-      loan.brokerId = r.id;
-      const bb = r.broker || {};
-      if (!loan.brokerName && bb.name) loan.brokerName = bb.name;
-      if (!loan.brokerCompany && bb.company) loan.brokerCompany = bb.company;
-      if (!loan.brokerPhone && bb.phone) loan.brokerPhone = bb.phone;
-      loan.updatedAt = now;
-      try { await writeClient(ownerKey, client, { clientsStore }); linked = true; }
-      catch (e) { linkNote = 'The loan could not be linked to the broker record (' + ((e && e.message) || 'write failed') + '); it will not show in their portal until it is.'; }
-    } else {
-      linkNote = 'No broker record could be made for this loan (a broker name is needed); it will not show in their portal until Broker Info has a name.';
-    }
-    if (!b.id && loan.brokerId) b.id = loan.brokerId;
-  }
-
-  // ── the partner ACCESS record: approved, owned by the loan's LO ───────────
-  const existing = await getPartner(email);
-  if (existing && existing.status === 'suspended') {
-    return json(409, { error: 'This partner\'s portal access is suspended. An admin can reinstate it on the Preferred Partners desk.' });
-  }
-  const patch = { status: 'approved' };
-  const fill = (k, v) => { if (v && !(existing && existing[k])) patch[k] = v; };
-  const nm = splitBrokerName(b.name || '');
-  fill('firstName', nm.firstName); fill('lastName', nm.lastName);
-  fill('company', b.company); fill('phone', b.phone);
-  fill('clientId', brokerClient ? brokerClient.id : (b.id || ''));
-  fill('ownerKey', ownerKey);
-  let partner;
-  try { partner = await savePartner(email, patch, selfEmail); }
-  catch (e) { return json(500, { error: 'Partner record write failed: ' + ((e && e.message) || 'unknown') }); }
-
-  // Role follows the record (the token hook stamps roles FROM the table; Deploy 236.826).
-  // Union, not replace: a person who is also a borrower somewhere keeps that.
-  const roles = tableRoles.slice();
-  if (roles.indexOf('broker') < 0) roles.push('broker');
-  const roleSync = await syncRoleTable(email, roles);
-
-  // ── the link: claim a login, or sign in to the one they have ──────────────
-  const sb = getSb();
-  const userId = sb ? await findUserIdByEmail(sb, email).catch(() => '') : '';
-  const origin = new URL(req.url).origin;
-  let mode, url, expiry = null;
-  if (userId) {
-    mode = 'signin';
-    const d = mintDurablePortalLink(email, origin, { kind: 'broker' });
-    url = d ? d.url : origin + '/';
-    expiry = linkExpiryCopy(d);
-  } else {
-    mode = 'claim';
-    let rec;
-    try { rec = await mintInvite(email, selfEmail); }
-    catch (e) { return json(500, { error: 'Could not mint the invite: ' + ((e && e.message) || 'unknown') }); }
-    url = origin + '/broker-signup.html?t=' + encodeURIComponent(rec.inviteToken);
-  }
-
-  // ── email it, reply-to the LO who owns the relationship ───────────────────
-  let replyTo = '';
-  try { replyTo = await getOwnerReplyTo(ownerKey); } catch (_) { replyTo = ''; }
-  const sent = await sendPartnerInviteEmail({
-    toEmail: email, url, rec: partner, actor: replyTo || selfEmail, mode, expiry,
-    forAddress: loan ? String(loan.address || '') : '',
+  // ── POST: the invite (shared with the application form) ──────────────────
+  const r = await inviteBrokerToPortal({
+    ownerKey, loan, client, brokerClient, actorEmail: selfEmail, clientsStore,
+    origin: new URL(req.url).origin, via: 'lo',
   });
-
-  // ── records ───────────────────────────────────────────────────────────────
-  if (loan) {
-    try { await writeLoanInvite(loan.id, 'broker', { email, userId, sentAt: now, sentBy: selfEmail, portal: 'broker', mode }); }
-    catch (e) { console.warn('broker-portal-invite: loan record write failed:', e && e.message); }
-    if (isLoanInProcessing(loan)) {
-      try { await grantLoanAccess({ email, loanId: loan.id, primaryClientId: client.id, ownerKey, role: 'broker', grantedBy: selfEmail }); }
-      catch (e) { console.warn('broker-portal-invite: grant failed:', e && e.message); }
-    }
-  }
-  try { await markPortalInvite(email, { at: now, by: selfEmail, mode, loanId: loan ? loan.id : '', userId, emailed: !!sent.ok }); }
-  catch (e) { console.warn('broker-portal-invite: partner stamp failed:', e && e.message); }
-
-  return json(200, {
-    ok: true, email, mode, emailed: !!sent.ok, emailError: sent.error || '', inviteUrl: url, sentAt: now,
-    partner: { status: partner.status, clientId: partner.clientId || '', ownerKey: partner.ownerKey || '' },
-    roleSync, linked, linkNote,
-    loanId: loan ? loan.id : '',
-  });
+  if (!r.ok) return json(r.status || 500, { error: r.error || 'Invite failed' });
+  return json(200, r);
 }

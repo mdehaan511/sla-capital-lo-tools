@@ -71,7 +71,7 @@ const req = (method, url, headers, body) => ({ method, url, headers: { get: (k) 
 const HELPERS = ['handleOptions', 'json', 'requireAuth', 'readJsonBody', 'isAdmin', 'isProcessor', 'normalizeEmail', 'keySafe', 'getStore',
   'isBrokerRole', 'canOverrideOwner', 'isLoanInProcessing', 'getPartner', 'savePartner', 'mintInvite', 'markPortalInvite', 'syncRoleTable',
   'getSb', 'findUserIdByEmail', 'lastSignInByUserId', 'mintDurablePortalLink', 'linkExpiryCopy', 'writeLoanInvite', 'grantLoanAccess',
-  'linkOrCreateBroker', 'writeClient', 'clientAsBroker', 'splitBrokerName', 'sendPartnerInviteEmail', 'getOwnerReplyTo', 'db', 'ensureBorrowerUser', 'sendBorrowerEmail'];
+  'linkOrCreateBroker', 'writeClient', 'clientAsBroker', 'splitBrokerName', 'sendPartnerInviteEmail', 'getOwnerReplyTo', 'db', 'ensureBorrowerUser', 'sendBorrowerEmail', 'inviteBrokerToPortal', 'brokerFieldsOf'];
 function declaredCheck(file) {
   const src = readFn(file);
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -174,10 +174,18 @@ console.log('\n/api/broker-portal-invite: the broker gets the partner portal, ne
     w.user = o.user || { email: 'lo1@slacapital.com', app_metadata: { roles: ['loan_officer'] } };
     return w;
   };
+  // Deploy 237.241 -- the invite lives in _shared/broker-portal-invite-core.mjs; load it for
+  // real (its sibling imports stubbed from the same tables) and hand it to the endpoint.
+  const coreStubsOf = (stubs) => { const o = {}; Object.keys(stubs).forEach((k) => { o[k.replace(/^\.\/_shared\//, './')] = stubs[k]; }); return o; };
+  const loadCore = (w) => loadFunction('_shared/broker-portal-invite-core.mjs', coreStubsOf(w.stubs));
   const run = async (w, method, body, query) => {
-    const fn = (await loadFunction('broker-portal-invite.mjs', w.stubs)).default;
+    const CORE = await loadCore(w);
+    const fn = (await loadFunction('broker-portal-invite.mjs', Object.assign({}, w.stubs, {
+      './_shared/broker-portal-invite-core.mjs': { inviteBrokerToPortal: CORE.inviteBrokerToPortal, brokerFieldsOf: CORE.brokerFieldsOf },
+    }))).default;
     return fn(req(method, 'https://portal.slacapital.ai/api/broker-portal-invite' + (query || ''), {}, body), {});
   };
+  check('the core imports everything it calls', declaredCheck('_shared/broker-portal-invite-core.mjs'), []);
 
   // 1. the LO on their own loan, no login yet
   let w = mkWorld();
@@ -277,6 +285,50 @@ console.log('\n/api/broker-portal-invite: the broker gets the partner portal, ne
   w = mkWorld({ user: { email: 'lo1@slacapital.com', app_metadata: { roles: ['loan_officer'] } } });
   r = await run(w, 'GET', null, '?brokerClientId=b_9&owner=lo2@slacapital.com');
   check('status honours the same owner rule', [r.status], [403]);
+
+  // ── the application form: the same invite, automatically, never nagging ──
+  console.log('\nThe application form invites a broker who applies (Deploy 237.241)');
+  const apply = async (w) => {
+    const CORE = await loadCore(w);
+    const client = w.blobs['lo1@slacapital.com/b_9'];
+    const loan = client.loans[0];
+    return CORE.inviteBrokerToPortal({ ownerKey: 'lo1@slacapital.com', loan, client, brokerClient: null, actorEmail: 'lo1@slacapital.com', clientsStore: { get: async (k) => w.blobs[k] || null }, origin: 'https://portal.slacapital.ai', via: 'apply', onlyIfNeverInvited: true });
+  };
+  w = mkWorld({ parentIsBroker: true });
+  r = await apply(w);
+  check('a broker who applies for the first time is invited: approved under the LO, role broker, a claim link, one email, via apply', [r.ok, r.skipped, r.mode, r.via, w.partners['bo@brokerage.com'].status, w.partners['bo@brokerage.com'].ownerKey, w.partners['bo@brokerage.com'].clientId, w.calls.role, w.calls.email.length, w.calls.email[0].mode, w.calls.email[0].forAddress, w.calls.mark[0][1].via, w.calls.mark[0][1].by, w.calls.loanInvite[0][2].via], [true, undefined, 'claim', 'apply', 'approved', 'lo1@slacapital.com', 'b_9', [['bo@brokerage.com', ['broker']]], 1, 'claim', '1 Main St', 'apply', 'lo1@slacapital.com', 'apply']);
+  w = mkWorld({ parentIsBroker: true, partner: { email: 'bo@brokerage.com', status: 'approved', ownerKey: 'lo1@slacapital.com', portalInvite: { at: '2026-09-20T00:00:00Z', mode: 'claim' } } });
+  r = await apply(w);
+  check('a broker invited before is not invited again (their portal simply lists the new loan)', [r.ok, r.skipped, w.calls.email.length, w.calls.save.length, w.calls.mint.length], [true, 'already-invited', 0, 0, 0]);
+  w = mkWorld({ parentIsBroker: true, partner: { email: 'bo@brokerage.com', status: 'approved', ownerKey: 'lo1@slacapital.com', inviteAcceptedAt: '2026-09-20T00:00:00Z' }, userId: 'u1' });
+  r = await apply(w);
+  check('a broker with a login is left alone', [r.ok, r.skipped, w.calls.email.length, w.calls.durable.length], [true, 'has-login', 0, 0]);
+  w = mkWorld({ parentIsBroker: true, partner: { email: 'bo@brokerage.com', status: 'pending', ownerKey: 'lo2@slacapital.com', inviteToken: 'desk-tok' } });
+  r = await apply(w);
+  check('a desk invite still pending is left alone too', [r.ok, r.skipped, w.calls.email.length], [true, 'desk-invite-pending', 0]);
+  w = mkWorld({ parentIsBroker: true, partner: { email: 'bo@brokerage.com', status: 'suspended', ownerKey: 'lo2@slacapital.com' } });
+  r = await apply(w);
+  check('a suspended partner is refused, not re-approved by applying', [r.ok, r.status, w.calls.save.length], [false, 409, 0]);
+  w = mkWorld({ parentIsBroker: true, loanPatch: { brokerEmail: 'jeremy@slacapital.com' } });
+  r = await apply(w);
+  check('a team address on the form is refused, never thrown', [r.ok, r.status, w.calls.email.length], [false, 409, 0]);
+  w = mkWorld({ parentIsBroker: true }); w.emailResult = { ok: false, error: 'Resend 422' };
+  r = await apply(w);
+  check('the email failing is recorded, not thrown (the submission must never fail because of it)', [r.ok, r.emailed, w.calls.mark[0][1].emailed], [true, false, false]);
+  // the LO's button is untouched: it still invites (and re-invites) on demand
+  w = mkWorld({ parentIsBroker: true, partner: { email: 'bo@brokerage.com', status: 'approved', ownerKey: 'lo1@slacapital.com', portalInvite: { at: '2026-09-20T00:00:00Z', mode: 'claim' } } });
+  r = await run(w, 'POST', { loanId: 'l_1', primaryClientId: 'b_9' });
+  check('the LO\'s button still re-sends to an already-invited broker (that is what Resend is for), via lo', [r.status, r.body.via, w.calls.email.length, w.calls.mark[0][1].via], [200, 'lo', 1, 'lo']);
+  {
+    const PS = readFn('prospects-save.mjs');
+    assert('prospects-save invites only a BROKER submission that produced a loan, after the loan exists, inside a try, never failing the submit', /let brokerInvited = false;\s*\n\s*if \(submitterType === 'broker' && ids && ids\.loanId && ids\.clientId && loEmail && loEmail\.includes\('@'\)\) \{\s*\n\s*try \{\s*\n\s*brokerInvited = await autoInviteBrokerToPortal\(ids, loEmail, new URL\(req\.url\)\.origin\);/.test(PS) && PS.indexOf('let brokerInvited = false;') > PS.indexOf('ids = await upsertClientFromProspect(prospect, loEmail);'));
+    assert('...with the form\'s rule (never nag) and the loan read back from the record just written', /via: 'apply', onlyIfNeverInvited: true,/.test(PS) && /const loan = client && Array\.isArray\(client\.loans\) \? client\.loans\.find\(\(l\) => l && l\.id === ids\.loanId\)/.test(PS));
+    assert('...and tells the page', /return json\(200, \{ ok: true, id, brokerInvited \}\);/.test(PS));
+    const AP = read('apply.html');
+    assert('apply.html shows the portal-login note only when the server says it invited', /if \(_bpNote && resp && resp\.brokerInvited === true\) _bpNote\.style\.display = '';/.test(AP) && /id="brokerPortalNote" style="display:none/.test(AP));
+    const API = read('sla-api.js');
+    assert('SLA.Prospects.submit resolves with the parsed body the note reads', /submit: function \(prospect\) \{[\s\S]{0,500}?fetch\('\/api\/prospects-save'[\s\S]{0,500}?return d;/.test(API));
+  }
 }
 
 // ── C. the borrower-portal invite refuses brokers ──────────────────────────

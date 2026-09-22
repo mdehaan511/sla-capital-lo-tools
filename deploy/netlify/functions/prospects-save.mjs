@@ -36,6 +36,9 @@ import { checkRateLimit } from './_shared/rate-limit.mjs';
 // Deploy 236.635 — broker submissions name the borrower they represent; link that
 // borrower to the loan as a Guarantor client (shared dedupe-by-email helper).
 import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
+// Deploy 237.241 (Mike: "when brokers fill out an application they automatically get
+// invited to the broker portal") -- the same invite the LO's "Invite Broker" button sends.
+import { inviteBrokerToPortal } from './_shared/broker-portal-invite-core.mjs';
 import { logBorrowerSendFromResponse } from './_shared/email.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
@@ -290,6 +293,22 @@ export default async (req, context) => {
     console.error('prospects-save gc vendor error:', e);
   }
 
+  // Deploy 237.241 (Mike: "when brokers fill out an application they automatically get
+  // invited to the broker portal") -- the same invite the LO's "Invite Broker" button sends,
+  // right after the loan exists: partner record approved under this LO, role broker, a claim
+  // link (or a sign-in link when they already have a login), one email. Only for a broker
+  // submission that produced a loan, and only when this broker has never been invited: a
+  // repeat application from a partner simply appears in their portal. Best-effort -- the
+  // submission never fails because of it.
+  let brokerInvited = false;
+  if (submitterType === 'broker' && ids && ids.loanId && ids.clientId && loEmail && loEmail.includes('@')) {
+    try {
+      brokerInvited = await autoInviteBrokerToPortal(ids, loEmail, new URL(req.url).origin);
+    } catch (e) {
+      console.warn('prospects-save: broker portal auto-invite failed (non-fatal):', e && e.message);
+    }
+  }
+
   // Notify the LO by email — best-effort, don't fail the submission if email fails
   try {
     await notifyLO(prospect, ids);
@@ -314,8 +333,29 @@ export default async (req, context) => {
     console.error('prospects-save slack notify error:', e);
   }
 
-  return json(200, { ok: true, id });
+  return json(200, { ok: true, id, brokerInvited });
 };
+
+// Deploy 237.241 -- the application form's broker invite. Reads the loan back from the
+// record upsertClientFromProspect just wrote (the parent client IS the broker on a broker
+// submission; the real borrower is a linked guarantor), then runs the shared invite with the
+// form's rule: never nag a partner who was already invited or already has a login. Returns
+// true only when an invite actually went out.
+async function autoInviteBrokerToPortal(ids, loEmail, origin) {
+  const ownerKey = keySafe(normalizeEmail(loEmail));
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const client = await clientsStore.get(ownerKey + '/' + keySafe(ids.clientId), { type: 'json' }).catch(() => null);
+  const loan = client && Array.isArray(client.loans) ? client.loans.find((l) => l && l.id === ids.loanId) || null : null;
+  if (!loan) { console.warn('[apply-broker-invite] loan not found after upsert', ids); return false; }
+  const r = await inviteBrokerToPortal({
+    ownerKey, loan, client, brokerClient: null, actorEmail: normalizeEmail(loEmail), clientsStore, origin,
+    via: 'apply', onlyIfNeverInvited: true,
+  });
+  if (!r.ok) { console.warn('[apply-broker-invite] not invited:', r.status, r.error); return false; }
+  if (r.skipped) { console.log('[apply-broker-invite] skipped (' + r.skipped + ') for ' + r.email); return false; }
+  console.log('[apply-broker-invite] invited ' + r.email + ' (' + r.mode + ', emailed=' + r.emailed + ')');
+  return true;
+}
 
 // Deploy 236.738 — GUC applications: create the General Contractor as a
 // Vendor record in the loan-contacts store, tied to the freshly created

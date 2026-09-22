@@ -707,6 +707,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
     <h2>Application Submitted!</h2>
     <p>Thank you — your loan officer will be in touch shortly.<br>You'll receive a confirmation at <strong id="confirmEmail"></strong>.</p>
+    <!-- Deploy 237.241 -- shown only when the server says it sent the broker a portal login -->
+    <p id="brokerPortalNote" style="display:none;margin-top:10px">We've also emailed you a <strong>Preferred Partner portal</strong> login, so you can follow this loan and upload documents for your borrower.</p>
   </div>
 </div>
 
@@ -1448,10 +1450,13 @@ function submitApp() {
   var submitBtn = document.getElementById('submitBtn');
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
 
-  SLA.Prospects.submit(prospect).then(function() {
+  SLA.Prospects.submit(prospect).then(function(resp) {
     // Show success
     document.getElementById('appForm').style.display = 'none';
     document.getElementById('successCard').classList.add('show');
+    // Deploy 237.241 -- a broker who just applied was invited to the partner portal.
+    var _bpNote = document.getElementById('brokerPortalNote');
+    if (_bpNote && resp && resp.brokerInvited === true) _bpNote.style.display = '';
     // Deploy 236.227 (Broker Phase D) — for broker submissions the
     // borrower email is intentionally blank, so surface the broker's
     // email on the confirmation copy instead.
