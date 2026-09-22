@@ -593,6 +593,20 @@
       '.dr-root .ai-soon { display:inline-block; font-size:10px; font-weight:600; color:var(--gold-mid); background:var(--gold-light); border:1px solid var(--gold-border); padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:0.04em; margin-left:6px; }',
       // Deploy 236.517 — cross-document consistency check.
       '.dr-root .consistency-card.has-mismatch { border-color:var(--dr-red-border, rgba(124,31,31,0.28)); box-shadow:inset 3px 0 0 var(--danger, #7c1f1f); }',
+      // Deploy 237.242 — the ownership chain card.
+      '.dr-root .dr-oc-tree { margin:10px 0 2px; }',
+      '.dr-root .dr-oc-node { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; padding:3px 0; font-size:12.5px; border-bottom:1px solid rgba(0,0,0,0.04); }',
+      '.dr-root .dr-oc-name { font-weight:600; color:var(--ink,#2b2722); }',
+      '.dr-root .dr-oc-name.person { font-weight:500; }',
+      '.dr-root .dr-oc-pct { font-family:\'DM Mono\',monospace; font-size:11.5px; color:var(--muted,#6b6459); }',
+      '.dr-root .dr-oc-pct.unknown { font-family:inherit; font-style:italic; color:var(--danger,#7c1f1f); }',
+      '.dr-root .dr-oc-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--muted,#6b6459); }',
+      '.dr-root .dr-oc-tag.warn { color:var(--danger,#7c1f1f); }',
+      '.dr-root .dr-oc-people, .dr-root .dr-oc-gaps { margin-top:12px; font-size:12.5px; }',
+      '.dr-root .dr-oc-ph { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted,#6b6459); margin-bottom:4px; }',
+      '.dr-root .dr-oc-person { display:flex; justify-content:space-between; gap:10px; padding:3px 0; border-bottom:1px solid rgba(0,0,0,0.04); }',
+      '.dr-root .dr-oc-person.is-g { font-weight:600; }',
+      '.dr-root .dr-oc-gaps div { color:var(--danger,#7c1f1f); line-height:1.5; }',
       '.dr-root .dr-cc-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px; }',
       '.dr-root .dr-cc-head h3 { margin:0; }',
       '.dr-root .dr-cc-badge { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; padding:3px 10px; border-radius:20px; white-space:nowrap; }',
@@ -1139,7 +1153,10 @@
     }
     var traysHtml = renderSections(activeSlugs);
 
-    var bottom = renderConsistencyCard(_review);
+    // Deploy 237.242 — the ownership chain sits above the consistency check: both
+    // read the same documents, and "who owns this borrower" is the question a
+    // stacked-entity file opens with.
+    var bottom = renderOwnershipCard(_review) + renderConsistencyCard(_review);
     // Deploy 236.161 — removed Delete Review + Finalize buttons per
     // Mike. The handlers + modals remain in the DOM (commented
     // refs only) so a future re-add doesn't have to re-wire the
@@ -1511,6 +1528,94 @@
       '<div class="dr-cc-head"><h3>Cross-Document Consistency Check</h3>' + headBadge + '</div>' +
       '<div class="dr-cc-sub">Compares the LLC name, borrower name, property address, and loan amount the AI read off each document — and the loan of record — and flags anything that disagrees before closing.</div>' +
       '<div class="dr-cc-rows">' + rows + '</div>' +
+    '</div>';
+  }
+
+  // Deploy 237.242 (Mike, 5909 Cates: "the borrower had a bunch of LLCs with
+  // ownership interests in the others") — the ownership chain, read off the
+  // operating agreements and multiplied down. The math lives server-side
+  // (_shared/ownership-chain.mjs, attached by loan-reviews-get) for the same reason
+  // the key-metrics panel owns no numbers: one implementation of a percentage that
+  // decides a guideline. This only draws it.
+  function _ocPct(v) {
+    if (v == null) return '—';
+    return (Math.round(v * 100) / 100) + '%';
+  }
+  function renderOwnershipCard(review) {
+    var c = review && review.ownershipChain;
+    if (!c || !c.root || !c.root.name) return '';
+    // Nothing read yet: say what would fill it in, rather than an empty card.
+    if (!c.documents) {
+      return '<div class="consistency-card"><div class="dr-cc-head"><h3>Ownership</h3>' +
+        '<span class="dr-cc-badge none">awaiting operating agreements</span></div>' +
+        '<div class="dr-cc-sub">Reads the membership table off each operating agreement and multiplies down the chain, so a borrower held through a stack of companies still gets one answer. ' +
+        escHtml(c.root.name) + ' is the borrowing entity; its operating agreement has not been reviewed yet.</div></div>';
+    }
+    var g = c.guarantors || {};
+    var badge = g.complete
+      ? '<span class="dr-cc-badge ' + (g.percent >= 51 ? 'ok' : 'fail') + '">Guarantors ' + _ocPct(g.percent) + '</span>'
+      : '<span class="dr-cc-badge none">at least ' + _ocPct(g.percent || 0) + ' — incomplete</span>';
+
+    // The tree, indented by depth. Each line is "Company — 60% of its parent".
+    var byParent = {};
+    (c.edges || []).forEach(function(e) { (byParent[e.parent] = byParent[e.parent] || []).push(e); });
+    // One line per party, indented by how deep in the chain it sits. An entity's
+    // line carries its share of its PARENT (what the document says), then its own
+    // members follow underneath it.
+    function line(name, depth, o) {
+      o = o || {};
+      return '<div class="dr-oc-node" style="padding-left:' + (depth * 16) + 'px">' +
+        '<span class="dr-oc-name' + (o.person ? ' person' : '') + '">' + escHtml(name) + '</span>' +
+        (o.pct === undefined ? '' : '<span class="dr-oc-pct' + (o.pct == null ? ' unknown' : '') + '">' + (o.pct == null ? 'percent not stated' : _ocPct(o.pct)) + '</span>') +
+        (o.role ? '<span class="dr-oc-tag">' + escHtml(o.role) + '</span>' : '') +
+        (o.tag ? '<span class="dr-oc-tag' + (o.warn ? ' warn' : '') + '">' + escHtml(o.tag) + '</span>' : '') +
+      '</div>';
+    }
+    function walk(key, name, depth, pct, role, path) {
+      var kids = byParent[key] || [];
+      var looped = path.indexOf(key) >= 0;
+      var html = line(name, depth, {
+        pct: depth === 0 ? undefined : pct,
+        role: role,
+        tag: depth === 0 ? 'borrowing entity' : (looped ? 'already above in this chain' : (kids.length ? '' : 'no operating agreement on file')),
+        warn: !looped && !kids.length && depth > 0,
+      });
+      if (looped || depth > 8) return html;
+      var next = path.concat([key]);
+      kids.forEach(function(e) {
+        html += (e.kind === 'entity')
+          ? walk(e.child, e.childName, depth + 1, e.percent, e.role, next)
+          : line(e.childName, depth + 1, { pct: e.percent, role: e.role, person: true });
+      });
+      return html;
+    }
+
+    var people = (c.people || []).map(function(p) {
+      var isG = (g.named || []).some(function(n) { return String(n).toLowerCase().indexOf(String(p.name).toLowerCase()) >= 0 || String(p.name).toLowerCase().indexOf(String(n).toLowerCase()) >= 0; });
+      return '<div class="dr-oc-person' + (isG ? ' is-g' : '') + '"><span>' + escHtml(p.name) + (isG ? ' <span class="dr-oc-tag">guarantor</span>' : '') + '</span>' +
+        '<span class="dr-oc-pct' + (p.percent == null ? ' unknown' : '') + '">' + (p.percent == null ? 'not stated' : _ocPct(p.percent)) + '</span></div>';
+    }).join('');
+
+    var gaps = [];
+    (c.unresolved || []).forEach(function(u) {
+      gaps.push(u.reason === 'circular'
+        ? escHtml(u.entity) + ' is listed as owning something that owns it — the chain stops there'
+        : 'No operating agreement on file for ' + escHtml(u.entity) + (u.percent != null ? ' (' + _ocPct(u.percent) + ' of the borrowing entity)' : ''));
+    });
+    (c.unstated || []).forEach(function(u) {
+      gaps.push(escHtml(u.entity) + ' does not state ' + escHtml(u.member) + '’s percent');
+    });
+
+    return '<div class="consistency-card' + (g.complete && g.percent < 51 ? ' has-mismatch' : '') + '">' +
+      '<div class="dr-cc-head"><h3>Ownership</h3>' + badge + '</div>' +
+      '<div class="dr-cc-sub">Read off ' + c.documents + ' operating agreement' + (c.documents === 1 ? '' : 's') + ' and multiplied down the chain. ' +
+        (g.complete
+          ? 'Every level is on file, so this is what the guarantors ultimately hold.'
+          : 'The chain is incomplete, so this is a FLOOR — what the documents on file prove, not the whole picture.') +
+      '</div>' +
+      '<div class="dr-oc-tree">' + walk(c.root.key, c.root.name, 0, null, '', []) + '</div>' +
+      (people ? '<div class="dr-oc-people"><div class="dr-oc-ph">Ultimate owners</div>' + people + '</div>' : '') +
+      (gaps.length ? '<div class="dr-oc-gaps"><div class="dr-oc-ph">What is missing</div>' + gaps.map(function(x) { return '<div>• ' + x + '</div>'; }).join('') + '</div>' : '') +
     '</div>';
   }
 

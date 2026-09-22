@@ -36,6 +36,22 @@
  * (entry.nameLocked) is never overwritten.
  */
 import { findCategory, SECTIONS, displaySection } from './loan-review-checklists.mjs';
+// Deploy 237.242 — who owns whom, from the operating agreements on the review.
+import { buildOwnershipChain, parentOf } from './ownership-chain.mjs';
+
+// Naming touches every document on a tray in a loop, and the chain is the same
+// answer every time. Built once per review object, kept off the record itself
+// (a non-enumerable property is never serialized into the stored review).
+function chainFor(review) {
+  if (!review || typeof review !== 'object') return null;
+  if (review.ownershipChain) return review.ownershipChain; // already derived upstream
+  try {
+    if (!Object.prototype.hasOwnProperty.call(review, '__chain')) {
+      Object.defineProperty(review, '__chain', { value: buildOwnershipChain(review), enumerable: false, configurable: true });
+    }
+    return review.__chain;
+  } catch (e) { return null; }
+}
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -375,7 +391,18 @@ export function canonicalDocName(review, slug, docId, opts) {
   // Deploy 237.237 — the name the UPLOADER gave it, for entityFromFilename. Never
   // entry.filename: that is this namer's own output, so mining it is circular.
   const given = o.incomingFilename || entry.originalFilename || '';
-  const parts = [docTypeLabel(slug, docState), docSubject(review, slug, docState, entities, given)];
+  const subject = docSubject(review, slug, docState, entities, given);
+  const parts = [docTypeLabel(slug, docState), subject];
+  // Deploy 237.242 (Mike: "the borrower had a bunch of LLCs with ownership
+  // interests in the others") — on a stacked-entity file the company name alone
+  // does not say which company this is, and a tray of eight operating agreements
+  // reads as eight strangers. Where the agreements themselves establish that this
+  // company is a member of another one, the name says so. Only from the chain:
+  // never a guess, and never for the borrowing entity itself.
+  if (subject && sectionOf(slug, docState) === 'borrower') {
+    const parent = parentOf(chainFor(review), subject);
+    if (parent) parts[parts.length - 1] = subject + ' (member of ' + parent + ')';
+  }
   if (PERIOD_SLUGS[baseSlugOf(slug)]) {
     parts.push(statementPeriod(o.documentDate || entry.documentDate || entities.documentDate || tray.documentDate || ''));
   }

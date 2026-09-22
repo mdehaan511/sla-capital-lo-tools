@@ -256,6 +256,7 @@ async function handle(req, context) {
     aiReviewedAt: now,
     aiError: aiResult.error || '',
   };
+  if (aiResult.ownership) _ok.ownership = aiResult.ownership; // Deploy 237.240
   if (targetEntry) { Object.assign(targetEntry, _ok); if (_integrity) targetEntry.integrity = _integrity; }
   if (isCurrentTarget) { Object.assign(docState, _ok); if (_integrity) docState.integrity = _integrity; }
   applyCanonicalDocName(review, body.slug, targetDocId, { entities: _ok.aiExtractedEntities, ignoreTray: true }); // Deploy 237.133

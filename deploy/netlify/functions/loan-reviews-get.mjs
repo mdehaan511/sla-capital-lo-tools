@@ -12,6 +12,8 @@ import {
 // to the tray set in LO_VISIBLE_SLUGS. Filtering happens here, before the
 // record leaves the server.
 import { filterReviewForUser } from './_shared/loan-review-visibility.mjs';
+// Deploy 237.242 — the ownership chain, assembled from the operating agreements.
+import { buildOwnershipChain } from './_shared/ownership-chain.mjs';
 
 export default async (req, context) => {
   try {
@@ -38,7 +40,23 @@ async function handle(req, context) {
   if (!r) return json(404, { error: 'Review not found' });
 
   // Staff see the whole file.
-  if (isProcessor(user)) return json(200, { review: r });
+  if (isProcessor(user)) {
+    // Deploy 237.242 — the ownership chain is DERIVED from the operating agreements
+    // on the review, never stored: one implementation of the math (the page has no
+    // module system, and a second copy of a percentage that decides a guideline is
+    // exactly the kind of thing that drifts). Attached to the response only.
+    //
+    // PROCESSORS ONLY, deliberately. It is assembled ACROSS trays — the operating
+    // agreements, which an LO may see, and the Articles, whose entity name of record
+    // an LO may not — so it is not covered by the tray allowlist either way. Same
+    // direction LO_VISIBLE_SLUGS fails in: added deliberately, never by side effect.
+    try {
+      r.ownershipChain = buildOwnershipChain(r);
+    } catch (e) {
+      console.warn('loan-reviews-get: ownership chain failed (non-fatal):', e && e.message);
+    }
+    return json(200, { review: r });
+  }
 
   // Deploy 236.881 — a Loan Officer reads the review for a loan THEY OWN,
   // narrowed to the trays in LO_VISIBLE_SLUGS. Ownership is the review's

@@ -256,6 +256,10 @@ async function handle(req, context) {
   // arvBpo) and the BPO reprice alert, exactly like the sync upload path.
   const _props = buildProposals(_extractSpec, aiResult.extractedFields, docLabel);
   _ok.aiExtractedFields = aiResult.extractedFields || {};
+  // Deploy 237.240 -- the membership table off an operating agreement. Set ONLY
+  // when this read returned one: a re-review that comes back empty must not wipe
+  // the chain a previous read established.
+  if (aiResult.ownership) _ok.ownership = aiResult.ownership;
   const _bpoAlert = bpoAlertFor(body.slug, _props, review.sourceLoanSnapshot || review.snapshotLoan);
   if (_bpoAlert !== null) _ok.bpoAlert = _bpoAlert;
   // Deploy 236.777 — felony hard stop on a background check (RTL + DSCR).

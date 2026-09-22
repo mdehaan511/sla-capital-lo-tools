@@ -303,8 +303,38 @@ export async function reviewDocument(opts) {
     // Deploy 236.669 — AI document-integrity assessment (present only when
     // opts.integrityCheck was set). Shape: { risk, findings:[{level,detail}] }.
     integrity: _normalizeIntegrity(parsed.integrity),
+    // Deploy 237.242 — the membership table off an operating agreement (present
+    // only for that slug). Shape: { entity, members:[{name,percent,kind,role}] }.
+    ownership: _normalizeOwnership(parsed.ownership),
     inputTokens, outputTokens, costCents, cacheWriteTokens, cacheReadTokens, stopReason,
   };
+}
+
+// A percent the document STATED. Anything else — a string, a fraction, a number
+// out of range — is "not stated", because a guessed percent multiplied down a
+// three-deep chain is a wrong answer that looks like an exact one.
+function _pct(v) {
+  if (typeof v === 'string') v = v.replace(/[%\s,]/g, '');
+  const n = Number(v);
+  if (!isFinite(n) || n <= 0 || n > 100) return null;
+  return Math.round(n * 10000) / 10000;
+}
+function _normalizeOwnership(v) {
+  if (!v || typeof v !== 'object') return null;
+  const entity = String(v.entity == null ? '' : v.entity).trim().slice(0, 200);
+  const members = (Array.isArray(v.members) ? v.members : []).map(function (m) {
+    if (!m || typeof m !== 'object') return null;
+    const name = String(m.name == null ? '' : m.name).trim().slice(0, 200);
+    if (!name) return null;
+    return {
+      name,
+      percent: _pct(m.percent),
+      kind: m.kind === 'entity' ? 'entity' : 'person',
+      role: String(m.role == null ? '' : m.role).trim().slice(0, 60) || '',
+    };
+  }).filter(Boolean);
+  if (!entity && !members.length) return null;
+  return { entity, members };
 }
 
 function _normalizeIntegrity(v) {
@@ -488,6 +518,32 @@ function buildPrompt(opts) {
     ].join('\n');
   }
 
+  // Deploy 237.242 (Mike, 5909 Cates) — OWNERSHIP CHAIN. A borrower can hold the
+  // subject property through a stack of LLCs, each with its own operating
+  // agreement: on 5909 Cates eight of them. The rubric asks each document whether
+  // "the guarantors' combined ownership is at least 51%", which each document can
+  // only answer about ITS OWN level — nobody was multiplying down the chain, so the
+  // real question (what do the guarantors ultimately control) was left to a human
+  // reading eight agreements side by side. This reads the membership table off each
+  // one; _shared/ownership-chain.mjs assembles them.
+  let _ownershipSchema = '';
+  let _ownershipRule = '';
+  if (String(opts.slug || '').replace(/__[pg]\d+$/, '') === 'operating_agreement') {
+    _ownershipSchema = '  "ownership": {\n' +
+      '    "entity": "<the entity THIS agreement governs, exactly as written, or null>",\n' +
+      '    "members": [ { "name": "<member name as written>", "percent": <membership percent as a number, or null>, "kind": "person" | "entity", "role": "<Manager / Managing Member / Member, or null>" } ]\n' +
+      '  }';
+    _ownershipRule = [
+      '',
+      'OWNERSHIP (report in the "ownership" object — this is a transcription task, not a judgement):',
+      '- "entity" is the company this operating agreement is FOR. Not the borrower of the loan, not the property owner — the company named as the subject of this agreement.',
+      '- "members" is every member / owner the document lists, with the membership percent it states. Copy names exactly as written, including the LLC / Inc / Trust suffix when there is one.',
+      '- "kind" is "entity" when the member is itself a company, trust or partnership (it carries a company suffix, or the document calls it one), and "person" when it is a human being.',
+      '- percent is a NUMBER between 0 and 100 (50, not "50%", not 0.5). Use null when the document does not state that member\'s percent — never split the remainder evenly, never infer, never total to 100 by assumption.',
+      '- If the document has no membership table at all, return an empty members array. An empty answer is correct and is not a finding.',
+    ].join('\n');
+  }
+
   return [
     'You are reviewing a loan document for SLA Capital.',
     '',
@@ -558,9 +614,10 @@ function buildPrompt(opts) {
     '    "documentDate":    "<YYYY-MM-DD of the doc\'s print / statement / issue date, or null>",',
     '    "expirationDate":  "<YYYY-MM-DD of an explicit expiration printed on the doc, or null>",',
     '    "dateNotes":       "<one-line explanation of where you found the date(s), or null>"',
-    '  }' + ((_extractSchema || _integritySchema) ? ',' : ''),
-    _extractSchema ? (_extractSchema + (_integritySchema ? ',' : '')) : '',
-    _integritySchema,
+    '  }' + ((_extractSchema || _integritySchema || _ownershipSchema) ? ',' : ''),
+    _extractSchema ? (_extractSchema + ((_integritySchema || _ownershipSchema) ? ',' : '')) : '',
+    _integritySchema ? (_integritySchema + (_ownershipSchema ? ',' : '')) : '',
+    _ownershipSchema,
     '}',
     '',
     'Verdict rules:',
@@ -570,6 +627,7 @@ function buildPrompt(opts) {
     '- For documentDate / expirationDate: only fill these in if the date is LITERALLY visible on the doc. Do not infer. Bank statements have a statement period (use the statement end date). Certificates of Good Standing typically have a "printed on" or "as of" date. Insurance / drivers licenses / passports have explicit expirations. If you cannot see a date, return null — that is not a finding by itself.',
     _extractRule,
     _integrityRule,
+    _ownershipRule,
     // Deploy 237.221 -- the LAST line, on purpose. "Respond ONLY with valid JSON" is
     // already said twice above and the model still opened 4.7% of answers with a paragraph
     // of analysis. (Assistant prefill would force it, but current models reject prefill

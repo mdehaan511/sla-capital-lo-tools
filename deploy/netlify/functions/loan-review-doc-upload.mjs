@@ -475,6 +475,7 @@ async function handle(req, context) {
     // "not on this document" answer must never overwrite an existing value.
     const ef = aiResult.extractedFields || {};
     docState.aiExtractedFields = ef; // keep raw for audit/debug
+    if (aiResult.ownership) docState.ownership = aiResult.ownership; // Deploy 237.240
     if (_extractFields && Object.keys(ef).length) {
       const specByKey = {};
       (_extractSpec || []).forEach(function (s) { specByKey[s.key] = s; });
@@ -531,6 +532,7 @@ async function handle(req, context) {
     _uploadedEntry.aiReviewedAt = docState.aiReviewedAt || '';
     _uploadedEntry.aiError = docState.aiError || '';
     if (docState.integrity) _uploadedEntry.integrity = docState.integrity;
+    if (docState.ownership) _uploadedEntry.ownership = docState.ownership; // Deploy 237.240
   }
 
   // Deploy 236.767 (Mike) — BPO guardrail. If the BPO's as-is value lands UNDER
