@@ -410,7 +410,8 @@
   // server copy would drop whatever else the page has decorated it with.
   var FRESH_KEYS = ['uwData', 'uwAudit', 'lightningData', 'lightningAudit',
     'aivBpo', 'arvBpo', 'aivBpoFromBpo', 'arvBpoFromBpo', 'aivBpoBpoAt', 'arvBpoBpoAt',
-    'bpoAivBelowPurchase', 'bpoValuesAt'];
+    'bpoAivBelowPurchase', 'bpoValuesAt',
+    'arvBpoUwOverride', 'aivBpoUwOverride']; // Deploy 237.246 -- an underwriter's adopted what-if
   function mergeFresh(fresh) {
     if (!_ctx || !_ctx.loan || !fresh || typeof fresh !== 'object') return false;
     if (fresh.id && _ctx.loan.id && fresh.id !== _ctx.loan.id) return false; // never another loan's numbers

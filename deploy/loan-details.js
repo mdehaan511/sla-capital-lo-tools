@@ -2110,12 +2110,14 @@ function render() {
         // BPO's own numbers and are LOCKED here; clicking explains why. Upload a
         // corrected BPO to change them. (DSCR keeps the editable Appraised Value.)
         '<div class="field"><label>' + (isDscr ? 'Appraised Value' : 'AIV BPO') +
-          (_aivBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' : '') +
+          (_aivBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' :
+            ((!isDscr && l.aivBpoUwOverride) ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(set by underwriting)</span>' : '')) + // Deploy 237.246
         '</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal"' +
           (_aivBpoLocked ? _BPO_LOCK_ATTRS('AIV BPO') : ' onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)"') +
         ' placeholder="$" /></div>' +
         (!isDscr ? '<div class="field"><label>ARV BPO' +
-          (_arvBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' : '') +
+          (_arvBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' :
+            (l.arvBpoUwOverride ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(set by underwriting)</span>' : '')) + // Deploy 237.246
         '</label><input type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal"' +
           (_arvBpoLocked ? _BPO_LOCK_ATTRS('ARV BPO') : ' onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)"') +
         ' placeholder="$" /></div>' : '') +

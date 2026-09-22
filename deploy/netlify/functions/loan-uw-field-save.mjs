@@ -9,7 +9,7 @@
  * Body:
  *   {
  *     clientId, loanId,
- *     dataset: 'uw' | 'lightning',
+ *     dataset: 'uw' | 'lightning' | 'loan',   // 'loan' since Deploy 237.246: arvBpo / aivBpo only
  *     key:      string,              // field key from loan-uw-fields.js
  *     value:    any,                 // scalar, or {type,balance,weight} for accounts
  *     source?:  'loan'|'const'|'calc'|'doc'|'manual',
@@ -36,8 +36,12 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs'; // Deploy 237.246
+import { queueTruthRefreshIfMaterial } from './_shared/review-truth.mjs';    // Deploy 237.246
 
 const AUDIT_CAP = 2000; // keep the audit bounded so the blob stays small
+// Deploy 237.246 -- the loan fields an underwriter may set from the key-metrics panel.
+const LOAN_KEYS = { arvBpo: 'ARV', aivBpo: 'AIV' };
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -63,10 +67,11 @@ async function handle(req, context) {
   const key      = String(body.key || '').trim();
   if (!clientId) return json(400, { error: 'clientId required' });
   if (!loanId)   return json(400, { error: 'loanId required' });
-  if (dataset !== 'uw' && dataset !== 'lightning') {
-    return json(400, { error: "dataset must be 'uw' or 'lightning'" });
+  if (dataset !== 'uw' && dataset !== 'lightning' && dataset !== 'loan') {
+    return json(400, { error: "dataset must be 'uw', 'lightning' or 'loan'" });
   }
   if (!key) return json(400, { error: 'key required' });
+  if (dataset === 'loan' && !LOAN_KEYS[key]) return json(400, { error: 'That loan field cannot be set here' });
 
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);
@@ -94,6 +99,50 @@ async function handle(req, context) {
   const meta = (user && user.user_metadata) || {};
   const authorName = meta.full_name || meta.fullName || user.email || '';
   const now = new Date().toISOString();
+
+  // Deploy 237.246 (Mike: "temporarily editable ... not saved without confirmation") --
+  // dataset 'loan': the underwriter adopts a what-if ARV (or AIV) from the key-metrics
+  // panel, after confirming it. This writes the REAL loan field the ratios, Loan
+  // Financials and the trade tapes read (arvBpo / aivBpo), unlocks the Property tab's
+  // input (the number is no longer the BPO's), and leaves a marker so the panel can say
+  // who set it and what the valuation read -- and so a re-read of that same valuation
+  // figure does not quietly undo the decision (uw-field-write honours the marker; a NEW
+  // figure from a valuation supersedes it). Audit: a uwAudit entry + the loan change log.
+  if (dataset === 'loan') {
+    const n = Number(String(body.value == null ? '' : body.value).replace(/[^0-9.\-]/g, ''));
+    if (!isFinite(n) || n <= 0) return json(400, { error: LOAN_KEYS[key] + ' must be a number above zero' });
+    const before = Object.assign({}, loan);
+    const prior = loan[key] == null ? '' : String(loan[key]);
+    const wasFromBpo = loan[key + 'FromBpo'] === true;
+    loan.uwAudit = Array.isArray(loan.uwAudit) ? loan.uwAudit : [];
+    loan[key] = String(n);
+    loan[key + 'FromBpo'] = false;
+    const marker = {
+      value: String(n), replaced: prior, replacedFromBpo: wasFromBpo,
+      by: user.email || '', byName: authorName, at: now, note: String(body.sourceNote || '').slice(0, 300),
+    };
+    loan[key + 'UwOverride'] = marker;
+    loan.uwAudit.push({
+      key, action: 'override', from: prior || undefined, to: String(n),
+      by: user.email || '', byName: authorName, isAI: false, aiNote: '', note: marker.note, at: now,
+    });
+    if (loan.uwAudit.length > AUDIT_CAP) loan.uwAudit = loan.uwAudit.slice(loan.uwAudit.length - AUDIT_CAP);
+    loan.updatedAt = now;
+    client.loans[idx] = loan;
+    client.updatedAt = now;
+    try { await writeClient(ownerKey, client, { clientsStore }); }
+    catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
+    // After the write, best-effort: the Audit Log entry and the doc review's point of truth.
+    try {
+      await recordLoanChanges({
+        ownerKey, clientId, loanId, actor: selfEmail, actorName: authorName || selfEmail,
+        source: 'Key metrics (' + LOAN_KEYS[key] + ' set by underwriting)', changes: diffLoan(before, loan),
+      });
+    } catch (e) { console.warn('loan-uw-field-save: change log failed (non-fatal):', e && e.message); }
+    try { await queueTruthRefreshIfMaterial({ ownerKey, clientId, loanId, before, after: loan, actorEmail: selfEmail, reason: LOAN_KEYS[key] + ' set by underwriting' }); }
+    catch (e) { console.warn('loan-uw-field-save: truth refresh queue failed (non-fatal):', e && e.message); }
+    return json(200, { ok: true, loan, entry: marker });
+  }
 
   const dataField  = dataset === 'uw' ? 'uwData'  : 'lightningData';
   const auditField = dataset === 'uw' ? 'uwAudit' : 'lightningAudit';

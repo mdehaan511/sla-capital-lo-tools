@@ -361,6 +361,15 @@ export async function writeFieldProposals(source, proposals, actorEmail) {
       if (LOAN_NUMERIC_KEYS[p.key]) {
         const numeric = Number(String(p.value).replace(/[^0-9.\-]/g, ''));
         if (!isFinite(numeric) || numeric <= 0) return;
+        // Deploy 237.246 -- an underwriter who adopted a what-if figure (loan-uw-field-save,
+        // dataset 'loan') left a marker saying what the valuation read at the time. The SAME
+        // reading again (a Retry, a re-grade) does not undo that decision; a DIFFERENT figure
+        // from a valuation is new evidence and takes over, marker gone.
+        const ov = loan[p.key + 'UwOverride'];
+        if (ov && typeof ov === 'object') {
+          if (Number(String(ov.replaced == null ? '' : ov.replaced).replace(/[^0-9.\-]/g, '')) === numeric) return;
+          delete loan[p.key + 'UwOverride'];
+        }
         if (String(loan[p.key] == null ? '' : loan[p.key]) !== String(numeric)) wrote += 1;
         loan[p.key] = String(numeric);
         loan[p.key + 'FromBpo'] = true;    // → input is locked in Loan Details

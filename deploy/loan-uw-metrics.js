@@ -172,6 +172,11 @@
       if (val.arv.read) { calcLoan = copy(loan); calcLoan.arv = val.arv.n; }
       if (val.asIs.fromLoan) { calcData = copy(data); calcData.asIsPrice = { value: val.asIs.n }; }
     }
+    // Deploy 237.246 -- a what-if ARV goes through the SAME engine, on a copy; the baseline
+    // is kept so the banner can say what the ratio was.
+    var wiArv = program === 'rtl' ? whatIfArv(loan) : 0;
+    var baseLoan = calcLoan;
+    if (wiArv) { calcLoan = copy(calcLoan); calcLoan.arv = wiArv; }
     var calc = t.computeCalc(calcLoan, calcData);
     var cv = (calc && calc.values) || {};
     var unverified = 0;
@@ -201,7 +206,7 @@
       if (def.k === 'assignmentFee' && cv.assignmentDerived && num(cv.assignmentFeeEffective) > 0) {
         note = 'Using ' + money(cv.assignmentFeeEffective) + ' (assignment price less PSA price)';
       }
-      if (def.k === 'ltarv' && program === 'rtl') prov = val.arv.read ? 'Loan ÷ the valuation’s ARV' : 'Loan ÷ term-sheet ARV (no valuation read yet)';
+      if (def.k === 'ltarv' && program === 'rtl') prov = wiArv ? 'Loan ÷ the what-if ARV (not saved)' : (val.arv.read ? 'Loan ÷ the valuation’s ARV' : 'Loan ÷ term-sheet ARV (no valuation read yet)');
       // Deploy 237.223 (Mike) -- LTAIV is the INITIAL advance over as-is, so on a rehab
       // loan say which number went on top; "just to verify" means showing the work.
       if (def.k === 'ltaiv' && program === 'rtl' && num(cv.initialAdvance) > 0 && num(cv.initialAdvance) < num(loan.loanAmt)) {
@@ -220,10 +225,27 @@
 
     function specialRows(def) {
       if (def.special === 'arv') {
-        return [{ key: 'arv', label: def.label, from: val.arv.read ? def.from : 'Term Sheet',
+        // Deploy 237.246 -- while a what-if is on, the row IS the what-if, and says so.
+        if (wiArv) {
+          return [{ key: 'arv', label: def.label, from: 'What-if', display: money(wiArv), empty: false,
+            prov: 'Not saved — the ' + (val.arv.read ? 'valuation' : 'term sheet') + ' reads ' + (val.arv.n > 0 ? money(val.arv.n) : 'nothing'),
+            note: '', flag: false, calc: false, unverified: false, editable: true, tryArv: true, whatIf: true, hasEntry: false }];
+        }
+        var fromTxt = val.arv.read ? def.from : 'Term Sheet';
+        var provTxt = val.arv.read ? 'Read from the valuation' : (val.arv.n > 0 ? 'No valuation read yet — this is the term-sheet ARV' : '');
+        // ...and once an underwriter has ADOPTED a what-if (loan-uw-field-save, dataset
+        // 'loan'), the figure is theirs, not the valuation's: say who, when, and what the
+        // valuation read. The marker only counts while the loan still carries its number.
+        var ov = (loan.arvBpoUwOverride && typeof loan.arvBpoUwOverride === 'object') ? loan.arvBpoUwOverride : null;
+        if (ov && val.arv.read && num(ov.value) === val.arv.n) {
+          fromTxt = 'Underwriting';
+          provTxt = 'Set by ' + (ov.byName || ov.by || 'underwriting') + (ov.at ? ' ' + shortDate(ov.at) : '') +
+            (num(ov.replaced) > 0 ? ' — the ' + (ov.replacedFromBpo ? 'valuation' : 'record') + ' read ' + money(ov.replaced) : '');
+        }
+        return [{ key: 'arv', label: def.label, from: fromTxt,
           display: val.arv.n > 0 ? money(val.arv.n) : '', empty: !(val.arv.n > 0),
-          prov: val.arv.read ? 'Read from the valuation' : (val.arv.n > 0 ? 'No valuation read yet — this is the term-sheet ARV' : ''),
-          note: val.arv.note, flag: false, calc: false, unverified: false, editable: false, hasEntry: false }];
+          prov: provTxt, note: val.arv.note, flag: false, calc: false, unverified: false,
+          editable: true, tryArv: true, hasEntry: false }];
       }
       if (def.special === 'asIs') {
         var e = data.asIsPrice || null;
@@ -314,7 +336,19 @@
       if (r) moreRows.push(r);
     });
     var checks = (t.buildChecksSummary ? t.buildChecksSummary(calcLoan, calc) : []) || [];
-    return { program: program, sections: sections, checks: checks, unverified: unverified,
+    // Deploy 237.246 -- what the what-if changed, for the banner and the confirmation:
+    // the ratio now and at the baseline, both from the engine.
+    var whatIf = null;
+    if (wiArv) {
+      var baseCalc = t.computeCalc(baseLoan, calcData);
+      var lf = byKey.ltarv;
+      var baseChecks = (t.buildChecksSummary ? t.buildChecksSummary(baseLoan, baseCalc) : []) || [];
+      whatIf = { arv: wiArv, base: val.arv.n, baseFrom: val.arv.read ? 'valuation' : 'term sheet',
+        ltarv: lf ? String((t.resolve(lf, calcLoan, data, calc) || {}).value || '') : '',
+        ltarvBase: lf ? String((t.resolve(lf, baseLoan, data, baseCalc) || {}).value || '') : '',
+        checks: checks.length, checksBase: baseChecks.length };
+    }
+    return { program: program, sections: sections, checks: checks, unverified: unverified, whatIf: whatIf,
       more: { rows: moreRows, filled: moreRows.filter(function (r) { return !r.empty; }).length } };
   }
 
@@ -372,13 +406,33 @@
       '.uwm-more > summary::before { content:"\\25B8 "; }',
       '.uwm-more[open] > summary::before { content:"\\25BE "; }',
       '.uwm-acct-done { grid-column:1 / -1; text-align:right; font-size:11px; font-family:inherit; font-weight:400; color:var(--muted,#6b6459); }',
-      '.uwm-acct-ed select, .uwm-acct-ed input { width:100%; box-sizing:border-box; padding:4px 5px; font-size:12px; border:1px solid var(--border,#ddd8d0); border-radius:5px; background:#fff; }'
+      '.uwm-acct-ed select, .uwm-acct-ed input { width:100%; box-sizing:border-box; padding:4px 5px; font-size:12px; border:1px solid var(--border,#ddd8d0); border-radius:5px; background:#fff; }',
+      // Deploy 237.246 -- the what-if: an amber bar, an amber cell, and the confirmation card
+      '.uwm-wi-bar { padding:8px 12px; font-size:12px; line-height:1.45; background:rgba(200,129,58,0.12); border-bottom:1px solid var(--gold,#C8813A); }',
+      '.uwm-wi-btns { display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; }',
+      '.uwm-wi-bar .uwm-re { font-weight:600; }',
+      '.uwm .uw-r-value.uwm-wi { background:rgba(200,129,58,0.16); outline:1px dashed var(--gold,#C8813A); }',
+      '.uwm .uw-r-value[data-key="arv"].uw-editable:hover { outline:1px dashed var(--gold,#C8813A); }',
+      '.uwm-wi-card { padding:14px 18px; font-size:13px; line-height:1.5; }',
+      '.uwm-wi-card .uwm-wi-btns { justify-content:flex-end; margin-top:14px; }',
+      '.uwm-wi-card .uwm-go { background:var(--gold,#C8813A); color:#fff; border-color:var(--gold,#C8813A); }'
     ].join('\n');
     var st = document.createElement('style');
     st.setAttribute('data-uwm', '1');
     st.appendChild(document.createTextNode(css));
     document.head.appendChild(st);
   }
+
+  // Deploy 237.246 (Mike: "make the ARV temporarily editable meaning it can be changed but
+  // not saved without confirmation so that the underwriter can see what all the metrics
+  // look like with different ARVs. They do this in cases where the appraisals or BPOs
+  // aren't convincing."). The what-if ARV lives HERE, on the page, and nowhere else:
+  // build() runs the SAME engine with it in place of the valuation's figure, so every
+  // ratio and guideline flag follows, and the loan object is never touched. Saving it is
+  // a separate step behind a confirmation (_saveArv → modal → _commitArv).
+  var _whatIf = null; // { loanId, arv }
+  function whatIfArv(loan) { return (_whatIf && loan && _whatIf.loanId === loan.id && _whatIf.arv > 0) ? _whatIf.arv : 0; }
+  function shortDate(iso) { try { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (_) { return ''; } }
 
   var _openAcct = {}; // account rows whose editor is open (page session)
   var _moreOpen = false; // "More from the documents" stays open across repaints once opened
@@ -391,9 +445,11 @@
         ? '<div class="uwm-row uwm-add"><a href="#" onclick="event.preventDefault();SLA_UW_METRICS._addAcct(\'' + escA(r.freeSlot) + '\')">+ Add an account</a></div>'
         : '<div class="uwm-row uwm-add"><span class="uwm-empty">All five account rows are in use</span></div>';
     }
-    var cls = 'uw-r-value' + (r.flag ? ' uw-flag' : '') + (r.unverified ? ' uw-unverified' : '') + (r.editable ? ' uw-editable' : '') + (r.account ? ' uw-acct' : '');
+    var cls = 'uw-r-value' + (r.flag ? ' uw-flag' : '') + (r.unverified ? ' uw-unverified' : '') + (r.editable ? ' uw-editable' : '') + (r.account ? ' uw-acct' : '') + (r.whatIf ? ' uwm-wi' : '');
     var click = '';
-    if (r.editable && !r.account) click = ' onclick="SLA_UW_TAB._edit(\'uw\',\'' + escA(r.key) + '\',' + rootJs + ')" title="Click to edit"';
+    // Deploy 237.246 -- the ARV opens the WHAT-IF editor (nothing saves), not the field editor.
+    if (r.tryArv) click = ' onclick="SLA_UW_METRICS._tryArv()" title="Try a different ARV — nothing is saved until you confirm it"';
+    else if (r.editable && !r.account) click = ' onclick="SLA_UW_TAB._edit(\'uw\',\'' + escA(r.key) + '\',' + rootJs + ')" title="Click to edit"';
     if (r.account) click = ' onclick="SLA_UW_METRICS._toggleAcct(\'' + escA(r.key) + '\')" title="Click to edit this account"';
     var val = r.empty ? '<span class="uwm-empty">—</span>' : esc(r.display);
     // Deploy 237.224 (Mike: "if there is something weird ... have a little alert icon that
@@ -485,11 +541,23 @@
     var ai = b.unverified
       ? '<div class="uwm-ai">' + b.unverified + ' value' + (b.unverified === 1 ? ' was' : 's were') + ' read by AI and ' + (b.unverified === 1 ? 'has' : 'have') + ' not been confirmed. Check each against its document, then Confirm.</div>'
       : '';
+    // Deploy 237.246 -- the what-if banner: what is being tried, what it does to LTARV,
+    // that nothing is saved, and the two ways out.
+    var wi = b.whatIf
+      ? '<div class="uwm-wi-bar"><b>What-if ARV ' + money(b.whatIf.arv) + '</b> — the ' + esc(b.whatIf.baseFrom) + ' reads ' + (b.whatIf.base > 0 ? money(b.whatIf.base) : 'nothing') +
+          '. LTARV ' + esc(b.whatIf.ltarv || '—') + (b.whatIf.ltarvBase ? ' (was ' + esc(b.whatIf.ltarvBase) + ')' : '') +
+          (b.whatIf.checks !== b.whatIf.checksBase ? '; ' + b.whatIf.checks + ' out of guideline (was ' + b.whatIf.checksBase + ')' : '') +
+          '. Nothing is saved.' +
+          '<span class="uwm-wi-btns">' +
+            '<button type="button" class="uwm-re" onclick="SLA_UW_METRICS._saveArv()">Save ' + money(b.whatIf.arv) + ' as the ARV…</button>' +
+            '<button type="button" class="uwm-re" onclick="SLA_UW_METRICS._resetArv()">Back to ' + (b.whatIf.base > 0 ? money(b.whatIf.base) : 'the record') + '</button>' +
+          '</span></div>'
+      : '';
     return '<div class="uwm" id="' + PANEL_ID + '">' +
       '<div class="uwm-hd"><b>Key metrics</b>' +
         '<button type="button" class="uwm-re" id="uwmRefreshBtn" onclick="SLA_UW_METRICS.refresh(true)" title="Re-read the loan now">↻</button></div>' +
-      '<div class="uwm-sub">Filled in from the documents as each one is reviewed. Click a value to correct it.</div>' +
-      chk + ai +
+      '<div class="uwm-sub">Filled in from the documents as each one is reviewed. Click a value to correct it' + (b.program === 'rtl' ? ', or the ARV to try a different one' : '') + '.</div>' +
+      wi + chk + ai +
       '<div class="uwm-secs">' + b.sections.map(function (s) {
         return '<div class="uwm-sec"><div class="uwm-st">' + esc(s.title) + '</div>' + s.rows.map(rowHtml).join('') + '</div>';
       }).join('') + '</div>' +
@@ -535,6 +603,84 @@
   }
   function _cancelAcct(key) { _openAcct[key] = false; repaint(); }
 
+  // ── Deploy 237.246 -- the what-if ARV ────────────────────────────────────
+  function _ctxLoan() { var t = T(), c = t && t.ctx && t.ctx(); return (c && c.loan) || null; }
+  // Click on the ARV: a money input in the cell. Enter / blur tries the number; Escape
+  // puts the row back. Nothing here saves.
+  function _tryArv() {
+    if (typeof document === 'undefined') return;
+    var root = document.getElementById(PANEL_ID);
+    var cell = root && root.querySelector('.uw-r-value[data-key="arv"]');
+    var vspan = cell && cell.querySelector('.uw-v');
+    if (!vspan || cell.querySelector('.uw-edit-input')) return;
+    var loan = _ctxLoan() || {};
+    var cur = whatIfArv(loan) || num(loan.arvBpo) || num(loan.arv);
+    vspan.innerHTML = '<input class="uw-edit-input" type="text" inputmode="decimal" value="' + escA(cur > 0 ? cur : '') + '" placeholder="ARV to try" />';
+    var inp = vspan.querySelector('.uw-edit-input'), done = false;
+    function finish(apply) { if (done) return; done = true; if (apply) _applyArv(inp.value); else repaint(); }
+    try { inp.focus(); if (inp.select) inp.select(); } catch (_) {}
+    inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { finish(false); } };
+    inp.onblur = function () { finish(true); };
+    inp.onclick = function (e) { e.stopPropagation(); };
+  }
+  // The typed figure becomes the what-if; blank, or the record's own figure, clears it.
+  function _applyArv(raw) {
+    var loan = _ctxLoan();
+    if (!loan) return;
+    var n = num(raw);
+    var base = num(loan.arvBpo) || num(loan.arv);
+    if (n > 0 && Math.abs(n - base) >= 1) {
+      _whatIf = { loanId: loan.id, arv: n };
+      if (typeof showToast === 'function') showToast('Trying ARV ' + money(n) + ' — nothing is saved');
+    } else {
+      _whatIf = null;
+    }
+    repaint();
+  }
+  function _resetArv() { _whatIf = null; repaint(); }
+  // "Save … as the ARV": the confirmation says exactly what changes before anything is written.
+  function _saveArv() {
+    var loan = _ctxLoan();
+    var b = loan && build(loan);
+    if (!b || !b.whatIf || typeof document === 'undefined') return;
+    var w = b.whatIf;
+    var bg = document.createElement('div');
+    bg.className = 'uw-hist-bg';
+    bg.onclick = function (e) { if (e.target === bg) bg.remove(); };
+    bg.innerHTML = '<div class="uw-hist-card"><div class="uw-hist-hd">Save this ARV?<button type="button" class="uw-hist-x" title="Close">✕</button></div>' +
+      '<div class="uwm-wi-card">The ARV on this loan becomes <b>' + money(w.arv) + '</b>' +
+        (w.base > 0 ? ' in place of the ' + esc(w.baseFrom) + '\u2019s ' + money(w.base) : '') + '.' +
+        ' LTARV goes to <b>' + esc(w.ltarv || '\u2014') + '</b>' + (w.ltarvBase ? ' from ' + esc(w.ltarvBase) : '') + '.' +
+        ' Loan Financials and the trade tapes will use this figure. The valuation on file is not changed, and if a valuation later reads a different figure, that figure takes over.' +
+        '<div class="uwm-wi-btns">' +
+          '<button type="button" class="uwm-re" data-act="cancel">Cancel</button>' +
+          '<button type="button" class="uwm-re uwm-go" data-act="save">Save ' + money(w.arv) + ' as the ARV</button>' +
+        '</div></div></div>';
+    bg.querySelector('.uw-hist-x').onclick = function () { bg.remove(); };
+    bg.querySelector('[data-act="cancel"]').onclick = function () { bg.remove(); };
+    bg.querySelector('[data-act="save"]').onclick = function () { bg.remove(); _commitArv(w); };
+    document.body.appendChild(bg);
+  }
+  // The confirmed write: loan-uw-field-save with dataset 'loan' sets arvBpo (the field the
+  // ratios, Loan Financials and the trade tapes read), unlocks the Property-tab input and
+  // leaves the who / when / what-the-valuation-read marker. The fresh loan is folded in
+  // IN PLACE (mergeFresh), the way a review landing is.
+  function _commitArv(w) {
+    var t = T(), ctx = t && t.ctx && t.ctx();
+    if (!ctx || !ctx.clientId || !ctx.loanId || !(window.SLA && SLA.api)) return;
+    var body = { clientId: ctx.clientId, loanId: ctx.loanId, dataset: 'loan', key: 'arvBpo', value: w.arv, source: 'manual',
+      sourceNote: 'Set from a what-if on the key metrics' + (w.base > 0 ? ' \u2014 the ' + w.baseFrom + ' read ' + money(w.base) : '') };
+    if (ctx.owner) body.owner = ctx.owner;
+    SLA.api('POST', '/api/loan-uw-field-save', body).then(function (r) {
+      _whatIf = null;
+      var folded = !!(r && r.loan && t.mergeFresh && t.mergeFresh(r.loan));
+      if (!folded) repaint();
+      if (typeof showToast === 'function') showToast('ARV saved: ' + money(w.arv));
+    }).catch(function (e) {
+      if (typeof showToast === 'function') showToast('The ARV was not saved: ' + ((e && e.message) || 'unknown'));
+    });
+  }
+
   // ── "as they're uploaded" ────────────────────────────────────────────────
   // A review writes its values to the loan on the SERVER. Ask for the loan again, a beat
   // after the review lands (the write and the review save are separate), and fold in
@@ -566,7 +712,9 @@
     });
   }
 
-  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _addAcct: _addAcct, _saveAcct: _saveAcct, _cancelAcct: _cancelAcct, _moreToggled: _moreToggled, _note: _note, PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
+  var _API = { build: build, html: html, refresh: refresh, repaint: repaint, _toggleAcct: _toggleAcct, _addAcct: _addAcct, _saveAcct: _saveAcct, _cancelAcct: _cancelAcct, _moreToggled: _moreToggled, _note: _note,
+    _tryArv: _tryArv, _applyArv: _applyArv, _resetArv: _resetArv, _saveArv: _saveArv, _commitArv: _commitArv, // Deploy 237.246
+    PANEL_ID: PANEL_ID, LAYOUT: LAYOUT };
   if (typeof window !== 'undefined') window.SLA_UW_METRICS = _API;
   if (typeof module !== 'undefined' && module.exports) module.exports = _API;
 })();
