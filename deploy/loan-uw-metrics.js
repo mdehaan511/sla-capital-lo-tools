@@ -107,6 +107,34 @@
 
   // Deploy 237.224 -- the AI's "⚠ VERIFY: ..." tail on an aiNote (uw-field-write): the one
   // thing a person should look at before trusting the number. Shown as an icon, not a line.
+  // Deploy 237.233 (Mike: "keep the subtext to very simple 1 or 2 lines and avoid the
+  // paragraphs") -- an entry's aiNote is "<document label> — <where on the doc>", and the
+  // "where" half is written freehand by the AI. On a HUD it had started writing the whole
+  // derivation in there: every title line item added up, plus a caveat about the owner's
+  // policy. Six lines of subtext under a one-line number. The panel now prints the
+  // LOCATOR only -- the document already has its own line (`from`) -- and hangs the rest
+  // on a "⋯" next to it, so nothing the AI said is lost, it is just not shouted.
+  var PROV_MAX = 62;
+  function aiLocator(entry) {
+    var note = String((entry && entry.aiNote) || '');
+    var v = note.indexOf('⚠ VERIFY:'); // that half already has its own ⚠ button
+    if (v >= 0) note = note.slice(0, v);
+    note = note.replace(/\s*[—–-]\s*$/, '').trim();
+    var segs = note.split(' — ');
+    var where = segs.length > 1 ? segs.slice(1).join(' — ') : '';
+    if (!where) return { text: 'AI', full: '' };
+    // The locator ends where the working begins -- a colon, a semicolon, a parenthesis.
+    var head = where.split(/[:;(]/)[0].trim() || where;
+    var clipped = head.length < where.length; // measured BEFORE the cosmetic rewrite below
+    head = head.replace(/\bPages?\s+(\d)/i, 'p.$1'); // "Page 2" reads as "p.2" like the rest
+    if (head.length > PROV_MAX) {
+      var cut = head.lastIndexOf(' ', PROV_MAX);
+      head = head.slice(0, cut > 24 ? cut : PROV_MAX).replace(/[\s,;·—–-]+$/, '');
+      clipped = true;
+    }
+    return { text: 'AI — ' + head, full: clipped ? where : '' };
+  }
+
   function doubtOf(entry) {
     var s = entry && entry.aiNote ? String(entry.aiNote) : '';
     var i = s.indexOf('⚠ VERIFY:');
@@ -157,6 +185,14 @@
       var empty = (r.value === '' || r.value == null);
       var display = empty ? '' : (r.calc ? String(r.value) : String(t.fmtDisplay ? t.fmtDisplay(def.k, r.value) : r.value));
       var prov = r.prov || '';
+      var provFull = '';
+      // Deploy 237.233 -- the AI's own provenance is rebuilt short here rather than
+      // taken from the Underwriting tab's provText, which prints the note whole.
+      if (entry && entry.isAI) {
+        var loc = aiLocator(entry);
+        prov = loc.text + (entry.verified ? ' (confirmed)' : ' — UNVERIFIED');
+        provFull = loc.full;
+      }
       var note = '';
       if (def.k === 'downPayment' && empty && program === 'rtl' && t.calcContext) {
         var cc = t.calcContext(calcLoan, calcData) || {};
@@ -178,7 +214,7 @@
       if ((def.k === 'lowCredit' || def.k === 'middleCredit') && entry && entry.derived && entry.sourceNote) note = entry.sourceNote;
       if (unver) unverified++;
       return { key: def.k, label: def.label || field.label, from: def.from || (r.calc ? 'Calculated' : (field.sourceNote || '')),
-        display: display, empty: empty, prov: prov, note: note, flag: !!r.flag, calc: !!r.calc,
+        display: display, empty: empty, prov: prov, provFull: provFull, note: note, flag: !!r.flag, calc: !!r.calc,
         unverified: unver, editable: !!r.editable, hasEntry: !!data[def.k], alert: doubtOf(entry) };
     }
 
@@ -193,9 +229,14 @@
         var e = data.asIsPrice || null;
         var unver = !val.asIs.fromLoan && !!(e && e.isAI && !e.verified);
         if (unver) unverified++;
+        // Deploy 237.233 -- same short locator as every other AI-read row.
+        var aLoc = (e && e.isAI) ? aiLocator(e) : null;
         return [{ key: 'asIsPrice', label: def.label, from: def.from,
           display: val.asIs.n > 0 ? money(val.asIs.n) : '', empty: !(val.asIs.n > 0),
-          prov: val.asIs.fromLoan ? 'Read from the valuation' : (e && t.provText ? t.provText(e) : ''),
+          prov: val.asIs.fromLoan ? 'Read from the valuation'
+            : (aLoc ? aLoc.text + (e.verified ? ' (confirmed)' : ' — UNVERIFIED')
+                    : (e && t.provText ? t.provText(e) : '')),
+          provFull: aLoc ? aLoc.full : '',
           note: '', flag: false, calc: false, unverified: unver, editable: true, hasEntry: !!e }];
       }
       if (def.special === 'loanAmount') {
@@ -302,9 +343,13 @@
       '.uwm .uw-r-value.uw-editable { cursor:pointer; }',
       '.uwm .uw-r-value.uw-editable:hover { outline:1px dashed var(--gold,#C8813A); }',
       '.uwm-empty { color:#b9b2a6; font-weight:400; }',
-      '.uwm-m { grid-column:1 / -1; font-size:11px; color:var(--muted,#6b6459); line-height:1.35; }',
+      // Deploy 237.233 -- position:relative so the "⋯" note pops against this line
+      // (.uwm-pop is absolutely placed against its nearest positioned ancestor).
+      '.uwm-m { grid-column:1 / -1; position:relative; font-size:11px; color:var(--muted,#6b6459); line-height:1.35; }',
       '.uwm-m a { color:inherit; }',
       '.uwm-m .uw-confirm { color:#fff; }',
+      '.uwm-why { border:none; background:none; cursor:pointer; color:var(--gold-mid,#b5712d); font:inherit; line-height:1; padding:0 2px; letter-spacing:1px; }',
+      '.uwm-why:hover { color:var(--ink,#2b2722); }',
       '.uwm-note { grid-column:1 / -1; font-size:11px; color:var(--ink,#2b2722); }',
       '.uwm-row.is-flag .uwm-note { color:var(--danger,#7c1f1f); font-weight:600; }',
       '.uwm-row.is-total { background:rgba(0,0,0,0.025); font-weight:600; }',
@@ -357,6 +402,8 @@
     var bits = [];
     if (r.from) bits.push(esc(r.from));
     if (r.prov && r.prov !== r.from) bits.push(esc(r.prov));
+    // Deploy 237.233 -- everything the short locator left out, one click away.
+    if (r.provFull) bits.push('<button type="button" class="uwm-why" title="What the AI said — click" data-note="' + escA(r.provFull) + '" onclick="event.stopPropagation();SLA_UW_METRICS._note(this)">⋯</button>');
     if (r.hasEntry && !r.account) bits.push('<a href="#" onclick="event.stopPropagation();SLA_UW_TAB._history(\'uw\',\'' + escA(r.key) + '\');return false">history</a>');
     if (r.unverified) bits.push('<a href="#" class="uw-confirm" onclick="event.stopPropagation();SLA_UW_TAB._confirm(\'uw\',\'' + escA(r.key) + '\');return false">✓ Confirm</a>');
     var total = (r.key === 'liquidityTotal' || r.key === 'liquidityRequirement' || r.key === 'reservesRequirement');

@@ -454,10 +454,16 @@ function buildPrompt(opts) {
   let _extractRule = '';
   if (Array.isArray(opts.extractFields) && opts.extractFields.length) {
     const fl = opts.extractFields.map(function (f) {
-      return '    "' + f.key + '": {"value": <' + f.label + '>, "found": true|false, "where": "<where on the doc you found it, or null>"}';
+      return '    "' + f.key + '": {"value": <' + f.label + '>, "found": true|false, "where": "<short locator, or null>"}';
     }).join(',\n');
     _extractSchema = '  "extracted_fields": {\n' + fl + '\n  }';
-    _extractRule = '- extracted_fields: pull EACH listed field ONLY if it literally appears on THIS document. Set found:false and value:null when it is absent — NEVER guess or infer. Numbers as plain numbers (no $, no commas). Dates as YYYY-MM-DD.';
+    // Deploy 237.233 (Mike: "keep the subtext to very simple 1 or 2 lines and avoid the
+    // paragraphs") -- "where" is printed verbatim under the number on the Key Metrics
+    // panel, and it had started coming back as the whole derivation: every title line
+    // item on a HUD added up, plus a caveat about the owner's policy. It is a locator.
+    // Anything a human should double-check belongs in the findings, which the page
+    // already surfaces as its own ⚠ marker.
+    _extractRule = '- extracted_fields: pull EACH listed field ONLY if it literally appears on THIS document. Set found:false and value:null when it is absent — NEVER guess or infer. Numbers as plain numbers (no $, no commas). Dates as YYYY-MM-DD. "where" is a SHORT locator — page and section, under 60 characters, e.g. "Page 2, Title Charges section". Never put arithmetic, a list of line items, or a caveat in "where"; if the value needed judgement or something about it should be double-checked, say so in the findings instead.';
   }
 
   // Deploy 236.669 — document-integrity / tampering assessment (advisory). Only

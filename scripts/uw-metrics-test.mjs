@@ -396,7 +396,63 @@ console.log('\nA multi-document tray reads every document');
   check('a failure on one document does not stop the rest', c.toasts.filter((t) => /could not be reviewed/.test(t)).length, 4);
 }
 
-// ── 10. the page loads a matched set ────────────────────────────────────────
+// ── 10. the subtext is a locator, not an essay ──────────────────────────────
+// Deploy 237.233 (Mike, with the screenshot: "keep the subtext to very simple 1 or 2
+// lines and avoid the paragraphs like this"). The Title/Escrow Fees row had six lines
+// of AI working under a one-line number. The note below is the one he sent, verbatim.
+console.log('\nThe subtext under a number');
+{
+  const HUD = 'Final HUD / Settlement Statement — Page 2 — Title Charges & Escrow/Settlement Charges section: '
+    + 'Closing Protection Letter $75 + Electronic Recording $15 + Settlement $300 + Title Services $1,470 + '
+    + 'Verification Services $50 + Lender\'s Title Insurance $60 (Owner\'s Title Insurance $802 is also listed '
+    + 'but is typically a buyer/owner cost; total title section debits to borrower sum to $1,885 excluding '
+    + 'owner\'s policy, or $2,687 including it)';
+  const loan = RTL();
+  loan.uwData.titleEscrowFees = { value: '1885', isAI: true, verified: false, aiNote: HUD, by: 'ai', byName: 'AI' };
+  const pb = w.SLA_UW_METRICS.build(loan);
+  const r = row(pb, 'titleEscrowFees');
+  check('the page and section survive; the arithmetic does not',
+    r.prov, 'AI — p.2 — Title Charges & Escrow/Settlement Charges section — UNVERIFIED');
+  assert('and it stays short enough to read in one glance', r.prov.length <= 80, r.prov.length + ' chars');
+  assert('nothing the AI said is thrown away — the rest is on the ⋯', /Owner.s Title Insurance \$802/.test(r.provFull));
+  const h = w.SLA_UW_METRICS.html(loan);
+  assert('the ⋯ is rendered, and opens the note rather than the row editor',
+    /class="uwm-why"[^>]*data-note="[^"]*Owner/.test(h) && /uwm-why[^>]*event\.stopPropagation\(\);SLA_UW_METRICS\._note/.test(h));
+  assert('the full note is escaped into the attribute', !/<img src=x/.test(
+    w.SLA_UW_METRICS.html((() => { const l = RTL(); l.uwData.titleEscrowFees = { value: '1', isAI: true, aiNote: 'HUD — p.1: "<img src=x onerror=alert(1)>"' }; return l; })())));
+  assert('it is still confirmable, and still counted as unread', r.unverified === true && pb.unverified > 0);
+  // The class must not be the one the "More from the documents" block already uses.
+  assert('the ⋯ button does not restyle the More block', !/\.uwm-more \{ border:none/.test(read('loan-uw-metrics.js')));
+}
+{
+  // A note that was already short is left exactly as it was, with no ⋯ to click.
+  const pb = w.SLA_UW_METRICS.build(RTL());
+  check('a short locator is untouched', [row(pb, 'lowCredit').prov, row(pb, 'lowCredit').provFull],
+    ['AI — p.1 — UNVERIFIED', '']);
+  check('a confirmed value says so instead of UNVERIFIED', row(pb, 'middleCredit').prov, 'AI — p.1 (confirmed)');
+  // aiNote with no locator at all is just the document label, which the row's own
+  // "from" line already gives — so the provenance is the bare fact that AI read it.
+  check('no locator: no invented one', [row(pb, 'emd').prov, row(pb, 'emd').provFull], ['AI — UNVERIFIED', '']);
+}
+{
+  // The "⚠ VERIFY" half of an aiNote has had its own alert icon since 237.224; it must
+  // not leak into the locator line as well.
+  const loan = RTL();
+  loan.uwData.titleEscrowFees = { value: '1885', isAI: true, verified: false,
+    aiNote: 'Final HUD — p.2, Title Charges — ⚠ VERIFY: the owner\'s policy may belong to the seller' };
+  const r = row(w.SLA_UW_METRICS.build(loan), 'titleEscrowFees');
+  check('the thing to check stays on the ⚠, out of the subtext',
+    [r.prov, /owner.s policy/.test(r.alert), /VERIFY/.test(r.prov)],
+    ['AI — p.2, Title Charges — UNVERIFIED', true, false]);
+}
+{
+  // And the source of the problem: the prompt now bounds what "where" may contain.
+  const P = readFileSync(new URL('../deploy/netlify/functions/_shared/anthropic-doc-review.mjs', import.meta.url), 'utf8');
+  assert('the AI is told "where" is a short locator', /"where" is a SHORT locator/.test(P) && /under 60 characters/.test(P));
+  assert('…and told where a caveat belongs instead', /Never put arithmetic[\s\S]{0,200}findings instead/.test(P));
+}
+
+// ── 11. the page loads a matched set ────────────────────────────────────────
 console.log('\nloan-details.html');
 {
   const LD = read('loan-details.html');
