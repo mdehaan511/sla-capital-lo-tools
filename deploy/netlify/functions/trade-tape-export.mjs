@@ -141,7 +141,7 @@ async function handle(req, context) {
 //     extracted asIsValue -> ctx.reviewValuation { aiv, kind }.
 // Reviews have no by-loan index, so the store is walked ONCE per export and only
 // when some loan on the tape is actually missing its AIV. Never throws.
-async function attachLongAppAndValuation(ctxs) {
+export async function attachLongAppAndValuation(ctxs) { // exported for scripts/colchis-tape-test.mjs
   try {
     const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
     for (const c of ctxs) {
@@ -155,9 +155,13 @@ async function attachLongAppAndValuation(ctxs) {
   try {
     const n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
     const need = {};
+    // Deploy 237.229 (Mike) -- the valuation's date / provider / type / sq ft are read at
+    // review time too; a loan missing any of them is worth the walk, not just one missing AIV.
+    const uwv = (c, k) => { const e = c.loan.uwData && c.loan.uwData[k]; return e && e.value != null && e.value !== '' ? e.value : ''; };
     for (const c of ctxs) {
-      const onLoan = n(c.loan.aivBpo) || n(c.loan.uwData && c.loan.uwData.asIsPrice && c.loan.uwData.asIsPrice.value);
-      if (!onLoan) need[c.loan.id] = c;
+      const onLoan = n(c.loan.aivBpo) || n(uwv(c, 'asIsPrice'));
+      const metaMissing = !uwv(c, 'valuationDate') || !uwv(c, 'valuationProvider') || !uwv(c, 'valuationType');
+      if (!onLoan || metaMissing) need[c.loan.id] = c;
     }
     if (!Object.keys(need).length) return;
     const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
@@ -176,7 +180,17 @@ async function attachLongAppAndValuation(ctxs) {
           const d = docs[slug];
           if (!d || d.hidden || d.verdict === 'na') continue;
           const aiv = n(d.aiExtractedEntities && d.aiExtractedEntities.asIsValue);
-          if (aiv > 0) { c.reviewValuation = { aiv, kind: slug === 'appraisal' ? 'appraisal' : 'bpo' }; break; }
+          // Deploy 237.229 -- the per-field reading the tray kept (aiExtractedFields:
+          // {found, value}); the loan may never have received it.
+          const ef = d.aiExtractedFields || {};
+          const fld = (k) => (ef[k] && ef[k].found === true && ef[k].value != null && ef[k].value !== '') ? String(ef[k].value).trim() : '';
+          const meta = { date: fld('valuationDate'), provider: fld('valuationProvider'), type: fld('valuationType'), sqft: fld('valuationSqft') };
+          const any = aiv > 0 || meta.date || meta.provider || meta.type || meta.sqft;
+          if (any) {
+            c.reviewValuation = { aiv: aiv > 0 ? aiv : 0, kind: slug === 'appraisal' ? 'appraisal' : 'bpo',
+              valuationDate: meta.date, valuationProvider: meta.provider, valuationType: meta.type, valuationSqft: meta.sqft };
+            break;
+          }
         }
       }
     }

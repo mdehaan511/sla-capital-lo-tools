@@ -219,9 +219,38 @@ const exitStrategyOf = (c) => {
 };
 
 // ── Template: Colchis post-close trade tape (61 cols) ─────────────────────
+// Deploy 237.229 (Mike, against "SLA Trade #23.xlsx"): the money columns carry the
+// currency format ($#,##0.00), the date columns are real Excel dates, and Record
+// Identifier always says "Loan". `cur` / `dateCell` are the settlement tape's own helpers.
+const cur = (n) => sty(n, 'cur');
+// Valuation metadata: the screened UW value first, else what the document review read
+// off the valuation tray itself (ctx.reviewValuation, attached by trade-tape-export --
+// the tray keeps its extraction even when the write to the loan never happened).
+const valMeta = (c, key) => uw(c, key) || (c.reviewValuation && c.reviewValuation[key]) || '';
+// Purchase price vs assignment fee (Deploy 237.229, Mike's Trade #23 has Luna Court as
+// 119,000 + 21,000 where the loan record says 140,000). The loan's purchase price is
+// whatever the LO priced off; the documents say how it splits:
+//   - the PSA's own price (uwData.psaPrice) under the loan's price → the LO entered the
+//     all-in figure; the seller gets the PSA price, the rest is the fee;
+//   - an assignment fee stated on the assignment agreement (≤ the price) → that fee;
+//   - an assignment-contract price ABOVE the loan's price → the LO entered the PSA price
+//     and the fee is the difference (the underwriting engine's own rule);
+//   - else no assignment: the whole price, fee 0.
+// Cost basis and both LTCs use purchase + fee, as the tape's own formulas do
+// (S = O+P+Q+R, Initial LTC = AG/(O+P)); with no fee nothing changes.
+const assignmentSplit = (c) => {
+  const pp = num(c.loan.purchasePrice);
+  if (pp == null) return { purchase: null, fee: 0 };
+  const psa = num(uw(c, 'psaPrice')), explicit = num(uw(c, 'assignmentFee')), ac = num(uw(c, 'assignmentContractPrice'));
+  if (psa > 0 && psa < pp) return { purchase: psa, fee: round2(pp - psa) };
+  if (explicit > 0 && explicit <= pp) return { purchase: pp, fee: explicit };
+  if (ac > pp) return { purchase: pp, fee: round2(ac - pp) };
+  return { purchase: pp, fee: 0 };
+};
+const basisOf = (c) => { const s = assignmentSplit(c); return s.purchase == null ? null : s.purchase + s.fee; };
 const COLCHIS_TRADE_COLS = [
   ['Lender Loan ID', (c) => c.sla],
-  ['Record Identifier', () => ''],
+  ['Record Identifier', () => 'Loan'],
   ['Property Address', (c) => parseAddr(c.loan.address).street],
   ['Property City', (c) => parseAddr(c.loan.address).city],
   ['Property State', (c) => parseAddr(c.loan.address).state],
@@ -229,24 +258,28 @@ const COLCHIS_TRADE_COLS = [
   ['Property Type', (c) => propTypeLabel(c.loan.propType)],
   ['AIV Units', (c) => num(c.loan.numUnits) || 1],
   ['ARV Units', (c) => num(c.loan.numUnits) || 1],
-  ['AIV Sqft', (c) => num(uw(c, 'propertySqFt')) || num(uw(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
-  ['ARV Sqft', (c) => num(uw(c, 'propertySqFt')) || num(uw(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
+  ['AIV Sqft', (c) => num(uw(c, 'propertySqFt')) || num(valMeta(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
+  ['ARV Sqft', (c) => num(uw(c, 'propertySqFt')) || num(valMeta(c, 'valuationSqft')) || num(c.loan.sqft) || ''],
   ['Flood Zone', (c) => {
     const z = String(c.loan.floodZone || uw(c, 'floodZone') || '').trim().toUpperCase();
     if (!z) return '';
     return (z === 'NO' || z === 'NONE' || z.charAt(0) === 'X' || z.charAt(0) === 'C' || z.charAt(0) === 'B') ? 'No' : 'Yes';
   }],
-  ['Property Purchase Date', (c) => dstr(c.loan.purchaseDate || (String(c.loan.loanPurpose || '') === 'purchase' ? c.loan.fundingDate : ''))],
-  ['Property Purchase Price', (c) => num(c.loan.purchasePrice) || ''],
-  ['Assignment Fee', () => 0],
-  ['Remaining Rehab Budget', (c) => rehabAmt(c.loan)],
-  ['Rehab Spent to Date', () => 0],
-  ['Total Cost Basis', (c) => (num(c.loan.purchasePrice) || 0) + rehabAmt(c.loan) || ''],
-  ['Third Party AIV', (c) => thirdPartyAiv(c) || ''],
-  ['Third Party ARV', (c) => num(c.loan.arvBpo) || num(c.loan.arv) || ''],
-  ['Valuation Date', (c) => dstr(uw(c, 'valuationDate')) || String(uw(c, 'valuationDate') || '')],
-  ['Third Party Valuation Type', (c) => uw(c, 'valuationType') || (num(c.loan.aivBpo) ? 'BPO' : '')],
-  ['Third Party Valuation Provider', (c) => uw(c, 'valuationProvider') || ''],
+  ['Property Purchase Date', (c) => dateCell(dstr(c.loan.purchaseDate || (String(c.loan.loanPurpose || '') === 'purchase' ? c.loan.fundingDate : '')))],
+  ['Property Purchase Price', (c) => cur(assignmentSplit(c).purchase)],
+  ['Assignment Fee', (c) => cur(assignmentSplit(c).purchase == null ? null : assignmentSplit(c).fee)],
+  ['Remaining Rehab Budget', (c) => cur(rehabAmt(c.loan))],
+  ['Rehab Spent to Date', () => cur(0)],
+  ['Total Cost Basis', (c) => { const b = basisOf(c); const v = (b || 0) + rehabAmt(c.loan); return v ? cur(v) : ''; }],
+  ['Third Party AIV', (c) => cur(thirdPartyAiv(c))],
+  ['Third Party ARV', (c) => cur(num(c.loan.arvBpo) || num(c.loan.arv))],
+  // Deploy 237.229 (Mike: "Valuation Date and Third Party Valuation Provider should be
+  // able to be pulled off the valuation docs") -- they are read at review time (uw-field-map
+  // bpo_valuation / appraisal); this reaches for the tray's own reading when the loan
+  // never received it. A date that will not parse is passed through as text.
+  ['Valuation Date', (c) => { const v = valMeta(c, 'valuationDate'); const s = dstr(v); return s ? dateCell(s) : String(v || ''); }],
+  ['Third Party Valuation Type', (c) => valMeta(c, 'valuationType') || (c.reviewValuation && c.reviewValuation.kind === 'appraisal' ? 'Appraisal' : '') || (num(c.loan.aivBpo) || (c.reviewValuation && c.reviewValuation.aiv) ? 'BPO' : '')],
+  ['Third Party Valuation Provider', (c) => valMeta(c, 'valuationProvider')],
   ['Loan Purpose', (c) => {
     const p = String(c.loan.loanPurpose || '').toLowerCase();
     if (p === 'purchase') return 'Purchase';
@@ -258,28 +291,30 @@ const COLCHIS_TRADE_COLS = [
     if (lt === 'bridge') return 'Bridge';
     return rehabAmt(c.loan) > 0 ? 'Rehab' : 'Bridge';
   }],
-  ['Origination Date', (c) => dstr(c.loan.fundingDate)],
-  ['Date of First Payment', (c) => firstPaymentOf(c.loan)],
-  ['Original Maturity Date', (c) => maturityOf(c.loan)],
+  ['Origination Date', (c) => dateCell(dstr(c.loan.fundingDate))],
+  ['Date of First Payment', (c) => dateCell(firstPaymentOf(c.loan))],
+  ['Original Maturity Date', (c) => dateCell(maturityOf(c.loan))],
   ['Term (Mo.)', (c) => termOf(c.loan)],
-  ['Total Loan Amount', (c) => totalAmt(c.loan) || ''],
-  ['Balance At Submission', (c) => num(c.loan.upb) || totalAmt(c.loan) || ''],
-  ['Initial Loan Amount', (c) => { const t = totalAmt(c.loan); return t == null ? '' : t - rehabAmt(c.loan); }],
-  ['Initial Rehab Holdback', (c) => rehabAmt(c.loan)],
-  ['Initial Interest Reserve', () => 0],
-  ['Appraisal Holdback', () => 0],
+  ['Total Loan Amount', (c) => cur(totalAmt(c.loan))],
+  ['Balance At Submission', (c) => cur(num(c.loan.upb) || totalAmt(c.loan))],
+  ['Initial Loan Amount', (c) => { const t = totalAmt(c.loan); return t == null ? '' : cur(t - rehabAmt(c.loan)); }],
+  ['Initial Rehab Holdback', (c) => cur(rehabAmt(c.loan))],
+  ['Initial Interest Reserve', () => cur(0)],
+  ['Appraisal Holdback', () => cur(0)],
   ['Note Rate (%)', (c) => pct(rateFrac(c.loan.rate))],
   ['Orig Points (%)', (c) => { const p = num(c.loan.points); return p == null ? '' : pct(p / 100); }],
   ['Original P&I Amount', (c) => {
     const t = totalAmt(c.loan), r = rateFrac(c.loan.rate);
-    return (t && r) ? round2(t * r / 12) : '';
+    return (t && r) ? cur(round2(t * r / 12)) : '';
   }],
   ['Interest Accrual Methodology', () => '30/360'],
-  ['Cash Out Amount (Refi)', () => ''],
+  // A purchase has no cash out: $0.00. A refi's cash-out is not on the loan record -- left
+  // for hand-fill rather than guessed.
+  ['Cash Out Amount (Refi)', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? cur(0) : '')],
   ['Dutch/Non-Dutch', (c) => dutchLabel(c.loan)],
   ['Initial LTC', (c) => {
-    const t = totalAmt(c.loan), pp = num(c.loan.purchasePrice);
-    return (t && pp) ? pct(round4((t - rehabAmt(c.loan)) / pp)) : '';
+    const t = totalAmt(c.loan), b = basisOf(c);
+    return (t && b) ? pct(round4((t - rehabAmt(c.loan)) / b)) : '';
   }],
   ['LTAIV', (c) => {
     // Deploy 237.223 (Mike: "LTAIV should use the initial advance in ... the colchis
@@ -289,8 +324,8 @@ const COLCHIS_TRADE_COLS = [
     return (t && aiv) ? pct(round4((t - rehabAmt(c.loan)) / aiv)) : '';
   }],
   ['Total LTC', (c) => {
-    const t = totalAmt(c.loan), pp = num(c.loan.purchasePrice);
-    const basis = (pp || 0) + rehabAmt(c.loan);
+    const t = totalAmt(c.loan);
+    const basis = (basisOf(c) || 0) + rehabAmt(c.loan);
     return (t && basis) ? pct(round4(t / basis)) : '';
   }],
   ['LTARV', (c) => {
@@ -309,7 +344,7 @@ const COLCHIS_TRADE_COLS = [
     if (!u) return '';
     return u === 'yes' || u === 'y' || u === 'true' ? 'N' : 'Y';
   }],
-  ['Borrower Reserves', (c) => reservesOf(c)],
+  ['Borrower Reserves', (c) => { const r = reservesOf(c); return r === '' ? '' : cur(r); }],
   // Borrower address = the primary PERSON on the deal (never the broker's).
   ['Borrower Address', (c) => { const g = gPeople(c)[0]; return (g && g.homeAddress && g.homeAddress.street) || ''; }],
   ['Borrower City', (c) => { const g = gPeople(c)[0]; return (g && g.homeAddress && g.homeAddress.city) || ''; }],
@@ -328,10 +363,10 @@ const COLCHIS_TRADE_COLS = [
   }],
   ['Guarantor 1 Name', (c) => clientName(gPeople(c)[0])],
   ['Guarantor 1 FICO', (c) => { const g = gPeople(c)[0]; return g ? ficoOf(g, c.loan) : ''; }],
-  ['Guarantor 1 DOB', (c) => { const g = gPeople(c)[0]; return dstr(g && g.dob); }],
+  ['Guarantor 1 DOB', (c) => { const g = gPeople(c)[0]; return dateCell(dstr(g && g.dob)); }],
   ['Guarantor 2 Name', (c) => clientName(gPeople(c)[1])],
   ['Guarantor 2 FICO', (c) => { const g = gPeople(c)[1]; return g ? ficoOf(g, null) : ''; }],
-  ['Guarantor 2 DOB', (c) => { const g = gPeople(c)[1]; return dstr(g && g.dob); }],
+  ['Guarantor 2 DOB', (c) => { const g = gPeople(c)[1]; return dateCell(dstr(g && g.dob)); }],
 ];
 function round4(n) { return Math.round(n * 10000) / 10000; }
 // Columns whose blanks the processor must hand-fill before sending.

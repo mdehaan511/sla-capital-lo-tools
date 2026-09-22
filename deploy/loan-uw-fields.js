@@ -126,6 +126,9 @@
     { key: 'valuationProvider', label: 'Valuation Provider', section: 'Deal', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'Vendor on the report' },
     { key: 'valuationSqft',     label: 'Sq Ft (per valuation)', section: 'Deal', source: 'doc', docType: 'BPO/Valuation', sourceNote: 'GLA stated on the valuation' },
     { key: 'purchasePrice',  label: 'Purchase Price (PSA)', section: 'Deal', source: 'loan', loanField: 'purchasePrice', sourceNote: 'PSA' },
+    // Deploy 237.229 (Mike, Colchis tape) -- the seller's price as the PSA states it. When it is
+    // under the loan's purchase price, the difference is the assignment fee (trade-tapes.mjs).
+    { key: 'psaPrice',       label: 'PSA Price (seller)', section: 'Deal', source: 'doc', docType: 'PSA', sourceNote: 'Purchase & Sale Agreement' },
     { key: 'assignmentContractPrice', label: 'Assignment Contract Price', section: 'Deal', source: 'doc', docType: 'Assignment Contract', sourceNote: 'Assignment Contract' },
     { key: 'assignmentFee',  label: 'Assignment Fee (listed)', section: 'Deal', source: 'doc', docType: 'Assignment Contract', sourceNote: 'Assignment Contract' },
     // Effective assignment fee: the listed fee if present & ≤ purchase price,

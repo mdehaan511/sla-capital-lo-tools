@@ -38,6 +38,10 @@ export const SLUG_FIELD_MAP = {
     // NOTE: purchasePrice is source:'loan' (pricing basis) — intentionally NOT
     // AI-written. The PSA price is a human cross-check against the loan record.
     { dataset: 'lightning', key: 'earliestSigningDate', label: 'The earliest signature / execution date on the agreement, as YYYY-MM-DD' },
+    // Deploy 237.229 (Mike, Colchis tape) -- the SELLER's price, its own key. On a wholesale
+    // deal the LO enters the all-in price the borrower pays (Luna Court: 140,000) while the
+    // PSA says 119,000; the difference is the assignment fee Colchis wants in its own column.
+    { dataset: 'uw', key: 'psaPrice', label: 'The total purchase price stated on THIS purchase and sale agreement (number only, no $ or commas)' },
   ],
   assignment_agreement: [
     { dataset: 'uw',        key: 'assignmentContractPrice', label: 'The purchase price stated on THIS assignment contract (number only)' },
