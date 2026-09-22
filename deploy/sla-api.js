@@ -1778,6 +1778,31 @@
     // Deploy 237.168 — page surgery on a draft: add another PDF's pages, or
     // rebuild the page order (a page left out of `order` is deleted).
     pages: function (data) { return api('POST', '/api/esign-doc-pages', data); },
+    // Deploy 237.231 (Mike: "increase the file size to 10mb") — a PDF too big for
+    // one request goes up in ~3 MB slices and comes back as a stagedId that
+    // create() / pages() accept in place of pdfBase64. Same shape as the doc
+    // review's chunked path. opts: { owner, onStatus }. Resolves { stagedId, size }.
+    stage: function (file, opts) {
+      opts = opts || {};
+      var size = (file && file.size) || 0;
+      var total = Math.ceil(size / CHUNK_RAW_BYTES);
+      var uploadId = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var i = 0;
+      function post(body) { if (opts.owner) body.owner = opts.owner; return api('POST', '/api/esign-doc-upload-chunk', body); }
+      function step() {
+        if (i >= total) {
+          if (opts.onStatus) opts.onStatus('Assembling ' + (size / 1024 / 1024).toFixed(1) + ' MB on the server\u2026');
+          return post({ uploadId: uploadId, finalize: true, totalChunks: total, sizeBytes: size });
+        }
+        var start = i * CHUNK_RAW_BYTES;
+        var blob = file.slice(start, Math.min(start + CHUNK_RAW_BYTES, size));
+        if (opts.onStatus) opts.onStatus('Uploading \u2014 part ' + (i + 1) + ' of ' + total + '\u2026');
+        return _sliceToBase64(blob).then(function (b64) {
+          return post({ uploadId: uploadId, chunkIndex: i, totalChunks: total, contentBase64: b64 });
+        }).then(function () { i++; return step(); });
+      }
+      return step();
+    },
     send: function (id, opts) {
       opts = opts || {};
       return api('POST', '/api/esign-doc-send', { id: id, owner: opts.owner, skipEmail: !!opts.skipEmail, signerId: opts.signerId });
@@ -2761,7 +2786,10 @@
     }
     return nextPage();
   }
-  function _compressPdfFile(file, maxBytes, onStatus) {
+  // Deploy 237.231 — `ladder` lets a caller pick its own quality steps (E-Sign
+  // uses a higher floor than doc review: a signed document is re-rendered and
+  // stamped, so it has to stay crisp). Default is the doc-review ladder.
+  function _compressPdfFile(file, maxBytes, onStatus, ladder) {
     return _loadPdfLibs().then(function () {
       return _fileArrayBuffer(file);
     }).then(function (buf) {
@@ -2770,7 +2798,7 @@
       // Highest-quality-that-fits, floored at ~1.15 scale (≈83 DPI) / q0.5 so
       // fine print stays legible. If the floor still won't fit → give up
       // (return best; uploadDoc will reject rather than ship a degraded doc).
-      var combos = [
+      var combos = (ladder && ladder.length) ? ladder : [
         { scale: 2.0, q: 0.72 }, { scale: 1.6, q: 0.64 },
         { scale: 1.35, q: 0.58 }, { scale: 1.15, q: 0.5 },
       ];
@@ -3146,6 +3174,10 @@
     Baseline: Baseline,
     Envelopes: Envelopes,
     ESign: ESign, // Deploy 237.028
+    // Deploy 237.231 — the doc-review PDF compressor, callable with a custom
+    // quality ladder. Resolves a smaller File, or null when nothing above the
+    // ladder's floor fits (the caller then refuses rather than ships mush).
+    compressPdf: function (file, maxBytes, onStatus, ladder) { return _compressPdfFile(file, maxBytes, onStatus, ladder); },
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     ESignConsent: ESignConsent,

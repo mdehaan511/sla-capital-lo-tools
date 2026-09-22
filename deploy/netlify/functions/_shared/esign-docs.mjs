@@ -57,7 +57,16 @@ export const FIELD_TYPES  = ['signature', 'initials', 'date', 'text', 'checkbox'
 // kind so the picker can filter to them and the stamp names them correctly.
 export const SIGNER_KINDS = ['borrower', 'user', 'broker', 'other'];
 export const TOKEN_TTL_DAYS = 30;
-export const MAX_PDF_BYTES = 4.5 * 1024 * 1024; // Netlify gateway caps a function body at ~6MB; base64 inflates 33%
+// Deploy 237.231 (Mike: "is it possible to increase the file size to 10mb").
+// One JSON request can carry ~4.2 MB of PDF (the gateway caps a function body
+// near 6 MB and base64 inflates by a third) — that is MAX_DIRECT_BYTES, and it
+// is a transport fact, not a policy. The single-FILE ceiling is now 10 MB:
+// anything above the direct size travels in slices through
+// esign-doc-upload-chunk and lands here as a staged upload. Bigger than 10 MB
+// the browser compresses first (sla-api.js compressPdf) and only sends what
+// still reads well.
+export const MAX_DIRECT_BYTES = 4.2 * 1024 * 1024;
+export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 // Deploy 237.168 (Mike) — an ASSEMBLED document may grow past what one upload
 // can carry, because pages are added a file at a time: each request stays
 // under MAX_PDF_BYTES while the document itself keeps growing. This is the
@@ -76,6 +85,25 @@ export const docSigStore   = () => getStore({ name: 'esign-doc-sigs',      consi
 export const signerIdx     = () => getStore({ name: 'esign-signer-idx',    consistency: 'strong' });
 export const tplStore      = () => getStore({ name: 'esign-templates',     consistency: 'strong' });
 export const tplPdfStore   = () => getStore({ name: 'esign-template-pdfs', consistency: 'strong' });
+// Deploy 237.231 — sliced uploads: the pieces, then the assembled PDF (base64
+// text, like every other PDF store here) waiting for a create / add-pages call.
+export const chunkStore    = () => getStore({ name: 'esign-chunks',        consistency: 'strong' });
+export const stagingStore  = () => getStore({ name: 'esign-staged',        consistency: 'strong' });
+export function stageKey(ownerKey, stagedId) { return ownerKey + '/' + keySafe(stagedId); }
+/**
+ * Consume a staged upload for this owner: returns its base64, or null when
+ * there is none (wrong owner, never finalized, already used). Deleted on read —
+ * a stagedId is good for exactly one document.
+ */
+export async function takeStaged(ownerKey, stagedId) {
+  const id = String(stagedId || '');
+  if (!/^u_[A-Za-z0-9_]{6,60}$/.test(id)) return null;
+  const key = stageKey(ownerKey, id);
+  const b64 = await stagingStore().get(key, { type: 'text' }).catch(() => null);
+  if (!b64) return null;
+  await stagingStore().delete(key).catch(() => {});
+  return b64;
+}
 
 export function docKey(ownerKey, id) { return ownerKey + '/' + keySafe(id); }
 

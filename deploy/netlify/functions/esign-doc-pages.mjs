@@ -33,7 +33,7 @@ import {
 } from './_shared/auth.mjs';
 import {
   readDoc, writeDoc, sanitizeDoc, docKey, docPdfStore, inspectPdf, pushHistory, baseUrl,
-  insertPdfPages, reorderPdfPages, remapFieldPages, MAX_PDF_BYTES, MAX_DOC_BYTES,
+  insertPdfPages, reorderPdfPages, remapFieldPages, MAX_PDF_BYTES, MAX_DOC_BYTES, takeStaged,
 } from './_shared/esign-docs.mjs';
 
 const staff = (u) => isAdmin(u) || isProcessor(u);
@@ -69,7 +69,14 @@ export default async (req, context) => {
 
     // ── Add another PDF's pages ──
     if (body.add && typeof body.add === 'object') {
-      const addB64 = String(body.add.pdfBase64 || '').replace(/^data:application\/pdf;base64,/, '').replace(/\s+/g, '');
+      // Deploy 237.231 — sliced upload (stagedId) or inline base64, same as create.
+      let addB64 = '';
+      if (body.add.stagedId) {
+        addB64 = await takeStaged(ownerKey, body.add.stagedId) || '';
+        if (!addB64) return json(400, { error: 'That upload is no longer available — please choose the file again.' });
+      } else {
+        addB64 = String(body.add.pdfBase64 || '').replace(/^data:application\/pdf;base64,/, '').replace(/\s+/g, '');
+      }
       if (!addB64) return json(400, { error: 'pdfBase64 required' });
       const addBytes = Buffer.from(addB64, 'base64');
       if (addBytes.length > MAX_PDF_BYTES) {

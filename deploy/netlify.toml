@@ -2467,6 +2467,14 @@
   status = 200
   force = true
 
+# Deploy 237.231 — E-Sign PDFs over ~4 MB arrive in 3 MB slices and are
+# assembled server-side; create / add-pages then take the stagedId.
+[[redirects]]
+  from = "/api/esign-doc-upload-chunk"
+  to = "/.netlify/functions/esign-doc-upload-chunk"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/esign-doc-save"
   to = "/.netlify/functions/esign-doc-save"
@@ -2556,6 +2564,10 @@
 # Uploads carry the whole PDF (base64) and templates/assign copy bytes between
 # stores; the final signature stamps every field + emails every party.
 [functions.esign-docs]
+  timeout = 26
+[functions.esign-doc-upload-chunk]
+  timeout = 26
+[functions.esign-doc-pages]
   timeout = 26
 [functions.esign-templates]
   timeout = 26

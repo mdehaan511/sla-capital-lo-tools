@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>E-Sign — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js?v=237178"></script>
+  <script src="sla-api.js?v=237231"></script>
   <script src="sla-nav.js"></script>
   <script src="/sla-search.js" defer></script>
   <script src="sla-notifications.js?v=237120"></script>
@@ -565,7 +565,7 @@ window.netlifyIdentity.on('init', function (user) {
   SLA.api('GET', '/api/esign-docs?meta=1').then(function (m) {
     _meta = m;
     document.getElementById('maxMb').textContent = String(Math.round((m.maxPdfBytes || 0) / 1024 / 1024 * 10) / 10);
-  }).catch(function () { _meta = { docTypes: [], maxPdfBytes: 4.5 * 1024 * 1024 }; });
+  }).catch(function () { _meta = { docTypes: [], maxPdfBytes: 10 * 1024 * 1024, maxDirectBytes: 4.2 * 1024 * 1024 }; });
   route();
 });
 window.addEventListener('hashchange', route);
@@ -738,8 +738,10 @@ function onFileChosen(files) {
   var f = files && files[0];
   if (!f) return;
   if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') { showToast('Please choose a PDF file', 'err'); return; }
-  var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
-  if (f.size > max) { showToast('That PDF is ' + (f.size / 1024 / 1024).toFixed(1) + ' MB — the limit is ' + (max / 1024 / 1024).toFixed(1) + ' MB. Compress it first.', 'err'); return; }
+  // Deploy 237.231 — no hard stop here: over the limit it will be compressed on
+  // the way up, and refused only if it cannot be made to fit legibly.
+  var max = (_meta && _meta.maxPdfBytes) || 10 * 1024 * 1024;
+  if (f.size > max) showToast('That PDF is ' + _mb(f.size) + ' \u2014 it will be compressed to fit the ' + _mb(max) + ' limit when you create the draft.', 'info');
   _pendingFile = f;
   document.getElementById('drop').querySelector('strong').textContent = f.name + ' (' + (f.size / 1024).toFixed(0) + ' KB)';
   if (!document.getElementById('newTitle').value) document.getElementById('newTitle').value = f.name.replace(/\.pdf$/i, '');
@@ -751,6 +753,36 @@ function onFileChosen(files) {
   d.addEventListener('dragleave', function () { d.classList.remove('over'); });
   d.addEventListener('drop', function (e) { e.preventDefault(); d.classList.remove('over'); onFileChosen(e.dataTransfer.files); });
 })();
+// Deploy 237.231 (Mike: "increase the file size to 10mb or if not make it so
+// larger documents are compressed while also maintaining as high readability
+// as possible"). One request carries ~4 MB, so:
+//   ≤ maxDirectBytes  → inline base64, exactly as before
+//   ≤ maxPdfBytes     → sliced upload (SLA.ESign.stage) → { stagedId }
+//   > maxPdfBytes     → re-rendered in the browser on a HIGH-quality ladder
+//                       until it fits under 10 MB, then staged. If even the
+//                       floor (~94 DPI) won't fit we refuse rather than send
+//                       something the signer can't read.
+// Resolves the body fragment: { pdfBase64 } or { stagedId }.
+var ESIGN_LADDER = [
+  { scale: 2.2, q: 0.85 }, { scale: 2.0, q: 0.78 }, { scale: 1.75, q: 0.72 },
+  { scale: 1.5, q: 0.64 }, { scale: 1.3, q: 0.58 },
+];
+function preparePdf(file, onStatus) {
+  var direct = (_meta && _meta.maxDirectBytes) || 4.2 * 1024 * 1024;
+  var max = (_meta && _meta.maxPdfBytes) || 10 * 1024 * 1024;
+  var ready = Promise.resolve(file);
+  if (file.size > max) {
+    ready = SLA.compressPdf(file, max, onStatus, ESIGN_LADDER).then(function (out) {
+      if (!out) throw new Error('That PDF is ' + _mb(file.size) + ' and would not compress under ' + _mb(max) + ' without losing readability. Split it and add the rest with "Add pages".');
+      if (onStatus) onStatus('Compressed ' + _mb(file.size) + ' \u2192 ' + _mb(out.size));
+      return out;
+    });
+  }
+  return ready.then(function (f) {
+    if (f.size <= direct) return readAsBase64(f).then(function (b64) { return { pdfBase64: b64, file: f }; });
+    return SLA.ESign.stage(f, { owner: _docOwner || undefined, onStatus: onStatus }).then(function (r) { return { stagedId: r.stagedId, file: f }; });
+  });
+}
 function readAsBase64(file) {
   return new Promise(function (resolve, reject) {
     var r = new FileReader();
@@ -766,7 +798,11 @@ function createDoc() {
   if (!_pendingFile && !tplId) { showToast('Choose a PDF or a template first', 'err'); return; }
   go.disabled = true; go.textContent = 'Creating…';
   var p = tplId ? Promise.resolve({ templateId: tplId, title: title })
-    : readAsBase64(_pendingFile).then(function (b64) { return { title: title, filename: _pendingFile.name, pdfBase64: b64 }; });
+    : preparePdf(_pendingFile, function (m) { go.textContent = m; }).then(function (r) {   // Deploy 237.231
+        var body = { title: title, filename: _pendingFile.name };
+        if (r.stagedId) body.stagedId = r.stagedId; else body.pdfBase64 = r.pdfBase64;
+        return body;
+      });
   p.then(function (body) {
     if (_prefill && _prefill.loan) body.loan = _prefill.loan; // Deploy 237.029 — remember which loan this came from
     return SLA.api('POST', '/api/esign-docs', body);
@@ -1443,7 +1479,7 @@ var _addPagesFile = null, _addingPages = false;
 function openAddPages(before) {
   if (!_doc) return;
   _addPagesFile = null;
-  var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
+  var max = (_meta && _meta.maxPdfBytes) || 10 * 1024 * 1024;
   document.getElementById('addMaxMb').textContent = String(Math.round(max / 1024 / 1024 * 10) / 10);
   document.getElementById('addDrop').querySelector('strong').textContent = 'Drop a PDF here or click to choose';
   document.getElementById('addPagesFile').value = '';
@@ -1475,8 +1511,8 @@ function onAddPagesFile(files) {
   var f = files && files[0];
   if (!f) return;
   if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') { showToast('Please choose a PDF file', 'err'); return; }
-  var max = (_meta && _meta.maxPdfBytes) || 4.5 * 1024 * 1024;
-  if (f.size > max) { showToast('That PDF is ' + _mb(f.size) + ' — a single file can be at most ' + _mb(max) + '. Add it in smaller pieces.', 'err'); return; }
+  var max = (_meta && _meta.maxPdfBytes) || 10 * 1024 * 1024;
+  if (f.size > max) showToast('That PDF is ' + _mb(f.size) + ' \u2014 it will be compressed to fit the ' + _mb(max) + ' limit when you add it.', 'info');   // Deploy 237.231
   _addPagesFile = f;
   document.getElementById('addDrop').querySelector('strong').textContent = f.name + ' (' + (f.size / 1024).toFixed(0) + ' KB)';
 }
@@ -1499,11 +1535,10 @@ function doAddPages() {
   clearTimeout(_saveTimer);
   var ready = (_dirty || _saving) ? saveDraft(false) : Promise.resolve();
   ready.then(function () {
-    return readAsBase64(_addPagesFile).then(function (b64) {
-      return SLA.ESign.pages(ownerBody({
-        id: _doc.id, at: at ? Number(at) : undefined,
-        add: { filename: _addPagesFile.name, pdfBase64: b64 },
-      }));
+    return preparePdf(_addPagesFile, function (m) { go.textContent = m; }).then(function (r) {   // Deploy 237.231
+      var add = { filename: _addPagesFile.name };
+      if (r.stagedId) add.stagedId = r.stagedId; else add.pdfBase64 = r.pdfBase64;
+      return SLA.ESign.pages(ownerBody({ id: _doc.id, at: at ? Number(at) : undefined, add: add }));
     });
   }).then(function (r) {
     // Adopt the server's copy wholesale: its fields carry the new page numbers.

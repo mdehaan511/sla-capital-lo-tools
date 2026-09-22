@@ -19,7 +19,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import {
-  MAX_PDF_BYTES, MAX_DOC_BYTES, TOKEN_TTL_DAYS, docTypeOptions, listSummaries, readDoc, writeDoc, sanitizeDoc,
+  MAX_PDF_BYTES, MAX_DOC_BYTES, MAX_DIRECT_BYTES, TOKEN_TTL_DAYS, docTypeOptions, listSummaries, readDoc, writeDoc, sanitizeDoc, takeStaged,
   newId, docKey, docPdfStore, tplStore, tplPdfStore, inspectPdf, pushHistory, fullName, baseUrl,
   SIGNER_COLORS, normalizeLoanRef,
 } from './_shared/esign-docs.mjs';
@@ -41,6 +41,7 @@ export default async (req, context) => {
           docTypes: docTypeOptions(),
           consentVersion: TERMSHEET_CONSENT_VERSION,
           maxPdfBytes: MAX_PDF_BYTES,
+          maxDirectBytes: MAX_DIRECT_BYTES, // Deploy 237.231 — above this the page uploads in slices
           maxDocBytes: MAX_DOC_BYTES,   // Deploy 237.168 — ceiling on an assembled document
           tokenTtlDays: TOKEN_TTL_DAYS,
           isStaff: staff(user),
@@ -136,7 +137,14 @@ export default async (req, context) => {
       doc.fields = JSON.parse(JSON.stringify(tpl.fields || []));
       pushHistory(doc, 'created', 'Created from template "' + doc.templateName + '"', selfEmail);
     } else {
-      pdfBase64 = String(body.pdfBase64 || '').replace(/^data:application\/pdf;base64,/, '').replace(/\s+/g, '');
+      // Deploy 237.231 — a large file arrives in slices (esign-doc-upload-chunk)
+      // and is referenced here by its stagedId; a small one still rides inline.
+      if (body.stagedId) {
+        pdfBase64 = await takeStaged(ownerKey, body.stagedId);
+        if (!pdfBase64) return json(400, { error: 'That upload is no longer available — please choose the file again.' });
+      } else {
+        pdfBase64 = String(body.pdfBase64 || '').replace(/^data:application\/pdf;base64,/, '').replace(/\s+/g, '');
+      }
       if (!pdfBase64) return json(400, { error: 'pdfBase64 required' });
       const approxBytes = Math.floor(pdfBase64.length * 3 / 4);
       if (approxBytes > MAX_PDF_BYTES) return json(413, { error: 'PDF is too large — the limit is ' + Math.round(MAX_PDF_BYTES / 1024 / 1024 * 10) / 10 + ' MB' });
