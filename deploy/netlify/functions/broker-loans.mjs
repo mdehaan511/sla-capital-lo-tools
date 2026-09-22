@@ -173,14 +173,24 @@ function project(loan, client, ownerKey) {
   const stage = _borrowerStage(loan);
   const st = String(loan.status || '').toLowerCase();
   const inProcessing = !!String(loan.processingStage || '').trim() && stage.key !== 'closed' && stage.key !== 'denied' && st !== 'on_hold';
-  const borrower = ((client.firstName || '') + ' ' + (client.lastName || '')).replace(/\s+/g, ' ').trim() || client.email || '';
-  const entity = entityOf(loan, client);
+  // Deploy 237.238 -- on a broker-submitted application the PARENT client is the broker;
+  // the borrower is the linked guarantor (flat guarantors[], mirrored from guarantorClientIds)
+  // or the name the broker typed. The first cut named the broker as their own borrower and
+  // offered the broker's company as the entity.
+  const parentIsBroker = !!(client._isBroker && (loan._isBrokerLoan ||
+    (client.email && normalizeEmail(client.email) === normalizeEmail(loan.brokerEmail || ''))));
+  const g1 = parentIsBroker && Array.isArray(loan.guarantors)
+    ? loan.guarantors.find((g) => g && (g.firstName || g.lastName || g.email)) || null : null;
+  const nameOf = (p) => ((p.firstName || '') + ' ' + (p.lastName || '')).replace(/\s+/g, ' ').trim() || p.email || '';
+  const borrower = parentIsBroker ? (g1 ? nameOf(g1) : String(loan.borrowerName || '').trim()) : nameOf(client);
+  const borrowerEmail = parentIsBroker ? String((g1 && g1.email) || loan.borrowerEmail || '') : (client.email || '');
+  const entity = entityOf(loan, parentIsBroker ? {} : client);
   return {
     loanId: loan.id, clientId: client.id, ownerKey,
     program: programLabel(loan), purposeLabel: purposeLabel(loan), // Deploy 237.235
     slaDisplayId: loan.slaDisplayId || _deriveSlaDisplayId(loan),
     address: loan.address || '',
-    borrower, entity, borrowerEmail: client.email || '',
+    borrower, entity, borrowerEmail,
     stage, inProcessing, status: loan.status || 'active',
     toolType: loan.toolType || '', loanType: loan.loanType || '', loanPurpose: loan.loanPurpose || '',
     propType: loan.propType || '',

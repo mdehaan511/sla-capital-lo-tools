@@ -752,6 +752,11 @@ async function upsertClientFromProspect(prospect, loEmail) {
           createdVia: '_createdViaBrokerApply',
         });
         console.log(`${tag} linked borrower guarantor ${_bEmail} to loan ${loan.id}`);
+        // Deploy 237.238 -- the broker named the borrower, so the borrower info is not
+        // pending: the advance gate on Loan Details reads this flag and the flat guarantors[]
+        // (filled by the link above). Leaving it true sent every broker application to the
+        // "Borrower Info Required" modal on advance, with the borrower already on the tab.
+        loan._borrowerInfoPending = false;
       } catch (e) {
         console.warn(`${tag} borrower guarantor link failed (non-fatal):`, e && e.message);
       }

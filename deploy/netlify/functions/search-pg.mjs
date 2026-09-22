@@ -223,6 +223,12 @@ export default async (req, context) => {
     console.warn('search-pg: quote/loan reconcile failed (showing quotes as-is):', e && e.message);
   }
 
+  // Deploy 237.238 -- broker-parent loans: the borrower's name from the linked guarantor
+  // clients, one lookup for all of them. Non-fatal: the row keeps "<broker> (broker)".
+  try { await _nameBrokerLoanBorrowers(finalLoans); }
+  catch (e) { console.warn('search-pg: broker-loan borrower names failed:', e && e.message); }
+  finalLoans.forEach((l) => { if (l && '_gids' in l) delete l._gids; });
+
   const coveredAddrs = new Set();
   finalLoans.forEach((l) => { const a = _norm(l.address); if (a) coveredAddrs.add(a); });
   finalQuotes.forEach((qr) => { const a = _norm(qr.address); if (a) coveredAddrs.add(a); });
@@ -318,6 +324,7 @@ async function _searchClientsPG(q, wantAll, selfEmail) {
 }
 
 const LOAN_SELECT = 'id,client_id,address,status,sla_display_id,tool_type,loan_amt,owner_email,updated_at,funding_date,' +
+  'is_broker_loan,guarantor_client_ids,' + // Deploy 237.238
   'clients!client_id(id,first_name,last_name,email,entity_name)';
 
 // Deploy 236.991 (Mike: "the number is showing nothing but the loan exists")
@@ -424,9 +431,17 @@ export function reconcileQuotesWithLoans({ quotes, loans, found, wantAll, selfEm
 
 function _rowToLoanResult(l, selfEmail) {
   const c = l.clients || {};
-  const borrower = ((c.first_name || '') + ' ' + (c.last_name || '')).trim()
+  const parentName = ((c.first_name || '') + ' ' + (c.last_name || '')).trim()
     || c.entity_name || c.email || '';
+  // Deploy 237.238 -- on a broker-submitted application the parent client is the BROKER
+  // and the borrower is a linked guarantor client. Say which one this is, and let
+  // _nameBrokerLoanBorrowers() put the real borrower's name on the row (one lookup for the
+  // whole result set).
+  const brokerLoan = !!l.is_broker_loan;
+  const borrower = brokerLoan ? (parentName ? parentName + ' (broker)' : '') : parentName;
+  const _gids = brokerLoan && Array.isArray(l.guarantor_client_ids) ? l.guarantor_client_ids.filter(Boolean) : [];
   return {
+    _gids,
     id:           l.id,
     clientId:     l.client_id,
     ownerKey:     normalizeEmail(l.owner_email || ''),
@@ -439,6 +454,27 @@ function _rowToLoanResult(l, selfEmail) {
     borrower,
     date:         l.updated_at || '',
   };
+}
+
+// Deploy 237.238 -- for every loan row that carries `_gids` (a broker-parent loan's linked
+// guarantor client ids), fetch those clients in ONE query and name the row's borrower after
+// the first one found. Rows with no linked guarantor keep "<broker> (broker)".
+async function _nameBrokerLoanBorrowers(loans) {
+  const ids = [];
+  (loans || []).forEach((l) => { (l && Array.isArray(l._gids) ? l._gids : []).forEach((id) => { if (id && ids.indexOf(id) < 0) ids.push(id); }); });
+  if (!ids.length) return 0;
+  const rows = await _pgSelect('clients', 'select=id,first_name,last_name,email&id=in.(' + ids.slice(0, 60).map(encodeURIComponent).join(',') + ')');
+  const byId = {};
+  (rows || []).forEach((c) => { if (c && c.id) byId[c.id] = c; });
+  let named = 0;
+  (loans || []).forEach((l) => {
+    if (!l || !Array.isArray(l._gids)) return;
+    const c = l._gids.map((id) => byId[id]).find(Boolean);
+    if (!c) return;
+    const name = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || c.email || '';
+    if (name) { l.borrower = name; named++; }
+  });
+  return named;
 }
 
 async function _searchLoansPG(q, wantAll, selfEmail) {

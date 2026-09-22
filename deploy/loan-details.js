@@ -2318,6 +2318,10 @@ function render() {
   //   4) empty row
   function _initialVestingLLCs() {
     if (Array.isArray(l.vestingLLCs) && l.vestingLLCs.length) return l.vestingLLCs;
+    // Deploy 237.238 -- when the parent client is the BROKER (a broker-submitted
+    // application), its company is the broker's, not the vesting entity. Never offer it as
+    // the borrower's LLC.
+    if (_bwPrimaryIsBroker) return [{ name: '' }];
     if (Array.isArray(c.companies) && c.companies.length) {
       var fromCos = c.companies
         .filter(function(co) { return co && co.name; })
@@ -10826,6 +10830,13 @@ function _brokerLoanNeedsBorrowerInfo() {
   if (!_loan) return false;
   if (!_loan._isBrokerLoan) return false;
   if (_loan._borrowerInfoPending === false) return false;
+  // Deploy 237.238 -- a guarantor linked as a CLIENT (guarantorClientIds: the apply form,
+  // + Add Guarantor, a portal invite) IS borrower info. This gate read only the flat
+  // guarantors[] the capture modal fills, so a loan whose Contacts tab showed the borrower
+  // still got the "Borrower Info Required" modal. The server mirrors the linked clients
+  // into the flat array on advance (loan-advance-status) and clears the flag.
+  var _linkedIds = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds.filter(Boolean) : [];
+  if (_linkedIds.length) return false;
   // Defensive: if pending flag was never set (older broker loans) but
   // guarantors[] is empty, still gate the advance.
   var gs = Array.isArray(_loan.guarantors) ? _loan.guarantors : [];

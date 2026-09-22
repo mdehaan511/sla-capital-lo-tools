@@ -20,8 +20,72 @@
  *
  * Returns { guarantor, matchedExistingClient, alreadyLinked }.
  */
+import { getStore } from '@netlify/blobs';
+import { keySafe } from './auth.mjs';
 import { writeClient } from './client-write.mjs';
 import { findClientByEmail } from './client-lookup.mjs';
+
+/**
+ * Deploy 237.238 (Mike: "hopefully we can finally be done with these broker/borrower mix ups")
+ *
+ * A loan carries its guarantors in TWO places: `guarantorClientIds[]` (the linked client
+ * records the Contacts tab renders) and the flat `guarantors[]` (name/email/clientId, the
+ * shape loan-broker-borrower-capture and loan-add-guarantor keep). The broker-loan advance
+ * gate on Loan Details, the rate-sheet signer gate and the sizer PDFs read the FLAT array.
+ * This helper linked the client but never filled the flat array, so a broker's application
+ * named its borrower, the Contacts tab showed them, and the LO still got the "Borrower Info
+ * Required" modal on advance. Every link now mirrors into the flat array, and
+ * syncFlatGuarantors() backfills loans linked before this deploy on their way into
+ * processing.
+ */
+export function pushFlatGuarantor(loan, client, ownershipPct) {
+  if (!loan || !client || !client.id) return false;
+  loan.guarantors = Array.isArray(loan.guarantors) ? loan.guarantors : [];
+  const email = String(client.email || '').toLowerCase().trim();
+  const dupe = loan.guarantors.some((x) => x && (
+    (x.clientId && x.clientId === client.id) ||
+    (email && x.email && String(x.email).toLowerCase() === email)
+  ));
+  if (dupe) return false;
+  const pct = ownershipPct == null ? NaN : parseFloat(ownershipPct);
+  loan.guarantors.push({
+    firstName: String(client.firstName || '').trim(),
+    lastName:  String(client.lastName  || '').trim(),
+    email,
+    phone:     String(client.phone || '').trim(),
+    clientId:  client.id,
+    ownership: isFinite(pct) ? String(pct) : '',
+  });
+  return true;
+}
+
+/** True when the flat array names at least one real person. */
+export function hasRealGuarantor(loan) {
+  const gs = Array.isArray(loan && loan.guarantors) ? loan.guarantors : [];
+  return gs.some((g) => g && (g.firstName || g.lastName || g.email));
+}
+
+/**
+ * Mirror every linked guarantor client missing from the flat array. Reads only the
+ * clients it needs (one blob get per missing id). Returns how many were added. Never
+ * throws on a bad read; a client that cannot be read is skipped.
+ */
+export async function syncFlatGuarantors(ownerKey, loan, clientsStore) {
+  if (!ownerKey || !loan) return 0;
+  const ids = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds.filter(Boolean) : [];
+  if (!ids.length) return 0;
+  const store = clientsStore || getStore({ name: 'clients', consistency: 'strong' });
+  loan.guarantors = Array.isArray(loan.guarantors) ? loan.guarantors : [];
+  let added = 0;
+  for (const id of ids) {
+    if (loan.guarantors.some((x) => x && x.clientId === id)) continue;
+    const c = await store.get(ownerKey + '/' + keySafe(id), { type: 'json' }).catch(() => null);
+    if (!c || !c.id) continue;
+    const pct = loan.guarantorOwnership && typeof loan.guarantorOwnership === 'object' ? loan.guarantorOwnership[id] : undefined;
+    if (pushFlatGuarantor(loan, c, pct)) added++;
+  }
+  return added;
+}
 
 export async function linkGuarantorToLoan(opts) {
   opts = opts || {};
@@ -83,6 +147,8 @@ export async function linkGuarantorToLoan(opts) {
     loan.guarantorOwnership = Object.assign({}, loan.guarantorOwnership || {});
     loan.guarantorOwnership[guarantor.id] = pct;
   }
+  // Deploy 237.238 -- the flat guarantors[] must agree with guarantorClientIds (see above).
+  pushFlatGuarantor(loan, guarantor, isFinite(pct) ? pct : undefined);
   loan.updatedAt = now;
 
   // ── Persist the guarantor client (PG-first). Caller writes primary. ──

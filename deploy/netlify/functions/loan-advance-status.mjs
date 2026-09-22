@@ -48,6 +48,9 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // 'submitted'. Routed to the 'submitted' channel so it can land in a
 // different Slack channel than the "new loan application" post.
 import { postSlack } from './_shared/slack.mjs';
+// Deploy 237.238 -- broker loans linked before this deploy carry their borrower only as a
+// linked client; mirror into the flat guarantors[] on the way into processing.
+import { syncFlatGuarantors, hasRealGuarantor } from './_shared/guarantor-link.mjs';
 
 // Non-admin callers can only push to 'approved' — the existing safety-
 // valve use case (loan got stuck in awaiting_app, manually nudge it
@@ -138,6 +141,21 @@ async function handle(req, context) {
   // info record itself still has the accurate timestamp.
   if (body.newStatus === 'approved' && !targetLoan.borrowerInfoCompletedAt) {
     targetLoan.borrowerInfoCompletedAt = now;
+  }
+  // Deploy 237.238 (Mike: "hopefully we can finally be done with these broker/borrower mix
+  // ups") -- a broker loan whose borrower was linked as a guarantor CLIENT (the apply form
+  // since 236.635) still carried an empty flat guarantors[] and _borrowerInfoPending: true,
+  // so every surface that reads the flat array (the advance gate, the rate sheet's signer,
+  // the sizer PDFs) saw no borrower. Mirror the linked clients into the flat array here and
+  // clear the flag once a real person is on it. Best-effort: a read failure never blocks
+  // the advance.
+  if (body.newStatus === 'approved' && targetLoan._isBrokerLoan) {
+    try { await syncFlatGuarantors(ownerKey, targetLoan, clientsStore); }
+    catch (e) { console.warn('loan-advance-status: guarantor sync failed, continuing:', e && e.message); }
+    if (hasRealGuarantor(targetLoan) && targetLoan._borrowerInfoPending !== false) {
+      targetLoan._borrowerInfoPending = false;
+      targetLoan._brokerBorrowerSyncedAt = now;
+    }
   }
   // Deploy 236.96 (Phase A.3) — auto-flow into the Processing Pipeline
   // on manual advance to 'approved'. Same defensive guard as the
