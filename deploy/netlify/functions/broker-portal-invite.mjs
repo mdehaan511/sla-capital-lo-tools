@@ -166,7 +166,18 @@ async function handle(req, context) {
   }
 
   // ── the two mix-ups this endpoint exists to end ───────────────────────────
-  if (client && client.email && normalizeEmail(client.email) === email) {
+  // Deploy 237.240 (Mike: "the borrower email is tester@testmail.com") -- on a broker-submitted
+  // application the PARENT client IS the broker (prospects-save files the loan under the
+  // broker and links the real borrower as a guarantor client), so "the borrower's own email"
+  // is the linked guarantor's / the name the broker typed, never the parent's. The first cut
+  // compared against the parent and refused every broker-parent loan.
+  const parentIsBroker = !!(client && client._isBroker &&
+    (loan.brokerId === client.id || loan._isBrokerLoan || (client.email && normalizeEmail(client.email) === email)));
+  const borrowerEmails = [];
+  if (client && !parentIsBroker && client.email) borrowerEmails.push(normalizeEmail(client.email));
+  if (loan && loan.borrowerEmail) borrowerEmails.push(normalizeEmail(loan.borrowerEmail));
+  (loan && Array.isArray(loan.guarantors) ? loan.guarantors : []).forEach((g) => { if (g && g.email) borrowerEmails.push(normalizeEmail(g.email)); });
+  if (borrowerEmails.indexOf(email) >= 0) {
     return json(409, { error: 'The broker email on this loan is the borrower\'s own email (' + email + '). A broker is a separate person with their own address -- fix Broker Info first.' });
   }
   if (/@slacapital\.com$/.test(email)) {

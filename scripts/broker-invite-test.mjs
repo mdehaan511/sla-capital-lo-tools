@@ -124,6 +124,15 @@ console.log('\n/api/broker-portal-invite: the broker gets the partner portal, ne
     if (o.loanPatch) Object.assign(LOAN, o.loanPatch);
     w.blobs['lo1@slacapital.com/c_1'] = { id: 'c_1', firstName: 'Kandiah', lastName: 'Lingan', email: o.clientEmail || 'k@x.com', loans: [LOAN] };
     w.blobs['lo1@slacapital.com/b_9'] = { id: 'b_9', firstName: 'Bo', lastName: 'Broker', email: 'bo@brokerage.com', _isBroker: true, _brokerCompany: 'Bo Co', phone: '555', loans: [] };
+    // A broker-SUBMITTED application: the loan lives under the broker's own record and the
+    // real borrower is a linked guarantor (Mike's 1565 E Farwell test loan).
+    if (o.parentIsBroker) {
+      Object.assign(LOAN, { brokerId: 'b_9', _isBrokerLoan: true, borrowerName: 'JimTest Testerguy', guarantorClientIds: ['c_j'],
+        guarantors: [{ firstName: 'JimTest', lastName: 'Testerguy', email: 'tester@testmail.com', clientId: 'c_j' }] });
+      w.blobs['lo1@slacapital.com/c_1'].loans = [];
+      w.blobs['lo1@slacapital.com/b_9'].loans = [LOAN];
+      if (o.loanPatch) Object.assign(LOAN, o.loanPatch); // the case's own overrides win
+    }
     w.blobs['lo1@slacapital.com/c_plain'] = { id: 'c_plain', firstName: 'Just', lastName: 'Borrower', email: 'jb@x.com', loans: [] };
     if (o.partner) w.partners['bo@brokerage.com'] = o.partner;
     if (o.roleRow) w.roles['bo@brokerage.com'] = o.roleRow;
@@ -198,6 +207,16 @@ console.log('\n/api/broker-portal-invite: the broker gets the partner portal, ne
   w = mkWorld({ roleRow: ['loan_officer'] });
   r = await run(w, 'POST', { loanId: 'l_1', primaryClientId: 'c_1' });
   check('an address with a staff role is refused', [r.status, /team member/.test(r.body.error), w.calls.save.length, w.calls.role.length], [409, true, 0, 0]);
+  // Mike's loan: the parent client IS the broker; the borrower is the linked guarantor.
+  w = mkWorld({ parentIsBroker: true });
+  r = await run(w, 'POST', { loanId: 'l_1', primaryClientId: 'b_9' });
+  check('a broker-SUBMITTED application: the parent client is the broker, so their email is not "the borrower\'s own" -- invited', [r.status, r.body.email, w.partners['bo@brokerage.com'].clientId, w.calls.link.length, w.calls.email.length], [200, 'bo@brokerage.com', 'b_9', 0, 1]);
+  w = mkWorld({ parentIsBroker: true, loanPatch: { guarantors: [{ firstName: 'JimTest', lastName: 'Testerguy', email: 'bo@brokerage.com', clientId: 'c_j' }] } });
+  r = await run(w, 'POST', { loanId: 'l_1', primaryClientId: 'b_9' });
+  check('...but a broker-parent loan whose GUARANTOR carries the broker email is still refused', [r.status, /borrower/.test(r.body.error), w.calls.email.length], [409, true, 0]);
+  w = mkWorld({ parentIsBroker: true, loanPatch: { guarantors: [], borrowerEmail: 'bo@brokerage.com' } });
+  r = await run(w, 'POST', { loanId: 'l_1', primaryClientId: 'b_9' });
+  check('...or whose typed borrower email is the broker email', [r.status, w.calls.email.length], [409, 0]);
 
   // 4. suspended stays suspended
   w = mkWorld({ partner: { email: 'bo@brokerage.com', status: 'suspended', ownerKey: 'x', clientId: 'b_9' } });
