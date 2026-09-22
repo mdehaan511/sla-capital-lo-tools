@@ -262,8 +262,10 @@ export function deriveGuarantorCredit(loan, now) {
   const breakdown = scores.map((s) => s.name + ' ' + s.score + (s.source === 'pull' ? ' (pulled)' : ' (report)')).join(' · ');
   const n = scores.length;
   let wrote = 0;
-  [['lowCredit', low, 'Lowest of the ' + n + ' guarantor' + (n === 1 ? '' : 's') + '\' middle score' + (n === 1 ? '' : 's')],
-   ['middleCredit', high, 'Highest of the ' + n + ' guarantor' + (n === 1 ? '' : 's') + '\' middle score' + (n === 1 ? '' : 's')]].forEach(([key, val, what]) => {
+  // One guarantor: "the guarantor's middle score" (low = middle = that score). Several: "the
+  // 3 guarantors' middle scores". (Deploy 237.225 -- the first cut printed "1 guarantor' ".)
+  const whose = n === 1 ? 'the guarantor\'s middle score' : 'the ' + n + ' guarantors\' middle scores';
+  [['lowCredit', low, 'Lowest of ' + whose], ['middleCredit', high, 'Highest of ' + whose]].forEach(([key, val, what]) => {
     const prior = loan.uwData[key] || null;
     if (prior && prior.verified === true && prior.isAI !== true && prior.derived !== true) return; // a person typed it
     const entry = {

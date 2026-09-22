@@ -127,6 +127,7 @@ console.log('\nLow Credit = lowest middle score of all guarantors; Middle Credit
   W.recordGuarantorScore(loan, { name: 'Kandiah Lingan', mid: 723, source: 'xactus', at: NOW });
   W.deriveGuarantorCredit(loan, NOW);
   check('one guarantor pulled: low = middle = that score, verified', [loan.uwData.lowCredit.value, loan.uwData.middleCredit.value, loan.uwData.lowCredit.verified, loan.uwData.lowCredit.isAI], ['723', '723', true, false]);
+  check('...and it reads as English', loan.uwData.lowCredit.sourceNote, 'Lowest of the guarantor\'s middle score — Kandiah Lingan 723 (pulled)');
   loan.uwData['guarantorMidCredit__g1'] = { value: '678', guarantorName: 'Jane Doe', isAI: true, verified: false };
   W.deriveGuarantorCredit(loan, NOW);
   check('a second guarantor\'s report: low is the LOWER middle, middle is the HIGHER', [loan.uwData.lowCredit.value, loan.uwData.middleCredit.value], ['678', '723']);
