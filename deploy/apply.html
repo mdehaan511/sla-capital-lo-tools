@@ -100,6 +100,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 @media(max-width:560px){.card-body{grid-template-columns:1fr}.card-body .span2{grid-column:1}}
 </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
 
@@ -442,7 +443,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             <div class="field span2" style="grid-column:1/-1">
               <div class="wrap" id="wrap-currentLoanAmt">
                 <label>Current Loan Amount <span class="req">*</span></label>
-                <input type="text" inputmode="decimal" id="currentLoanAmt" placeholder="$0" oninput="clearE('currentLoanAmt'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+                <input data-money type="text" inputmode="decimal" id="currentLoanAmt" placeholder="$0" oninput="clearE('currentLoanAmt'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
               </div>
               <div class="err-msg" id="err-currentLoanAmt">Required</div>
             </div>
@@ -472,7 +473,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="field" id="field-purchaseLabel">
           <div class="wrap" id="wrap-purchasePrice">
             <label id="lbl-purchasePrice">Purchase Price / Loan Amount <span class="req">*</span></label>
-            <input type="text" inputmode="decimal" id="purchasePrice" placeholder="$0" oninput="clearE('purchasePrice'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+            <input data-money type="text" inputmode="decimal" id="purchasePrice" placeholder="$0" oninput="clearE('purchasePrice'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
           </div>
           <div class="err-msg" id="err-purchasePrice">Required</div>
         </div>
@@ -484,7 +485,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="field" id="field-propertyValue">
           <div class="wrap" id="wrap-propertyValue">
             <label id="lbl-propertyValue">Property Value / ARV <span class="req">*</span></label>
-            <input type="text" inputmode="decimal" id="propertyValue" placeholder="$0" oninput="clearE('propertyValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+            <input data-money type="text" inputmode="decimal" id="propertyValue" placeholder="$0" oninput="clearE('propertyValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
           </div>
           <div class="err-msg" id="err-propertyValue">Required</div>
         </div>
@@ -496,14 +497,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-rehabCost">
               <label>Estimated Renovation Cost <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="rehabCost" placeholder="$0" oninput="clearE('rehabCost'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="rehabCost" placeholder="$0" oninput="clearE('rehabCost'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-rehabCost">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-estimatedARV">
               <label>Estimated After-Repair Value <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="estimatedARV" placeholder="$0" oninput="clearE('estimatedARV'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="estimatedARV" placeholder="$0" oninput="clearE('estimatedARV'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-estimatedARV">Required</div>
           </div>
@@ -539,21 +540,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             <div class="field span2" style="grid-column:1/-1">
               <div class="wrap">
                 <label>Current Loan on the Land (if any)</label>
-                <input type="text" inputmode="decimal" id="landDebt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+                <input data-money type="text" inputmode="decimal" id="landDebt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
               </div>
             </div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-constructionBudget">
               <label>Estimated Construction Budget <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="constructionBudget" placeholder="$0" oninput="clearE('constructionBudget'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="constructionBudget" placeholder="$0" oninput="clearE('constructionBudget'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-constructionBudget">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-completedValue">
               <label>Estimated Completed Value <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="completedValue" placeholder="$0" oninput="clearE('completedValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="completedValue" placeholder="$0" oninput="clearE('completedValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-completedValue">Required</div>
           </div>
@@ -602,7 +603,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-monthlyRent">
               <label>Monthly Rent <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="monthlyRent" placeholder="$0" oninput="clearE('monthlyRent'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="monthlyRent" placeholder="$0" oninput="clearE('monthlyRent'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-monthlyRent">Required</div>
           </div>
@@ -612,21 +613,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-monthlyTaxes">
               <label>Monthly Taxes <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="monthlyTaxes" placeholder="$0" oninput="clearE('monthlyTaxes'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="monthlyTaxes" placeholder="$0" oninput="clearE('monthlyTaxes'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-monthlyTaxes">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-monthlyInsurance">
               <label>Monthly Insurance <span class="req">*</span></label>
-              <input type="text" inputmode="decimal" id="monthlyInsurance" placeholder="$0" oninput="clearE('monthlyInsurance'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="monthlyInsurance" placeholder="$0" oninput="clearE('monthlyInsurance'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-monthlyInsurance">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
               <label>Monthly HOA (if applicable)</label>
-              <input type="text" inputmode="decimal" id="monthlyHOA" placeholder="$0" oninput="clearE('monthlyHOA'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="monthlyHOA" placeholder="$0" oninput="clearE('monthlyHOA'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
           </div>
         </div>
@@ -654,18 +655,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
               <label>Other Monthly Income (laundry, parking, etc.)</label>
-              <input type="text" inputmode="decimal" id="otherIncomeMo" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              <input data-money type="text" inputmode="decimal" id="otherIncomeMo" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
           </div>
           <div class="section-lbl" style="grid-column:1/-1;font-size:11px">Annual Operating Expenses (best estimates — your loan officer will refine)</div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Real Estate Taxes</label><input type="text" inputmode="decimal" id="opexTaxes" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Insurance</label><input type="text" inputmode="decimal" id="opexInsurance" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Flood Insurance</label><input type="text" inputmode="decimal" id="opexFlood" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Utilities</label><input type="text" inputmode="decimal" id="opexUtilities" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Repairs &amp; Maintenance</label><input type="text" inputmode="decimal" id="opexRepairs" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Management Fee</label><input type="text" inputmode="decimal" id="opexMgmt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>HOA / Special Assessment</label><input type="text" inputmode="decimal" id="opexHOA" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Landscaping</label><input type="text" inputmode="decimal" id="opexLandscaping" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Real Estate Taxes</label><input data-money type="text" inputmode="decimal" id="opexTaxes" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Insurance</label><input data-money type="text" inputmode="decimal" id="opexInsurance" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Flood Insurance</label><input data-money type="text" inputmode="decimal" id="opexFlood" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Utilities</label><input data-money type="text" inputmode="decimal" id="opexUtilities" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Repairs &amp; Maintenance</label><input data-money type="text" inputmode="decimal" id="opexRepairs" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Management Fee</label><input data-money type="text" inputmode="decimal" id="opexMgmt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>HOA / Special Assessment</label><input data-money type="text" inputmode="decimal" id="opexHOA" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Landscaping</label><input data-money type="text" inputmode="decimal" id="opexLandscaping" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
         </div>
 
         <div class="divider" style="grid-column:1/-1"></div>
@@ -1034,17 +1035,17 @@ function _portfolioPropHtml(i, p){
       '<div class="field"><div class="wrap"><label>Square Footage</label>'+
         '<input type="number" id="pf_'+i+'_sqft" min="0" step="50" value="'+_esc(p.sqft)+'"></div></div>'+
       '<div class="field"><div class="wrap"><label>Property Value</label>'+
-        '<input type="text" inputmode="decimal" id="pf_'+i+'_propValue" value="'+_pfMoney(p.propValue)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+        '<input data-money type="text" inputmode="decimal" id="pf_'+i+'_propValue" value="'+_pfMoney(p.propValue)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Existing Debt</label>'+
-        '<input type="text" inputmode="decimal" id="pf_'+i+'_existingDebt" value="'+_pfMoney(p.existingDebt)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+        '<input data-money type="text" inputmode="decimal" id="pf_'+i+'_existingDebt" value="'+_pfMoney(p.existingDebt)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Monthly Rent</label>'+
-        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyRent" value="'+_pfMoney(p.monthlyRent)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+        '<input data-money type="text" inputmode="decimal" id="pf_'+i+'_monthlyRent" value="'+_pfMoney(p.monthlyRent)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Monthly Taxes</label>'+
-        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyTaxes" value="'+_pfMoney(p.monthlyTaxes)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+        '<input data-money type="text" inputmode="decimal" id="pf_'+i+'_monthlyTaxes" value="'+_pfMoney(p.monthlyTaxes)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Monthly Insurance</label>'+
-        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyInsurance" value="'+_pfMoney(p.monthlyInsurance)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+        '<input data-money type="text" inputmode="decimal" id="pf_'+i+'_monthlyInsurance" value="'+_pfMoney(p.monthlyInsurance)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Monthly HOA</label>'+
-        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyHoa" value="'+_pfMoney(p.monthlyHoa)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+        '<input data-money type="text" inputmode="decimal" id="pf_'+i+'_monthlyHoa" value="'+_pfMoney(p.monthlyHoa)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
     '</div>'+
   '</div>';
 }

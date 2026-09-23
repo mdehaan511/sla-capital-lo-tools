@@ -411,6 +411,7 @@
     .admin-fee-add { margin-top: 8px; font-size: 12px; font-weight: 600; padding: 8px 14px; border: 1px dashed var(--border); border-radius: var(--r-xs); background: transparent; color: var(--gold-mid); cursor: pointer; font-family: inherit; }
     .admin-fee-add:hover { border-color: var(--gold-mid); }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
 
@@ -619,13 +620,13 @@ var getFICOMin = SLA_DSCR.getFICOMin;
       <div class="field">
         <div class="wrap">
           <label>Loan Amount <span class="req">*</span></label>
-          <input type="number" id="loanAmt" placeholder="" min="0" step="1000" />
+          <input data-money inputmode="decimal" type="text" id="loanAmt" placeholder="" min="0" step="1000" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
           <label>Est. Value / Purchase Price <span class="req">*</span></label>
-          <input type="number" id="propValue" placeholder="" min="0" step="1000" />
+          <input data-money inputmode="decimal" type="text" id="propValue" placeholder="" min="0" step="1000" />
         </div>
       </div>
 
@@ -678,7 +679,7 @@ var getFICOMin = SLA_DSCR.getFICOMin;
       <div class="field" id="field-currentLoanAmt" style="display:none">
         <div class="wrap">
           <label>Current Loan Amount <span class="req">*</span></label>
-          <input type="number" id="currentLoanAmt" placeholder="" min="0" step="1000" oninput="run()" />
+          <input data-money inputmode="decimal" type="text" id="currentLoanAmt" placeholder="" min="0" step="1000" oninput="run()" />
         </div>
       </div>
 
@@ -720,25 +721,25 @@ var getFICOMin = SLA_DSCR.getFICOMin;
       <div class="field">
         <div class="wrap">
           <label>Monthly Gross Rent <span class="req">*</span></label>
-          <input type="number" id="rent" placeholder="" min="0" />
+          <input data-money inputmode="decimal" type="text" id="rent" placeholder="" min="0" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
           <label>Monthly Taxes</label>
-          <input type="number" id="taxes" placeholder="" min="0" />
+          <input data-money inputmode="decimal" type="text" id="taxes" placeholder="" min="0" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
           <label>Monthly Insurance</label>
-          <input type="number" id="insurance" placeholder="" min="0" />
+          <input data-money inputmode="decimal" type="text" id="insurance" placeholder="" min="0" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
           <label>Monthly HOA</label>
-          <input type="number" id="hoa" placeholder="" min="0" />
+          <input data-money inputmode="decimal" type="text" id="hoa" placeholder="" min="0" />
         </div>
       </div>
 
@@ -814,7 +815,7 @@ var getFICOMin = SLA_DSCR.getFICOMin;
         <div class="field">
           <div class="wrap">
             <label>Broker Processing Fee ($)</label>
-            <input type="number" id="brokerProcFee" min="0" step="1" placeholder="e.g. 995" oninput="onBrokerFeeChange();run()" />
+            <input data-money inputmode="decimal" type="text" id="brokerProcFee" min="0" step="1" placeholder="$995" oninput="onBrokerFeeChange();run()" />
           </div>
         </div>
         <div class="broker-fields" id="brokerFields" style="display:none">
@@ -1610,7 +1611,7 @@ function renderAdminFeeList() {
   window._dscrAdminFees.forEach(function (f, i) {
     html += '<div class="admin-fee-row">' +
       '<div class="field afl-field"><div class="wrap"><input type="text" placeholder="Fee label" value="' + _escAttr(f.label) + '" oninput="_dscrAdminFeeSet(' + i + ',\'label\',this.value)" /></div></div>' +
-      '<div class="field afa-field"><div class="wrap"><input type="number" step="1" min="0" placeholder="$0" value="' + _escAttr(f.amount) + '" oninput="_dscrAdminFeeSet(' + i + ',\'amount\',this.value)" /></div></div>' +
+      '<div class="field afa-field"><div class="wrap"><input type="text" inputmode="decimal" data-money placeholder="$0" value="' + _escAttr(f.amount) + '" oninput="_dscrAdminFeeSet(' + i + ',\'amount\',this.value)" /></div></div>' +
       '<button type="button" class="afx" title="Remove" onclick="removeAdminFeeRow(' + i + ')">&times;</button>' +
     '</div>';
   });

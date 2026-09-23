@@ -149,6 +149,7 @@
       font-family:inherit; font-size:14px; font-weight:600; cursor:pointer; }
     .printbtn:disabled { opacity:.45; cursor:default; }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking your access.</div></div>
@@ -475,7 +476,8 @@ function renderFields(){
         return '<option value="'+escH(o[0])+'"'+(f.def===o[0]?' selected':'')+'>'+escH(o[1])+'</option>';
       }).join('') + '</select>';
     } else {
-      html += '<input type="number" id="fld_'+f.k+'" value="'+escH(f.def||'')+'" />';
+      // Deploy 237.252 -- money fields are currency inputs (sla-money.js formats them)
+      html += '<input ' + (f.t === 'money' ? 'type="text" inputmode="decimal" data-money' : 'type="number"') + ' id="fld_'+f.k+'" value="'+escH(f.def||'')+'" />';
     }
     html += '</div>';
   });

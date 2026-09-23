@@ -1875,10 +1875,10 @@ function render() {
         var ib = _ldInterestBits(l, l.fundingDate || '', '');
         var ro = ' disabled style="background:var(--bg,#f0ece5);color:var(--muted)"';
         return '<div class="field"><label>Daily Interest <span style="text-transform:none;font-weight:400;color:var(--muted)">(30/360)</span></label>' +
-            '<input type="text" id="lt-dailyInterest" value="' + escAttr(ib.dailyText) + '" title="Loan amount × note rate ÷ 360"' + ro + ' />' +
+            '<input data-money inputmode="decimal" type="text" id="lt-dailyInterest" value="' + escAttr(ib.dailyText) + '" title="Loan amount × note rate ÷ 360"' + ro + ' />' +
             '<div id="lt-dailyInterestHint" style="font-size:11px;color:var(--muted);margin-top:3px">' + escH(ib.baseText) + '</div></div>' +
           '<div class="field"><label>Prepaid Interest <span style="text-transform:none;font-weight:400;color:var(--muted)">(to the 1st)</span></label>' +
-            '<input type="text" id="lt-prepaidInterest" value="' + escAttr(ib.prepaidText) + '" title="Daily interest × the 30/360 days from the Closing Date to the 1st of the next month"' + ro + ' />' +
+            '<input data-money inputmode="decimal" type="text" id="lt-prepaidInterest" value="' + escAttr(ib.prepaidText) + '" title="Daily interest × the 30/360 days from the Closing Date to the 1st of the next month"' + ro + ' />' +
             '<div id="lt-prepaidInterestHint" style="font-size:11px;color:var(--muted);margin-top:3px">' + escH(ib.daysText) + '</div></div>';
       })() : '') +
       // Deploy 236.647 — Holdback (= Rehab Budget, already in Financials), Initial
@@ -2121,23 +2121,23 @@ function render() {
       // AIV/ARV BPO labels (BPOs are the bridge-side valuation product).
       '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. ' + (isDscr ? 'The Appraised Value drives the loan terms.' : 'AIV / ARV BPO values drive the loan terms.') + '</div>' +
       '<div class="app-grid">' +
-        '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>As-Is Value (borrower)</label><input data-money type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
         // Deploy 236.767 (Mike) — once a BPO has been read, AIV/ARV BPO are the
         // BPO's own numbers and are LOCKED here; clicking explains why. Upload a
         // corrected BPO to change them. (DSCR keeps the editable Appraised Value.)
         '<div class="field"><label>' + (isDscr ? 'Appraised Value' : 'AIV BPO') +
           (_aivBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' :
             ((!isDscr && l.aivBpoUwOverride) ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(set by underwriting)</span>' : '')) + // Deploy 237.246
-        '</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal"' +
+        '</label><input data-money type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal"' +
           (_aivBpoLocked ? _BPO_LOCK_ATTRS('AIV BPO') : ' onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)"') +
         ' placeholder="$" /></div>' +
         (!isDscr ? '<div class="field"><label>ARV BPO' +
           (_arvBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' :
             (l.arvBpoUwOverride ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(set by underwriting)</span>' : '')) + // Deploy 237.246
-        '</label><input type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal"' +
+        '</label><input data-money type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal"' +
           (_arvBpoLocked ? _BPO_LOCK_ATTRS('ARV BPO') : ' onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)"') +
         ' placeholder="$" /></div>' : '') +
-        '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Existing Debt</label><input data-money type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>' +
       '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Carrying Costs <span id="pc-carryModeLabel" style="text-transform:none;font-weight:500;letter-spacing:0">(monthly)</span></h3>' +
       '<div style="display:inline-flex;border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;margin-bottom:12px">' +
@@ -2145,9 +2145,9 @@ function render() {
         '<button type="button" id="pc-carryAnnualBtn" class="pc-seg" onclick="pcCarryToggle(\'annual\')">Annual</button>' +
       '</div>' +
       '<div class="app-grid">' +
-        '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_ldUsdInput(_mTaxes)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_ldUsdInput(_mIns)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_ldUsdInput(_mHoa)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Property Taxes</label><input data-money type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_ldUsdInput(_mTaxes)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Insurance</label><input data-money type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_ldUsdInput(_mIns)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>HOA</label><input data-money type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_ldUsdInput(_mHoa)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>'
       )) +
       // Deploy 236.655 / 236.657 — Portfolio properties: Portfolio Total (first,
@@ -2171,7 +2171,9 @@ function render() {
   // portfolio Property/Collateral model.
   if (l.mfProgram && !l.isPortfolio) {
     var _mfFld = function (id, label, val, ph) {
-      return '<div class="field"><label>' + label + '</label><input type="number" id="mfx-' + id + '" value="' + escAttr(val == null ? '' : val) + '" placeholder="' + (ph || '0') + '" min="0" /></div>';
+      // Deploy 237.252 -- every MF figure but the two unit counts is money (sla-money.js formats it)
+      var _mfMoney = !(id === 'numUnits' || id === 'unitsOccupied');
+      return '<div class="field"><label>' + label + '</label><input ' + (_mfMoney ? 'type="text" inputmode="decimal" data-money' : 'type="number"') + ' id="mfx-' + id + '" value="' + escAttr(val == null ? '' : val) + '" placeholder="' + (ph || (_mfMoney ? '$0' : '0')) + '" min="0" /></div>';
     };
     var _mfAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
     html += '<div class="section" id="mfOpexSection">' +
@@ -2204,9 +2206,9 @@ function render() {
       // DSCR = appraisal product, hence "Appraised Value" (not BPO).
       '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
       '<div class="app-grid">' +
-        '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>Appraised Value</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>As-Is Value (borrower)</label><input data-money type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Appraised Value</label><input data-money type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Existing Debt</label><input data-money type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="saveMfOpex()">Save MF Operating Statement</button>' +
@@ -2635,9 +2637,9 @@ function render() {
             '</select>' +
           '</div>' +
           '<div class="field"><label>Boarded Date</label><input type="date" id="sv-boardedDate" value="' + escAttr(l.boardedDate || '') + '" /></div>' +
-          '<div class="field"><label>Payment Amount</label><input type="text" id="sv-paymentAmount" value="' + escAttr(l.paymentAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
-          '<div class="field"><label>Total UPB</label><input type="text" id="sv-upb" value="' + escAttr(l.upb || '') + '" placeholder="$" inputmode="decimal" /></div>' +
-          '<div class="field"><label>Payoff Amount</label><input type="text" id="sv-payoffAmount" value="' + escAttr(l.payoffAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+          '<div class="field"><label>Payment Amount</label><input data-money type="text" id="sv-paymentAmount" value="' + escAttr(l.paymentAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+          '<div class="field"><label>Total UPB</label><input data-money type="text" id="sv-upb" value="' + escAttr(l.upb || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+          '<div class="field"><label>Payoff Amount</label><input data-money type="text" id="sv-payoffAmount" value="' + escAttr(l.payoffAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
           '<div class="field"><label>Payoff Date</label><input type="date" id="sv-payoffDate" value="' + escAttr(l.payoffDate || '') + '" /></div>' +
           // Deploy 236.978 (Mike) — Investor is a dropdown fed by the same
           // admin-managed Investors book as the Closing tab's Funding Plan.
@@ -6589,7 +6591,7 @@ function openLoanFinInlineEdit(field) {
       return '<option value="' + escAttr(o.value) + '"' + sel + '>' + escH(o.label) + '</option>';
     }).join('') + '</select>';
   } else if (field.kind === 'money') {
-    inputHtml = '<input id="finEditInput" type="number" step="1000" value="' + escAttr(current) + '" />';
+    inputHtml = '<input id="finEditInput" type="text" inputmode="decimal" data-money value="' + escAttr(current) + '" />'; // Deploy 237.252 -- currency input
   } else if (field.kind === 'int') {
     var minAttr = (field.min != null) ? ' min="' + field.min + '"' : '';
     var maxAttr = (field.max != null) ? ' max="' + field.max + '"' : '';
@@ -9341,13 +9343,13 @@ function _pfPanelHtml(i, p, active) {
       '<div class="field"><label>Sq Footage</label><input type="number" id="pfp_' + i + '_sqft" min="0" value="' + escAttr(p.sqft || '') + '" oninput="pfRecalcTotals()" /></div>' +
       // Deploy 236.657 — per-property valuation (Mike): Property Value, Appraised
       // Value, Existing Debt. Summed on the Portfolio Total tab.
-      '<div class="field"><label>Property Value</label><input type="text" inputmode="decimal" id="pfp_' + i + '_propValue" value="' + escAttr(p.propValue || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
-      '<div class="field"><label>Appraised Value</label><input type="text" inputmode="decimal" id="pfp_' + i + '_appraisedValue" value="' + escAttr(p.appraisedValue || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
-      '<div class="field"><label>Existing Debt</label><input type="text" inputmode="decimal" id="pfp_' + i + '_existingDebt" value="' + escAttr(p.existingDebt || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
-      '<div class="field"><label>Monthly Rent</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyRent" value="' + escAttr(p.monthlyRent || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
-      '<div class="field"><label>Monthly Taxes</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyTaxes" value="' + escAttr(p.monthlyTaxes || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
-      '<div class="field"><label>Monthly Insurance</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyInsurance" value="' + escAttr(p.monthlyInsurance || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
-      '<div class="field"><label>Monthly HOA</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyHoa" value="' + escAttr(p.monthlyHoa || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Property Value</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_propValue" value="' + escAttr(p.propValue || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Appraised Value</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_appraisedValue" value="' + escAttr(p.appraisedValue || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Existing Debt</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_existingDebt" value="' + escAttr(p.existingDebt || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly Rent</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_monthlyRent" value="' + escAttr(p.monthlyRent || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly Taxes</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_monthlyTaxes" value="' + escAttr(p.monthlyTaxes || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly Insurance</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_monthlyInsurance" value="' + escAttr(p.monthlyInsurance || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly HOA</label><input data-money type="text" inputmode="decimal" id="pfp_' + i + '_monthlyHoa" value="' + escAttr(p.monthlyHoa || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
     '</div>' +
   '</div>';
 }
@@ -9572,7 +9574,7 @@ function renderClosingPanel(l) {
       '<div class="app-grid" style="margin-top:16px">' +
         '<div class="field"><label>Title / Escrow Company</label><input type="text" id="cl-titleCompany" value="' + escAttr(obj.titleCompany || '') + '" maxlength="120" /></div>' +
         '<div class="field"><label>Title Contact</label><input type="text" id="cl-titleContact" value="' + escAttr(obj.titleContact || '') + '" placeholder="name / phone / email" maxlength="120" /></div>' +
-        '<div class="field"><label>Wire Amount</label><input type="text" id="cl-wireAmount" value="' + escAttr(obj.wireAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+        '<div class="field"><label>Wire Amount</label><input data-money type="text" id="cl-wireAmount" value="' + escAttr(obj.wireAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
         '<div class="field"><label>Scheduled Funding Date</label><input type="date" id="cl-scheduledFundingDate" value="' + escAttr(obj.scheduledFundingDate || '') + '" /></div>' +
       '</div>' +
       '<div class="field" style="margin-top:12px"><label>Closing Notes</label><textarea id="cl-notes" rows="2" placeholder="wire instructions confirmed, funding conditions, etc.">' + escH(obj.notes || '') + '</textarea></div>' +

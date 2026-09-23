@@ -450,6 +450,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
 .admin-fee-add { margin-top: 8px; font-size: 12px; font-weight: 600; padding: 8px 14px; border: 1px dashed var(--border); border-radius: var(--r-xs); background: transparent; color: var(--gold-mid); cursor: pointer; font-family: inherit; }
 .admin-fee-add:hover { border-color: var(--gold-mid); }
 </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
 
@@ -660,7 +661,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field" id="field-transactionalAmt" style="display:none">
         <div class="wrap">
           <label>Loan Amount <span class="req">*</span></label>
-          <input type="number" id="transactionalAmt" min="0" step="1000" placeholder="e.g. 250000" oninput="autoCalc()" />
+          <input data-money inputmode="decimal" type="text" id="transactionalAmt" min="0" step="1000" placeholder="$250,000" oninput="autoCalc()" />
         </div>
       </div>
       <div class="field">
@@ -745,7 +746,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field">
         <div class="wrap" id="wrap-purchasePrice">
           <label id="lbl-purchasePrice">Purchase Price <span class="req">*</span></label>
-          <input type="number" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');_syncTargetsToPurchase();autoCalc()" />
+          <input data-money inputmode="decimal" type="text" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');_syncTargetsToPurchase();autoCalc()" />
         </div>
         <div class="err-msg" id="err-purchasePrice">Required</div>
       </div>
@@ -757,20 +758,20 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field">
         <div class="wrap" id="wrap-aivBpo">
           <label>BPO As-Is Value (AIV) <span style="font-weight:400;color:var(--muted);text-transform:none">— optional</span></label>
-          <input type="number" id="aivBpo" step="1000" oninput="autoCalc()" placeholder="From BPO / appraisal" />
+          <input data-money inputmode="decimal" type="text" id="aivBpo" step="1000" oninput="autoCalc()" placeholder="From BPO / appraisal" />
         </div>
       </div>
       <div class="field" id="row-rehab">
         <div class="wrap" id="wrap-rehabBudget">
           <label>Rehab Budget <span class="req">*</span></label>
-          <input type="number" id="rehabBudget" step="5000" oninput="clearErr('rehabBudget');autoCalc()" />
+          <input data-money inputmode="decimal" type="text" id="rehabBudget" step="5000" oninput="clearErr('rehabBudget');autoCalc()" />
         </div>
         <div class="err-msg" id="err-rehabBudget">Required for this loan type</div>
       </div>
       <div class="field span2">
         <div class="wrap" id="wrap-arv">
           <label id="lbl-arv">After-Repair Value (ARV) <span class="req">*</span></label>
-          <input type="number" id="arv" step="5000" oninput="clearErr('arv');autoCalc()" />
+          <input data-money inputmode="decimal" type="text" id="arv" step="5000" oninput="clearErr('arv');autoCalc()" />
         </div>
         <div class="err-msg" id="err-arv">Required</div>
       </div>
@@ -780,7 +781,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field span2" id="field-currentLoanAmtRtl" style="display:none">
         <div class="wrap">
           <label>Current Loan Amount <span class="req">*</span></label>
-          <input type="number" id="currentLoanAmt" min="0" step="1000" oninput="autoCalc()" />
+          <input data-money inputmode="decimal" type="text" id="currentLoanAmt" min="0" step="1000" oninput="autoCalc()" />
         </div>
       </div>
 
@@ -793,7 +794,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field">
         <div class="wrap" id="wrap-targetLoanAmt">
           <label>Target Loan Amount <span style="font-size:11px;color:var(--muted);font-weight:400">(optional)</span></label>
-          <input type="number" id="targetLoanAmt" min="0" step="1000" placeholder="Leave blank for max"
+          <input type="text" inputmode="decimal" data-money id="targetLoanAmt" placeholder="Leave blank for max"
             oninput="onTargetLoanAmtInput();autoCalc()" />
         </div>
       </div>
@@ -831,7 +832,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
         <div class="field span2">
           <div class="wrap">
             <label>Broker Processing Fee ($)</label>
-            <input type="number" id="brokerProcFee" min="0" step="1" placeholder="e.g. 995" oninput="onBrokerFeeChange();autoCalc()" />
+            <input data-money inputmode="decimal" type="text" id="brokerProcFee" min="0" step="1" placeholder="$995" oninput="onBrokerFeeChange();autoCalc()" />
           </div>
         </div>
         <div class="broker-fields span2" id="brokerFields" style="display:none">
@@ -1340,7 +1341,7 @@ function renderAdminFeeList() {
   window._rtlAdminFees.forEach(function (f, i) {
     html += '<div class="admin-fee-row">' +
       '<div class="field afl-field"><div class="wrap"><input type="text" placeholder="Fee label" value="' + _rtlEscAttr(f.label) + '" oninput="_rtlAdminFeeSet(' + i + ',\'label\',this.value)" /></div></div>' +
-      '<div class="field afa-field"><div class="wrap"><input type="number" step="1" min="0" placeholder="$0" value="' + _rtlEscAttr(f.amount) + '" oninput="_rtlAdminFeeSet(' + i + ',\'amount\',this.value)" /></div></div>' +
+      '<div class="field afa-field"><div class="wrap"><input type="text" inputmode="decimal" data-money placeholder="$0" value="' + _rtlEscAttr(f.amount) + '" oninput="_rtlAdminFeeSet(' + i + ',\'amount\',this.value)" /></div></div>' +
       '<button type="button" class="afx" title="Remove" onclick="removeAdminFeeRow(' + i + ')">&times;</button>' +
     '</div>';
   });

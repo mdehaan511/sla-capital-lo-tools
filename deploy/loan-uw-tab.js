@@ -364,7 +364,7 @@
       + '<div class="uw-r-value uw-acct'+(unverAI?' uw-unverified':'')+'" data-key="'+escA(f.key)+'">'
       +   '<div class="uw-acct-row">'
       +     '<select class="uw-acct-type" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')">'+opts+'</select>'
-      +     '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="'+escA(val.balance!=null&&val.balance!==''?money(val.balance):'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
+      +     '<input class="uw-acct-bal" type="text" inputmode="decimal" data-money placeholder="balance" value="'+escA(val.balance!=null&&val.balance!==''?money(val.balance):'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
       +     '<input class="uw-acct-wt" type="text" placeholder="wt %" value="'+escA(wDisp)+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" title="weight % (defaults from type)" />'
       +   '</div>'
       +   (entry ? '<span class="uw-prov">'+esc(provText(entry))+confirmBtn+'</span>' : '')
@@ -460,7 +460,7 @@
     } else if (t.kind === 'date') {
       html = '<input class="uw-edit-input" type="date" value="' + escA(cur) + '" />';
     } else if (t.kind === 'money') {
-      html = '<input class="uw-edit-input" type="text" inputmode="decimal" value="' + escA(cur !== '' ? num(cur) : '') + '" />';
+      html = '<input class="uw-edit-input" type="text" inputmode="decimal" data-money value="' + escA(cur !== '' ? num(cur) : '') + '" />'; // Deploy 237.252 -- currency input
     } else {
       html = '<input class="uw-edit-input" type="text" value="' + escA(cur) + '" />';
     }

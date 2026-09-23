@@ -266,6 +266,7 @@
       .btn, button { min-height: 40px; }
     }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
@@ -379,7 +380,7 @@
         <div class="nl-fld"><label>Borrower Phone</label><input type="tel" id="nlPhone" /></div>
         <div class="nl-fld" style="grid-column:1/-1"><label>Property Address <span style="color:var(--danger)">*</span></label><input type="text" id="nlAddress" placeholder="123 Main St, City, ST 00000" /></div>
         <div class="nl-fld"><label>Loan Type</label><select id="nlToolType"><option value="dscr">DSCR</option><option value="rtl">RTL / Bridge / Fix &amp; Flip</option></select></div>
-        <div class="nl-fld"><label>Loan Amount</label><input type="text" id="nlLoanAmt" placeholder="$" inputmode="decimal" /></div>
+        <div class="nl-fld"><label>Loan Amount</label><input data-money type="text" id="nlLoanAmt" placeholder="$" inputmode="decimal" /></div>
         <div class="nl-fld"><label>Starting Stage</label><select id="nlStage"><option value="new_loan">Intake</option><option value="processing">Processing</option><option value="underwriting">Underwriting</option><option value="pp_approved">Cleared to Close</option></select></div>
         <div class="nl-fld"><label>Assign Processor</label><select id="nlProcessor"><option value="">— Unassigned —</option></select></div>
       </div>

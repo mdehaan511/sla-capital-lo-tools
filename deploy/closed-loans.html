@@ -172,6 +172,7 @@
     .svc-btn.primary { background: var(--dark); border-color: var(--dark); color: #fff; }
     .svc-btn:disabled { opacity: 0.5; cursor: wait; }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
@@ -1709,8 +1710,8 @@ function openExtensionModal(clientId, loanId, ownerKey){
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   document.getElementById('svcGrid').innerHTML =
     '<div class="svc-fld"><label>New Maturity Date <span class="req">*</span></label><input type="date" id="ext_newMaturityDate" value="'+escAttr(nmStr)+'" /></div>'+
-    '<div class="svc-fld"><label>Extension Fee (1% of original)</label><input type="text" id="ext_fee" value="'+escAttr(String(fee))+'" /></div>'+
-    '<div class="svc-fld"><label>Current UPB</label><input type="text" id="ext_upb" value="'+escAttr(String(l.upb!=null&&l.upb!==''?l.upb:origAmt))+'" /></div>'+
+    '<div class="svc-fld"><label>Extension Fee (1% of original)</label><input data-money inputmode="decimal" type="text" id="ext_fee" value="'+escAttr(String(fee))+'" /></div>'+
+    '<div class="svc-fld"><label>Current UPB</label><input data-money inputmode="decimal" type="text" id="ext_upb" value="'+escAttr(String(l.upb!=null&&l.upb!==''?l.upb:origAmt))+'" /></div>'+
     '<div class="svc-fld"><label>Fee Handling</label><select id="ext_feeHandling">'+
       '<option value="at_signing">Paid at time of signing</option>'+
       '<option value="add_to_principal">Added to principal balance</option>'+
@@ -1820,7 +1821,7 @@ function _closeOutHtml(it, typeVal, keepInvestor){
     html += '<div class="svc-fld"><label>TPO Spread (points) <span class="req">*</span> <span class="svc-hint">' + (tpo!=='' ? 'from Closing tab' : 'not set on the Closing tab — enter it') + '</span></label>' +
         '<input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" placeholder="e.g. 1.5" inputmode="decimal" oninput="_validateRequired()" /></div>' +
       '<div class="svc-fld"><label>Closing Fees <span class="svc-hint" id="co_feesHint">' + escH(fees.hint) + '</span></label>' +
-        '<input type="text" id="co_closingFees" data-auto="' + (fees.fromLoan ? '0' : '1') + '" value="'+escAttr(String(fees.amount))+'" inputmode="decimal" oninput="this.setAttribute(\'data-auto\',\'0\')" /></div>';
+        '<input data-money type="text" id="co_closingFees" data-auto="' + (fees.fromLoan ? '0' : '1') + '" value="'+escAttr(String(fees.amount))+'" inputmode="decimal" oninput="this.setAttribute(\'data-auto\',\'0\')" /></div>';
   } else {
     html += '<div class="svc-fld" style="grid-column:1/-1"><div class="cl-note" style="margin:0">Select the loan type to continue.</div></div>';
   }
@@ -2583,7 +2584,7 @@ function _pmtHistoryHtml(it){
     body = ''+
       '<div class="row3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;max-width:760px">' +
         '<div class="field"><label>Charge code</label><input type="text" id="fc_code_' + escAttr(key) + '" placeholder="e.g. LATE" style="width:100%"></div>' +
-        '<div class="field"><label>Amount ($)</label><input type="text" id="fc_amt_' + escAttr(key) + '" inputmode="decimal" placeholder="e.g. 150.00" style="width:100%"></div>' +
+        '<div class="field"><label>Amount ($)</label><input data-money type="text" id="fc_amt_' + escAttr(key) + '" inputmode="decimal" placeholder="e.g. 150.00" style="width:100%"></div>' +
         '<div class="field"><label>Charge date</label><input type="date" id="fc_date_' + escAttr(key) + '" value="' + today + '" style="width:100%"></div>' +
         '<div class="field" style="grid-column:1/-1"><label>Comments (optional)</label><input type="text" id="fc_note_' + escAttr(key) + '" placeholder="Why this charge" style="width:100%"></div>' +
         '<div class="field"><label>Paid by</label><select id="fc_paidby_' + escAttr(key) + '" style="width:100%"><option value="Borrower">Borrower</option><option value="Lender">Lender</option></select></div>' +

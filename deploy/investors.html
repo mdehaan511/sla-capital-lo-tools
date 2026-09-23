@@ -99,6 +99,7 @@
     .inv-readonly #imSaveBtn { display: none !important; }
     .inv-readonly .inv-row { cursor: default; }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking access.</div></div>
@@ -138,7 +139,7 @@
         <div class="vm-field"><label>Contact Phone</label><input type="tel" id="imPocPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)"></div>
         <div class="vm-field full"><label>Contact Email</label><input type="email" id="imPocEmail" placeholder="name@investor.com"></div>
         <!-- Deploy 237.016 (Mike): closing fees vary by investor; prefills Close Out (still editable there). -->
-        <div class="vm-field"><label>Closing Fees ($)</label><input type="text" id="imClosingFees" inputmode="decimal" placeholder="e.g. 2395 — blank = rate sheet"></div>
+        <div class="vm-field"><label>Closing Fees ($)</label><input data-money type="text" id="imClosingFees" inputmode="decimal" placeholder="$2,395 — blank = rate sheet"></div>
         <div class="vm-field full"><label>Buy-Box / Criteria</label><textarea id="imCriteria" placeholder="What they buy — product types, LTV/DSCR limits, states, min/max loan, etc."></textarea></div>
         <div class="vm-field full"><label>Notes</label><textarea id="imNotes" placeholder="Anything else worth remembering"></textarea></div>
       </div>

@@ -117,6 +117,7 @@
     .modal-btn.primary { background: var(--success); border-color: var(--success); color: #fff; }
     .modal-btn.primary:hover { background: #1f5836; }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
 
@@ -171,7 +172,7 @@
     <div class="field-row">
       <div class="field">
         <label>Final Loan Amount</label>
-        <input type="number" id="editAmt" placeholder="0" step="any" oninput="updatePreview()" />
+        <input data-money inputmode="decimal" type="text" id="editAmt" placeholder="0" step="any" oninput="updatePreview()" />
       </div>
       <div class="field">
         <label>Commission Rate (bps)</label>

@@ -127,6 +127,7 @@
     .fa-note { font-size: 12px; color: var(--muted, #7a7488); line-height: 1.5; }
     @media (max-width: 700px) { .page { padding: 18px 12px 40px; } }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
@@ -689,7 +690,7 @@ function openVerify(k) {
     '<div class="small" style="margin-bottom:12px">' + esc(r.kindLabel) + ' — ' + esc(who) + '<br>' +
       acctHtml(r.from) + ' → ' + acctHtml(r.to) + '<br>Expected ' + money(r.amount) + ' on ' + esc(mdy(r.date)) + '</div>' +
     '<div class="row2">' +
-      '<div class="fld"><label>Amount on the statement</label><input id="vAmt" inputmode="decimal" value="' + r.amount.toFixed(2) + '" /></div>' +
+      '<div class="fld"><label>Amount on the statement</label><input data-money type="text" id="vAmt" inputmode="decimal" value="' + r.amount.toFixed(2) + '" /></div>' +
       '<div class="fld"><label>Date on the statement</label><input type="date" id="vDate" value="' + esc(r.date <= _data.today ? r.date : _data.today) + '" /></div>' +
     '</div>' +
     '<div class="fld"><label>Note (optional)</label><input id="vNote" maxlength="500" placeholder="e.g. wire ref, per-diem difference" /></div>',
@@ -806,7 +807,7 @@ function openManual(i) {
   var opts = (_data.loanOptions || []).map(function (o) { return '<option value="' + esc(o.label) + '"></option>'; }).join('');
   modal(r ? 'Edit manual entry' : 'Manual entry',
     '<div class="row2"><div class="fld"><label>Date</label><input type="date" id="mDate" value="' + esc(m.date || '') + '" /></div>' +
-      '<div class="fld"><label>Amount</label><input id="mAmt" inputmode="decimal" value="' + (m.amount ? Number(m.amount).toFixed(2) : '') + '" /></div></div>' +
+      '<div class="fld"><label>Amount</label><input data-money type="text" id="mAmt" inputmode="decimal" value="' + (m.amount ? Number(m.amount).toFixed(2) : '') + '" /></div></div>' +
     '<div class="row2"><div class="fld"><label>From</label>' + sideSelect('mFrom', m.fromAccountId, m.fromLabel) + '</div>' +
       '<div class="fld"><label>To</label>' + sideSelect('mTo', m.toAccountId, m.toLabel) + '</div></div>' +
     '<div class="fld"><label>Memo</label><input id="mMemo" maxlength="300" value="' + esc(m.memo || '') + '" placeholder="e.g. KAF capital call, wire correction" /></div>' +

@@ -318,6 +318,24 @@ Pre-Claude-Code workflow (legacy, no longer in use): zips under
 
 ---
 
+## Money inputs (Deploy 237.252)
+
+Every input that holds a dollar amount -- present and future -- is written as
+
+```html
+<input type="text" inputmode="decimal" data-money id="loanAmt" />
+```
+
+and nothing else. `sla-money.js` (loaded in the `<head>` of every page that has one)
+formats it as currency ("$650,000", "$1,234.56") at rest and while typing, and
+overrides that element's `value` getter so `el.value` still reads the plain number:
+existing `parseFloat(el.value)` readers need no change, and `el.value = 650000`
+displays formatted. Inputs rendered later are picked up automatically. Never
+`type="number"` for money (a number input refuses "$1,234"). The gate
+`scripts/money-inputs-test.mjs` fails on any money-looking input (id with amt, price,
+rent, fee, budget, balance, payoff, …) that lacks `data-money`, and on any page that
+has one but does not load the script; a genuinely non-money id goes in its allowlist.
+
 ## Things to be careful with
 
 - **Don't break public URLs**. `apply.html?lo=<email>`, signing links

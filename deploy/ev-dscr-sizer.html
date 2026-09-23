@@ -103,6 +103,7 @@
     .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
     .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9900; padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff; }
   </style>
+  <script src="/sla-money.js?v=237252"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
@@ -145,8 +146,8 @@
           </select></div>
         </div>
         <div class="row2">
-          <div class="fld"><label>Purchase price</label><input id="purchasePrice" inputmode="decimal" value="450,000" oninput="calc()" /></div>
-          <div class="fld"><label>Underwritten value</label><input id="value" inputmode="decimal" value="450,000" oninput="calc()" /></div>
+          <div class="fld"><label>Purchase price</label><input data-money type="text" id="purchasePrice" inputmode="decimal" value="450,000" oninput="calc()" /></div>
+          <div class="fld"><label>Underwritten value</label><input data-money type="text" id="value" inputmode="decimal" value="450,000" oninput="calc()" /></div>
         </div>
         <div class="row2">
           <div class="fld"><label>Closing costs (% of price)</label><input id="closingCostPct" inputmode="decimal" value="0" oninput="calc()" /></div>
@@ -161,21 +162,21 @@
 
         <div class="grp">Income &amp; expenses (monthly)</div>
         <div class="row2">
-          <div class="fld"><label>Qualifying rent</label><input id="rent" inputmode="decimal" value="6,500" oninput="calc()" /></div>
-          <div class="fld"><label>Taxes</label><input id="taxes" inputmode="decimal" value="1,000" oninput="calc()" /></div>
+          <div class="fld"><label>Qualifying rent</label><input data-money type="text" id="rent" inputmode="decimal" value="6,500" oninput="calc()" /></div>
+          <div class="fld"><label>Taxes</label><input data-money type="text" id="taxes" inputmode="decimal" value="1,000" oninput="calc()" /></div>
         </div>
         <div class="row2">
-          <div class="fld"><label>Hazard insurance</label><input id="insurance" inputmode="decimal" value="291.67" oninput="calc()" /></div>
-          <div class="fld"><label>Flood insurance</label><input id="flood" inputmode="decimal" value="83.33" oninput="calc()" /></div>
+          <div class="fld"><label>Hazard insurance</label><input data-money type="text" id="insurance" inputmode="decimal" value="291.67" oninput="calc()" /></div>
+          <div class="fld"><label>Flood insurance</label><input data-money type="text" id="flood" inputmode="decimal" value="83.33" oninput="calc()" /></div>
         </div>
         <div class="row2">
-          <div class="fld"><label>HOA</label><input id="hoa" inputmode="decimal" value="0" oninput="calc()" /></div>
-          <div class="fld"><label>Operating expenses (5-9 units)</label><input id="opex" inputmode="decimal" value="0" oninput="calc()" /></div>
+          <div class="fld"><label>HOA</label><input data-money type="text" id="hoa" inputmode="decimal" value="0" oninput="calc()" /></div>
+          <div class="fld"><label>Operating expenses (5-9 units)</label><input data-money type="text" id="opex" inputmode="decimal" value="0" oninput="calc()" /></div>
         </div>
 
         <div class="grp">Loan structure</div>
         <div class="row2">
-          <div class="fld"><label>Requested loan amount</label><input id="loanAmt" inputmode="decimal" placeholder="max" oninput="calc()" /></div>
+          <div class="fld"><label>Requested loan amount</label><input data-money type="text" id="loanAmt" inputmode="decimal" placeholder="max" oninput="calc()" /></div>
           <div class="fld"><label>&nbsp;</label><button class="btn ghost" style="width:100%" onclick="useMax()">Use max</button></div>
         </div>
         <div class="row2">

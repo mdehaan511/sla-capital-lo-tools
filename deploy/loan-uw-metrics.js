@@ -521,7 +521,7 @@
       '<input class="uw-acct-name" type="text" placeholder="What it is (e.g. Chase Business Checking)" value="' + escA(a.name || '') + '"' + on + ' />' +
       '<input class="uw-acct-last4" type="text" inputmode="numeric" maxlength="4" placeholder="Last 4" title="Last four digits of the account number" value="' + escA(a.last4 || '') + '"' + on + ' />' +
       '<select class="uw-acct-type"' + on + '>' + opts + '</select>' +
-      '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="Balance" value="' + escA(a.balance !== '' && a.balance != null ? money(a.balance) : '') + '"' + on + ' />' +
+      '<input class="uw-acct-bal" type="text" inputmode="decimal" data-money placeholder="Balance" value="' + escA(a.balance !== '' && a.balance != null ? money(a.balance) : '') + '"' + on + ' />' +
       '<input class="uw-acct-wt" type="text" placeholder="Wt %" title="weight % (defaults from the type)" value="' + escA(a.weight === '' || a.weight == null ? '' : (num(a.weight) * 100) + '%') + '"' + on + ' />' +
       '<span class="uwm-acct-btns">' +
         '<a href="#" class="uwm-acct-cancel" onclick="event.stopPropagation();SLA_UW_METRICS._cancelAcct(\'' + escA(r.key) + '\');return false">Cancel</a>' +
@@ -615,7 +615,7 @@
     if (!vspan || cell.querySelector('.uw-edit-input')) return;
     var loan = _ctxLoan() || {};
     var cur = whatIfArv(loan) || num(loan.arvBpo) || num(loan.arv);
-    vspan.innerHTML = '<input class="uw-edit-input" type="text" inputmode="decimal" value="' + escA(cur > 0 ? cur : '') + '" placeholder="ARV to try" />';
+    vspan.innerHTML = '<input class="uw-edit-input" type="text" inputmode="decimal" data-money value="' + escA(cur > 0 ? cur : '') + '" placeholder="ARV to try" />';
     var inp = vspan.querySelector('.uw-edit-input'), done = false;
     function finish(apply) { if (done) return; done = true; if (apply) _applyArv(inp.value); else repaint(); }
     try { inp.focus(); if (inp.select) inp.select(); } catch (_) {}
