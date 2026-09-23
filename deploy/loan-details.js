@@ -9070,7 +9070,7 @@ function _ldBpoLocked(label) {
     'To change it, upload a corrected BPO in the Documents tab.');
 }
 
-function _ldMoneyFocus(el) { if (el) el.value = String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, ''); }
+function _ldMoneyFocus(el) { if (el && el._slaMoney) return; /* Deploy 237.253 -- sla-money.js owns it */ if (el) el.value = String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, ''); }
 function _ldMoneyBlur(el)  { if (el) el.value = _ldUsdInput(el.value); }
 function _pcFmt(n) {
   // Carrying-cost display (also used by the monthly/annual toggle) — now USD.

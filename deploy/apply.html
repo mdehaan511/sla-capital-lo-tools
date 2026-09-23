@@ -1133,6 +1133,7 @@ function gv(id) {
 // ── Money formatting helpers (#2) ──────────────────────────
 // Strategy: keep raw numeric in mind; show "$1,234" on blur; "1234" on focus.
 function applyMoneyMask(el) {
+  if (el && el._slaMoney) return; // Deploy 237.253 -- sla-money.js owns this input (a mask that resets the value moves the caret to the end)
   // While typing, keep just digits + one decimal point; allow user to type freely
   var raw = String(el.value || '').replace(/[^0-9.]/g, '');
   // Limit to one decimal point
@@ -1141,6 +1142,7 @@ function applyMoneyMask(el) {
   el.value = raw;
 }
 function moneyFocus(el) {
+  if (el && el._slaMoney) return; // Deploy 237.253 -- sla-money.js owns this input (a mask that resets the value moves the caret to the end)
   // Strip $, commas — show plain number for editing
   el.value = String(el.value || '').replace(/[^0-9.]/g, '');
 }

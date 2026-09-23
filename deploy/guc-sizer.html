@@ -2049,6 +2049,7 @@ function _money(v){
 }
 function maskMoney(el){
   if (!el) return;
+  if (el && el._slaMoney) return; // Deploy 237.253 -- sla-money.js owns this input (a mask that resets the value moves the caret to the end)
   var raw = String(el.value || '').replace(/[^0-9]/g, '');
   el.value = raw === '' ? '' : '$' + Number(raw).toLocaleString('en-US');
 }
