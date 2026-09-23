@@ -11,6 +11,12 @@ import {
 } from './_shared/native-esign.mjs';
 // Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
 import { checkRateLimit } from './_shared/rate-limit.mjs';
+// Deploy 237.256 -- the Loan Application's own consent package, shown on the signer page when
+// the envelope carries the application (term-sheet-sign.html reads INFO.docs[].kind).
+import {
+  ESIGN_CONSENT_VERSION, ESIGN_CONSENT_TEXT, LOAN_ACKNOWLEDGEMENT_TEXT, PREQUAL_CREDIT_AUTH_TEXT, INFO_RELEASE_AUTH_TEXT,
+  ESIGN_CHECKBOX_LABEL, LOAN_ACK_CHECKBOX_LABEL, PREQUAL_CHECKBOX_LABEL, INFO_RELEASE_CHECKBOX_LABEL,
+} from './_shared/esign.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -23,5 +29,14 @@ export default async (req, context) => {
     version: TERMSHEET_CONSENT_VERSION,
     text: TERMSHEET_CONSENT_TEXT,
     checkboxLabel: TERMSHEET_CONSENT_LABEL,
+    application: { // Deploy 237.256
+      version: ESIGN_CONSENT_VERSION,
+      sections: [
+        { key: 'esign',   title: 'Loan Application \u2014 Electronic Signature Consent', text: ESIGN_CONSENT_TEXT,        checkboxLabel: ESIGN_CHECKBOX_LABEL },
+        { key: 'ack',     title: 'Loan Application \u2014 Acknowledgement and Agreement', text: LOAN_ACKNOWLEDGEMENT_TEXT, checkboxLabel: LOAN_ACK_CHECKBOX_LABEL },
+        { key: 'prequal', title: 'Credit Authorization',                              text: PREQUAL_CREDIT_AUTH_TEXT,   checkboxLabel: PREQUAL_CHECKBOX_LABEL },
+        { key: 'release', title: 'Information Release Authorization',                 text: INFO_RELEASE_AUTH_TEXT,     checkboxLabel: INFO_RELEASE_CHECKBOX_LABEL },
+      ],
+    },
   });
 };

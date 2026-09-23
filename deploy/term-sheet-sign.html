@@ -141,6 +141,7 @@ function renderForm() {
   html += '<h1>Review and Sign</h1>';
   html += '<p>' + escH(INFO.loName || 'Your loan officer') + ' at SLA Capital has prepared the document(s) below for your electronic signature. ' +
           'Please review each document, then complete the signature block at the bottom.</p>';
+  if (packetHasApp()) html += '<p style="font-size:13px;color:#6b6478;margin:-6px 0 0">This packet includes your <strong>Loan Application</strong>. Signing here signs the application itself; you will not be asked to sign it again.</p>';
   html += '</div>';
 
   html += '<div class="summary-card">';
@@ -176,6 +177,22 @@ function renderForm() {
     '<input type="checkbox" id="esignCheck" onchange="updateBtn()" />' +
     '<label for="esignCheck">' + escH(CONSENT.checkboxLabel) + '</label>' +
   '</div>';
+  // Deploy 237.256 -- a packet that carries the Loan Application: its own consent package
+  // (electronic signature, the acknowledgement, the credit authorization, the information
+  // release), the same four a borrower accepts on the long form. One typed signature then
+  // signs every document above, and the application's signature counts.
+  if (packetHasApp() && CONSENT.application && Array.isArray(CONSENT.application.sections)) {
+    html += '<div class="section-title">Loan Application \u2014 Consents and Authorizations</div>';
+    html += '<p style="font-size:13px;color:#6b6478;margin:0 0 10px">The Loan Application in this packet is signed with the same authorizations as the application form. Please read and accept each one.</p>';
+    CONSENT.application.sections.forEach(function(sec, i) {
+      html += '<div class="section-title" style="font-size:13px">' + escH(sec.title || '') + '</div>';
+      html += '<div class="consent-box">' + escH(sec.text || '') + '</div>';
+      html += '<div class="consent-row">' +
+        '<input type="checkbox" class="appConsentCheck" id="appConsent' + i + '" onchange="updateBtn()" />' +
+        '<label for="appConsent' + i + '">' + escH(sec.checkboxLabel || 'I agree.') + '</label>' +
+      '</div>';
+    });
+  }
 
   var defaultName = (INFO.signer.firstName + ' ' + INFO.signer.lastName).trim();
   html += '<div class="sig-block">' +
@@ -196,7 +213,15 @@ function updateBtn() {
   if (!btn) return;
   var es = document.getElementById('esignCheck');
   var nm = document.getElementById('sigName');
-  btn.disabled = !(es && es.checked && nm && nm.value.trim().length >= 3);
+  // Deploy 237.256 -- every Loan Application consent box too, when the packet carries it
+  var appBoxes = document.querySelectorAll('.appConsentCheck');
+  var appOk = true;
+  for (var i = 0; i < appBoxes.length; i++) { if (!appBoxes[i].checked) { appOk = false; break; } }
+  btn.disabled = !(es && es.checked && appOk && nm && nm.value.trim().length >= 3);
+}
+// Deploy 237.256 -- does this envelope carry the Loan Application?
+function packetHasApp() {
+  return !!(INFO && Array.isArray(INFO.docs) && INFO.docs.some(function(d) { return d && d.kind === 'loan_app'; }));
 }
 
 function signNow() {
@@ -233,6 +258,9 @@ function signNow() {
         signerName: nm.value.trim(),
         consentAccepted: true,
         consentVersion: CONSENT.version,
+        // Deploy 237.256 -- the Loan Application's consents ride along when the packet carries it
+        appConsentAccepted: packetHasApp() ? true : undefined,
+        appConsentVersion: packetHasApp() && CONSENT.application ? CONSENT.application.version : undefined,
         geolocation: geo,
       }),
     }).then(function(r) {

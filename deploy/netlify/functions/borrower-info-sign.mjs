@@ -90,13 +90,15 @@ function _mark(label) {
 // "application completed" emails. Raise to 22s (≈4s of margin under the
 // 26s kill for the signature write + return) so housekeeping runs.
 const SIGN_DEADLINE_MS = 22000;
+let _deadlineMs = SIGN_DEADLINE_MS; // Deploy 237.256 -- the packet path runs in a background function (15 min)
 function _pastDeadline() {
-  return (Date.now() - _signT0) > SIGN_DEADLINE_MS;
+  return (Date.now() - _signT0) > _deadlineMs;
 }
 
 export default async (req, context) => {
   _signT0 = Date.now();
   _marks = [];
+  _deadlineMs = SIGN_DEADLINE_MS;
   try {
     return await handle(req, context);
   } catch (e) {
@@ -107,6 +109,39 @@ export default async (req, context) => {
 
 // Pre-signature abort: nothing durable has been written yet, so a
 // clean retryable error carrying our own timings beats a platform 504.
+// Deploy 237.256 (Mike: "The packet signature counts") -- the e-sign packet's signature, applied
+// to the application on file. Called by application-packet-complete-background.mjs with the
+// audit context the signer produced on the packet (name, IP, user agent, geolocation). Same
+// handler, same record, same seal, same downstream (co-signer tokens, property sync, advance
+// to processing, LO notify) -- only the delivery differs: no token to resolve (the record is
+// handed in), no rate limit, no borrower courtesy copy (the envelope emails the stamped
+// packet), no co-signer invite emails (they signed the packet; the orchestrator applies
+// their signatures with the tokens this returns).
+export async function signApplicationInternal({ record, recordKey, signerName, signerEmail, ip, ua, geolocation, envelopeId }) {
+  _signT0 = Date.now();
+  _marks = [];
+  _deadlineMs = 14 * 60 * 1000;
+  const body = {
+    t: '', signerName: String(signerName || '').trim(), signerEmail: String(signerEmail || '').toLowerCase().trim(),
+    consentAccepted: true, consentVersion: ESIGN_CONSENT_VERSION,
+    geolocation: String(geolocation || ''), sendBorrowerCopy: false,
+  };
+  const hdrs = { 'x-nf-client-connection-ip': String(ip || ''), 'user-agent': String(ua || ''), 'content-type': 'application/json' };
+  const req = {
+    method: 'POST', url: (process.env.URL || 'https://portal.slacapital.ai') + '/api/borrower-info-sign',
+    headers: { get: (k) => hdrs[String(k || '').toLowerCase()] || '' },
+    text: async () => JSON.stringify(body),
+  };
+  try {
+    const resp = await handle(req, null, { packet: { envelopeId: String(envelopeId || ''), preResolved: { record, recordKey } } });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status !== 200) return { ok: false, status: resp.status, error: data.error || ('HTTP ' + resp.status) };
+    return Object.assign({ ok: true }, data);
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || 'unknown' };
+  }
+}
+
 function _deadlineAbort(where) {
   console.warn('[sign-timing] DEADLINE pre-signature at ' + where + ' — ' + _marks.join(' | '));
   return json(503, {
@@ -115,17 +150,20 @@ function _deadlineAbort(where) {
   });
 }
 
-async function handle(req) {
+async function handle(req, context, opts) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
-  const _rl = await checkRateLimit(req, null, { bucket: 'binfo-sign', max: 30, windowSec: 300 });
-  if (!_rl.allowed) {
-    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  const packet = (opts && opts.packet) || null; // Deploy 237.256 -- see signApplicationInternal
+  if (!packet) {
+    const _rl = await checkRateLimit(req, null, { bucket: 'binfo-sign', max: 30, windowSec: 300 });
+    if (!_rl.allowed) {
+      return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+    }
   }
 
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });
-  if (!body.t)               return json(400, { error: 'Missing token' });
+  if (!body.t && !packet)    return json(400, { error: 'Missing token' });
   if (!body.signerName || !body.signerName.trim())
                              return json(400, { error: 'Signer name is required' });
   if (!body.consentAccepted) return json(400, { error: 'ESIGN/UETA consent must be accepted' });
@@ -146,10 +184,16 @@ async function handle(req) {
   // after the LO resent the application, which used to ROTATE the token —
   // now fails fast with an actionable message instead of walking the
   // whole store into a 504.
-  const resolved = await resolveByToken(biStore, body.t);
-  record = resolved.record;
-  recordKey = resolved.recordKey;
-  _mark('token-resolved found=' + !!record + ' timedOut=' + resolved.timedOut);
+  if (packet && packet.preResolved && packet.preResolved.record) {
+    record = packet.preResolved.record;      // Deploy 237.256 -- handed in by the packet orchestrator
+    recordKey = packet.preResolved.recordKey;
+    _mark('packet-record-preresolved');
+  } else {
+    const resolved = await resolveByToken(biStore, body.t);
+    record = resolved.record;
+    recordKey = resolved.recordKey;
+    _mark('token-resolved found=' + !!record + ' timedOut=' + resolved.timedOut);
+  }
   if (!record) {
     return json(404, {
       error: 'This signing link is no longer active — it may have been replaced by a newer email. ' +
@@ -684,6 +728,7 @@ async function handle(req) {
       // the only routing key (the auth endpoints find the right
       // borrowerN field from the token index).
       for (const sb of secondaryBlocks) {
+        if (packet) continue; // Deploy 237.256 -- they signed the packet; the orchestrator applies their signatures
         const sent = await emailBorrower2AuthLink({
           toEmail: sb.block.email,
           toName: sb.block.name,
@@ -780,6 +825,9 @@ async function handle(req) {
     ok: true,
     signedAt,
     status: pdfStatus,
+    // Deploy 237.256 -- what the packet orchestrator needs to apply the co-signers' signatures
+    signedKey: packet ? signedKey : undefined,
+    secondaryTokens: packet ? secondaryBlocks.map((sb) => ({ pos: sb.pos, token: sb.token, email: sb.block.email })) : undefined,
     emailedBorrower: emailedB1,
     borrowerCopySuppressed: suppressBorrowerCopy,
     emailedCoBorrower: emailedB2,

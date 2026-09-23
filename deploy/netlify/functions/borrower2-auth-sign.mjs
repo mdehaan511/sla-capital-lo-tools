@@ -43,12 +43,40 @@ export default async (req, context) => {
   }
 };
 
-async function handle(req) {
+// Deploy 237.256 (Mike: "The packet signature counts") -- a co-signer's packet signature applied
+// with the token borrower 1's signature minted. Same handler, same audit, same re-render and
+// completion; no rate limit (internal), and the signed-copy email still goes out (it is the
+// final application with every signature, which the packet's stamped copy is not).
+export async function signCosignerInternal({ token, signerName, ip, ua, geolocation, envelopeId }) {
+  const body = {
+    t: String(token || ''), signerName: String(signerName || '').trim(),
+    consentAccepted: true, consentVersion: ESIGN_CONSENT_VERSION, geolocation: String(geolocation || ''),
+  };
+  const hdrs = { 'x-nf-client-connection-ip': String(ip || ''), 'user-agent': String(ua || ''), 'content-type': 'application/json' };
+  const req = {
+    method: 'POST', url: (process.env.URL || 'https://portal.slacapital.ai') + '/api/borrower2-auth-sign',
+    headers: { get: (k) => hdrs[String(k || '').toLowerCase()] || '' },
+    text: async () => JSON.stringify(body),
+  };
+  try {
+    const resp = await handle(req, null, { packet: { envelopeId: String(envelopeId || '') } });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status !== 200) return { ok: false, status: resp.status, error: data.error || ('HTTP ' + resp.status) };
+    return Object.assign({ ok: true }, data);
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || 'unknown' };
+  }
+}
+
+async function handle(req, context, opts) {
+  const packet = (opts && opts.packet) || null; // Deploy 237.256
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
-  const _rl = await checkRateLimit(req, null, { bucket: 'b2-sign', max: 30, windowSec: 300 });
-  if (!_rl.allowed) {
-    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  if (!packet) {
+    const _rl = await checkRateLimit(req, null, { bucket: 'b2-sign', max: 30, windowSec: 300 });
+    if (!_rl.allowed) {
+      return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+    }
   }
 
   const body = await readJsonBody(req);

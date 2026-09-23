@@ -12398,10 +12398,62 @@ function openRateSheetPartyModal(v) {
 // signer — the party the gate picked (primary borrower or a guarantor).
 // Falls back to _client so the pre-236.846 behaviour is unchanged whenever
 // the gate couldn't run.
+// Deploy 237.256 (Mike) -- the Loan Application can ride in the same packet. The option shows
+// only when a long-form application is on file for this loan and not yet signed; its signers
+// are the application's own parties (borrower 1 + every co-guarantor it names with an email),
+// because the packet signature COUNTS as the application's signature.
+var _esPacketParties = null;
+function _esLoadPacketOption() {
+  var row = document.getElementById('esIncludeAppRow');
+  var cb = document.getElementById('esIncludeApp');
+  var hint = document.getElementById('esIncludeAppHint');
+  var list = document.getElementById('esPacketSigners');
+  if (!row || !cb) return;
+  _esPacketParties = null;
+  cb.checked = false; cb.disabled = true; row.style.display = 'none';
+  if (list) { list.style.display = 'none'; list.innerHTML = ''; }
+  if (!_client || !_loanId || !window.SLA || !SLA.BorrowerInfo) return;
+  var opts = { loanId: _loanId };
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+  SLA.BorrowerInfo.status(_client.id, opts).catch(function() { return null; }).then(function(st) {
+    if (!st || !st.exists) { row.style.display = ''; hint.textContent = '(no application on file for this loan)'; return; }
+    if (st.status === 'complete' || st.signedAt || st.b1SignedAt) { row.style.display = ''; hint.textContent = '(already signed)'; return; }
+    var gs = (st.data && Array.isArray(st.data.guarantors)) ? st.data.guarantors : [];
+    var num = Math.max(1, Math.min(4, parseInt(String((st.data && st.data.numGuarantors) || '1'), 10) || 1));
+    var g0 = gs[0] || {};
+    var parties = [{ pos: 1, firstName: String(g0.firstName || _client.firstName || '').trim(), lastName: String(g0.lastName || _client.lastName || '').trim(), email: String(g0.email || st.borrowerEmail || _client.email || '').toLowerCase().trim() }];
+    for (var p = 2; p <= num; p++) {
+      var g = gs[p - 1];
+      if (!g || !String(g.email || '').trim()) continue;
+      parties.push({ pos: p, firstName: String(g.firstName || '').trim(), lastName: String(g.lastName || '').trim(), email: String(g.email || '').toLowerCase().trim() });
+    }
+    var noEmail = parties.filter(function(x) { return !x.email; });
+    row.style.display = '';
+    if (noEmail.length) { hint.textContent = '(the application names a party with no email \u2014 add it on the application first)'; return; }
+    _esPacketParties = parties;
+    cb.disabled = false;
+    hint.textContent = parties.length === 1 ? '(signed by the borrower on it)' : '(signed by all ' + parties.length + ' people on it)';
+  });
+}
+function _esPacketToggled() {
+  var cb = document.getElementById('esIncludeApp');
+  var list = document.getElementById('esPacketSigners');
+  var title = document.getElementById('esTitle');
+  var on = !!(cb && cb.checked && _esPacketParties);
+  if (title) title.textContent = on ? 'Send Rate Sheet + Loan Application for Signature' : 'Send Rate Sheet for Signature';
+  if (!list) return;
+  if (!on) { list.style.display = 'none'; list.innerHTML = ''; return; }
+  list.innerHTML = 'Signers, from the application: ' + _esPacketParties.map(function(p) {
+    return '<b>' + escH((p.firstName + ' ' + p.lastName).trim() || ('Borrower ' + p.pos)) + '</b> &lt;' + escH(p.email) + '&gt;';
+  }).join(', ') + '. Each gets their own link; one signature signs both documents.';
+  list.style.display = '';
+}
 function _esOpenModal(signer) {
   var who = signer || _client || {};
   document.getElementById('esDocRateSheet').checked = true;
   document.getElementById('esDocLoanApp').checked = false;
+  _esLoadPacketOption(); // Deploy 237.256
+  _esPacketToggled();
   document.getElementById('esMessage').value = '';
   document.getElementById('esStatusMsg').textContent = '';
   document.getElementById('esStatusMsg').className = 'bi-status';
@@ -12561,6 +12613,13 @@ function esSubmit() {
     email:     em || ('no-email-' + (_loanId || 'loan').slice(-8) + '@unspecified.sla'),
   }];
 
+  // Deploy 237.256 -- the packet: the Loan Application rides along (rendered server-side from
+  // the application on file) and the signers are the application's parties, not the typed one.
+  var includeApp = !!(document.getElementById('esIncludeApp') && document.getElementById('esIncludeApp').checked && _esPacketParties);
+  if (includeApp) {
+    docs.push({ kind: 'loan_app', name: 'Loan Application \u2014 ' + (_loan.address || 'No address') });
+    signers = _esPacketParties.map(function(p) { return { firstName: p.firstName, lastName: p.lastName, email: p.email }; });
+  }
   var btn = document.getElementById('esSendBtn');
   btn.disabled = true;
   btn.textContent = sendEmail ? 'Sending…' : 'Generating…';
@@ -12604,7 +12663,7 @@ function esSubmit() {
         };
       }
       return d;
-    }).filter(function(d) { return !!d.pdfBase64; });
+    }).filter(function(d) { return !!d.pdfBase64 || d.kind === 'loan_app'; }); // Deploy 237.256 -- the application renders server-side
 
     if (docsToSend.length === 0) {
       btn.disabled = false;

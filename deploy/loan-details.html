@@ -620,8 +620,8 @@
      reads them (esDocRateSheet checked, esDocLoanApp unchecked). -->
 <div class="bi-modal-bg" id="esignModal">
   <div class="bi-modal" style="max-width:560px">
-    <h3>Send Rate Sheet for Signature</h3>
-    <p class="bi-sub">Generates a secure link the borrower uses to review and electronically sign the rate sheet. Email it directly, or copy the link to text it from your phone.</p>
+    <h3 id="esTitle">Send Rate Sheet for Signature</h3>
+    <p class="bi-sub" id="esSub">Generates a secure link the borrower uses to review and electronically sign the rate sheet. Email it directly, or copy the link to text it from your phone.</p>
 
     <div id="esContent" style="margin-top:14px">
       <div class="bi-link-row" id="esLinkRow" style="display:none">
@@ -638,6 +638,15 @@
             <input type="text" id="esSignerLast" placeholder="Last name" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px" />
           </div>
         </div>
+        <!-- Deploy 237.256 (Mike: "send the current Rate Sheet and Loan Application together in a
+             single email for e-signing ... The packet signature counts.") -- the Loan Application
+             rides in the same envelope, signed by exactly the people the application names; the
+             signature counts as the application's own (see application-packet-complete-background). -->
+        <label class="bi-checkbox" id="esIncludeAppRow" style="display:none">
+          <input type="checkbox" id="esIncludeApp" onchange="_esPacketToggled()" />
+          <span>Include the Loan Application in this packet <span id="esIncludeAppHint" style="color:var(--muted);font-weight:400"></span></span>
+        </label>
+        <div id="esPacketSigners" style="display:none;font-size:12px;color:var(--muted);margin:2px 0 10px 26px;line-height:1.5"></div>
         <label class="bi-checkbox">
           <input type="checkbox" id="esSendEmailCb" checked />
           <span>Email this link to the borrower</span>
@@ -1372,6 +1381,6 @@
      rather than carrying a second copy of that arithmetic. Must load BEFORE
      loan-details.js uses it. -->
 <script src="/lo-comp.js?v=237250"></script>
-<script src="/loan-details.js?v=237255"></script>
+<script src="/loan-details.js?v=237256"></script>
 </body>
 </html>

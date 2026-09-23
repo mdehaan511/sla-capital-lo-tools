@@ -41,6 +41,10 @@ import { hashPdf } from './_shared/native-esign.mjs';
 // Deploy 236.846 — one shared definition of "is this rate sheet signable?".
 // Browser twin lives at the bottom of deploy/sla-api.js (window.SLARateSheet).
 import { rateSheetSignable, isBroker, brokerOf } from './_shared/rate-sheet-signable.mjs';
+// Deploy 237.256 (Mike: "send the current Rate Sheet and Loan Application together in a
+// single email for e-signing") -- the Loan Application in a packet is rendered HERE from the
+// application on file; no application bytes come through the browser.
+import { renderUnsignedApplicationForLoan } from './_shared/loan-application-unsigned.mjs';
 
 const VALID_DOC_KINDS = new Set(['rate_sheet', 'loan_app']);
 
@@ -96,7 +100,7 @@ async function handleCreate(req, context, user) {
     if (!d || !VALID_DOC_KINDS.has(d.kind)) {
       return json(400, { error: 'Invalid document kind: ' + (d && d.kind) });
     }
-    if (!d.pdfBase64) {
+    if (!d.pdfBase64 && d.kind !== 'loan_app') { // Deploy 237.256 -- a loan_app renders below
       return json(400, { error: 'Each document must include pdfBase64 bytes' });
     }
   }
@@ -180,6 +184,42 @@ async function handleCreate(req, context, user) {
     return json(500, { error: 'Could not load loan record' });
   }
 
+  // Deploy 237.256 -- the Loan Application in the packet: rendered from the application on
+  // file (unsigned, every party listed), and signed by exactly the application's parties --
+  // the same people the long form would have asked, so the packet signature can COUNT as the
+  // application's signature (application-packet-complete-background.mjs).
+  let applicationMeta = null;
+  const appIdx = docs.findIndex((d) => d.kind === 'loan_app' && !d.pdfBase64);
+  if (appIdx >= 0) {
+    const meta = (user && user.user_metadata) || {};
+    const r = await renderUnsignedApplicationForLoan({
+      ownerKey, clientId: String(body.clientId), loanId: String(body.loanId),
+      enteredBy: { name: meta.full_name || meta.fullName || user.email || '', email: user.email || '', at: new Date().toISOString() },
+    });
+    if (!r.ok) return json(r.status || 500, { code: 'loan_app_unavailable', error: r.error });
+    const parties = r.parties;
+    const partyLabel = (p) => ((p.firstName + ' ' + p.lastName).trim() || 'Borrower ' + p.pos) + (p.email ? ' <' + p.email + '>' : '');
+    const noEmail = parties.filter((p) => !p.email);
+    if (noEmail.length) {
+      return json(409, { code: 'loan_app_party_no_email', error: 'The Loan Application names a party with no email: ' + noEmail.map(partyLabel).join(', ') + '. Add it on the application before sending the packet.', parties });
+    }
+    const signerEmails = signers.map((s) => normalizeEmail(s.email));
+    const missing = parties.filter((p) => signerEmails.indexOf(p.email) < 0);
+    if (missing.length) {
+      return json(409, { code: 'loan_app_signers', error: 'The Loan Application has to be signed by everyone on it. Missing from this packet: ' + missing.map(partyLabel).join(', ') + '.', parties });
+    }
+    const extra = signerEmails.filter((e) => !parties.some((p) => p.email === e));
+    if (extra.length) {
+      return json(409, { code: 'loan_app_signers', error: 'Only the people on the Loan Application can sign it. Not on the application: ' + extra.join(', ') + '.', parties });
+    }
+    docs[appIdx] = Object.assign({}, docs[appIdx], {
+      pdfBase64: r.pdfBuffer.toString('base64'),
+      name: docs[appIdx].name || ('Loan Application \u2014 ' + String((r.loan && r.loan.address) || '')).trim(),
+      source: 'longapp',
+    });
+    applicationMeta = { parties, renderedAt: new Date().toISOString() };
+  }
+
   const now = new Date().toISOString();
   const envelopeId = genId();
 
@@ -207,7 +247,9 @@ async function handleCreate(req, context, user) {
       // "Borrower Signature: ___ Date: ___" line. Optional \u2014 if
       // absent, only the appended signature page shows the signature.
       sigCoords: sanitizeSigCoords(d.sigCoords),
+      source: d.source || 'upload', // Deploy 237.256 -- 'longapp' = rendered from the application on file
     })),
+    application: applicationMeta, // Deploy 237.256 -- the parties the Loan Application is signed by
     signers: signers.map((s, i) => ({
       firstName: String(s.firstName || '').slice(0, 80),
       lastName:  String(s.lastName  || '').slice(0, 80),

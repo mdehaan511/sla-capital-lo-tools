@@ -23,6 +23,8 @@ import {
   TERMSHEET_CONSENT_VERSION, sealSignature,
   getClientIp, getUserAgent, appendSignaturePageToPdf, hashPdf,
 } from './_shared/native-esign.mjs';
+import { ESIGN_CONSENT_VERSION } from './_shared/esign.mjs'; // Deploy 237.256
+import { internalBgSig } from './_shared/review-truth.mjs'; // Deploy 237.256
 import { lookupEnvelopeByToken } from './envelope-signer-info.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
@@ -79,6 +81,16 @@ async function handle(req) {
   if (envelope.status === 'voided') {
     return json(410, { error: 'This envelope has been voided.' });
   }
+  // Deploy 237.256 -- a packet that carries the Loan Application needs the application's own
+  // consents (ESIGN, the acknowledgement, the credit authorization, the information release)
+  // -- the same package a borrower accepts on the long form -- or its signature cannot count.
+  const hasLoanApp = (envelope.docs || []).some((d) => d && d.kind === 'loan_app');
+  if (hasLoanApp) {
+    if (!body.appConsentAccepted) return json(400, { error: 'The Loan Application consents must be accepted.' });
+    if (body.appConsentVersion !== ESIGN_CONSENT_VERSION) {
+      return json(409, { error: 'The Loan Application consent text has been updated. Please refresh and review the latest version.', currentAppVersion: ESIGN_CONSENT_VERSION });
+    }
+  }
 
   // Build the audit event for this signer
   const signedAt = new Date().toISOString();
@@ -94,6 +106,7 @@ async function handle(req) {
     userAgent: getUserAgent(req).slice(0, 500),
     geolocation: typeof body.geolocation === 'string' ? body.geolocation.slice(0, 200) : '',
     docHashes,
+    appConsentVersion: hasLoanApp ? ESIGN_CONSENT_VERSION : null, // Deploy 237.256
   };
   const seal = sealSignature(auditPre);
   if (!seal) {
@@ -261,6 +274,7 @@ async function handle(req) {
   // queued. Before this, the review-create attach read the unsigned stash
   // that the cleanup below deletes, so signed sheets never mapped.
   await _attachSignedRateSheet(envelope, stampedPdfs);
+  await _firePacketCompletion(envelope, req); // Deploy 237.256
 
   // Deploy 237.207 (Mike): "A Loan Rate Sheet ... is signed and completed." Only rate
   // sheets: an extension envelope already flips a servicing chip and writes a loan note,
@@ -282,6 +296,26 @@ async function handle(req) {
     ok: true, signedAt, status: 'completed',
     emailedCount,
   });
+}
+
+// Deploy 237.256 (Mike: "The packet signature counts") -- a completed packet that carries the
+// Loan Application hands off to the background function that turns the packet's signatures
+// into the application's own signed record (and files it). Fire-and-forget: 202 at once, up
+// to 15 minutes to work; a failure here never breaks the signing response.
+async function _firePacketCompletion(envelope, req) {
+  try {
+    if (!(envelope.docs || []).some((d) => d && d.kind === 'loan_app')) return;
+    let base = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
+    if (!base) { try { base = new URL(req.url).origin; } catch (_) { base = 'https://portal.slacapital.ai'; } }
+    const r = await fetch(base + '/.netlify/functions/application-packet-complete-background', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(envelope.id, 'packet') },
+      body: JSON.stringify({ ownerKey: envelope.ownerKey, envelopeId: envelope.id }),
+    });
+    if (!(r.status === 202 || r.ok)) console.warn('envelope-sign: packet completion fire got ' + r.status);
+  } catch (e) {
+    console.warn('envelope-sign: packet completion fire failed (non-fatal):', e && e.message);
+  }
 }
 
 // Best-effort: attach each completed rate-sheet doc to the review's term_sheet
