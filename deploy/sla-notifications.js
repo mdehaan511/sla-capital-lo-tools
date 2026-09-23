@@ -115,6 +115,7 @@
       e.stopPropagation();
       toggleDrop();
     });
+    watchHeader(navRight); // Deploy 237.251
     return true;
   }
 
@@ -157,6 +158,23 @@
   }
 
   var _bound = false;
+  var _navObserver = null;
+  // Deploy 237.251 (Mike: "the bell icon is also regularly disappearing from the navbar")
+  // -- 237.249 put the bell back on the next poll, which is up to a minute after sla-nav
+  // repainted the header; that minute is the bell "disappearing". Watch the header the way
+  // the search box does (sla-search.js) and put the bell back within a tick, with the badge
+  // it had.
+  function watchHeader(navRight) {
+    if (_navObserver || !window.MutationObserver || !navRight || !navRight.parentElement) return;
+    _navObserver = new MutationObserver(function () {
+      if (document.getElementById('slaNotifWrap')) return;
+      setTimeout(function () {
+        if (document.getElementById('slaNotifWrap')) return;
+        if (_lastFeeds) render(_lastFeeds); else mount();
+      }, 50);
+    });
+    _navObserver.observe(navRight.parentElement, { childList: true });
+  }
   function bind() {
     document.addEventListener('click', function(e) {
       // Deploy 236.525 — null-guard. This listener is bound to `document`,
@@ -571,6 +589,7 @@
   // due/upcoming split moved up into collect(); the count comes from openCount() so the
   // badge and /notifications.html can never disagree about what is outstanding.
   function render(f) {
+    _lastFeeds = f; // Deploy 237.251 -- what a header repaint is repainted with (see watchHeader)
     var mentions      = f.mentions      || [];
     var loanAppEvents = f.loanAppEvents || [];
     var procAlerts    = f.procAlerts    || [];

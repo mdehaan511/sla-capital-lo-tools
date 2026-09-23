@@ -140,7 +140,7 @@ assert('...and takes the NUMBER from openCount, not from the row count',
   /SLANotify\.openCount\(/.test(PAGE) && !/openRows\([^)]*\)\.length\s*;/.test(PAGE),
   'counting rows would say 1 where the bell says 33');
 assert('...and version-pins the script it needs SLANotify from',
-  /sla-notifications\.js\?v=(2372\d\d|237249)/.test(PAGE),
+  /sla-notifications\.js\?v=(2372\d\d|@@PIN@@)/.test(PAGE),
   'a cached copy of the old file has no SLANotify (feedback_guard_the_function)');
 
 const BELL = BELL_SRC;
@@ -307,16 +307,21 @@ console.log('\nThe header re-renders under the bell');
     createElement: (tag) => mkEl(''),
     head: mkEl('head'), body: mkEl('body'),
   };
+  const timeouts = [];
+  const observers = [];
+  function FakeObserver(cb) { this.cb = cb; observers.push(this); }
+  FakeObserver.prototype.observe = function (node, opts) { this.node = node; this.opts = opts; };
   const w = {
     SLA: { urls: { loanDetails: (id) => '/loan-details/' + id } },
-    setTimeout: noop, setInterval: noop, clearInterval: noop, addEventListener: noop,
+    setTimeout: (fn) => { timeouts.push(fn); return timeouts.length; }, setInterval: noop, clearInterval: noop, addEventListener: noop,
+    MutationObserver: FakeObserver,
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
     location: { pathname: '/loan-details.html', search: '' }, console,
   };
   w.window = w; w.document = doc;
   // a header exists from the start
   let inserts = 0;
-  navRight = mkEl('nav-right'); navRight.insertBefore = (wrap) => { inserts++; reg.slaNotifWrap = wrap; };
+  navRight = mkEl('nav-right'); navRight.parentElement = mkEl('slaNav'); navRight.insertBefore = (wrap) => { inserts++; reg.slaNotifWrap = wrap; };
   vm.createContext(w);
   new vm.Script(BELL_SRC, { filename: 'sla-notifications.js' }).runInContext(w);
   const B = w.SLANotify;
@@ -336,6 +341,17 @@ console.log('\nThe header re-renders under the bell');
   assert('...the bell is back in the new header, button wired again, badge painted', !!reg.slaNotifWrap && !!reg.slaNotifBtn && reg.slaNotifBtn._listeners.indexOf('click') >= 0 && reg.slaNotifBtn._classes.indexOf('has-due') >= 0);
   assert('...without binding the document listeners a second time', (listeners.click || []).length === 1 && (listeners.visibilitychange || []).length === 1);
   assert('...and exactly one new bell was inserted', inserts === 2, 'inserts=' + inserts);
+  // Deploy 237.251 (Mike: "the bell icon is also regularly disappearing") -- the header
+  // repaint is caught by an observer on the header, so the bell is back within a tick with
+  // its badge, not a minute later on the next poll.
+  assert('the bell watches the header it lives in (one observer, childList)', observers.length === 1 && observers[0].node === navRight.parentElement && observers[0].opts && observers[0].opts.childList === true, 'observers=' + observers.length);
+  reg = {}; timeouts.length = 0;
+  observers[0].cb([]);
+  assert('...a repaint queues one re-mount', timeouts.length === 1, 'timeouts=' + timeouts.length);
+  timeouts.splice(0).forEach((fn) => fn());
+  assert('...and the bell is back with its badge, no poll needed', !!reg.slaNotifBtn && reg.slaNotifBtn._classes.indexOf('has-due') >= 0 && inserts === 3, 'inserts=' + inserts);
+  observers[0].cb([]);
+  assert('...a repaint that left the bell alone does nothing', timeouts.length === 0);
   // no header at all (signed out, a page without one): nothing to paint, nothing to throw
   reg = {}; navRight = null; threw = null;
   try { B._render(F); } catch (e) { threw = e.message; }
@@ -344,9 +360,9 @@ console.log('\nThe header re-renders under the bell');
     const dir = new URL('../deploy/', import.meta.url);
     const bad = readdirSync(dir).filter((f) => /\.html$/.test(f)).filter((f) => {
       const t = readFileSync(new URL(f, dir), 'utf8');
-      const m = /sla-notifications\.js\?v=(\d+|237249)/.exec(t);
+      const m = /sla-notifications\.js\?v=(\d+|@@PIN@@)/.exec(t);
       if (!t.includes('sla-notifications.js')) return false;
-      return !m || (m[1] !== '237249' && parseInt(m[1], 10) < 237249);
+      return !m || (m[1] !== '@@PIN@@' && parseInt(m[1], 10) < 237251);
     });
     return bad.length === 0;
   })());

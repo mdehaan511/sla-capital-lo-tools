@@ -57,8 +57,13 @@ for (const [file, v] of [
 console.log('the placeholder is the product\'s job, not the LO\'s');
 for (const page of ['rtl-sizer.html', 'dscr-sizer.html', 'guc-sizer.html', 'mf-dscr-sizer.html']) {
   const s = readFileSync('deploy/' + page, 'utf8');
-  check(page + ' stamps TBD on a broker-mode quote with no borrower',
-    /if \(_isBrokerPayload && !String\(formData\.borrowerName \|\| ''\)\.trim\(\)\) \{\s*\n\s*loanRec\.borrowerName = 'TBD';/.test(s));
+  // Deploy 237.251 -- the variable is the page's OWN loan-record name (the DSCR sizers say
+  // loanRecord, RTL/GUC say loanRec). This check used to demand `loanRec`, which is how
+  // "loanRec is not defined" shipped in the two DSCR sizers and stayed green for a week.
+  const declared = (/var (loanRec|loanRecord) = ClientBook\.buildLoanFromSizer\(/.exec(s) || [])[1] || '';
+  const stamped = (/if \(_isBrokerPayload && !String\(formData\.borrowerName \|\| ''\)\.trim\(\)\) \{\s*\n\s*(\w+)\.borrowerName = 'TBD';/.exec(s) || [])[1] || '';
+  check(page + ' stamps TBD on a broker-mode quote with no borrower, on the variable it actually declares',
+    !!declared && stamped === declared);
   // The placeholder must land on the LOAN only — the client is the broker.
   const payload = (/var _payload = \{[\s\S]*?\n      \};/.exec(s) || [''])[0];
   check(page + ' does NOT put the placeholder in the client payload',
