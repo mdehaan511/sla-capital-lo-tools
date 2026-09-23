@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/application-packet-test.mjs — Deploy 237.256 (Mike)
+ * scripts/application-packet-test.mjs — Deploy 237.256 / 237.259 (Mike)
  *
  * Mike: "The loan officers want to be able to send the current Rate Sheet and Loan
  * Application together in a single email for e-signing ... after they are signed they need
@@ -17,8 +17,17 @@
  *      signature applied with the wrong token / the wrong audit context.
  *   4. The internal path bypassing the long-form handler's checks it must keep (already
  *      signed), or the public path losing its rate limit / token resolution.
- *   5. The send modal offering the application when there is none, or when it is already
+ *   5. The send modal offering a FINISHED application's in-packet path when it is already
  *      signed, or with a party that has no email.
+ *   6. (237.259, Mike: "sign the rate sheet and complete the loan application from the same
+ *      link ... normally sent when there is no application on file yet") The step: nothing on
+ *      file, or started and unfinished -> no application document in the envelope, the
+ *      long-form link issued for the borrower-signer (reused while live), the signer page
+ *      handing the designated signer the record's CURRENT link until the application is
+ *      signed -- and never to another signer, never once done, never expired.
+ *   7. The shared issue step (borrower-info-issue) changing what Send Full Loan Application
+ *      writes: the record, the 14-day token, token reuse, the indexes, the answers surviving.
+ *   8. Send Full Loan Application itself: the email, the loan note, the response shape.
  *
  * Run: node scripts/application-packet-test.mjs
  */
@@ -60,9 +69,9 @@ async function loadFunction(file, stubs, extraGlobals) {
     const esc = spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     let m;
     const re = new RegExp('import\\s*\\{([^}]*)\\}\\s*from\\s*[\'"]' + esc + '[\'"]', 'g');
-    while ((m = re.exec(src))) m[1].split(',').map((s) => s.trim().split(/\s+as\s+/).pop()).filter(Boolean).forEach((n) => wanted.add(n));
+    while ((m = re.exec(src))) m[1].split(',').map((s) => s.trim().split(/\s+as\s+/)[0]).filter(Boolean).forEach((n) => wanted.add(n)); // the EXPORTED name links
     const dre = new RegExp('const\\s*\\{([^}]*)\\}\\s*=\\s*await import\\([\'"]' + esc + '[\'"]\\)', 'g');
-    while ((m = dre.exec(src))) m[1].split(',').map((s) => s.trim().split(/\s*:\s*/).pop()).filter(Boolean).forEach((n) => wanted.add(n));
+    while ((m = dre.exec(src))) m[1].split(',').map((s) => s.trim().split(/\s*:\s*/)[0]).filter(Boolean).forEach((n) => wanted.add(n));
     Object.keys(stubs[spec] || {}).forEach((n) => wanted.add(n));
     return [...wanted];
   };
@@ -95,7 +104,9 @@ const AUTH = { handleOptions: () => null, json: jsonStub, readJsonBody: async (r
 
 const HELPERS = ['getStore', 'keySafe', 'normalizeEmail', 'handleOptions', 'json', 'readJsonBody', 'requireAuth', 'isAdmin', 'internalBgSig', 'loadRecord', 'newRecordKey',
   'applicationParties', 'signApplicationInternal', 'signCosignerInternal', 'attachPdfToReviewSlug', 'renderUnsignedApplicationForLoan', 'renderSignedApplicationPDF',
-  'ESIGN_CONSENT_VERSION', 'rateSheetSignable', 'isBroker', 'brokerOf', 'hashPdf', 'canListAllClients', 'lookupEnvelopeByToken', 'sealSignature', 'checkRateLimit'];
+  'ESIGN_CONSENT_VERSION', 'rateSheetSignable', 'isBroker', 'brokerOf', 'hashPdf', 'canListAllClients', 'lookupEnvelopeByToken', 'sealSignature', 'checkRateLimit',
+  'issueApplicationLink', 'generateToken', 'writeTokenIndex', 'deleteTokenIndex', 'borrowerInfoIndex', 'seedGuarantorSSNsFromProfiles', 'applyLoanPrefill', 'buildBorrowerPrefill', 'clientActsAsBroker',
+  'appendNoteEntry', 'writeClient', 'getOwnerReplyTo', 'logBorrowerSendFromResponse'];
 function declaredCheck(file) {
   const src = readFn(file);
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -147,12 +158,14 @@ console.log('\nThe Loan Application as a packet document: rendered from the file
 }
 
 // ── B. creating the envelope ───────────────────────────────────────────────
-console.log('\n/api/envelopes: the packet renders the application server-side and takes only its parties as signers');
+console.log('\n/api/envelopes: a finished application rides in the packet; otherwise it is the step after signing');
 {
   check('envelopes.mjs imports everything it calls', declaredCheck('envelopes.mjs'), []);
-  const mk = (renderResult) => {
+  const FINISHED = RECORD({ status: 'complete' });
+  const ISSUED = { token: 'apptok', recordKey: 'lo1@slacapital.com/c_1/l_1', tokenReused: false, existing: null, link: 'https://portal.slacapital.ai/borrower-info.html?t=apptok' };
+  const mk = (renderResult, onFile, issueResult) => {
     const data = { clients: { 'lo1@slacapital.com/c_1': CLIENT } };
-    const w = { data, renderCalls: [] };
+    const w = { data, renderCalls: [], issueCalls: [] };
     w.fn = loadFunction('envelopes.mjs', {
       '@netlify/blobs': storesFrom(data),
       './_shared/access.mjs': { canListAllClients: () => ({ ok: true }) },
@@ -160,33 +173,60 @@ console.log('\n/api/envelopes: the packet renders the application server-side an
       './_shared/native-esign.mjs': { hashPdf: (b) => 'h:' + String(b).length },
       './_shared/rate-sheet-signable.mjs': { rateSheetSignable: () => ({ ok: true }), isBroker: () => false, brokerOf: () => null },
       './_shared/loan-application-unsigned.mjs': { renderUnsignedApplicationForLoan: async (a) => { w.renderCalls.push(a); return typeof renderResult === 'function' ? renderResult(a) : renderResult; } },
+      './_shared/borrower-info-keys.mjs': { loadRecord: async () => onFile || null },
+      './_shared/borrower-info-issue.mjs': { issueApplicationLink: async (a) => { w.issueCalls.push(a); if (issueResult instanceof Error) throw issueResult; return issueResult || ISSUED; } },
     });
     return w;
   };
   const RENDER_OK = { ok: true, pdfBuffer: Buffer.from('%PDF-app'), parties: [{ pos: 1, firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }, { pos: 2, firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com' }], loan: CLIENT.loans[0] };
   const post = async (w, body) => (await w.fn).default(req('POST', 'https://portal.slacapital.ai/api/envelopes', {}, body), {});
   const RS = { kind: 'rate_sheet', name: 'Rate Sheet', pdfBase64: Buffer.from('%PDF-rs').toString('base64') };
-  let w = mk(RENDER_OK);
-  let r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }, { firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com' }] });
-  const env = r.body.envelope;
-  check('rate sheet + application, signed by both parties: created; the application rendered here, stashed, marked as from the file', [r.status, env.docs.length, env.docs[1].kind, env.docs[1].source, env.docs[1].name, env.docs[1].pdfHash, env.docs[0].source, env.application.parties.length, w.renderCalls[0].enteredBy.email, !!w.data['envelope-pdfs'][env.ownerKey + '/' + env.id + '/1']], [200, 2, 'loan_app', 'longapp', 'Loan Application — 1 Main St, Spokane, WA', 'h:' + Buffer.from('%PDF-app').toString('base64').length, 'upload', 2, 'lo1@slacapital.com', true]);
-  w = mk(RENDER_OK);
-  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }] });
-  check('a party of the application missing from the packet -> refused, named', [r.status, r.body.code, /Priya Lingan <p@x\.com>/.test(r.body.error)], [409, 'loan_app_signers', true]);
-  w = mk(RENDER_OK);
-  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }, { firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com' }, { firstName: 'Bo', lastName: 'Broker', email: 'bo@b.com' }] });
-  check('a signer who is not on the application -> refused, named', [r.status, /bo@b\.com/.test(r.body.error)], [409, true]);
-  w = mk({ ok: false, status: 404, error: 'No long-form application data on file for this loan' });
-  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [{ firstName: 'K', lastName: 'L', email: 'k@x.com' }] });
-  check('no application on file -> the render\'s own answer, with a code the page can read', [r.status, r.body.code], [404, 'loan_app_unavailable']);
-  w = mk({ ok: true, pdfBuffer: Buffer.from('x'), parties: [{ pos: 1, firstName: 'K', lastName: 'L', email: '' }], loan: null });
-  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [{ firstName: 'K', lastName: 'L', email: 'k@x.com' }] });
-  check('a party with no email on the application -> refused', [r.status, r.body.code], [409, 'loan_app_party_no_email']);
-  w = mk(RENDER_OK);
-  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS], signers: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }] });
-  check('a rate-sheet-only envelope is untouched: no render, no application block', [r.status, w.renderCalls.length, r.body.envelope.application, r.body.envelope.docs[0].source], [200, 0, null, 'upload']);
-  w = mk(RENDER_OK);
-  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [{ kind: 'rate_sheet' }], signers: [{ firstName: 'K', lastName: 'L', email: 'k@x.com' }] });
+  const K = { firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }, P = { firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com' };
+
+  // the finished application (237.256): rendered into the packet, signed by its parties
+  let w = mk(RENDER_OK, FINISHED);
+  let r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K, P] });
+  let env = r.body.envelope;
+  check('finished (complete, unsigned) + rate sheet, both parties signing: the application renders into the packet, stashed, marked; no link issued', [r.status, env.docs.length, env.docs[1].kind, env.docs[1].source, env.docs[1].name, env.docs[1].pdfHash, env.docs[0].source, env.application.mode, env.application.parties.length, w.renderCalls[0].enteredBy.email, !!w.data['envelope-pdfs'][env.ownerKey + '/' + env.id + '/1'], w.issueCalls.length], [200, 2, 'loan_app', 'longapp', 'Loan Application — 1 Main St, Spokane, WA', 'h:' + Buffer.from('%PDF-app').toString('base64').length, 'upload', 'packet', 2, 'lo1@slacapital.com', true, 0]);
+  w = mk(RENDER_OK, FINISHED);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K] });
+  check('a party of the finished application missing from the packet -> refused, named', [r.status, r.body.code, /Priya Lingan <p@x\.com>/.test(r.body.error)], [409, 'loan_app_signers', true]);
+  w = mk(RENDER_OK, FINISHED);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K, P, { firstName: 'Bo', lastName: 'Broker', email: 'bo@b.com' }] });
+  check('a signer who is not on the finished application -> refused, named', [r.status, /bo@b\.com/.test(r.body.error)], [409, true]);
+  w = mk({ ok: true, pdfBuffer: Buffer.from('x'), parties: [{ pos: 1, firstName: 'K', lastName: 'L', email: '' }], loan: null }, FINISHED);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K] });
+  check('a party with no email on the finished application -> refused', [r.status, r.body.code], [409, 'loan_app_party_no_email']);
+  w = mk(RENDER_OK, RECORD({ status: 'complete', signedAt: '2026-09-20T00:00:00Z' }));
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K] });
+  check('an application already signed cannot go into a packet, either way', [r.status, r.body.code, w.renderCalls.length, w.issueCalls.length], [409, 'loan_app_unavailable', 0, 0]);
+
+  // the step (Mike's normal case): nothing on file yet
+  w = mk(RENDER_OK, null);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K], message: 'hi' });
+  env = r.body.envelope;
+  check('nothing on file: the envelope is the rate sheet alone; the application is a STEP for the signer, its link issued (nothing rendered, one PDF stashed)', [r.status, env.docs.length, env.docs[0].kind, env.application.mode, env.application.signerIndex, env.application.signerEmail, env.application.token, env.application.recordKey, env.application.tokenReused, env.application.status, w.renderCalls.length, w.issueCalls.length, Object.keys(w.data['envelope-pdfs']).length], [200, 1, 'rate_sheet', 'longform', 0, 'k@x.com', 'apptok', 'lo1@slacapital.com/c_1/l_1', false, 'pending', 0, 1, 1]);
+  check('...the link is issued for that signer, on this loan, by this LO, into the borrower_info store', [w.issueCalls[0].recipientEmail, w.issueCalls[0].client.id, w.issueCalls[0].loan.id, w.issueCalls[0].ownerKey, w.issueCalls[0].ownerEmail, w.issueCalls[0].requestedBy, w.issueCalls[0].loName, typeof w.issueCalls[0].store.setJSON], ['k@x.com', 'c_1', 'l_1', 'lo1@slacapital.com', 'lo1@slacapital.com', 'lo1@slacapital.com', 'Lo One', 'function']);
+  assert('...and the envelope history says who continues into the application', env.history.some((h) => /Loan Application step: k@x\.com continues into the long-form application/.test(h.note) && /new application link/.test(h.note)));
+  w = mk(RENDER_OK, RECORD({ status: 'in_progress' }), { token: 'b1tok', recordKey: 'lo1@slacapital.com/c_1/l_1', tokenReused: true, existing: RECORD({ status: 'in_progress' }), link: 'x' });
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K] });
+  check('started but unfinished: the step too, with the live link reused', [r.status, r.body.envelope.application.mode, r.body.envelope.application.token, r.body.envelope.application.tokenReused, r.body.envelope.application.status, w.renderCalls.length, /existing application link/.test(r.body.envelope.history.map((h) => h.note).join(' '))], [200, 'longform', 'b1tok', true, 'in_progress', 0, true]);
+  w = mk(RENDER_OK, null);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [P, K] });
+  check('two signers: the step goes to the one whose email is the borrower\'s (the client\'s here), not the first slot', [r.body.envelope.application.signerIndex, r.body.envelope.application.signerEmail, w.issueCalls[0].recipientEmail], [1, 'k@x.com', 'k@x.com']);
+  w = mk(RENDER_OK, null, new Error('blob down'));
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS, { kind: 'loan_app' }], signers: [K] });
+  check('the link cannot be issued -> refused with the reason, no envelope written', [r.status, r.body.code, /blob down/.test(r.body.error), Object.keys(w.data.envelopes || {}).length], [500, 'loan_app_unavailable', true, 0]);
+  w = mk(RENDER_OK, null);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [{ kind: 'loan_app' }], signers: [K] });
+  check('the step without the rate sheet is not a packet -> 400', [r.status], [400]);
+
+  // untouched
+  w = mk(RENDER_OK, FINISHED);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [RS], signers: [K] });
+  check('a rate-sheet-only envelope is untouched: no render, no issue, no application block', [r.status, w.renderCalls.length, w.issueCalls.length, r.body.envelope.application, r.body.envelope.docs[0].source], [200, 0, 0, null, 'upload']);
+  w = mk(RENDER_OK, FINISHED);
+  r = await post(w, { clientId: 'c_1', loanId: 'l_1', docs: [{ kind: 'rate_sheet' }], signers: [K] });
   check('a rate sheet still needs its bytes', [r.status], [400]);
 }
 
@@ -400,6 +440,16 @@ console.log('\nThe signer page and the send modal');
   const runBtn = (esChecked, appStates, name, docs) => { const d = mkDoc(esChecked, appStates, name); const c = { document: d.document, INFO: { docs } }; vm.createContext(c); vm.runInContext(code + '\nupdateBtn();', c); return d.btn.disabled; };
   check('Sign is disabled until every application consent is ticked, enabled once they are', [runBtn(true, [true, false, true, true], 'Kandiah Lingan', [{ kind: 'loan_app' }]), runBtn(true, [true, true, true, true], 'Kandiah Lingan', [{ kind: 'loan_app' }]), runBtn(true, [], 'Kandiah Lingan', [{ kind: 'rate_sheet' }])], [true, false, false]);
 
+  // 237.259 -- the step card, RUN
+  const scode = lift(TS, 'function appStep() {', '\n}\n') + lift(TS, 'function appStepHtml(auto) {', '\n}\n');
+  const runStep = (application, auto) => { const c = { INFO: { application }, escH: (x) => String(x) }; vm.createContext(c); return vm.runInContext(scode + '\nappStepHtml(' + (auto ? 'true' : 'false') + ');', c); };
+  const MINE = { step: 'longform', forYou: true, done: false, url: '/borrower-info.html?t=apptok', started: false };
+  check('the step card: the designated signer gets the live link, with the countdown after signing and without it on a revisit', [/href="\/borrower-info\.html\?t=apptok"/.test(runStep(MINE, true)), /appStepSecs/.test(runStep(MINE, true)), /appStepSecs/.test(runStep(MINE, false)), /Pick up where you left off/.test(runStep(Object.assign({}, MINE, { started: true }), false))], [true, true, false, true]);
+  check('...nothing for another signer; "complete as well" once done; a plain notice when the link is gone', [runStep({ step: 'longform', forYou: false, url: '/x' }, true), /complete as well/.test(runStep({ step: 'longform', forYou: true, done: true }, true)), /has expired/.test(runStep({ step: 'longform', forYou: true, done: false, url: null, expired: true }, true)), runStep(null, true)], ['', true, true, '']);
+  assert('the thank-you screen carries the step and starts the countdown; the already-signed screen carries it without one', /appStepHtml\(true\); \/\/ Deploy/.test(TS) && /appStepAutoGo\(\);\n\}/.test(TS) && /appStepHtml\(false\); \/\/ Deploy/.test(TS));
+  assert('the header note and the document list name the step for its signer', /This packet also includes your <strong>Loan Application<\/strong>\. After you sign the Rate Sheet below, this page takes you to the application/.test(TS) && /completed online after signing/.test(TS));
+  assert('the countdown goes to the link', /if \(secs <= 0\) \{ clearInterval\(tick\); window\.location\.href = a\.url; \}/.test(TS));
+
   const LD = read('loan-details.js');
   const mcode = lift(LD, '\nvar _esPacketParties = null;', '\nfunction _esOpenModal(signer) {').replace(/\nfunction _esOpenModal\(signer\) \{$/, '');
   const runModal = async (status, clientOver) => {
@@ -408,22 +458,113 @@ console.log('\nThe signer page and the send modal');
       document: { getElementById: (id) => els[id] || null }, SLA: { BorrowerInfo: { status: async () => status } }, String, parseInt, Math, Array };
     c.window = c; vm.createContext(c); vm.runInContext(mcode + '\n_esLoadPacketOption();', c);
     await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
-    return { els, parties: vm.runInContext('_esPacketParties', c), toggle: () => { els.esIncludeApp.checked = true; vm.runInContext('_esPacketToggled()', c); return els; } };
+    return { els, parties: vm.runInContext('_esPacketParties', c), mode: vm.runInContext('_esPacketMode', c), toggle: () => { els.esIncludeApp.checked = true; vm.runInContext('_esPacketToggled()', c); return els; } };
   };
   let m = await runModal({ exists: false });
-  check('no application on file: the option shows why and stays off', [m.els.esIncludeAppRow.style.display, m.els.esIncludeApp.disabled, m.els.esIncludeAppHint.textContent, m.parties], ['', true, '(no application on file for this loan)', null]);
-  m = await runModal({ exists: true, status: 'complete', data: { guarantors: [{ email: 'k@x.com' }] } });
-  check('already signed: off', [m.els.esIncludeApp.disabled, m.els.esIncludeAppHint.textContent], [true, '(already signed)']);
-  m = await runModal({ exists: true, status: 'in_progress', data: { numGuarantors: '2', guarantors: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }, { firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com' }] } });
-  check('an unsigned application with two parties: on, both named as the signers', [m.els.esIncludeApp.disabled, m.els.esIncludeAppHint.textContent, m.parties.map((p) => p.pos + ':' + p.email)], [false, '(signed by all 2 people on it)', ['1:k@x.com', '2:p@x.com']]);
-  const t = m.toggle();
-  assert('...ticking it lists the signers and retitles the modal', /Kandiah Lingan/.test(t.esPacketSigners.innerHTML) && /p@x\.com/.test(t.esPacketSigners.innerHTML) && /Rate Sheet \+ Loan Application/.test(t.esTitle.textContent));
-  m = await runModal({ exists: true, status: 'in_progress', borrowerEmail: '', data: { guarantors: [{ firstName: 'K', lastName: 'L' }] } }, { email: '' });
-  check('a party with no email: off, with the reason', [m.els.esIncludeApp.disabled, /no email/.test(m.els.esIncludeAppHint.textContent)], [true, true]);
-  assert('the submit puts the application in the packet and the application\'s parties as the signers', /docs\.push\(\{ kind: 'loan_app', name: 'Loan Application/.test(LD) && /signers = _esPacketParties\.map\(function\(p\) \{ return \{ firstName: p\.firstName, lastName: p\.lastName, email: p\.email \}; \}\);/.test(LD));
-  assert('...and lets the application through without bytes (it renders server-side)', /\.filter\(function\(d\) \{ return !!d\.pdfBase64 \|\| d\.kind === 'loan_app'; \}\)/.test(LD));
+  check('nothing on file (the normal case): ON, as the step after signing', [m.els.esIncludeAppRow.style.display, m.els.esIncludeApp.disabled, m.mode, m.parties, m.els.esIncludeAppHint.textContent], ['', false, 'longform', null, '(none on file yet — they complete it after signing, from the same link)']);
+  let t = m.toggle();
+  assert('...ticking it explains the step and retitles the modal', /signs the Rate Sheet, then completes and signs the Loan Application from the same link/.test(t.esPacketSigners.innerHTML) && /Rate Sheet \+ Loan Application/.test(t.esTitle.textContent));
+  m = await runModal({ exists: true, status: 'in_progress', data: { guarantors: [{ email: 'k@x.com' }] } });
+  check('started, unfinished: ON, as the step', [m.els.esIncludeApp.disabled, m.mode, m.els.esIncludeAppHint.textContent], [false, 'longform', '(started, not finished — they finish it after signing, from the same link)']);
+  m = await runModal({ exists: true, status: 'complete', signedAt: '2026-09-20T00:00:00Z', data: { guarantors: [{ email: 'k@x.com' }] } });
+  check('signed: off', [m.els.esIncludeApp.disabled, m.mode, m.els.esIncludeAppHint.textContent], [true, null, '(already signed)']);
+  m = await runModal({ exists: true, status: 'complete', data: { numGuarantors: '2', guarantors: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com' }, { firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com' }] } });
+  check('finished, unsigned, two parties: ON, in the packet, both named as the signers', [m.els.esIncludeApp.disabled, m.mode, m.els.esIncludeAppHint.textContent, m.parties.map((p) => p.pos + ':' + p.email)], [false, 'packet', '(complete — goes in the packet, signed by all 2 people on it)', ['1:k@x.com', '2:p@x.com']]);
+  t = m.toggle();
+  assert('...ticking it lists the signers', /Kandiah Lingan/.test(t.esPacketSigners.innerHTML) && /p@x\.com/.test(t.esPacketSigners.innerHTML) && /Rate Sheet \+ Loan Application/.test(t.esTitle.textContent));
+  m = await runModal({ exists: true, status: 'complete', borrowerEmail: '', data: { guarantors: [{ firstName: 'K', lastName: 'L' }] } }, { email: '' });
+  check('finished with a party that has no email: off, with the reason', [m.els.esIncludeApp.disabled, m.mode, /no email/.test(m.els.esIncludeAppHint.textContent)], [true, null, true]);
+  assert('the submit puts the application in the packet; the parties replace the typed signer only in packet mode', /docs\.push\(\{ kind: 'loan_app', name: 'Loan Application/.test(LD) && /if \(_esPacketMode === 'packet' && _esPacketParties\) \{\s*signers = _esPacketParties\.map\(function\(p\) \{ return \{ firstName: p\.firstName, lastName: p\.lastName, email: p\.email \}; \}\);/.test(LD));
+  assert('...and lets the application through without bytes (it renders server-side or becomes the step)', /\.filter\(function\(d\) \{ return !!d\.pdfBase64 \|\| d\.kind === 'loan_app'; \}\)/.test(LD));
+  assert('...and the sent message says what the borrower does next', /They sign the Rate Sheet, then complete the Loan Application from the same link\./.test(LD));
+  assert('the feed names the step on the envelope', /names\.push\('Loan App \(from the same link\)'\)/.test(LD));
   const LDH = read('loan-details.html');
-  assert('the modal has the option and is pinned to this deploy or newer', /id="esIncludeApp"/.test(LDH) && /id="esPacketSigners"/.test(LDH) && (() => { const mm = /loan-details\.js\?v=(\d+|@@PIN@@)/.exec(LDH); return !!mm && (mm[1] === '@@PIN@@' || parseInt(mm[1], 10) >= 237256); })());
+  assert('the modal has the option and is pinned to this deploy or newer', /id="esIncludeApp"/.test(LDH) && /id="esPacketSigners"/.test(LDH) && (() => { const mm = /loan-details\.js\?v=(\d+|@@PIN@@)/.exec(LDH); return !!mm && (mm[1] === '@@PIN@@' || parseInt(mm[1], 10) >= 237259); })());
+}
+
+// ── I. the signer page's data: the live link for the designated signer ─────
+console.log('\n/api/envelope-signer-info: the step, with the record\'s CURRENT link, only for the signer it belongs to');
+{
+  check('envelope-signer-info imports everything it calls', declaredCheck('envelope-signer-info.mjs'), []);
+  const mkInfo = (record, appMeta) => {
+    const ENV = { id: 'env_1', ownerKey: 'lo1@slacapital.com', clientId: 'c_1', loanId: 'l_1', requesterEmail: 'lo1@slacapital.com', status: 'sent', docs: [{ kind: 'rate_sheet', name: 'Rate Sheet', pdfSize: 10, pdfHash: 'h' }], signers: [{ firstName: 'Kandiah', lastName: 'Lingan', email: 'k@x.com', token: 't0', audit: null }, { firstName: 'Priya', lastName: 'Lingan', email: 'p@x.com', token: 't1', audit: null }], application: appMeta === undefined ? { mode: 'longform', signerIndex: 0, signerEmail: 'k@x.com', token: 'stale' } : appMeta };
+    const data = { envelopes: { 'lo1@slacapital.com/env_1': ENV }, 'envelope-signer-idx': { t0: { envelopeKey: 'lo1@slacapital.com/env_1', signerIndex: 0 }, t1: { envelopeKey: 'lo1@slacapital.com/env_1', signerIndex: 1 } }, clients: { 'lo1@slacapital.com/c_1': CLIENT }, profiles: {} };
+    return loadFunction('envelope-signer-info.mjs', { '@netlify/blobs': storesFrom(data), './_shared/auth.mjs': AUTH, './_shared/rate-limit.mjs': { checkRateLimit: async () => ({ allowed: true }) }, './_shared/borrower-info-keys.mjs': { loadRecord: async () => record } });
+  };
+  const get = async (M, t) => (await M).default(req('GET', 'https://portal.slacapital.ai/api/envelope-signer-info?t=' + t, {}, null));
+  let M = mkInfo(RECORD({ token: 'live-tok', status: 'in_progress', data: { a: 1 } }));
+  let r = await get(M, 't0');
+  check('the designated signer: the step is theirs, with the record\'s CURRENT token (not the envelope\'s snapshot), started', [r.status, r.body.application.step, r.body.application.forYou, r.body.application.done, r.body.application.url, r.body.application.started, r.body.application.status, r.body.docs.length], [200, 'longform', true, false, '/borrower-info.html?t=live-tok', true, 'in_progress', 1]);
+  r = await get(M, 't1');
+  check('the other signer: the step exists but is not theirs, no link', [r.body.application.forYou, r.body.application.url], [false, null]);
+  M = mkInfo(RECORD({ token: 'live-tok', status: 'complete', signedAt: '2026-09-23T00:00:00Z' }));
+  r = await get(M, 't0');
+  check('once the application is signed: done, no link', [r.body.application.done, r.body.application.url], [true, null]);
+  M = mkInfo(RECORD({ token: 'live-tok', expiresAt: '2020-01-01T00:00:00Z' }));
+  r = await get(M, 't0');
+  check('an expired application link is not handed out, and says so', [r.body.application.url, r.body.application.expired], [null, true]);
+  M = mkInfo(null, null);
+  r = await get(M, 't0');
+  check('a plain rate-sheet envelope: no application block', [r.status, r.body.application], [200, null]);
+  const SEND = readFn('envelopes-send.mjs');
+  assert('the invitation names the step for its signer and says what the same link does after signing', /\['Loan Application \(completed online after you sign\)'\]/.test(SEND) && /isAppSigner \? 'After you sign, the same page takes you to your Loan Application to complete and sign\.' : ''/.test(SEND) && /String\(signer\.email \|\| ''\)\.trim\(\)\.toLowerCase\(\) === String\(appStep\.signerEmail \|\| ''\)\.trim\(\)\.toLowerCase\(\)/.test(SEND));
+}
+
+// ── J. issuing the application link: one shared step for the LO's send and the packet ─
+console.log('\nissueApplicationLink: the record, the token rules, the indexes -- shared by Send Full Loan Application and the packet');
+{
+  check('borrower-info-issue imports everything it calls', declaredCheck('_shared/borrower-info-issue.mjs'), []);
+  check('borrower-info-request imports everything it calls', declaredCheck('borrower-info-request.mjs'), []);
+  const mkIssue = (existing) => {
+    const data = { clients: { 'lo1@slacapital.com/c_1': CLIENT }, borrower_info: {} };
+    const w = { data, tokenIdx: [], tokenDel: [], idx: [], seeds: [] };
+    let n = 0;
+    w.fn = loadFunction('_shared/borrower-info-issue.mjs', {
+      '@netlify/blobs': storesFrom(data),
+      './crypto.mjs': { generateToken: () => 'fresh' + (++n) },
+      './borrower-info-keys.mjs': { newRecordKey: (o, c, l) => o + '/' + c + '/' + l, loadRecord: async () => existing || null },
+      './borrower-info-token-index.mjs': { writeTokenIndex: async (t, k, m) => { w.tokenIdx.push([t, k, m]); }, deleteTokenIndex: async (t) => { w.tokenDel.push(t); } },
+      './borrower-info-index.mjs': { borrowerInfoIndex: { upsertRecord: async (o, r) => { w.idx.push([o, r.token]); } } },
+      './borrower-prefill.mjs': { applyLoanPrefill: (pf, loan) => { pf.property = { address: loan.address }; }, clientActsAsBroker: () => false, buildBorrowerPrefill: (c) => ({ firstName: c.firstName, lastName: c.lastName, email: c.email }), seedGuarantorSSNsFromProfiles: async (a) => { w.seeds.push(a.recipientEmail); } },
+    });
+    return w;
+  };
+  const ARGS = { ownerKey: 'lo1@slacapital.com', ownerEmail: 'lo1@slacapital.com', client: CLIENT, loan: CLIENT.loans[0], loName: 'Lo One', recipientEmail: 'k@x.com', requestedBy: 'lo1@slacapital.com' };
+  let w = mkIssue(null);
+  let r = await (await w.fn).issueApplicationLink(ARGS);
+  const rec = w.data.borrower_info['lo1@slacapital.com/c_1/l_1'];
+  check('first issue: a fresh token; the record at the per-loan key (pending, 14-day expiry, prefilled, empty answers); both indexes; the link', [r.token, r.tokenReused, r.recordKey, rec && rec.status, rec && rec.token, rec && rec.borrowerEmail, rec && rec.ownerEmail, rec && rec.requestedBy, rec && rec.prefill.lo.name, rec && rec.prefill.borrower.email, rec && rec.prefill.property.address, JSON.stringify(rec && rec.data), Math.round((new Date(rec.expiresAt) - new Date(rec.sentAt)) / 86400000), w.tokenIdx[0] && w.tokenIdx[0][0], w.tokenIdx[0] && w.tokenIdx[0][2].loanId, w.tokenDel.length, w.idx[0] && w.idx[0][1], w.seeds[0], r.link], ['fresh1', false, 'lo1@slacapital.com/c_1/l_1', 'pending', 'fresh1', 'k@x.com', 'lo1@slacapital.com', 'lo1@slacapital.com', 'Lo One', 'k@x.com', '1 Main St, Spokane, WA', '{}', 14, 'fresh1', 'l_1', 0, 'fresh1', 'k@x.com', 'https://portal.slacapital.ai/borrower-info.html?t=fresh1']);
+  const live = RECORD({ token: 'b1tok', expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: '2026-09-01T00:00:00Z', data: { borrowerFirstName: 'Kandiah' } });
+  w = mkIssue(live);
+  r = await (await w.fn).issueApplicationLink(ARGS);
+  check('re-issue over a live token: the token is REUSED (236.414), the answers survive, createdAt kept, no index delete', [r.token, r.tokenReused, w.data.borrower_info['lo1@slacapital.com/c_1/l_1'].data.borrowerFirstName, w.data.borrower_info['lo1@slacapital.com/c_1/l_1'].createdAt, w.tokenDel.length, w.tokenIdx[0][0]], ['b1tok', true, 'Kandiah', '2026-09-01T00:00:00Z', 0, 'b1tok']);
+  w = mkIssue(RECORD({ token: 'oldtok', expiresAt: '2020-01-01T00:00:00Z' }));
+  r = await (await w.fn).issueApplicationLink(ARGS);
+  check('re-issue over an expired token: a fresh one, the old index entry dropped', [r.token, r.tokenReused, w.tokenDel, w.tokenIdx[0][0]], ['fresh1', false, ['oldtok'], 'fresh1']);
+
+  // Send Full Loan Application, end to end, on top of the shared step
+  const mkReq = () => {
+    const data = { clients: { 'lo1@slacapital.com/c_1': CLIENT }, profiles: { 'lo1@slacapital.com': { fullName: 'Lo One' } } };
+    const w = { data, issueCalls: [], emails: [], notes: [], writes: [] };
+    w.fn = loadFunction('borrower-info-request.mjs', {
+      '@netlify/blobs': storesFrom(data),
+      './_shared/auth.mjs': AUTH,
+      './_shared/borrower-info-issue.mjs': { issueApplicationLink: async (a) => { w.issueCalls.push(a); return { token: 'tok9', recordKey: 'k', expiresAt: '2026-10-07T00:00:00Z', link: 'https://portal.slacapital.ai/borrower-info.html?t=tok9', existing: null, tokenReused: false }; } },
+      './_shared/email.mjs': { getOwnerReplyTo: async () => 'lo1@slacapital.com', logBorrowerSendFromResponse: async () => {} },
+      './_shared/notes-log.mjs': { appendNoteEntry: (loan, e) => { w.notes.push(e); return e; } },
+      './_shared/client-write.mjs': { writeClient: async (o) => { w.writes.push(o); } },
+    }, { fetch: async (url, o) => { w.emails.push(JSON.parse(o.body)); return { ok: true, status: 200, json: async () => ({ id: 'em1' }), text: async () => '' }; } });
+    return w;
+  };
+  w = mkReq();
+  r = await (await w.fn).default(req('POST', 'https://portal.slacapital.ai/api/borrower-info-request', {}, { clientId: 'c_1', loanId: 'l_1', sendEmail: true, email: 'k@x.com' }), {});
+  check('Send Full Loan Application: the shared step runs for this LO / client / loan / recipient; the email carries the link; the loan is noted; the response keeps its shape', [r.status, w.issueCalls.length, w.issueCalls[0].ownerKey, w.issueCalls[0].ownerEmail, w.issueCalls[0].client.id, w.issueCalls[0].loan.id, w.issueCalls[0].recipientEmail, w.issueCalls[0].loName, w.issueCalls[0].requestedBy, w.emails.length, w.emails[0].to[0], /t=tok9/.test(w.emails[0].text), w.notes[0] && w.notes[0].kind, w.writes.length, r.body.ok, r.body.token, r.body.url, r.body.link, r.body.expiresAt, r.body.emailed, r.body.borrowerEmail, r.body.reminder, !!r.body.entry], [200, 1, 'lo1@slacapital.com', 'lo1@slacapital.com', 'c_1', 'l_1', 'k@x.com', 'Lo One', 'lo1@slacapital.com', 1, 'k@x.com', true, 'app_sent', 1, true, 'tok9', 'https://portal.slacapital.ai/borrower-info.html?t=tok9', 'https://portal.slacapital.ai/borrower-info.html?t=tok9', '2026-10-07T00:00:00Z', true, 'k@x.com', false, true]);
+  w = mkReq();
+  r = await (await w.fn).default(req('POST', 'https://portal.slacapital.ai/api/borrower-info-request', {}, { clientId: 'c_1', loanId: 'l_1' }), {});
+  check('link only: no email, no note, the link returned', [r.status, w.issueCalls.length, w.emails.length, w.notes.length, r.body.url, r.body.emailed], [200, 1, 0, 0, 'https://portal.slacapital.ai/borrower-info.html?t=tok9', false]);
+  w = mkReq();
+  r = await (await w.fn).default(req('POST', 'https://portal.slacapital.ai/api/borrower-info-request', {}, { clientId: 'c_1', loanId: 'nope' }), {});
+  check('an unknown loan is still refused before anything is issued', [r.status, w.issueCalls.length], [404, 0]);
 }
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));

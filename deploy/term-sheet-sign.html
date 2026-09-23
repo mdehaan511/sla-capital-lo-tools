@@ -105,7 +105,8 @@ function renderAlreadySigned() {
     '<div class="page-header"><h1>Already signed</h1></div>' +
     '<div class="status-banner success">' +
       'You have already signed this envelope. A signed copy will be emailed to you when all other signers complete. You can close this page.' +
-    '</div>';
+    '</div>' +
+    appStepHtml(false); // Deploy 237.259 -- the same link keeps leading to the application until it is done
 }
 
 function renderComplete() {
@@ -114,7 +115,42 @@ function renderComplete() {
     '<div class="status-banner success">' +
       '<strong>You\u2019ve signed.</strong> A signed copy of the document(s) will be emailed to you ' +
       'once all signers have completed. If you\u2019re the only signer, expect the email shortly.' +
+    '</div>' +
+    appStepHtml(true); // Deploy 237.259 -- next: the Loan Application, from this same page
+  appStepAutoGo();
+}
+
+// Deploy 237.259 (Mike: "sign the rate sheet and complete the loan application from the same
+// link") -- when the packet carries the Loan Application as a STEP, the signer it belongs to is
+// taken into the long-form application after signing here. INFO.application comes from
+// /api/envelope-signer-info: forYou (this signer), done (already signed), url (the live link).
+function appStep() {
+  return (INFO && INFO.application && INFO.application.step === 'longform') ? INFO.application : null;
+}
+function appStepHtml(auto) {
+  var a = appStep();
+  if (!a || !a.forYou) return '';
+  if (a.done) return '<div class="status-banner success" style="margin-top:14px">Your <strong>Loan Application</strong> is complete as well. Nothing more is needed from you.</div>';
+  if (!a.url) return '<div class="status-banner error" style="margin-top:14px">Your <strong>Loan Application</strong> link ' + (a.expired ? 'has expired' : 'is not available') + '. Please ask your loan officer to send it again.</div>';
+  return '<div class="summary-card" style="margin-top:14px" id="appStepCard">' +
+    '<div class="section-title" style="margin-top:0">Next: your Loan Application</div>' +
+    '<p style="font-size:13.5px;margin:0 0 12px">' + (a.started
+      ? 'Pick up where you left off \u2014 everything you entered is saved.'
+      : 'It takes about 15 minutes. Your progress saves as you go, and this same link brings you back to it.') + '</p>' +
+    '<a href="' + escH(a.url) + '" class="btn-primary" id="appStepBtn">Continue to the Loan Application \u2192</a>' +
+    (auto ? '<div id="appStepAuto" style="font-size:12px;color:#6b6478;margin-top:10px">Taking you there in <span id="appStepSecs">6</span> seconds\u2026</div>' : '') +
     '</div>';
+}
+function appStepAutoGo() {
+  var a = appStep();
+  if (!a || !a.forYou || a.done || !a.url) return;
+  var secs = 6;
+  var tick = setInterval(function() {
+    secs--;
+    var el = document.getElementById('appStepSecs');
+    if (el) el.textContent = String(secs);
+    if (secs <= 0) { clearInterval(tick); window.location.href = a.url; }
+  }, 1000);
 }
 
 function toggleDoc(idx) {
@@ -142,6 +178,7 @@ function renderForm() {
   html += '<p>' + escH(INFO.loName || 'Your loan officer') + ' at SLA Capital has prepared the document(s) below for your electronic signature. ' +
           'Please review each document, then complete the signature block at the bottom.</p>';
   if (packetHasApp()) html += '<p style="font-size:13px;color:#6b6478;margin:-6px 0 0">This packet includes your <strong>Loan Application</strong>. Signing here signs the application itself; you will not be asked to sign it again.</p>';
+  else if (appStep() && appStep().forYou) html += '<p style="font-size:13px;color:#6b6478;margin:-6px 0 0">This packet also includes your <strong>Loan Application</strong>. After you sign the Rate Sheet below, this page takes you to the application to complete and sign' + (appStep().done ? ' (already done \u2014 thank you)' : '') + '.</p>'; // Deploy 237.259
   html += '</div>';
 
   html += '<div class="summary-card">';
@@ -170,6 +207,10 @@ function renderForm() {
     html += '<iframe id="docFrame' + d.idx + '" class="doc-iframe"></iframe>';
     html += '</div>';
   });
+  // Deploy 237.259 -- the application as a step is listed with the documents, without a preview
+  if (appStep() && appStep().forYou) {
+    html += '<div class="doc-card"><div class="doc-row"><div class="doc-name">Loan Application</div><div class="doc-meta">' + (appStep().done ? 'completed' : 'completed online after signing') + '</div></div></div>';
+  }
 
   html += '<div class="section-title">Electronic Signature Consent (ESIGN / UETA)</div>';
   html += '<div class="consent-box">' + escH(CONSENT.text) + '</div>';

@@ -14,6 +14,9 @@
 import { readFileSync } from 'node:fs';
 
 const req = readFileSync('deploy/netlify/functions/borrower-info-request.mjs', 'utf8');
+// Deploy 237.259 -- the record / token step moved to the shared issue helper (the e-sign
+// packet issues the same link); the 236.414 reuse rule lives there now.
+const issue = readFileSync('deploy/netlify/functions/_shared/borrower-info-issue.mjs', 'utf8');
 const api = readFileSync('deploy/sla-api.js', 'utf8');
 const ld  = readFileSync('deploy/loan-details.js', 'utf8');
 const ldh = readFileSync('deploy/loan-details.html', 'utf8');
@@ -26,8 +29,10 @@ function check(name, ok) {
 
 console.log('borrower-info-request.mjs');
 check('a resend still REUSES a live token (236.414) — reminders must not kill sent links',
-  /tokenReusable\s*=\s*!!\(existing\s*&&\s*existing\.token/.test(req) &&
-  /const token = tokenReusable \? existing\.token : generateToken\(\)/.test(req));
+  /tokenReusable\s*=\s*!!\(existing\s*&&\s*existing\.token/.test(issue) &&
+  /const token = tokenReusable \? existing\.token : generateToken\(\)/.test(issue) &&
+  /issued = await issueApplicationLink\(\{/.test(req) &&
+  /const \{ token, expiresAt, existing \} = issued;/.test(req));
 check('reminder only counts when there is an existing record to nudge about',
   /const isReminder = !!body\.reminder && !!existing;/.test(req));
 check('"started" is derived from collected data, for the pick-up-where-you-left-off copy',

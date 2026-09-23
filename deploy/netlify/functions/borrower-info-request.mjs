@@ -27,13 +27,11 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { generateToken } from './_shared/crypto.mjs';
-import { newRecordKey, loadRecord } from './_shared/borrower-info-keys.mjs';
-import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token-index.mjs';
-// Deploy 236.455 — the byOwner materialized index (Deploy 236.343). The
-// admin all-scope borrower-info-list reads from this index, so a SEND must
-// write through to it or admins never see the new 'pending' record.
-import { borrowerInfoIndex } from './_shared/borrower-info-index.mjs';
+// Deploy 237.259 -- the record / token / index work lives in _shared/borrower-info-issue.mjs
+// now, so the e-sign packet can hand out the same application link (Mike: "sign the rate
+// sheet and complete the loan application from the same link"). This endpoint keeps what is
+// LO-facing: the recipient rules, the email, the loan note.
+import { issueApplicationLink } from './_shared/borrower-info-issue.mjs';
 // Deploy 223 — reply_to header set to the LO who owns the lead so
 // borrower replies go to the right inbox (not noreply@).
 import { getOwnerReplyTo, logBorrowerSendFromResponse } from './_shared/email.mjs';
@@ -42,12 +40,6 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
-// Deploy 236.741 — shared loan/property prefill (also used live by -load).
-// 236.851 — clientActsAsBroker replaces the raw brokerId test: a loan that
-// moved onto the real borrower's client record must prefill normally.
-import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill, seedGuarantorSSNsFromProfiles } from './_shared/borrower-prefill.mjs';
-
-const TOKEN_EXPIRY_DAYS = 14;
 
 export default async (req, context) => {
   try {
@@ -114,108 +106,25 @@ async function handle(req, context) {
   } catch (e) { /* non-fatal */ }
   const loName = (loProfile && loProfile.fullName) || (user.user_metadata && user.user_metadata.full_name) || user.email || 'Your loan officer';
 
-  // Build/rotate the record at the per-loan key (Deploy 168). loadRecord
-  // also handles the migration fallback: if there's a legacy per-client
-  // record whose inferred loanId matches body.loanId, it gets lifted to
-  // the new key as the starting point.
-  const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = newRecordKey(ownerKey, body.clientId, body.loanId);
-  const existing = await loadRecord(store, ownerKey, body.clientId, body.loanId, client);
-
-  const now = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_DAYS * 86400000).toISOString();
-  // Deploy 236.414 — REUSE the existing token on resend instead of
-  // rotating. Rotation silently killed every previously sent email and
-  // open tab, which created a vicious cycle: borrower hits an error →
-  // LO resends → borrower retries from the OLDER email → dead token →
-  // (pre-236.414) full-store walk → 504 → LO resends again. Now every
-  // email ever sent for this application keeps working; the expiry
-  // window slides forward with each resend. A fresh token is only
-  // minted when there's no live one (first send, or expired).
-  const tokenReusable = !!(existing && existing.token &&
-    (!existing.expiresAt || new Date(existing.expiresAt) > new Date()));
-  const token = tokenReusable ? existing.token : generateToken();
-
-  // Pre-fill from what we already know about the client + loan.
-  // 236.851 — pass the actual recipient so the broker classification can see
-  // "the client is receiving their own form" (same priority as sendTo below).
-  const prefill = buildPrefill(client, loan, {
-    loName, loEmail: owner,
-    recipientEmail: bodyEmail || client.email || brokerEmail || '',
-  });
-
-  const record = {
-    clientId: body.clientId,
-    loanId: body.loanId,                    // required since Deploy 168
-    ownerKey,
-    ownerEmail: owner,
-    borrowerEmail: client.email,
-    token,
-    sentAt: now,
-    expiresAt,
-    status: 'pending',
-    requestedBy: user.email || '',
-    createdAt: existing ? existing.createdAt : now,
-    updatedAt: now,
-    completedAt: null,
-    prefill,
-    // Existing collected data is preserved if present (allows LO to re-send link
-    // for edits without wiping borrower's previous answers)
-    data: (existing && existing.data) || {},
-  };
-
-  // Deploy 236.853 (Mike) — auto-fill SSNs the platform already has: copy the
-  // ENCRYPTED value from client profiles into the application record. The
-  // borrower sees only the ***-**-1234 mask and doesn't retype it. Safe here:
-  // this record is (re)issued as status 'pending' — nothing signed over it yet.
+  // Deploy 237.259 -- the record, its token (reused while live: 236.414), the SSN seed
+  // (236.853), the byOwner index (236.455) and the token index (172) are one shared step now
+  // (_shared/borrower-info-issue.mjs); the e-sign packet issues the same link. Nothing about
+  // the record changed.
+  let issued;
   try {
-    await seedGuarantorSSNsFromProfiles({
-      data: record.data, client, loan, ownerKey, clientsStore,
+    issued = await issueApplicationLink({
+      ownerKey, ownerEmail: owner, client, loan, loName,
       recipientEmail: bodyEmail || client.email || brokerEmail || '',
+      requestedBy: user.email || '',
+      clientsStore, store: getStore({ name: 'borrower_info', consistency: 'strong' }),
     });
   } catch (e) {
-    console.warn('borrower-info-request: SSN seed failed (non-fatal):', e && e.message);
-  }
-
-  try {
-    await store.setJSON(recordKey, record);
-  } catch (e) {
+    console.error('borrower-info-request: issue failed:', e && e.message);
     return json(500, { error: 'Failed to save request' });
   }
+  const { token, expiresAt, existing } = issued;
 
-  // Deploy 236.455 — write through the byOwner borrower-info index so the
-  // admin all-scope pipeline reflects the newly-sent 'pending' app right
-  // away. borrower-info-list serves admins from this index (Deploy 236.343),
-  // and until now ONLY borrower-info-save upserted it — so a SENT app never
-  // entered the index until the BORROWER opened the link and saved. Symptom
-  // (Mike, super_admin on all-scope): send the long app from Loan Details
-  // ACTIONS, then open the Pipeline — the card stayed on "Send Loan App"
-  // (never flipped to "Loan App Pending"/"In Progress") because the index
-  // the pipeline reads never learned about the send. Self-scope LOs read a
-  // live store walk, so they saw it — that was the asymmetry. Awaited (not
-  // fire-and-forget) so the index is current before we return; the Lambda
-  // can freeze right after the response, dropping a detached promise.
-  try {
-    await borrowerInfoIndex.upsertRecord(record.ownerKey, record);
-  } catch (e) {
-    console.warn('borrower-info-request: index upsert failed (non-fatal):', e && e.message);
-  }
-
-  // Deploy 172: write the token→recordKey index entry so subsequent
-  // public load/save calls can resolve the token in O(1) instead of
-  // walking the entire borrower_info store. If we're rotating a token
-  // (existing record had a different token), invalidate the old index
-  // entry so the previous link stops resolving via the index path.
-  if (existing && existing.token && existing.token !== token) {
-    await deleteTokenIndex(existing.token);
-  }
-  await writeTokenIndex(token, recordKey, {
-    ownerKey, clientId: body.clientId, loanId: body.loanId,
-  });
-
-  // Build the borrower-facing URL
-  const siteUrl = (process.env.URL || '').replace(/\/$/, '');
-  const link = `${siteUrl}/borrower-info.html?t=${encodeURIComponent(token)}`;
+  const link = issued.link; // the borrower-facing URL
 
   // Optional email — use the body.email override if provided (LO can edit
   // the recipient in the modal), otherwise default to the client's email,
@@ -287,88 +196,6 @@ async function handle(req, context) {
     reminder: isReminder,
     entry: noteEntry,        // 237.190 — for the feed's optimistic append
   });
-}
-
-// Pull what we already know about the borrower + property into a prefill
-// object the borrower form will use to skip redundant questions.
-function buildPrefill(client, loan, loInfo) {
-  loInfo = loInfo || {};
-  // Fallback: when no specific loan was passed, use the client's first loan
-  if (!loan && client && Array.isArray(client.loans) && client.loans.length > 0) {
-    loan = client.loans[0];
-  }
-  const num = (v) => {
-    if (v === null || v === undefined || v === '') return null;
-    const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
-    return isFinite(n) ? n : null;
-  };
-  const annualize = (m) => { const n = num(m); return n != null ? Math.round(n * 12) : ''; };
-
-  // Broker loans store the BROKER's contact info on the client record —
-  // the borrower is a separate person captured (if at all) on the loan's
-  // formData. Copying client.* into pf.borrower would put broker info
-  // into the borrower form's contact section AND, worse, cascade into
-  // the Guarantor #1 mirror in borrower-info.html (line 459+). The
-  // borrower would open the form pre-filled with the broker as their
-  // own guarantor. Fix: for broker loans, source borrower fields from
-  // loan.formData if captured; leave blank otherwise so the borrower
-  // fills in their own info + guarantor from scratch.
-  // 236.851 — was `loan._isBrokerLoan || loan.brokerId`, which stayed true
-  // forever even after the loan moved onto the real borrower's client record
-  // (guarantor swap / make-primary) and blanked Guarantor #1 on re-sends.
-  const isBrokerLoan = clientActsAsBroker(client, loan, loInfo.recipientEmail);
-  const fd = (loan && loan.formData) || {};
-  let borrowerSrc;
-  if (isBrokerLoan) {
-    // Split the broker-named borrower into first/last if present.
-    // Deploy 236.636 — include loan.borrowerName (stamped by prospects-save when a
-    // broker names the borrower on the short app), so the loan application prefills
-    // with the BORROWER, not the broker. Email already reads loan.borrowerEmail.
-    const borrowerName = String(fd.borrower || fd.borrowerName || loan.borrower || loan.borrowerName || '').trim();
-    const nameParts = borrowerName.split(/\s+/);
-    borrowerSrc = {
-      firstName: nameParts.slice(0, -1).join(' ') || nameParts[0] || '',
-      lastName:  nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
-      email:     fd.borrowerEmail || loan.borrowerEmail || '',
-      phone:     fd.borrowerPhone || loan.borrowerPhone || '',
-      usCitizen: '',
-      dob:       '',
-      maritalStatus: '',
-      homeAddress: null,
-      fico:      '',
-      flips:     '',
-      rentals:   '',
-    };
-  } else {
-    // 236.851 — shared with borrower-info-load's stale-broker-flag repair.
-    borrowerSrc = buildBorrowerPrefill(client);
-  }
-
-  const pf = {
-    // Item #9: who this borrower is working with (auto-selected + locked on form)
-    lo: {
-      name: loInfo.loName || '',
-      email: loInfo.loEmail || '',
-    },
-    borrower: borrowerSrc,
-    property: {},
-    loan: {
-      // Surface isBrokerLoan so borrower-info.html's Guarantor #1 mirror
-      // (and any other form logic) can be broker-aware.
-      isBrokerLoan,
-    },
-    // Item #8: borrower's saved companies/entities for the entity selector.
-    // Broker loans: the client's companies belong to the BROKER, not the
-    // borrower — don't leak them into the borrower's entity picker.
-    companies: (isBrokerLoan
-      ? []
-      : (Array.isArray(client.companies) ? client.companies : [])),
-  };
-  // Deploy 236.741 — the loan/property half moved to _shared/borrower-prefill
-  // so borrower-info-load can re-derive it from the LIVE loan on every load
-  // (the invite-time snapshot missed later prefill improvements + loan edits).
-  if (loan) applyLoanPrefill(pf, loan);
-  return pf;
 }
 
 // Deploy 237.190 (Chance: "is there anyway we can get a 'resend' or reminder

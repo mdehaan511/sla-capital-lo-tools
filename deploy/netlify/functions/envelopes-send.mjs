@@ -216,7 +216,11 @@ async function handle(req, context) {
 // subject/intro make clear it's a nudge (esign-reminder-cron re-sends daily).
 export async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey, reminder }) {
   const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const docList = (envelope.docs || []).map((d) => d.name).join(', ');
+  // Deploy 237.259 -- the Loan Application as a STEP: named in the list for the signer it
+  // goes to, with one sentence on what the same link does after they sign.
+  const appStep = (envelope.application && envelope.application.mode === 'longform') ? envelope.application : null;
+  const isAppSigner = !!(appStep && String(signer.email || '').trim().toLowerCase() === String(appStep.signerEmail || '').trim().toLowerCase());
+  const docList = (envelope.docs || []).map((d) => d.name).concat(isAppSigner ? ['Loan Application (completed online after you sign)'] : []).join(', ');
   const subject = (reminder ? 'Reminder — please review and sign: ' : 'Please review and sign: ') +
     (docList || 'SLA Capital documents');
   const intro = reminder
@@ -234,6 +238,7 @@ export async function sendInvitationEmail({ apiKey, signer, envelope, link, loNa
     envelope.message ? 'Note from your loan officer:' : '',
     envelope.message ? envelope.message : '',
     '',
+    isAppSigner ? 'After you sign, the same page takes you to your Loan Application to complete and sign.' : '',
     'Click the link below to review and sign:',
     link,
     '',
@@ -260,6 +265,7 @@ export async function sendInvitationEmail({ apiKey, signer, envelope, link, loNa
           ? `<p style="font-size:14px;line-height:1.6"><strong>Property:</strong> ${escH(propertyAddress)}</p>`
           : '') +
         `<p style="font-size:14px;line-height:1.6"><strong>Documents:</strong> ${escH(docList)}</p>` +
+        (isAppSigner ? '<p style="font-size:14px;line-height:1.6">After you sign, the same page takes you to your <strong>Loan Application</strong> to complete and sign.</p>' : '') +
         (envelope.message
           ? `<div style="background:#F5E9D8;padding:14px 16px;border-left:3px solid #C8813A;border-radius:4px;margin:16px 0">` +
               `<p style="font-size:13px;line-height:1.55;margin:0"><strong>Note from your loan officer:</strong></p>` +

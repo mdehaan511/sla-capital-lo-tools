@@ -18,7 +18,7 @@
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
-  <script src="/loan-doc-review.js?v=237255"></script>
+  <script src="/loan-doc-review.js?v=237259"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
   <script src="/sla-nav.js" defer></script>
 <script src="/sla-search.js" defer></script>
@@ -644,7 +644,7 @@
              signature counts as the application's own (see application-packet-complete-background). -->
         <label class="bi-checkbox" id="esIncludeAppRow" style="display:none">
           <input type="checkbox" id="esIncludeApp" onchange="_esPacketToggled()" />
-          <span>Include the Loan Application in this packet <span id="esIncludeAppHint" style="color:var(--muted);font-weight:400"></span></span>
+          <span>Include the Loan Application <span id="esIncludeAppHint" style="color:var(--muted);font-weight:400"></span></span>
         </label>
         <div id="esPacketSigners" style="display:none;font-size:12px;color:var(--muted);margin:2px 0 10px 26px;line-height:1.5"></div>
         <label class="bi-checkbox">
@@ -1360,10 +1360,10 @@
 <script src="/dscr-pricing.js?v=237145"></script>
 <script src="/loan-uw-fields.js?v=237229"></script>
 <script src="/loan-uw-calc.js?v=237223"></script>
-<script src="/loan-uw-tab.js?v=237255"></script>
+<script src="/loan-uw-tab.js?v=237259"></script>
 <!-- Deploy 237.222 (Mike) - key-metrics panel on Documents > Underwriting. Needs the
      SLA_UW_TAB exports added in the same deploy, hence the matching pins. -->
-<script src="/loan-uw-metrics.js?v=237255"></script>
+<script src="/loan-uw-metrics.js?v=237259"></script>
 <!-- Deploy 236.539 — version-pin loan-details.js to this deploy. loan-details.js
      is cached `max-age=300, stale-while-revalidate` while the inline CSS above
      ships with the (60s) HTML, so a deploy that changes BOTH (like 236.538's
@@ -1381,6 +1381,6 @@
      rather than carrying a second copy of that arithmetic. Must load BEFORE
      loan-details.js uses it. -->
 <script src="/lo-comp.js?v=237250"></script>
-<script src="/loan-details.js?v=237256"></script>
+<script src="/loan-details.js?v=237259"></script>
 </body>
 </html>

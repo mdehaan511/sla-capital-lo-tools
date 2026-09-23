@@ -18,6 +18,8 @@ import { getStore } from '@netlify/blobs';
 import { handleOptions, json, normalizeEmail, keySafe } from './_shared/auth.mjs';
 // Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
 import { checkRateLimit } from './_shared/rate-limit.mjs';
+// Deploy 237.259 -- the Loan Application as a STEP of the packet (see envelopes.mjs).
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req) => {
   try {
@@ -61,12 +63,37 @@ async function handle(req) {
 
   // Look up property address for context.
   let propertyAddress = '';
+  let client = null;
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
-    const client = await clientsStore.get(`${envelope.ownerKey}/${envelope.clientId}`, { type: 'json' });
+    client = await clientsStore.get(`${envelope.ownerKey}/${envelope.clientId}`, { type: 'json' });
     const loan = client && (client.loans || []).find((l) => l.id === envelope.loanId);
     if (loan) propertyAddress = loan.propertyAddress || '';
   } catch (_) {}
+
+  // Deploy 237.259 -- the Loan Application as a STEP: the designated signer gets the live
+  // long-form link (the record's CURRENT token, so an LO re-send never strands them) until the
+  // application is signed; the other signers only learn that the step exists.
+  let application = null;
+  const app = envelope.application;
+  if (app && app.mode === 'longform') {
+    let rec = null;
+    try {
+      const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+      rec = await loadRecord(biStore, envelope.ownerKey, envelope.clientId, envelope.loanId, client);
+    } catch (_) {}
+    const done = !!(rec && (rec.signedAt || rec.b1SignedAt || rec.status === 'complete'));
+    const forYou = signerIndex === app.signerIndex;
+    const liveToken = (rec && rec.token) || app.token || '';
+    const appExpired = !!(rec && rec.expiresAt && new Date(rec.expiresAt) < new Date());
+    application = {
+      step: 'longform', forYou, done,
+      status: rec ? (rec.status || 'pending') : 'pending',
+      started: !!(rec && rec.data && Object.keys(rec.data).length > 0),
+      url: (forYou && !done && liveToken && !appExpired) ? '/borrower-info.html?t=' + encodeURIComponent(liveToken) : null,
+      expired: appExpired,
+    };
+  }
 
   return json(200, {
     envelopeId: envelope.id,
@@ -88,6 +115,7 @@ async function handle(req) {
     })),
     status: envelope.status,
     expired,
+    application, // Deploy 237.259 -- null unless the packet carries the application as a step
   });
 }
 

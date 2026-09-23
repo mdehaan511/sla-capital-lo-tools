@@ -94,6 +94,8 @@ async function handleGet(req, user) {
     status: record.status || 'pending',
     sentAt: record.sentAt,
     completedAt: record.completedAt,
+    signedAt: record.signedAt || null,     // Deploy 237.259 -- "signed" is these, not status
+    b1SignedAt: record.b1SignedAt || null,
     expiresAt: record.expiresAt,
     lastSavedAt: record.lastSavedAt,
     borrowerEmail: record.borrowerEmail,

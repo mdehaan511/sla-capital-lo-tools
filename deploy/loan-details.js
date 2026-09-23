@@ -7128,11 +7128,14 @@ function openOrCreateDocReview() {
 // (a NEW link), Cancel, Refresh, Download -- plus one entry per envelope
 // history event (signed, resent, voided, completed). Kind 'esign'.
 function _esignDocNames(env) {
-  return (env.docs || []).map(function(d) {
+  var names = (env.docs || []).map(function(d) {
     if (d.kind === 'rate_sheet') return 'Rate Sheet';
     if (d.kind === 'loan_extension') return 'Extension Agreement';
     return 'Loan App';
-  }).join(' + ') || 'Document';
+  });
+  // Deploy 237.259 -- the application as a step of the packet (no PDF in the envelope)
+  if (env.application && env.application.mode === 'longform') names.push('Loan App (from the same link)');
+  return names.join(' + ') || 'Document';
 }
 function _esignBtn(attrs, label, title) {
   return '<button type="button" ' + attrs + (title ? ' title="' + escAttr(title) + '"' : '') +
@@ -12402,7 +12405,16 @@ function openRateSheetPartyModal(v) {
 // only when a long-form application is on file for this loan and not yet signed; its signers
 // are the application's own parties (borrower 1 + every co-guarantor it names with an email),
 // because the packet signature COUNTS as the application's signature.
+// Deploy 237.259 (Mike: "the whole point is we want the borrower to be able to sign the rate
+// sheet and complete the loan application from the same link so it will normally be sent when
+// there is no application on file yet") -- two modes, decided by what is on file (the server
+// decides for real in envelopes.mjs; this only tells the LO which it will be):
+//   'longform' -- nothing on file, or started and unfinished: the signer typed above signs the
+//                 Rate Sheet, then completes and signs the application from the same link
+//   'packet'   -- finished but unsigned (e.g. entered by the LO on the borrower's behalf): it
+//                 rides in the envelope and the packet signature counts (237.256)
 var _esPacketParties = null;
+var _esPacketMode = null;
 function _esLoadPacketOption() {
   var row = document.getElementById('esIncludeAppRow');
   var cb = document.getElementById('esIncludeApp');
@@ -12410,14 +12422,25 @@ function _esLoadPacketOption() {
   var list = document.getElementById('esPacketSigners');
   if (!row || !cb) return;
   _esPacketParties = null;
+  _esPacketMode = null;
   cb.checked = false; cb.disabled = true; row.style.display = 'none';
   if (list) { list.style.display = 'none'; list.innerHTML = ''; }
   if (!_client || !_loanId || !window.SLA || !SLA.BorrowerInfo) return;
   var opts = { loanId: _loanId };
   if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
   SLA.BorrowerInfo.status(_client.id, opts).catch(function() { return null; }).then(function(st) {
-    if (!st || !st.exists) { row.style.display = ''; hint.textContent = '(no application on file for this loan)'; return; }
-    if (st.status === 'complete' || st.signedAt || st.b1SignedAt) { row.style.display = ''; hint.textContent = '(already signed)'; return; }
+    row.style.display = '';
+    var exists = !!(st && st.exists);
+    if (exists && (st.signedAt || st.b1SignedAt)) { hint.textContent = '(already signed)'; return; }
+    var finished = !!(exists && st.status === 'complete' && st.data && Object.keys(st.data).length);
+    if (!finished) {
+      _esPacketMode = 'longform';
+      cb.disabled = false;
+      hint.textContent = exists
+        ? '(started, not finished \u2014 they finish it after signing, from the same link)'
+        : '(none on file yet \u2014 they complete it after signing, from the same link)';
+      return;
+    }
     var gs = (st.data && Array.isArray(st.data.guarantors)) ? st.data.guarantors : [];
     var num = Math.max(1, Math.min(4, parseInt(String((st.data && st.data.numGuarantors) || '1'), 10) || 1));
     var g0 = gs[0] || {};
@@ -12428,24 +12451,28 @@ function _esLoadPacketOption() {
       parties.push({ pos: p, firstName: String(g.firstName || '').trim(), lastName: String(g.lastName || '').trim(), email: String(g.email || '').toLowerCase().trim() });
     }
     var noEmail = parties.filter(function(x) { return !x.email; });
-    row.style.display = '';
     if (noEmail.length) { hint.textContent = '(the application names a party with no email \u2014 add it on the application first)'; return; }
     _esPacketParties = parties;
+    _esPacketMode = 'packet';
     cb.disabled = false;
-    hint.textContent = parties.length === 1 ? '(signed by the borrower on it)' : '(signed by all ' + parties.length + ' people on it)';
+    hint.textContent = parties.length === 1 ? '(complete \u2014 goes in the packet, signed by the borrower on it)' : '(complete \u2014 goes in the packet, signed by all ' + parties.length + ' people on it)';
   });
 }
 function _esPacketToggled() {
   var cb = document.getElementById('esIncludeApp');
   var list = document.getElementById('esPacketSigners');
   var title = document.getElementById('esTitle');
-  var on = !!(cb && cb.checked && _esPacketParties);
+  var on = !!(cb && cb.checked && _esPacketMode);
   if (title) title.textContent = on ? 'Send Rate Sheet + Loan Application for Signature' : 'Send Rate Sheet for Signature';
   if (!list) return;
   if (!on) { list.style.display = 'none'; list.innerHTML = ''; return; }
-  list.innerHTML = 'Signers, from the application: ' + _esPacketParties.map(function(p) {
-    return '<b>' + escH((p.firstName + ' ' + p.lastName).trim() || ('Borrower ' + p.pos)) + '</b> &lt;' + escH(p.email) + '&gt;';
-  }).join(', ') + '. Each gets their own link; one signature signs both documents.';
+  if (_esPacketMode === 'longform' || !_esPacketParties) {
+    list.innerHTML = 'The signer above signs the Rate Sheet, then completes and signs the Loan Application from the same link. When they finish, it is saved to the loan as its own document.';
+  } else {
+    list.innerHTML = 'Signers, from the application: ' + _esPacketParties.map(function(p) {
+      return '<b>' + escH((p.firstName + ' ' + p.lastName).trim() || ('Borrower ' + p.pos)) + '</b> &lt;' + escH(p.email) + '&gt;';
+    }).join(', ') + '. Each gets their own link; one signature signs both documents.';
+  }
   list.style.display = '';
 }
 function _esOpenModal(signer) {
@@ -12615,10 +12642,14 @@ function esSubmit() {
 
   // Deploy 237.256 -- the packet: the Loan Application rides along (rendered server-side from
   // the application on file) and the signers are the application's parties, not the typed one.
-  var includeApp = !!(document.getElementById('esIncludeApp') && document.getElementById('esIncludeApp').checked && _esPacketParties);
+  // Deploy 237.259 -- in 'longform' mode the typed signer keeps the packet and gets the
+  // application step; the server issues the link and drops the doc entry (envelopes.mjs).
+  var includeApp = !!(document.getElementById('esIncludeApp') && document.getElementById('esIncludeApp').checked && _esPacketMode);
   if (includeApp) {
     docs.push({ kind: 'loan_app', name: 'Loan Application \u2014 ' + (_loan.address || 'No address') });
-    signers = _esPacketParties.map(function(p) { return { firstName: p.firstName, lastName: p.lastName, email: p.email }; });
+    if (_esPacketMode === 'packet' && _esPacketParties) {
+      signers = _esPacketParties.map(function(p) { return { firstName: p.firstName, lastName: p.lastName, email: p.email }; });
+    }
   }
   var btn = document.getElementById('esSendBtn');
   btn.disabled = true;
@@ -12706,7 +12737,8 @@ function esSubmit() {
         if (!sendEmail) {
           status.textContent = '\u2713 Link generated. Copy and text it to the borrower.';
         } else if (senv.status === 'sent') {
-          status.textContent = '\u2713 Sent to ' + (signers[0].email) + '. Link is shown below to share again.';
+          status.textContent = '\u2713 Sent to ' + (signers[0].email) + '. Link is shown below to share again.' +
+            ((includeApp && _esPacketMode === 'longform') ? ' They sign the Rate Sheet, then complete the Loan Application from the same link.' : ''); // Deploy 237.259
         } else if (senv.status === 'partial_send_failure') {
           status.textContent = '\u26A0 Email send failed \u2014 copy the link below and share it manually.';
         } else {
@@ -12743,8 +12775,11 @@ function esSubmit() {
   // Deploy 236.87 — GUC routing: a saved GUC loan must reopen in the GUC sizer.
   var _tt = String(_loan.toolType || '').toLowerCase();
   // Deploy 236.748 — MF-program loans reopen in the Multifamily sizer.
+  // Deploy 237.259 -- the same 5+ rule as "Go to Sizer" (237.245): a multifamily record
+  // without mfProgram (propType 'multi' / 5+ units) must render its rate sheet in the MF sizer.
+  var _mfFd = _loan.formData || {};
   var sizerPage = _tt === 'rtl' ? '/rtl-sizer.html' : _tt === 'guc' ? '/guc-sizer.html'
-                : _loan.mfProgram ? '/mf-dscr-sizer.html' : '/dscr-sizer.html';
+                : (_loan.mfProgram || _mfFd.mfProgram || String(_loan.propType || _mfFd.propType || '').toLowerCase() === 'multi' || parseInt(_loan.numUnits || _mfFd.numUnits || 0, 10) >= 5) ? '/mf-dscr-sizer.html' : '/dscr-sizer.html';
   // Deploy 236.846 — we only reach this line after the gate passed, so tell
   // the sizer explicitly NOT to stamp PRELIMINARY. Its own fallback check
   // reads the denormalized loan.guarantors[], which lags a manual

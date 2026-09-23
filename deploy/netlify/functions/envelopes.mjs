@@ -45,6 +45,14 @@ import { rateSheetSignable, isBroker, brokerOf } from './_shared/rate-sheet-sign
 // single email for e-signing") -- the Loan Application in a packet is rendered HERE from the
 // application on file; no application bytes come through the browser.
 import { renderUnsignedApplicationForLoan } from './_shared/loan-application-unsigned.mjs';
+// Deploy 237.259 (Mike: "the whole point is we want the borrower to be able to sign the rate
+// sheet and complete the loan application from the same link so it will normally be sent when
+// there is no application on file yet") -- when there is no FINISHED application to render, the
+// packet carries the application as a STEP: the long-form link is issued here (same record,
+// same token rules as Send Full Loan Application) and the signer page continues into it after
+// the Rate Sheet is signed. The application then signs itself the way it always has.
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
+import { issueApplicationLink } from './_shared/borrower-info-issue.mjs';
 
 const VALID_DOC_KINDS = new Set(['rate_sheet', 'loan_app']);
 
@@ -131,11 +139,12 @@ async function handleCreate(req, context, user) {
   // sendable in any loan status (previously required 'approved' / In
   // Processing). The verification still loads the client + loan to
   // make sure the IDs are real; we just no longer reject on status.
+  let client = null, loan = null; // Deploy 237.259 -- the application step below needs them too
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
-    const client = await clientsStore.get(`${ownerKey}/${body.clientId}`, { type: 'json' });
+    client = await clientsStore.get(`${ownerKey}/${body.clientId}`, { type: 'json' });
     if (!client) return json(404, { error: 'Client not found' });
-    const loan = (client.loans || []).find((l) => l.id === body.loanId);
+    loan = (client.loans || []).find((l) => l.id === body.loanId);
     if (!loan) return json(404, { error: 'Loan not found' });
 
     // Deploy 236.846 (Mike) — a rate sheet can only be SIGNED when the loan
@@ -184,17 +193,60 @@ async function handleCreate(req, context, user) {
     return json(500, { error: 'Could not load loan record' });
   }
 
-  // Deploy 237.256 -- the Loan Application in the packet: rendered from the application on
-  // file (unsigned, every party listed), and signed by exactly the application's parties --
-  // the same people the long form would have asked, so the packet signature can COUNT as the
-  // application's signature (application-packet-complete-background.mjs).
+  // Deploy 237.256 / 237.259 -- the Loan Application in the packet. Which way it goes is
+  // decided HERE, from the application on file (the send modal only tells the LO which):
+  //   signed already                          -> refused, nothing left to sign
+  //   finished but unsigned (status complete, e.g. entered by the LO on the borrower's behalf)
+  //                                           -> rendered into the packet, signed by exactly its
+  //                                              parties; the packet signature COUNTS (237.256,
+  //                                              application-packet-complete-background.mjs)
+  //   nothing on file, or started and unfinished (the normal case)
+  //                                           -> a STEP, not a document: the long-form link is
+  //                                              issued (reused while live) and the signer page
+  //                                              continues into it after the Rate Sheet is signed
   let applicationMeta = null;
   const appIdx = docs.findIndex((d) => d.kind === 'loan_app' && !d.pdfBase64);
   if (appIdx >= 0) {
     const meta = (user && user.user_metadata) || {};
+    const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+    const onFile = await loadRecord(biStore, ownerKey, String(body.clientId), String(body.loanId), client);
+    if (onFile && (onFile.signedAt || onFile.b1SignedAt || onFile.signedAuditKey)) {
+      return json(409, { code: 'loan_app_unavailable', error: 'This application has already been signed.' });
+    }
+    const finished = !!(onFile && onFile.status === 'complete' && onFile.data && Object.keys(onFile.data).length > 0);
+    if (!finished) {
+      // The step goes to the signer who is the borrower: the loan's / client's email when it is
+      // among the signers, else the first signer. Anyone else on the packet signs the Rate
+      // Sheet only (a co-borrower is invited by the application itself, after borrower 1 signs).
+      const borrowerEmail = normalizeEmail(loan.borrowerEmail || client.email || '');
+      let signerIndex = signers.findIndex((sg) => normalizeEmail(sg.email) === borrowerEmail);
+      if (signerIndex < 0) signerIndex = 0;
+      const to = signers[signerIndex];
+      let issued;
+      try {
+        issued = await issueApplicationLink({
+          ownerKey, ownerEmail, client, loan,
+          loName: meta.full_name || meta.fullName || user.email || '',
+          recipientEmail: normalizeEmail(to.email), requestedBy: user.email || '',
+          clientsStore: getStore({ name: 'clients', consistency: 'strong' }), store: biStore,
+        });
+      } catch (e) {
+        console.error('envelopes-create: application link issue failed:', e && e.message);
+        return json(500, { code: 'loan_app_unavailable', error: 'Could not prepare the Loan Application link: ' + ((e && e.message) || 'unknown') });
+      }
+      docs.splice(appIdx, 1); // a step, not a document: nothing to stamp
+      if (!docs.length) return json(400, { error: 'The packet needs the Rate Sheet as well.' });
+      applicationMeta = {
+        mode: 'longform', signerIndex, signerEmail: normalizeEmail(to.email),
+        token: issued.token, recordKey: issued.recordKey, tokenReused: !!issued.tokenReused,
+        status: issued.existing ? (issued.existing.status || 'pending') : 'pending',
+        issuedAt: new Date().toISOString(),
+      };
+    } else {
     const r = await renderUnsignedApplicationForLoan({
       ownerKey, clientId: String(body.clientId), loanId: String(body.loanId),
       enteredBy: { name: meta.full_name || meta.fullName || user.email || '', email: user.email || '', at: new Date().toISOString() },
+      biStore,
     });
     if (!r.ok) return json(r.status || 500, { code: 'loan_app_unavailable', error: r.error });
     const parties = r.parties;
@@ -217,7 +269,8 @@ async function handleCreate(req, context, user) {
       name: docs[appIdx].name || ('Loan Application \u2014 ' + String((r.loan && r.loan.address) || '')).trim(),
       source: 'longapp',
     });
-    applicationMeta = { parties, renderedAt: new Date().toISOString() };
+    applicationMeta = { mode: 'packet', parties, renderedAt: new Date().toISOString() };
+    }
   }
 
   const now = new Date().toISOString();
@@ -274,6 +327,13 @@ async function handleCreate(req, context, user) {
       note: 'Created \u2014 PDFs stashed, awaiting send call.',
     }],
   };
+
+  if (applicationMeta && applicationMeta.mode === 'longform') {
+    record.history.push({
+      ts: now, status: 'queued',
+      note: 'Loan Application step: ' + applicationMeta.signerEmail + ' continues into the long-form application from the signing page after signing (' + (applicationMeta.tokenReused ? 'existing' : 'new') + ' application link).',
+    });
+  }
 
   const store = getStore({ name: 'envelopes', consistency: 'strong' });
   const blobKey = `${ownerKey}/${envelopeId}`;
