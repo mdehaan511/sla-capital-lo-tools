@@ -14,10 +14,13 @@
  * they're pricing is an admin table, not a sales tool. This is the first
  * place the Phase 0 activity data actually surfaces.
  *
- * ADMIN ONLY.
+ * Deploy 237.251 — READ is open to anyone signed in (it was admin-only while the
+ * portal was being built). broker-partner-save is still admin: approving grants
+ * the broker role and the right to price, which is not the same as reading who
+ * already has it.
  */
 import {
-  handleOptions, json, requireAuth, isAdmin, normalizeEmail,
+  handleOptions, json, requireAuth, normalizeEmail,
 } from './_shared/auth.mjs';
 import { listPartners } from './_shared/broker-partners.mjs';
 import { listSessions } from './_shared/broker-activity.mjs';
@@ -38,9 +41,13 @@ export default async (req, context) => {
 async function handle(req, context) {
   const pre = handleOptions(req); if (pre) return pre;
 
+  // Deploy 237.251 (Mike: "you can make the preferred partners page open to
+  // everyone now that we have launched that basic broker portal") — READ is open
+  // to anyone signed in. Nothing here is a secret from the people selling: it is
+  // which brokers can price their own deals, on what, and what they priced.
+  // broker-partner-save stays admin: granting access is not reading about it.
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isAdmin(user)) return json(403, { error: 'Admin only' });
 
   const partners = await listPartners();
   const byEmail = new Set(partners.map((p) => p.email));

@@ -130,15 +130,18 @@
              context with every program and no fee cap. -->
         <a class="act" href="/broker-sizer.html" target="_blank" rel="noopener"
            style="text-decoration:none;padding:8px 14px">Preview Sizer</a>
-        <button class="add-btn" onclick="openEdit(null)">+ Add Partner</button>
+        <button class="add-btn" id="addPartnerBtn" onclick="openEdit(null)" style="display:none">+ Add Partner</button>
       </div>
     </div>
 
-    <div class="prelaunch">
+    <!-- Deploy 237.251 — the pre-launch notice is gone: the portal has a sign-in
+         and partners price through it. What is worth saying now is who may change
+         access, shown to the people who cannot. -->
+    <div class="prelaunch" id="readOnlyNote" style="display:none">
       <span>&#9432;</span>
-      <div><b>Pre-launch.</b> The partner portal is admin-only — there is no broker sign-in page yet and
-      nothing here emails anyone. Invites generate a link you copy and send yourself. Broker pricing stays
-      admin-gated until the sizer surface ships.</div>
+      <div><b>Read-only for you.</b> This is the whole partner desk — who has portal access, what they
+      may price, and what they have been pricing. Approving, suspending or editing a partner changes what
+      someone is allowed to do, so those stay with an admin. Ask one to add or approve a broker.</div>
     </div>
 
     <div class="counts" id="counts"></div>
@@ -256,19 +259,29 @@ function ago(iso) {
   return Math.round(h / 24) + 'd ago';
 }
 
-// ── Auth + admin gate ────────────────────────────────────────────
+// ── Auth gate ────────────────────────────────────────────────────
+// Deploy 237.251 (Mike: "you can make the preferred partners page open to
+// everyone now that we have launched that basic broker portal"). The page was
+// admin-only while the portal was being built. Anyone signed in can READ it now:
+// who has portal access, what they may price, and what they have been pricing.
+//
+// The buttons that GRANT are still admin. Approving writes the broker role to
+// sla_user_roles and lets someone price their own deals; suspend revokes it;
+// delete takes the record and its pricing history with it. Those are permission
+// changes, not desk work, and "open the page" is not the same request as "let
+// every LO hand out logins". _isAdmin hides them rather than letting a
+// non-admin press a button that comes back 403.
+var _isAdmin = false;
 (function init() {
   if (!(window.SLA && SLA.getCurrentUser)) { setTimeout(init, 120); return; }
   SLA.getCurrentUser().then(function (user) {
     if (!user) { window.location.replace('/'); return; }
-    if (!(SLA.isAdmin && SLA.isAdmin(user))) {
-      document.getElementById('auth-gate').innerHTML =
-        '<div class="gate-msg"><strong>Admin access required.</strong>The partner portal is admin-only while it is being built. <a href="/">Back to home</a></div>';
-      return;
-    }
+    _isAdmin = !!(SLA.isAdmin && SLA.isAdmin(user));
     _user = user;
     document.getElementById('auth-gate').style.display = 'none';
     document.getElementById('appWrap').style.display = 'block';
+    document.getElementById('addPartnerBtn').style.display = _isAdmin ? '' : 'none';
+    document.getElementById('readOnlyNote').style.display = _isAdmin ? 'none' : '';
     loadAll();
   }).catch(function () { window.location.replace('/'); });
 })();
@@ -320,7 +333,9 @@ function render() {
         '<td><div class="who">' + escH(name) + '</div><div class="sub">' + escH(c.email) +
           (c.company ? ' · ' + escH(c.company) : '') + '</div></td>' +
         '<td class="sub">' + escH(c.ownerKey || '—') + '</td>' +
-        '<td style="text-align:right"><button class="act" onclick="promote(\'' + escAttr(c.email) + '\')">Make Partner</button></td>' +
+        '<td style="text-align:right">' + (_isAdmin
+          ? '<button class="act" onclick="promote(\'' + escAttr(c.email) + '\')">Make Partner</button>'
+          : '<span class="sub">ask an admin to add</span>') + '</td>' +
       '</tr>';
     }).join('') + '</tbody></table>'
   ) : '<div class="empty">' + (q ? 'No brokers match that search.' : 'Every broker in the book is already a partner.') + '</div>';
@@ -356,9 +371,12 @@ function partnerRow(p) {
     ? (a.scenarios + ' scenario' + (a.scenarios === 1 ? '' : 's') + ' · ' + ago(a.lastAt) +
        (a.suspect ? '<span class="pill p-suspect">swept</span>' : ''))
     : '<span class="sub">—</span>';
-  var toggle = p.status === 'approved'
-    ? '<button class="act danger" onclick="setStatus(\'' + escAttr(p.email) + '\',\'suspend\')">Suspend</button>'
-    : '<button class="act primary" onclick="setStatus(\'' + escAttr(p.email) + '\',\'approve\')">Approve</button>';
+  // Deploy 237.251 — approve / suspend / invite / edit change who may price;
+  // they stay with the admins. Everyone else reads the desk.
+  var toggle = !_isAdmin ? ''
+    : (p.status === 'approved'
+      ? '<button class="act danger" onclick="setStatus(\'' + escAttr(p.email) + '\',\'suspend\')">Suspend</button>'
+      : '<button class="act primary" onclick="setStatus(\'' + escAttr(p.email) + '\',\'approve\')">Approve</button>');
   return '<tr>' +
     '<td><div class="who">' + escH(name) + '</div><div class="sub">' + escH(p.email) +
       (p.company && name !== p.company ? ' · ' + escH(p.company) : '') + '</div></td>' +
@@ -372,8 +390,10 @@ function partnerRow(p) {
       // their programs, their fee cap. Catches "why can't they price X?"
       // without having to log in as them.
       '<a class="act" href="/broker-sizer.html?as=' + encodeURIComponent(p.email) + '" target="_blank" rel="noopener" style="text-decoration:none">View as</a>' +
-      '<button class="act" onclick="invite(\'' + escAttr(p.email) + '\')">Invite</button>' +
-      '<button class="act" onclick="openEdit(\'' + escAttr(p.email) + '\')">Edit</button>' +
+      (_isAdmin
+        ? '<button class="act" onclick="invite(\'' + escAttr(p.email) + '\')">Invite</button>' +
+          '<button class="act" onclick="openEdit(\'' + escAttr(p.email) + '\')">Edit</button>'
+        : '') +
     '</td>' +
   '</tr>';
 }

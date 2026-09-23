@@ -94,10 +94,11 @@
         { label: 'Borrowers', href: '/clients.html'  },
         { label: 'Brokers',  href: '/brokers.html'  },
         // Deploy 236.859 — Preferred Partner portal admin. Sits next to
-        // Brokers because a partner IS a broker, with portal access on
-        // top. Admin-gated while the portal is being built (there is no
-        // broker sign-in yet and nothing here emails anyone).
-        { label: 'Preferred Partners', href: '/broker-partners.html', requires: 'admin' },
+        // Brokers because a partner IS a broker, with portal access on top.
+        // Deploy 237.251 (Mike) — un-gated now that the portal has launched:
+        // anyone signed in can see who has access and what they are pricing.
+        // Approving / suspending is still admin, inside the page.
+        { label: 'Preferred Partners', href: '/broker-partners.html' },
         { label: 'Vendors', href: '/contacts.html' },
         // Deploy 236.475 — investor book. Deploy 236.645 — opened to processors
         // (read-only; the Funding Plan investor picker already reads this list).
