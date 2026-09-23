@@ -29,7 +29,8 @@
  *      still key by loanId which is unchanged. Rate-sheet PDFs will
  *      pick up the winner's data next open.
  *
- * Response: { ok, winnerClientId, loanCount, companiesAdded, biMoved, appsMoved }
+ * Response: { ok, winnerClientId, loanCount, companiesAdded, biMoved, appsMoved,
+ *             biParked, appsParked }   (parked: Deploy 237.258 -- the winner already had one)
  * Auth: LO owns both clients (or admin owner-override).
  */
 import { getStore } from '@netlify/blobs';
@@ -152,6 +153,57 @@ const SCALAR_FIELDS = [
   '_isBroker', '_brokerCompany',
 ];
 const NESTED_OBJECT_FIELDS = ['homeAddress', 'mailingAddress', 'prevAddress', 'declarations'];
+
+// Deploy 237.258 -- the borrower_info + signed_applications re-key, lifted out of the
+// handler so a gate can run it on its own (scripts/client-merge-rekey-test.mjs). One rule the
+// inline loop lacked: when the winner ALREADY holds a record at the target key, the winner's
+// record stays and the loser's copy is parked (in the park store, under its old key, marked
+// with where it would have gone). Every other case moves as before.
+export async function rekeyApplicationRecords({ biStore, appStore, biParkStore, appParkStore, sources, resultOwnerKey, winnerId }) {
+  let biMoved = 0, appsMoved = 0, biParked = 0, appsParked = 0;
+  const parked = [];
+  const moveOne = async (store, parkStore, oldK, newK) => {
+    const rec = await store.get(oldK, { type: 'json' });
+    if (!rec) return null;
+    const taken = await store.get(newK, { type: 'json' });
+    if (taken) {
+      rec._mergedInto = newK;
+      rec._mergedAt = new Date().toISOString();
+      await parkStore.setJSON(oldK, rec);
+      await store.delete(oldK);
+      parked.push(oldK);
+      return 'parked';
+    }
+    rec.clientId = winnerId;
+    rec.ownerKey = resultOwnerKey;
+    await store.setJSON(newK, rec);
+    await store.delete(oldK);
+    return 'moved';
+  };
+  for (const src of sources) {
+    for (const lid of src.loanIds) {
+      const oldK = src.fromOwnerKey + '/' + keySafe(src.fromClientId) + '/' + keySafe(lid);
+      const newK = resultOwnerKey   + '/' + keySafe(winnerId)         + '/' + keySafe(lid);
+      if (oldK === newK) continue;
+      try { const r = await moveOne(biStore, biParkStore, oldK, newK); if (r === 'moved') biMoved++; else if (r === 'parked') biParked++; } catch (_) { /* non-fatal */ }
+      try { const r = await moveOne(appStore, appParkStore, oldK, newK); if (r === 'moved') appsMoved++; else if (r === 'parked') appsParked++; } catch (_) { /* non-fatal */ }
+    }
+    // Legacy per-client borrower_info key (Deploy 168 fallback): moves only into a free slot.
+    try {
+      const oldK = src.fromOwnerKey + '/' + keySafe(src.fromClientId);
+      const newK = resultOwnerKey   + '/' + keySafe(winnerId);
+      if (oldK === newK) continue;
+      const rec = await biStore.get(oldK, { type: 'json' });
+      if (rec && !(await biStore.get(newK, { type: 'json' }))) {
+        rec.clientId = winnerId;
+        rec.ownerKey = resultOwnerKey;
+        await biStore.setJSON(newK, rec);
+        await biStore.delete(oldK);
+      }
+    } catch (_) {}
+  }
+  return { biMoved, appsMoved, biParked, appsParked, parked };
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -353,48 +405,20 @@ async function handle(req, context) {
     });
   }
 
-  for (const src of reKeySources) {
-    for (const lid of src.loanIds) {
-      const oldK = src.fromOwnerKey + '/' + keySafe(src.fromClientId) + '/' + keySafe(lid);
-      const newK = resultOwnerKey   + '/' + keySafe(winner.id)        + '/' + keySafe(lid);
-      if (oldK === newK) continue;
-      // borrower_info per-loan key
-      try {
-        const rec = await biStore.get(oldK, { type: 'json' });
-        if (rec) {
-          rec.clientId = winner.id;
-          rec.ownerKey = resultOwnerKey;
-          await biStore.setJSON(newK, rec);
-          await biStore.delete(oldK);
-          biMoved++;
-        }
-      } catch (_) { /* non-fatal */ }
-      // signed_applications
-      try {
-        const rec = await appStore.get(oldK, { type: 'json' });
-        if (rec) {
-          rec.clientId = winner.id;
-          rec.ownerKey = resultOwnerKey;
-          await appStore.setJSON(newK, rec);
-          await appStore.delete(oldK);
-          appsMoved++;
-        }
-      } catch (_) { /* non-fatal */ }
-    }
-    // Legacy per-client borrower_info key (Deploy 168 fallback).
-    try {
-      const oldK = src.fromOwnerKey + '/' + keySafe(src.fromClientId);
-      const newK = resultOwnerKey   + '/' + keySafe(winner.id);
-      if (oldK === newK) continue;
-      const rec = await biStore.get(oldK, { type: 'json' });
-      if (rec && !(await biStore.get(newK, { type: 'json' }))) {
-        rec.clientId = winner.id;
-        rec.ownerKey = resultOwnerKey;
-        await biStore.setJSON(newK, rec);
-        await biStore.delete(oldK);
-      }
-    } catch (_) {}
-  }
+  // Deploy 237.258 -- the per-loan re-key used to OVERWRITE a record the winner already
+  // held at the same key. That happens whenever both clients carry the SAME loan id (the David
+  // Starkweather pair: a guarantor-link shell kept a stale copy of the winner's loan, and each
+  // side had its own signed application for it); the winner's record is the live one and the
+  // loser's copy would have landed on top of it. Now the winner's record stays and the loser's
+  // copy is parked in a side store (borrower_info-merged / signed_applications-merged) under
+  // its old key -- kept for the audit trail, read by nothing that lists applications.
+  const reKeyed = await rekeyApplicationRecords({
+    biStore, appStore,
+    biParkStore:  getStore({ name: 'borrower_info-merged',       consistency: 'strong' }),
+    appParkStore: getStore({ name: 'signed_applications-merged', consistency: 'strong' }),
+    sources: reKeySources, resultOwnerKey, winnerId: winner.id,
+  });
+  biMoved = reKeyed.biMoved; appsMoved = reKeyed.appsMoved;
 
   // Deploy 236.236 — sweep the quotes store so pipeline cards don't
   // silently misroute after the merge. Without this, a quote stamped
@@ -622,6 +646,9 @@ async function handle(req, context) {
     gapFilled,
     biMoved,
     appsMoved,
+    biParked: reKeyed.biParked,   // Deploy 237.258
+    appsParked: reKeyed.appsParked,
+    parkedKeys: reKeyed.parked,
     quotesRestamped,
     quotesMoved,
     quotesLoanIdDropped,
