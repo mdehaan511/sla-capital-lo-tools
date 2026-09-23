@@ -166,7 +166,32 @@ function _feeRow(label, amount, strong) {
     '<span class="fee-lbl">' + escH(label) + '</span>' +
     '<span class="fee-amt">' + _fmtMoney0(amount) + '</span></div>';
 }
+// Deploy 237.255 (Mike: "In closing tabs in Fee/Cash to close we need to add the Prepaid
+// interest which should be the daily interest on a 30/365 method from the closing date to
+// the end of the closing month. This changes if the closing date changes.") The card is
+// drawn from the loan on file, then redrawn in place whenever the Closing Date (or the
+// Dutch / Non-Dutch structure) on the Loan Terms card beside it changes.
+var _ldFeesCtx = null;
 function _feesReserveHtml(l, isDscr, p) {
+  _ldFeesCtx = { l: l, isDscr: isDscr, p: p };
+  var parts = _feesReserveParts(l, isDscr, p);
+  return parts.fees + parts.reserve;
+}
+function _ldRefreshFeesCard() {
+  if (!_ldFeesCtx || typeof document === 'undefined') return;
+  var feesEl = document.getElementById('ldFeesSection');
+  if (!feesEl) return;
+  var p = {};
+  for (var k in _ldFeesCtx.p) if (Object.prototype.hasOwnProperty.call(_ldFeesCtx.p, k)) p[k] = _ldFeesCtx.p[k];
+  p.closingYmd = _ldVal('af-fundingDate');
+  p.dutchVal = (document.getElementById('lt-dutchInterest') || {}).value || '';
+  var parts = _feesReserveParts(_ldFeesCtx.l, _ldFeesCtx.isDscr, p);
+  if (!parts.fees) return; // not priced -- nothing to redraw
+  feesEl.outerHTML = parts.fees;
+  var resEl = document.getElementById('ldReserveSection');
+  if (resEl) { if (parts.reserve) resEl.outerHTML = parts.reserve; else resEl.parentNode.removeChild(resEl); }
+}
+function _feesReserveParts(l, isDscr, p) {
   var loanAmt   = parseFloat(p.loanAmt) || 0;
   var ratePct   = parseFloat(p.ratePct) || 0;
   var pts       = parseFloat(p.pointsNum) || 0;
@@ -175,8 +200,12 @@ function _feesReserveHtml(l, isDscr, p) {
   var curLoan   = parseFloat(p.currentLoanAmt) || 0;
   var brokerPts = parseFloat(p.brokerFeePts) || 0;
   var isRefi    = !!p.isRefi;
-  if (!loanAmt || !ratePct) return ''; // not yet priced — no fee sheet
+  if (!loanAmt || !ratePct) return { fees: '', reserve: '' }; // not yet priced — no fee sheet
   var origFee   = loanAmt * pts / 100;
+  // Deploy 237.255 -- prepaid interest: the closing day through the end of that month, on
+  // the card's own amount and rate (p.closingYmd / p.dutchVal are the live Loan Terms inputs
+  // on a redraw; the loan on file otherwise).
+  var pre = _ldPrepaidInterest30365(l, p.closingYmd !== undefined ? p.closingYmd : String((l && l.fundingDate) || ''), p.dutchVal || '', loanAmt, ratePct);
   var brokerDol = brokerPts > 0 ? loanAmt * brokerPts / 100 : 0;
   var flat;
   if (isDscr) {
@@ -198,7 +227,7 @@ function _feesReserveHtml(l, isDscr, p) {
       : LD_RTL_FLAT_FEES;
   }
   var flatTotal = 0; for (var i = 0; i < flat.length; i++) flatTotal += parseFloat(flat[i].amount) || 0;
-  var totalFees = origFee + flatTotal + brokerDol;
+  var totalFees = origFee + flatTotal + brokerDol + pre.prepaid; // Deploy 237.255
   var ctc, ctcLabel;
   if (isRefi) {
     ctc = curLoan + totalFees - loanAmt;           // >0 borrower brings, <0 net TO borrower
@@ -210,14 +239,19 @@ function _feesReserveHtml(l, isDscr, p) {
   var rows = _feeRow('Origination (' + pts.toFixed(2) + ' pts)', origFee);
   for (var j = 0; j < flat.length; j++) rows += _feeRow(flat[j].label, flat[j].amount);
   if (brokerDol > 0) rows += _feeRow('Broker Fee (' + brokerPts.toFixed(2) + ' pts)', brokerDol);
+  rows += _feeRow(pre.hasDate
+    ? 'Prepaid Interest (' + pre.days + ' day' + (pre.days === 1 ? '' : 's') + ' \u00b7 30/365)'
+    : 'Prepaid Interest (set the Closing Date)', pre.prepaid);   // Deploy 237.255
   rows += _feeRow('Total Fees', totalFees, true);
   if (!isRefi) rows += _feeRow('Down Payment', down);
   rows += _feeRow(ctcLabel, Math.abs(ctc), true);
   var html = '<div class="section" id="ldFeesSection">' +
     '<div class="section-head"><h2>Fees / Cash to Close</h2><span class="section-tag tag-readonly">🔒 From rate sheet</span></div>' +
     '<div class="section-body"><div class="fee-card">' + rows + '</div>' +
-    '<div class="fee-note">Calculated from the rate sheet / sizer — locked. Edit in the sizer to change.</div>' +
+    '<div class="fee-note">Calculated from the rate sheet / sizer — locked. Edit in the sizer to change. Prepaid interest is the daily interest (30/365) from the Closing Date through the end of that month' +
+      (pre.hasDate && pre.daily > 0 ? ' — ' + _ldMoney2(pre.daily) + ' a day' : '') + '.</div>' +
     '</div></div>';
+  var reserve = '';
   // Cash Reserve — RTL only, and not for transactional funding.
   if (!isDscr && String(l.loanType || '') !== 'transactional') {
     var moInt    = loanAmt * ratePct / 100 / 12;
@@ -228,13 +262,13 @@ function _feesReserveHtml(l, isDscr, p) {
              _feeRow('6 Months Interest Reserve', hold6) +
              _feeRow('Rehab Reserve (20%)', rehab20) +
              _feeRow('Total Cash Reserve Requirement', resTotal, true);
-    html += '<div class="section" id="ldReserveSection">' +
+    reserve = '<div class="section" id="ldReserveSection">' +
       '<div class="section-head"><h2>Cash Reserve Requirement</h2><span class="section-tag tag-readonly">🔒 From rate sheet</span></div>' +
       '<div class="section-body"><div class="fee-card">' + rr + '</div>' +
       '<div class="fee-note">Cash to Close + 6 months interest + 20% of rehab — from the sizer.</div>' +
       '</div></div>';
   }
-  return html;
+  return { fees: html, reserve: reserve };
 }
 
 // Deploy 200: per-step pill strip for the Baseline panel. Steps are
@@ -8909,6 +8943,25 @@ function _ldInterestMath(amount, ratePct, closingYmd, dutch, holdback) {
   return { base: base, daily: daily, days: days, prepaid: daily * days };
 }
 function _ldMoney2(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+// Deploy 237.255 (Mike: "the daily interest on a 30/365 method from the closing date to the
+// end of the closing month") -- the Fees / Cash to Close line. Same base as the Loan Terms
+// card (Dutch = the full note, Non-Dutch = the initial advance) and the same 30-day month
+// count (the closing day counts, the 31st is the 30th, closing on the 1st = 30 days); the
+// daily rate is on a 365-day YEAR, which is what "30/365" means here. It is deliberately
+// NOT the Loan Terms card's 30/360 figure: the two differ by a few dollars, on purpose.
+// amountOverride / ratePctOverride let the fee card use its own priced amount and rate.
+function _ldPrepaidInterest30365(l, closingYmd, dutchVal, amountOverride, ratePctOverride) {
+  var fd = (l && l.formData) || {};
+  var amount = (Number(amountOverride) > 0) ? Number(amountOverride) : (_ldDrawsNum(l && l.finalLoanAmount) || _ldDrawsNum(l && l.loanAmt));
+  var ratePct = (Number(ratePctOverride) > 0) ? _ldRatePctOf(ratePctOverride) : _ldRatePctOf((l && (l.rate || fd._finalRate)) || '');
+  var dutchStr = String(dutchVal || (l && l.dutchInterest) || fd.dutchInterest || (_isGucLoan(l) ? 'non_dutch' : 'dutch')).toLowerCase();
+  var dutch = dutchStr !== 'non_dutch';
+  var hb = _ldDrawsNum(_ldRehabHoldback(l));
+  var base = dutch ? amount : Math.max(0, amount - hb);
+  var daily = (base > 0 && ratePct > 0) ? base * (ratePct / 100) / 365 : 0;
+  var days = _days30360ToNextFirst(closingYmd);
+  return { base: base, daily: daily, days: days, prepaid: daily * days, hasDate: !!_ldParseYmd(closingYmd), dutch: dutch };
+}
 // Everything the two Loan Terms fields show, from the loan on file plus the
 // card's live Closing Date / Interest Structure inputs when they exist.
 function _ldInterestBits(l, closingYmd, dutchVal) {
@@ -8990,6 +9043,7 @@ function recalcTermDates() {
   if (fp) fp.value = _computeFirstPayment(closing) || '';
   if (mt) mt.value = _ltEffectiveMaturity(closing, term);
   _ldRefreshInterestFields(); // Deploy 236.932 — days follow the Closing Date
+  _ldRefreshFeesCard();       // Deploy 237.255 — so does the prepaid interest on Fees / Cash to Close
 }
 
 function _ldOwnerOverride() {
