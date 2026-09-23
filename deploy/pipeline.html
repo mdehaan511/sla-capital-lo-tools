@@ -1048,7 +1048,8 @@ function processResults(results) {
     _profileMap = {};
     (statsResp.users || []).forEach(function(p) {
       if (!p.email) return;
-      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '', deleted: !!p.deleted };
+      // Deploy 237.260 -- the login role rides along so the LO filter can leave processors out.
+      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '', deleted: !!p.deleted, roles: Array.isArray(p.roles) ? p.roles : [] };
     });
 
     // Populate LO filter dropdown (admins only, when viewing All LOs)
@@ -3764,6 +3765,19 @@ function loDisplay(ownerKey) {
   return ownerKey;
 }
 
+// Deploy 237.260 (Mike: "On the leads page make it so the LO search dropdown only has Loan
+// Officers and Admins in it. No processors.") -- the filter lists the people who OWN leads:
+// loan officers (plain 'user' and senior_lo) and admins. Processors, the office assistant
+// and brokers never own a lead; they only made the list longer. A profile with no role at
+// all is a plain LO (users-stats defaults an empty roles array to ['user'] the same way).
+var LO_FILTER_ROLES = { user: true, senior_lo: true, admin: true, super_admin: true };
+function _ownsLeads(p) {
+  var roles = (p && Array.isArray(p.roles)) ? p.roles : [];
+  if (!roles.length) return true;
+  for (var i = 0; i < roles.length; i++) { if (LO_FILTER_ROLES[roles[i]]) return true; }
+  return false;
+}
+
 function populateLoFilter() {
   var sel = document.getElementById('loFilter');
   if (!sel) return;
@@ -3778,8 +3792,9 @@ function populateLoFilter() {
   // pipeline still needs to be selectable so an admin can confirm "yep,
   // this person has nothing in flight."
   // Deploy 236.23 — hide deleted LOs (no longer in Netlify Identity).
+  // Deploy 237.260 — and anyone who is not a loan officer or an admin (see _ownsLeads).
   var owners = Object.keys(_profileMap).filter(function(o) {
-    return !_profileMap[o].deleted;
+    return !_profileMap[o].deleted && _ownsLeads(_profileMap[o]);
   }).sort(function(a, b) {
     return loDisplay(a).localeCompare(loDisplay(b));
   });
