@@ -18,7 +18,7 @@
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
-  <script src="/loan-doc-review.js?v=237246"></script>
+  <script src="/loan-doc-review.js?v=237250"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
   <script src="/sla-nav.js" defer></script>
 <script src="/sla-search.js" defer></script>
@@ -1350,10 +1350,10 @@
 <script src="/dscr-pricing.js?v=237145"></script>
 <script src="/loan-uw-fields.js?v=237229"></script>
 <script src="/loan-uw-calc.js?v=237223"></script>
-<script src="/loan-uw-tab.js?v=237246"></script>
+<script src="/loan-uw-tab.js?v=237250"></script>
 <!-- Deploy 237.222 (Mike) - key-metrics panel on Documents > Underwriting. Needs the
      SLA_UW_TAB exports added in the same deploy, hence the matching pins. -->
-<script src="/loan-uw-metrics.js?v=237246"></script>
+<script src="/loan-uw-metrics.js?v=237250"></script>
 <!-- Deploy 236.539 — version-pin loan-details.js to this deploy. loan-details.js
      is cached `max-age=300, stale-while-revalidate` while the inline CSS above
      ships with the (60s) HTML, so a deploy that changes BOTH (like 236.538's
@@ -1365,6 +1365,12 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=237246"></script>
+<!-- Deploy 237.250 — SLA_COMP.compPoints is the ONE rule for "the origination SLA
+     actually keeps" (points less the buy-down, and only when the points really
+     contain it — 237.214 / 237.215). The Funding Plan's Total Points calls it
+     rather than carrying a second copy of that arithmetic. Must load BEFORE
+     loan-details.js uses it. -->
+<script src="/lo-comp.js?v=237250"></script>
+<script src="/loan-details.js?v=237250"></script>
 </body>
 </html>

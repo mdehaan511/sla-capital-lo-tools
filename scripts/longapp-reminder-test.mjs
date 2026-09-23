@@ -71,8 +71,13 @@ check('only the newest App sent entry gets the buttons',
 check('the returned entry is appended to the feed', /_loan\.notesLog\.push\(resp\.entry\)/.test(ld));
 
 console.log('loan-details.html');
-check('loan-details.js + sla-api.js are pinned to this deploy',
-  /loan-details\.js\?v=237190/.test(ldh) && /sla-api\.js\?v=237190/.test(ldh));
+// Deploy 237.250 — was a literal ?v=237190 on both, which every later deploy that
+// touched either file broke (it had been failing since loan-details.js moved on).
+// What it actually guards is that the page is served a copy NEW ENOUGH to have the
+// reminder buttons, so that is what it checks.
+const pinOf = (name) => Number((ldh.match(new RegExp(name.replace('.', '\\.') + '\\?v=(\\d+)')) || [])[1] || 0);
+check('loan-details.js + sla-api.js are pinned to 237.190 or newer (they carry the reminder buttons)',
+  pinOf('loan-details.js') >= 237190 && pinOf('sla-api.js') >= 237190);
 
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

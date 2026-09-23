@@ -1930,6 +1930,7 @@ function render() {
   '</div></div>'; // close section (Loan Terms)
 
   // ── Deploy 236.478 (feat): Funding Plan — its own section, directly
+  //    (the points helper it uses is _fpPointsParts, defined below the renderer)
   // below Property & Application (per Mike's screenshot; moved out of the
   // Loan Financials card). Captures how the loan will be funded:
   //   • Funding Source dropdown (Stride / King Arthur Fund / SLA Capital
@@ -1974,6 +1975,12 @@ function render() {
   var _fpPriceHint  = isDscr
     ? 'Third-party origination premium. 1 TPO = 1 point.'
     : 'Yield spread — the rate this loan is bought at.';
+  // Deploy 237.250 (Mike: "move the Broker Points from the Broker Box on contacts
+  // to the Funding Plan box in Closing … then also add the total points which
+  // shows the sum of the SLA origination and the Broker Points"). Both read-only
+  // and set on the sizer, exactly as the broker box had it — pricing fields are
+  // sizer-owned (236.898), and nothing about moving them changes that.
+  var _fpPts = _fpPointsParts(l);
   html += '<div class="section" id="fundingPlanSection">' +
     '<div class="section-head"><h2>Funding Plan</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' +
@@ -2007,6 +2014,15 @@ function render() {
             // loads; populateFundingPlanInvestors() replaces these options.
             (l.investorId ? '<option value="' + escAttr(String(l.investorId)) + '" selected>' + escH(l.investorName || 'Selected investor') + '</option>' : '') +
           '</select>' +
+        '</div>' +
+        // Deploy 237.250 — Broker Points (moved here from the Contacts broker box)
+        // and the total the borrower pays: SLA origination + broker.
+        '<div class="field"><label>Broker Points <span style="font-size:11px;color:var(--muted);font-weight:400">· Set on sizer</span></label>' +
+          '<input type="text" value="' + escAttr(_fpPts.brokerText) + '" readonly style="background:rgba(120,116,136,0.08);cursor:not-allowed" />' +
+        '</div>' +
+        '<div class="field"><label>Total Points <span style="font-size:11px;color:var(--muted);font-weight:400">· SLA origination + broker</span></label>' +
+          '<input type="text" value="' + escAttr(_fpPts.totalText) + '" readonly style="background:rgba(120,116,136,0.08);cursor:not-allowed" />' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + escH(_fpPts.hint) + '</div>' +
         '</div>' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
@@ -2489,7 +2505,6 @@ function render() {
                    || (l.brokerName && String(l.brokerName).trim())
                    || (l.brokerEmail && String(l.brokerEmail).trim());
   if (hasBrokerInfo) {
-    var brokerFeePts = parseFloat(l.brokerFee || 0) > 0 ? parseFloat(l.brokerFee).toFixed(2) : '';
     // Source badge — flag broker-app submissions visually.
     var sourceBadge = (l.fromApplication && (l.brokerEmail || l.brokerName))
       ? '<span class="section-tag" style="background:rgba(200,129,58,0.10);color:var(--gold-mid, #b5712d);border:1px solid rgba(200,129,58,0.28)">Submitted via Broker</span>'
@@ -2525,10 +2540,10 @@ function render() {
           '<div class="field"><label>Broker Phone</label>' +
             '<input type="tel" id="af-brokerPhone" value="'+escAttr(l.brokerPhone||'')+'" placeholder="(555) 123-4567" />' +
           '</div>' +
-          // Broker Fee: read-only, set on the sizer. Empty when no fee yet.
-          '<div class="field" style="grid-column:1/-1"><label>Broker Fee <span style="font-size:11px;color:var(--muted);font-weight:400">· Set on sizer</span></label>' +
-            '<input type="text" value="'+(brokerFeePts ? brokerFeePts+' pts' : 'Not set — open sizer to add')+'" readonly style="background:rgba(120,116,136,0.08);cursor:not-allowed" />' +
-          '</div>' +
+          // Deploy 237.250 (Mike: "move the Broker Points from the Broker Box on
+          // contacts to the Funding Plan box in Closing") — the points moved to
+          // Funding Plan, where they sit beside the SLA origination and total.
+          // This box is contact details now.
         '</div>' +
         '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
           '<button class="save-app-btn" onclick="saveAppFields()">Save Changes</button>' +
@@ -8633,6 +8648,47 @@ function _acRows(l) {
     .slice()
     .sort(function(a, b) { return String(a.date || '').localeCompare(String(b.date || '')); });
 }
+/**
+ * Deploy 237.250 (Mike) — the points on the Funding Plan box: the broker's, and
+ * the total the borrower pays.
+ *
+ * "SLA origination" is the origination SLA actually charges, which on a DSCR with
+ * a buy-down is NOT loan.points: the sizer saves points as the total the borrower
+ * pays (origination + buy-down) and the buy-down goes to the end investor. That
+ * rule already exists — SLA_COMP.compPoints (237.214 / 237.215, and it is subtle:
+ * a Baseline-enriched loan can have origination-only points with a buy-down field
+ * still set, where subtracting again would take it off twice). This calls that one
+ * implementation rather than writing a second, and says on the page when a
+ * buy-down was excluded so the number never has to be taken on faith.
+ *
+ * SLA_COMP lives in lo-comp.js; if the page is served a copy that predates it
+ * (a stale cache), the raw points are used and the hint says only what it knows.
+ */
+function _fpPointsParts(l) {
+  l = l || {};
+  var C = (typeof window !== 'undefined' && window.SLA_COMP) || null;
+  var raw = parseFloat(l.points) || 0;
+  var sla = (C && typeof C.compPoints === 'function') ? (parseFloat(C.compPoints(l)) || 0) : raw;
+  var excluded = (C && typeof C.buydownExcluded === 'function') ? (parseFloat(C.buydownExcluded(l)) || 0) : 0;
+  var broker = parseFloat(l.brokerFee) || 0;
+  var hasBroker = broker > 0
+    || (l.brokerId && String(l.brokerId).trim())
+    || (l.brokerName && String(l.brokerName).trim())
+    || (l.brokerEmail && String(l.brokerEmail).trim());
+  var brokerText = broker > 0
+    ? broker.toFixed(2) + ' pts'
+    : (hasBroker ? 'Not set — open sizer to add' : 'None — no broker on this loan');
+  var total = sla + broker;
+  var hint = sla.toFixed(2) + ' SLA origination + ' + broker.toFixed(2) + ' broker';
+  if (excluded > 0) hint += ' · ' + excluded.toFixed(2) + ' buy-down pts excluded (paid to the investor)';
+  return {
+    sla: sla, broker: broker, total: total, excluded: excluded,
+    brokerText: brokerText,
+    totalText: (sla || broker) ? total.toFixed(2) + ' pts' : 'Not priced yet',
+    hint: hint,
+  };
+}
+
 function _acHtml(l, onDocs) {
   var rows = _acRows(l);
   var closeDate = String(l.fundingDate || l.closedAt || '').slice(0, 10);
