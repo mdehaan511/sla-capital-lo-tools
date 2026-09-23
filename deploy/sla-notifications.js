@@ -76,13 +76,20 @@
   // their nav late. Gives up after ~10s so a page with genuinely no nav costs nothing.
   var _injectTries = 0;
   function inject() {
-    if (document.getElementById('slaNotifWrap')) return;
+    if (mount()) { if (!_bound) { _bound = true; bind(); } return; }
+    if (_injectTries++ > 40) return;          // ~10s at 250ms
+    setTimeout(inject, 250);
+  }
+  // Deploy 237.249 -- (re)create the bell inside the header. True when it is there.
+  // sla-nav re-renders the header on identity init / login / logout (host.innerHTML = ...),
+  // which drops the bell it hosts; render() calls this to put it back before painting, so
+  // a header re-render no longer leaves the next poll throwing "Cannot read properties of
+  // null (reading 'classList')". The button's click is bound here, on the element that
+  // exists now; the document-level listeners and the poll live in bind(), bound once.
+  function mount() {
+    if (document.getElementById('slaNotifWrap')) return true;
     var navRight = document.querySelector('.nav-right');
-    if (!navRight) {
-      if (_injectTries++ > 40) return;          // ~10s at 250ms
-      setTimeout(inject, 250);
-      return;
-    }
+    if (!navRight) return false;
 
     var wrap = document.createElement('div');
     wrap.id = 'slaNotifWrap';
@@ -103,7 +110,12 @@
     else        navRight.insertBefore(wrap, navRight.firstChild);
 
     injectStyles();
-    bind();
+    var btnNow = document.getElementById('slaNotifBtn');
+    if (btnNow) btnNow.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggleDrop();
+    });
+    return true;
   }
 
   function injectStyles() {
@@ -144,11 +156,8 @@
     document.head.appendChild(s);
   }
 
+  var _bound = false;
   function bind() {
-    document.getElementById('slaNotifBtn').addEventListener('click', function(e) {
-      e.stopPropagation();
-      toggleDrop();
-    });
     document.addEventListener('click', function(e) {
       // Deploy 236.525 — null-guard. This listener is bound to `document`,
       // so it outlives the widget: on pages that re-render their navbar
@@ -502,7 +511,8 @@
   // keeps its own rendering to itself. Deploy 237.202.
   window.SLANotify = {
     feeds: collect, openRows: openRows, openCount: openCount, subscribe: subscribe,
-    categoryOf: categoryOf, categories: CATEGORY_ORDER.slice()
+    categoryOf: categoryOf, categories: CATEGORY_ORDER.slice(),
+    _render: render, _mount: mount // Deploy 237.249 -- for the gate (scripts/bell-page-parity-test.mjs)
   };
 
   // ── Dismissal persistence (loan-app events) ─────────────
@@ -577,6 +587,15 @@
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');
+    // Deploy 237.249 -- the header was re-rendered under us (see mount). Put the bell
+    // back when the header is there; when it is not (signed out, a page with no header),
+    // there is nothing to paint and nothing to throw about.
+    if (!btn || !dot) {
+      mount();
+      btn = document.getElementById('slaNotifBtn');
+      dot = document.getElementById('slaNotifDot');
+      if (!btn || !dot) return;
+    }
     if (hasAlert) {
       btn.classList.add('has-due');
       dot.style.display = 'flex';
@@ -647,6 +666,7 @@
     html = '<a href="/notifications.html" class="sla-notif-seeall">See all notifications \u2192</a>' + html;
 
     var drop = document.getElementById('slaNotifDrop');
+    if (!drop) return; // Deploy 237.249 -- see mount()
     drop.innerHTML = html;
   }
 

@@ -94,7 +94,7 @@ export default async (req, context) => {
     } else {
       const sample = (arr) => arr.slice(0, 5).map((x) => '`' + (x.id || x) + '`').join(' ');
       text = ':rotating_light: *C5 drift report: DRIFT FOUND* — ' + scannedLine +
-        '\n• PG missing: ' + mC + ' clients, ' + mL + ' loans' +
+        '\n• PG missing: ' + mC + ' clients' + (mC ? ' (e.g. ' + sample(drift.missingClients) + ')' : '') + ', ' + mL + ' loans' + // Deploy 237.249 -- name them
         (mL ? ' — e.g. ' + sample(drift.missingLoans) : '') +
         '\n• PG orphans: ' + oC + ' clients, ' + oL + ' loans' +
         (oL ? ' — e.g. ' + sample(drift.orphanLoanIds) : '') +

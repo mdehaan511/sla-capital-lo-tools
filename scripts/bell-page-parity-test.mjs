@@ -25,7 +25,7 @@
  *
  * Run: node scripts/bell-page-parity-test.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 
 let fail = 0;
@@ -140,7 +140,7 @@ assert('...and takes the NUMBER from openCount, not from the row count',
   /SLANotify\.openCount\(/.test(PAGE) && !/openRows\([^)]*\)\.length\s*;/.test(PAGE),
   'counting rows would say 1 where the bell says 33');
 assert('...and version-pins the script it needs SLANotify from',
-  /sla-notifications\.js\?v=2372\d\d/.test(PAGE),
+  /sla-notifications\.js\?v=(2372\d\d|237249)/.test(PAGE),
   'a cached copy of the old file has no SLANotify (feedback_guard_the_function)');
 
 const BELL = BELL_SRC;
@@ -276,6 +276,81 @@ console.log('\nBack button');
 assert('the clicked row is painted read before leaving', /function openOne\([\s\S]*?nrow_[\s\S]*?Mark unread/.test(PAGE));
 assert('...and the list is re-read when the page comes back from the bfcache',
   /addEventListener\('pageshow'[\s\S]*?e\.persisted[\s\S]*?load\(\)/.test(PAGE));
+
+// ── the header re-renders under the bell (Deploy 237.249) ────────────────
+// sla-nav paints the header on identity init / login / logout with host.innerHTML = ...,
+// which drops the bell it hosts. The next poll rendered into nothing and threw
+// "Cannot read properties of null (reading 'classList')" (Slack, 7:48 AM, Jeremy's loan).
+// Run the real file against a header that exists, wipe it, and render again.
+console.log('\nThe header re-renders under the bell');
+{
+  const noop = () => {};
+  const listeners = {};
+  const mkEl = (id) => {
+    const e = { id, style: {}, _classes: [], textContent: '', _inner: '', _listeners: [],
+      classList: { add(c) { e._classes.push(c); }, remove(c) { e._classes = e._classes.filter((x) => x !== c); }, contains(c) { return e._classes.indexOf(c) >= 0; } },
+      addEventListener(t, fn) { e._listeners.push(t); },
+      querySelector: () => null, querySelectorAll: () => [], appendChild: noop, setAttribute: noop, getAttribute: () => '', contains: () => false };
+    Object.defineProperty(e, 'innerHTML', {
+      get() { return e._inner; },
+      set(v) { e._inner = String(v); (String(v).match(/id="([^"]+)"/g) || []).forEach((m) => { const cid = m.slice(4, -1); if (!reg[cid]) reg[cid] = mkEl(cid); }); },
+    });
+    return e;
+  };
+  let reg = {};
+  let navRight = null;
+  const doc = {
+    readyState: 'complete', hidden: false, visibilityState: 'visible',
+    addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); },
+    querySelector: (sel) => (sel === '.nav-right' ? navRight : null), querySelectorAll: () => [],
+    getElementById: (id) => reg[id] || null,
+    createElement: (tag) => mkEl(''),
+    head: mkEl('head'), body: mkEl('body'),
+  };
+  const w = {
+    SLA: { urls: { loanDetails: (id) => '/loan-details/' + id } },
+    setTimeout: noop, setInterval: noop, clearInterval: noop, addEventListener: noop,
+    localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+    location: { pathname: '/loan-details.html', search: '' }, console,
+  };
+  w.window = w; w.document = doc;
+  // a header exists from the start
+  let inserts = 0;
+  navRight = mkEl('nav-right'); navRight.insertBefore = (wrap) => { inserts++; reg.slaNotifWrap = wrap; };
+  vm.createContext(w);
+  new vm.Script(BELL_SRC, { filename: 'sla-notifications.js' }).runInContext(w);
+  const B = w.SLANotify;
+  assert('the bell mounts into the header at boot, with its button wired', !!reg.slaNotifWrap && !!reg.slaNotifBtn && reg.slaNotifBtn._listeners.indexOf('click') >= 0);
+  assert('...the document-level listeners are bound once', (listeners.click || []).length === 1 && (listeners.visibilitychange || []).length === 1);
+  const F = { mentions: [], loanAppEvents: [], procAlerts: [], dueTasks: [], due: [{ id: 'r1', title: 'Call', date: '2026-09-23' }], future: [], mailN: 0 };
+  let threw = null;
+  try { B._render(F); } catch (e) { threw = e.message; }
+  assert('a normal render paints the badge', threw === null && reg.slaNotifBtn._classes.indexOf('has-due') >= 0, threw);
+  B._mount();
+  assert('mount() while the bell is already there adds nothing (one bell, ever)', inserts === 1, 'inserts=' + inserts);
+  // the header re-renders: everything the bell put there is gone
+  reg = {};
+  threw = null;
+  try { B._render(F); } catch (e) { threw = e.message; }
+  assert('after the header re-rendered, render does not throw', threw === null, threw);
+  assert('...the bell is back in the new header, button wired again, badge painted', !!reg.slaNotifWrap && !!reg.slaNotifBtn && reg.slaNotifBtn._listeners.indexOf('click') >= 0 && reg.slaNotifBtn._classes.indexOf('has-due') >= 0);
+  assert('...without binding the document listeners a second time', (listeners.click || []).length === 1 && (listeners.visibilitychange || []).length === 1);
+  assert('...and exactly one new bell was inserted', inserts === 2, 'inserts=' + inserts);
+  // no header at all (signed out, a page without one): nothing to paint, nothing to throw
+  reg = {}; navRight = null; threw = null;
+  try { B._render(F); } catch (e) { threw = e.message; }
+  assert('with no header on the page, render stays quiet', threw === null && !reg.slaNotifBtn, threw);
+  assert('every page pins the bell to this deploy or newer', (() => {
+    const dir = new URL('../deploy/', import.meta.url);
+    const bad = readdirSync(dir).filter((f) => /\.html$/.test(f)).filter((f) => {
+      const t = readFileSync(new URL(f, dir), 'utf8');
+      const m = /sla-notifications\.js\?v=(\d+|237249)/.exec(t);
+      if (!t.includes('sla-notifications.js')) return false;
+      return !m || (m[1] !== '237249' && parseInt(m[1], 10) < 237249);
+    });
+    return bad.length === 0;
+  })());
+}
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));
 process.exit(fail ? 1 : 0);
