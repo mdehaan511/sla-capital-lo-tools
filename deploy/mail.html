@@ -523,7 +523,7 @@ function renderList() {
       '<div class="thumb">' + (i.hasEnvelope ? '<img alt="" data-thumb="' + esc(i.id) + '">' : '✉') + '</div>' +
       '<div class="body">' +
         '<div class="from">' + esc(i.from || 'Unknown sender') + '</div>' +
-        '<div class="meta">To ' + esc(i.recipient || '—') + ' · ' + esc(ageText(i.receivedAt)) + '</div>' +
+        '<div class="meta">To ' + esc(i.recipient || '—') + (i.mailbox ? ' · ' + esc(i.mailbox) : '') + ' · ' + esc(ageText(i.receivedAt)) + '</div>' +   // Deploy 237.257 -- which box
         '<div class="chips">' + chips + '</div>' +
       '</div></div>';
   }).join('');
@@ -565,7 +565,7 @@ function renderDetail() {
   var h = '';
   h += '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">' +
     '<div><h2>' + esc(i.from || 'Unknown sender') + '</h2>' +
-    '<div style="font-size:12.5px;color:var(--muted);margin-top:2px">To ' + esc(i.recipientName || i.recipientLine1 || '—') + ' · received ' + esc(fmtWhen(i.receivedAt)) + '</div></div>' +
+    '<div style="font-size:12.5px;color:var(--muted);margin-top:2px">To ' + esc(i.recipientName || i.recipientLine1 || '—') + ' · received ' + esc(fmtWhen(i.receivedAt)) + (i.mailboxAddress ? ' at ' + esc(i.mailboxAddress) : '') + '</div></div>' +   // Deploy 237.257
     '<a class="btn ghost sm" href="' + esc(i.stableUrl) + '" target="_blank" rel="noopener">Open in Stable ↗</a></div>';
 
   h += '<div class="imgs">';

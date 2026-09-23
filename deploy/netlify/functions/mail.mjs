@@ -40,7 +40,7 @@ import {
   stableConfigured, stableDashboardUrl, listTags, createTag, setMailItemTags, shippingMethods, createShipment,
 } from './_shared/stable-api.mjs';
 import {
-  mailStore, getItem, putItem, setPointer, delPointer, listPointers, pushEvent, slimItem, safeId,
+  mailStore, getItem, putItem, setPointer, delPointer, listPointers, pushEvent, slimItem, safeId, mailboxOf,
   MAIL_CATEGORIES, MAIL_LOCATIONS, CATEGORY_LABEL, LOCATION_LABEL, COLLATERAL_FOR_CATEGORY, OVERDUE_HOURS,
 } from './_shared/mail-store.mjs';
 import { pgGet, LOAN_PICK_SELECT, loanRowToCandidate } from './_shared/mail-match.mjs';
@@ -128,6 +128,7 @@ async function handle(req, context) {
     return json(200, {
       ok: true,
       item: Object.assign({}, item, {
+        mailbox: mailboxOf(item), mailboxAddress: item.locationAddress || '',   // Deploy 237.257
         categoryLabel: CATEGORY_LABEL[item.category] || '',
         locationLabel: LOCATION_LABEL[item.location || 'at_stable'] || '',
         stableUrl: stableDashboardUrl(item.id),

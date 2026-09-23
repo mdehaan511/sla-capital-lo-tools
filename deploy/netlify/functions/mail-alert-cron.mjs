@@ -13,7 +13,7 @@
  * hook reads) — never the profiles store.
  */
 import { db } from './_shared/supabase-db.mjs';
-import { mailStore, getItem, listPointers, OVERDUE_HOURS, CATEGORY_LABEL } from './_shared/mail-store.mjs';
+import { mailStore, getItem, listPointers, OVERDUE_HOURS, CATEGORY_LABEL, mailboxOf } from './_shared/mail-store.mjs';
 
 // Deploy 236.998 — 13:00–01:59 UTC covers 7am–6pm Mountain in both MDT and
 // MST; the in-code gate below still decides weekday + exact hours.
@@ -36,7 +36,7 @@ async function sendEmail(to, subject, rows, intro) {
   const list = rows.slice(0, 25).map((i) => {
     const s = i.suggestion || {};
     return '<tr><td style="padding:6px 10px;border-top:1px solid #eee">' + esc(i.from || 'Unknown sender') + '</td>' +
-      '<td style="padding:6px 10px;border-top:1px solid #eee">' + esc(i.recipientName || i.recipientLine1 || '') + '</td>' +
+      '<td style="padding:6px 10px;border-top:1px solid #eee">' + esc(i.recipientName || i.recipientLine1 || '') + (mailboxOf(i) ? ' <span style="color:#777">(' + esc(mailboxOf(i)) + ')</span>' : '') + '</td>' +   // Deploy 237.257
       '<td style="padding:6px 10px;border-top:1px solid #eee">' + esc(s.address ? 'Suggested: ' + s.address : (s.category ? CATEGORY_LABEL[s.category] || '' : '')) + '</td></tr>';
   }).join('');
   const html = '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#1a1520">' +

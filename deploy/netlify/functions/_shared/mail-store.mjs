@@ -126,11 +126,28 @@ export function pushEvent(item, type, fields) {
 }
 
 /** List-row projection (no OCR text, no candidates). */
+// Deploy 237.257 (Mike: the second Stable address, 2261 Market Street #94354, "we will plan
+// to start having all mail sent there and will wind down the current seattle address").
+// The sync has always pulled every location on the account (no locationId filter; the
+// Spokane box proved it), but nothing in the portal SAID which box a piece arrived at.
+// A short label for the list, the full line for the detail pane and the email.
+export function mailboxOf(item) {
+  const a = String((item && item.locationAddress) || '');
+  if (!a) return '';
+  if (/san francisco|94114|2261 market/i.test(a)) return 'San Francisco';
+  if (/seattle/i.test(a)) return 'Seattle';
+  if (/spokane/i.test(a)) return 'Spokane';
+  const parts = a.split(',').map((x) => x.trim()).filter(Boolean);
+  return parts.length >= 3 ? parts[parts.length - 3] : parts[0];
+}
+
 export function slimItem(item) {
   if (!item) return null;
   const s = item.suggestion || {};
   return {
     id: item.id,
+    mailbox: mailboxOf(item),                       // Deploy 237.257
+    mailboxAddress: item.locationAddress || '',
     receivedAt: item.receivedAt,
     from: item.from || '',
     recipient: item.recipientName || item.recipientLine1 || '',
