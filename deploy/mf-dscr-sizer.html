@@ -4123,6 +4123,13 @@ function saveCurrentQuote() {
     // Legacy branches (updateLoanDirect, createLoanOnClient,
     // ClientBook.upsert with broker/borrower email) are consolidated
     // on the backend in sizer-save-loan.mjs.
+    // Deploy 237.254 (Mike, after Jeremy's Savannah card) -- the quote above is already
+    // written and the green "Saved" already shown; from here on, a crash that is NOT
+    // inside the promise chain (237.215's `loanRec is not defined` was one) used to die
+    // silently in the console and leave a "Loan record missing" card. Everything the
+    // loan save does now runs under one try, and any throw reaches the same red toast
+    // the network failures do.
+    try {
     if (window.SLA && SLA.Clients && SLA.Clients.saveFromSizer) {
       var _brokerNameParts = String(formData.brokerName || '').trim().split(/\s+/);
       var _isBrokerPayload = isBrokerDeal && !!formData.brokerEmail;
@@ -4276,6 +4283,7 @@ function saveCurrentQuote() {
       console.warn('[SLA] DSCR save: no direct-IDs and no borrowerEmail \u2014 loan record NOT updated. Quote saved locally only.');
       showToast('\u26a0 Loan record not saved \u2014 add borrower email to persist. (quote saved locally)');
     }
+    } catch (_saveErr) { handleDscrSaveFailure(_saveErr); }   // Deploy 237.254
   }
 
   // Promote prospect to Book of Clients if this came from a prospect form.
