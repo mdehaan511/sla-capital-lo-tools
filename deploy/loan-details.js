@@ -171,6 +171,9 @@ function _feeRow(label, amount, strong) {
 // the end of the closing month. This changes if the closing date changes.") The card is
 // drawn from the loan on file, then redrawn in place whenever the Closing Date (or the
 // Dutch / Non-Dutch structure) on the Loan Terms card beside it changes.
+// Deploy 237.262 (Mike: "change how that new Prepaid Interest field is calculated to do
+// 30/360 instead of 30/365") -- the daily rate is now on a 360-day year, the same figure the
+// Loan Terms card shows.
 var _ldFeesCtx = null;
 function _feesReserveHtml(l, isDscr, p) {
   _ldFeesCtx = { l: l, isDscr: isDscr, p: p };
@@ -205,7 +208,7 @@ function _feesReserveParts(l, isDscr, p) {
   // Deploy 237.255 -- prepaid interest: the closing day through the end of that month, on
   // the card's own amount and rate (p.closingYmd / p.dutchVal are the live Loan Terms inputs
   // on a redraw; the loan on file otherwise).
-  var pre = _ldPrepaidInterest30365(l, p.closingYmd !== undefined ? p.closingYmd : String((l && l.fundingDate) || ''), p.dutchVal || '', loanAmt, ratePct);
+  var pre = _ldPrepaidInterest30360(l, p.closingYmd !== undefined ? p.closingYmd : String((l && l.fundingDate) || ''), p.dutchVal || '', loanAmt, ratePct);
   var brokerDol = brokerPts > 0 ? loanAmt * brokerPts / 100 : 0;
   var flat;
   if (isDscr) {
@@ -240,15 +243,15 @@ function _feesReserveParts(l, isDscr, p) {
   for (var j = 0; j < flat.length; j++) rows += _feeRow(flat[j].label, flat[j].amount);
   if (brokerDol > 0) rows += _feeRow('Broker Fee (' + brokerPts.toFixed(2) + ' pts)', brokerDol);
   rows += _feeRow(pre.hasDate
-    ? 'Prepaid Interest (' + pre.days + ' day' + (pre.days === 1 ? '' : 's') + ' \u00b7 30/365)'
-    : 'Prepaid Interest (set the Closing Date)', pre.prepaid);   // Deploy 237.255
+    ? 'Prepaid Interest (' + pre.days + ' day' + (pre.days === 1 ? '' : 's') + ' \u00b7 30/360)'
+    : 'Prepaid Interest (set the Closing Date)', pre.prepaid);   // Deploy 237.255; 237.262 30/360
   rows += _feeRow('Total Fees', totalFees, true);
   if (!isRefi) rows += _feeRow('Down Payment', down);
   rows += _feeRow(ctcLabel, Math.abs(ctc), true);
   var html = '<div class="section" id="ldFeesSection">' +
     '<div class="section-head"><h2>Fees / Cash to Close</h2><span class="section-tag tag-readonly">🔒 From rate sheet</span></div>' +
     '<div class="section-body"><div class="fee-card">' + rows + '</div>' +
-    '<div class="fee-note">Calculated from the rate sheet / sizer — locked. Edit in the sizer to change. Prepaid interest is the daily interest (30/365) from the Closing Date through the end of that month' +
+    '<div class="fee-note">Calculated from the rate sheet / sizer — locked. Edit in the sizer to change. Prepaid interest is the daily interest (30/360) from the Closing Date through the end of that month' +
       (pre.hasDate && pre.daily > 0 ? ' — ' + _ldMoney2(pre.daily) + ' a day' : '') + '.</div>' +
     '</div></div>';
   var reserve = '';
@@ -8949,11 +8952,12 @@ function _ldMoney2(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { 
 // Deploy 237.255 (Mike: "the daily interest on a 30/365 method from the closing date to the
 // end of the closing month") -- the Fees / Cash to Close line. Same base as the Loan Terms
 // card (Dutch = the full note, Non-Dutch = the initial advance) and the same 30-day month
-// count (the closing day counts, the 31st is the 30th, closing on the 1st = 30 days); the
-// daily rate is on a 365-day YEAR, which is what "30/365" means here. It is deliberately
-// NOT the Loan Terms card's 30/360 figure: the two differ by a few dollars, on purpose.
+// count (the closing day counts, the 31st is the 30th, closing on the 1st = 30 days).
+// Deploy 237.262 (Mike: "30/360 instead of 30/365") -- the daily rate is on a 360-day
+// year now, so it matches the Loan Terms card's daily figure (236.932) to the cent; the
+// 237.255 build had it on 365 days by request, and the two cards differed by design.
 // amountOverride / ratePctOverride let the fee card use its own priced amount and rate.
-function _ldPrepaidInterest30365(l, closingYmd, dutchVal, amountOverride, ratePctOverride) {
+function _ldPrepaidInterest30360(l, closingYmd, dutchVal, amountOverride, ratePctOverride) {
   var fd = (l && l.formData) || {};
   var amount = (Number(amountOverride) > 0) ? Number(amountOverride) : (_ldDrawsNum(l && l.finalLoanAmount) || _ldDrawsNum(l && l.loanAmt));
   var ratePct = (Number(ratePctOverride) > 0) ? _ldRatePctOf(ratePctOverride) : _ldRatePctOf((l && (l.rate || fd._finalRate)) || '');
@@ -8961,7 +8965,7 @@ function _ldPrepaidInterest30365(l, closingYmd, dutchVal, amountOverride, ratePc
   var dutch = dutchStr !== 'non_dutch';
   var hb = _ldDrawsNum(_ldRehabHoldback(l));
   var base = dutch ? amount : Math.max(0, amount - hb);
-  var daily = (base > 0 && ratePct > 0) ? base * (ratePct / 100) / 365 : 0;
+  var daily = (base > 0 && ratePct > 0) ? base * (ratePct / 100) / 360 : 0; // 237.262: 360-day year
   var days = _days30360ToNextFirst(closingYmd);
   return { base: base, daily: daily, days: days, prepaid: daily * days, hasDate: !!_ldParseYmd(closingYmd), dutch: dutch };
 }
