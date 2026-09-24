@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/processing-hold-column-test.mjs — Deploy 237.265
+ * scripts/processing-hold-column-test.mjs — Deploy 237.265 / 237.266
  *
  * Dee (2026-09-24): "Could you please add a dedicated ON-HOLD column in Camelot? ... strictly for
  * active files temporarily paused due to specific, actionable roadblocks — like waiting on a
@@ -13,8 +13,10 @@
  *      loan (the tile, Loan Details and the bell all read them).
  *   2. Resume not restoring the prior status, not clearing the hold fields, or a drop onto a
  *      stage column not moving the file in the same write.
- *   3. A held file in processing leaving the board (the old behaviour) instead of landing in the
- *      On Hold column -- or a held LEAD (no processing stage) being dragged onto the board.
+ *   3. A held file in processing not being collected for the On Hold VIEW (237.266, Mike:
+ *      "make it a separate page like the Open Conditions at the top ... more like a stacked
+ *      list" -- it started life as a fifth column in 237.265), or a held LEAD (no processing
+ *      stage) being listed; the board growing a column again; the Closed Loans tab coming back.
  *   4. The graveyard check: no bell alert once a hold sits 14 days or passes its resume date;
  *      a held file being nagged as "stale" instead.
  *   5. The summary projections dropping the hold fields (the board would show "No reason").
@@ -136,7 +138,7 @@ console.log('\n/api/loan-set-hold: a hold carries why, what for and until when; 
   check('loan-set-hold exports the reasons the page offers', Object.keys((await mk(ACTIVE).fn).HOLD_REASONS), ['borrower_doc', 'third_party', 'restructure', 'other']);
 }
 
-console.log('\nThe board: a held file in processing lands in the On Hold column; a held lead does not');
+console.log('\nThe board and the On Hold view: a held file in processing is collected for the list; a held lead is not');
 {
   const PP = read('processing-pipeline.html');
   const lift = (start, end) => { const a = PP.indexOf(start); if (a < 0) throw new Error('not found: ' + start.slice(0, 50)); const z = PP.indexOf(end, a + start.length); return PP.slice(a, z + end.length); };
@@ -144,8 +146,8 @@ console.log('\nThe board: a held file in processing lands in the On Hold column;
   const c = { escH: (s) => String(s), escAttr: (s) => String(s), _canEdit: true, Date, Math, String, isFinite };
   vm.createContext(c); vm.runInContext(code, c);
   const col = (loan) => vm.runInContext('columnFor(' + JSON.stringify(loan) + ')', c);
-  check('on hold + in underwriting -> the On Hold column', col({ status: 'on_hold', processingStage: 'underwriting' }), 'on_hold');
-  check('on hold + intake / processing / cleared to close -> the On Hold column', [col({ status: 'on_hold', processingStage: 'new_loan' }), col({ status: 'on_hold', processingStage: 'processing' }), col({ status: 'on_hold', processingStage: 'pp_approved' })], ['on_hold', 'on_hold', 'on_hold']);
+  check('on hold + in underwriting -> the on_hold bucket (the list view)', col({ status: 'on_hold', processingStage: 'underwriting' }), 'on_hold');
+  check('on hold + intake / processing / cleared to close -> the on_hold bucket', [col({ status: 'on_hold', processingStage: 'new_loan' }), col({ status: 'on_hold', processingStage: 'processing' }), col({ status: 'on_hold', processingStage: 'pp_approved' })], ['on_hold', 'on_hold', 'on_hold']);
   check('a held LEAD (no processing stage) stays off the board, as before', col({ status: 'on_hold', processingStage: '' }), null);
   check('denied / cancelled still leave; an approved file still sits in its stage', [col({ status: 'denied', processingStage: 'processing' }), col({ status: 'cancelled' }), col({ status: 'approved', processingStage: 'processing' })], [null, null, 'processing']);
   const days = (ago) => new Date(Date.now() - ago * 86400000).toISOString();
@@ -154,9 +156,37 @@ console.log('\nThe board: a held file in processing lands in the On Hold column;
   check('the tile: days, the reason, the note, the resume date, a Resume button', [/class="card-hold"/.test(h), /⏸ 3d · Waiting on a borrower document/.test(h), /card-hold-note">2024 K-1</.test(h), /Resume by 2099-01-01/.test(h), /card-resume-btn" data-loan-key="c_1\|l_1\|chance@slacapital\.com"/.test(h)], [true, true, true, true, true]);
   check('...amber at 14 days, red at 30, red when past its resume date', [/card-hold warn"/.test(pill({ _heldAt: days(14) })), /card-hold late"/.test(pill({ _heldAt: days(30) })), /card-hold late"/.test(pill({ _heldAt: days(2), _holdResumeBy: '2020-01-01' })), /past its 2020-01-01/.test(pill({ _heldAt: days(2), _holdResumeBy: '2020-01-01' }))], [true, true, true, true]);
   check('...an LO-side hold with no reason recorded still shows, and a read-only viewer gets no Resume button', [/No reason recorded/.test(pill({ updatedAt: days(1) })), /card-resume-btn/.test(pill({ _heldAt: days(1) }, false))], [true, false]);
-  assert('the fifth column is On Hold and the grid is five wide', /\{ key: 'on_hold',\s+label: 'On Hold' \}/.test(PP) && /<div class="board cols-5">/.test(PP));
-  assert('the column head counts holds of 14+ days', /staleHolds = col\.key === 'on_hold' \? items\.filter\(function\(it\) \{ return _holdDays\(it\.loan\) >= 14; \}\)\.length : 0;/.test(PP) && /over 14d<\/span>/.test(PP));
-  assert('a drop INTO the column opens the reason dialog; a drop OUT onto a stage resumes there', /if \(newStage === 'on_hold'\) \{ if \(_draggingFromStage !== 'on_hold'\) openHoldModal\(loanKey\); return; \}\s*if \(_draggingFromStage === 'on_hold'\) \{ resumeLoanByDrop\(loanKey, newStage\); return; \}/.test(PP));
+  // 237.266 -- a view, not a column
+  assert('the board is four columns again: On Hold is a view, not a column', !/\{ key: 'on_hold',\s+label: 'On Hold' \}/.test(PP) && /<div class="board cols-4">/.test(PP) && !/staleHolds/.test(PP));
+  assert('the On Hold tab sits beside Open Conditions with a count; the Closed Loans tab button is gone', /data-view="hold" onclick="setPipelineView\('hold'\)">On Hold<span class="pp-cond-count" id="ppHoldCount">/.test(PP) && !/data-view="closed"/.test(PP) && /view === 'hold'\) \? view : 'active'/.test(PP) && /if \(_view === 'hold'\) \{ renderHoldList\(visible\); return; \}/.test(PP));
+  assert('no drop-into-column path is left behind; the drop-bar zone still parks a tile through the dialog', !/newStage === 'on_hold'/.test(PP) && /if \(!opts \|\| !opts\.reason\) \{ openHoldModal\(loanKey\); return; \}/.test(PP));
+  const lcode = lift('function renderHoldList(visible) {', '\n}\n') + '\n' + lift('function _holdDays(loan) {', '\n}\n') + '\n' + lift('function _holdPillHtml(loan, it) {', '\n}\n');
+  const wrap = { innerHTML: '' };
+  const lc = {
+    document: { getElementById: (id) => id === 'boardWrap' ? wrap : (id === 'searchBox' ? { value: '' } : null) },
+    escH: (s) => String(s), escAttr: (s) => String(s), _canEdit: true, _loFilterValue: '', _myLoansOnly: false, _programFilter: 'all',
+    STAGE_LABEL: { underwriting: 'Underwriting', processing: 'Processing' }, loDisplay: () => 'Chance Luce',
+    fmtMoney: (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US'), SLA: { urls: { loanDetails: (id) => '/loan-details/' + id } },
+    Date, Math, String, Array, Number, isFinite,
+    _items: { on_hold: [
+      { ownerKey: 'chance@slacapital.com', client: { id: 'c_1', firstName: 'Mason', lastName: 'Clinger' }, loan: { id: 'l_1', address: '151 Foothill Blvd', loanAmt: '245125', toolType: 'rtl', processingStage: 'underwriting', _heldAt: days(3), _holdReasonLabel: 'Waiting on a borrower document', _holdNote: '2024 K-1', _holdResumeBy: '2099-01-01', assignedProcessor: { email: 'dee@slacapital.com', name: 'Dee' } } },
+      { ownerKey: 'chance@slacapital.com', client: { id: 'c_2', firstName: 'Ada', lastName: 'Lovelace' }, loan: { id: 'l_2', address: '2 Analytical Way', loanAmt: '100000', toolType: 'dscr', processingStage: 'processing', _heldAt: days(20), _holdReasonLabel: 'Third-party delay (title, appraisal, insurance)' } },
+    ] },
+  };
+  vm.createContext(lc); vm.runInContext(lcode + '\nrenderHoldList(function() { return true; });', lc);
+  const html = wrap.innerHTML;
+  check('the list, RUN: the longest hold first, one row each, with borrower / LO / processor / the stage it left, the reason pill, the note, the resume date, Resume, the amount and a link', [
+    html.indexOf('2 Analytical Way') < html.indexOf('151 Foothill Blvd'),
+    /<b>2<\/b> loans on hold · <b>1<\/b> over 14 days/.test(html),
+    /Mason Clinger · Chance Luce · Dee · was in Underwriting/.test(html),
+    /Ada Lovelace · Chance Luce · unassigned · was in Processing/.test(html),
+    /⏸ 3d · Waiting on a borrower document/.test(html), /card-hold-note">2024 K-1</.test(html), /Resume by 2099-01-01/.test(html),
+    (html.match(/card-resume-btn/g) || []).length, /\$245,125/.test(html), /href="\/loan-details\/l_1"/.test(html), /class="tag rtl">RTL</.test(html),
+  ], [true, true, true, true, true, true, true, 2, true, true, true]);
+  vm.runInContext('renderHoldList(function(it) { return it.loan.id === "l_2"; });', lc);
+  check('...the board filters apply to the list too', [/2 Analytical Way/.test(wrap.innerHTML), /151 Foothill/.test(wrap.innerHTML)], [true, false]);
+  lc._items.on_hold = []; vm.runInContext('renderHoldList(function() { return true; });', lc);
+  check('empty: says how to park one', /Nothing is on hold\. Drag a tile onto/.test(wrap.innerHTML), true);
   assert('the drop-bar zone asks first too (no reason -> the dialog)', /if \(!opts \|\| !opts\.reason\) \{ openHoldModal\(loanKey\); return; \}/.test(PP));
   assert('the dialog posts reason, note and resume date; resume posts hold:false with the stage', /body = \{ clientId: p\.clientId, loanId: p\.loanId, hold: true, reason: opts\.reason, note: opts\.note \|\| '', resumeBy: opts\.resumeBy \|\| '' \}/.test(PP) && /var body = \{ clientId: p\.clientId, loanId: p\.loanId, hold: false \};\s*if \(newStage && STAGE_ORDER\.indexOf\(newStage\) >= 0 && newStage !== 'pp_closed'\) body\.newStage = newStage;/.test(PP));
   assert('the dialog is on the page with the four reasons', /id="holdReason"/.test(PP) && /value="borrower_doc"/.test(PP) && /value="third_party"/.test(PP) && /value="restructure"/.test(PP) && /value="other"/.test(PP) && /id="holdResumeBy"/.test(PP));
