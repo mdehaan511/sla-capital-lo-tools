@@ -110,8 +110,13 @@ export const FORMS = {
     intro: 'Please provide the bank account information where construction draw funds should be sent.',
     notice: 'IMPORTANT — WIRE ROUTING NUMBER: Banks often use a different routing number for receiving wire transfers than for ACH or other transactions. Please confirm directly with your bank that the routing number provided is the correct routing number for receiving wires.',
     signature: true,
+    // Deploy 237.263 (Mike: "the name on account and the I Confirmed With My Bank line are auto
+    // filling with information. They should both be sent BLANK and to be filled by the borrower
+    // its sent to.") -- no prefill on the account name (the borrower names the account the
+    // draws go to; it is often not the vesting entity), and the confirmation box is drawn
+    // blank until the borrower answers it (see _checkboxDisplay).
     fields: [
-      { key: 'accountName', label: 'Name on Account', type: 'text', required: true, prefill: 'entityOrBorrower', max: 90 },
+      { key: 'accountName', label: 'Name on Account', type: 'text', required: true, max: 90 },
       { key: 'bankName', label: 'Bank Name', type: 'text', max: 80 },
       { key: 'accountNumber', label: 'Bank Account Number', type: 'digits', required: true, sensitive: true, min: 4, max: 17 },
       { key: 'routingNumber', label: 'Routing Number (for incoming WIRES)', type: 'digits', required: true, min: 9, max: 9 },
@@ -359,6 +364,12 @@ function _auditLine(page, F, signature) {
 }
 
 // Generic labelled-answer layout (PM questionnaire, draw wire form).
+// Deploy 237.263 -- a checkbox the borrower has not answered prints BLANK (the preview and
+// the sent copy carry no answer), not "No"; an explicit false still prints No, true prints Yes.
+export function _checkboxDisplay(v) {
+  if (v === undefined || v === null || v === '') return '';
+  return (v === true || v === 'true' || v === 'on' || v === 1 || v === '1') ? 'Yes' : 'No';
+}
 async function _renderSimpleForm(form, answers, ctx, signature) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
@@ -370,7 +381,7 @@ async function _renderSimpleForm(form, answers, ctx, signature) {
   for (const f of form.fields) {
     if (!_visible(f, answers)) continue;
     let v = answers[f.key];
-    if (f.type === 'checkbox') v = v ? 'Yes' : 'No';
+    if (f.type === 'checkbox') v = _checkboxDisplay(v);
     else if (f.type === 'select') { const o = (f.options || []).find((x) => x[0] === v); v = o ? o[1] : v; }
     v = String(v == null ? '' : v);
     const labelLines = _wrap(f.label, F.helv, 9, 504);

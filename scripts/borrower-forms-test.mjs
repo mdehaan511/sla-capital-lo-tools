@@ -9,7 +9,7 @@
  */
 import { PDFDocument } from '../deploy/node_modules/pdf-lib/cjs/index.js';
 import {
-  FORMS, formForSlug, formById, slugsWithForms, prefillFor, validateAnswers, scrubAnswers,
+  FORMS, formForSlug, formById, slugsWithForms, prefillFor, validateAnswers, scrubAnswers, _checkboxDisplay,
   renderFormPdf, filedName, commitmentLetterText, loadW9Template, loadVomTemplate, loadLogo, ESIGN_CONSENT_VERSION, portalForms, ctxSnapshot,
 } from '../deploy/netlify/functions/_shared/borrower-forms.mjs';
 import { getChecklist } from '../deploy/netlify/functions/_shared/loan-review-checklists.mjs';
@@ -76,6 +76,11 @@ const ctx = {
   const dw = validateAnswers(FORMS.draw_wire.fields, { accountName: 'X', accountNumber: '12-34', routingNumber: '12345678', routingConfirmed: 'on' });
   check('routing number must be 9 digits; account digits kept; checkbox coerced', [dw.errors.routingNumber, dw.clean.accountNumber, dw.clean.routingConfirmed], ['Must be exactly 9 digits', '1234', true]);
   check('required checkbox unchecked is an error', validateAnswers(FORMS.draw_wire.fields, { accountName: 'X', accountNumber: '1234', routingNumber: '123456789' }).errors.routingConfirmed, 'Required');
+  // Deploy 237.263 (Mike) -- the wire form goes out BLANK: no prefilled account name, and the
+  // untouched confirmation box prints blank on the preview / sent copy, never "No".
+  check('draw wire: nothing prefilled (the borrower names the account)', Object.keys(prefillFor(FORMS.draw_wire, ctx)), []);
+  check('draw wire: the account name field carries no prefill source', FORMS.draw_wire.fields.find((f) => f.key === 'accountName').prefill, undefined);
+  check('an unanswered checkbox prints blank; false prints No; true prints Yes', [_checkboxDisplay(undefined), _checkboxDisplay(''), _checkboxDisplay(null), _checkboxDisplay(false), _checkboxDisplay(true), _checkboxDisplay('on')], ['', '', '', 'No', 'Yes', 'Yes']);
   const sf = validateAnswers(FORMS.commitment_letter.staffFields, { letterDate: '2026-09-10', loanProgram: 'Bridge', loanAmount: '$206,500', targetCloseDate: '2026-10-01', expirationDate: 'soon', repName: 'J', repTitle: 'T', repEmail: 'j@x.com' });
   check('letter staff fields: money normalised, bad date flagged', [sf.clean.loanAmount, sf.errors.expirationDate], ['206500', 'Enter a date']);
 }
