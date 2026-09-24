@@ -75,12 +75,16 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "September 18, 2026",
+  effectiveDate: "September 24, 2026",
   // Deploy 237.145 — 9.18.26 sheet ("rate-sheet-2026-09-18.xlsx"): base rates
   //   -0.050 across the board (30Y/10-6 6.975 -> 6.925; 7/6 & 5/6 6.875 -> 6.825).
   //   The FIRST CUT in PRICING_HISTORY — every sheet back to 7.22.26 moved up — so
   //   a locked loan repricing on an older sheet now reprices HIGHER, not lower.
   //   Every other cell byte-identical to the 9.16.26 sheet (diffed cell-by-cell:
+  //   4 differing cells = the two dates + the two base rates).
+  // Deploy 237.261 — 9.24.26 sheet ("rate-sheet-2026-09-24.xlsx"): base rates
+  //   +0.150 across the board (30Y/10-6 6.925 -> 7.075; 7/6 & 5/6 6.825 -> 6.975).
+  //   Every other cell byte-identical to the 9.18.26 sheet (diffed cell-by-cell:
   //   4 differing cells = the two dates + the two base rates).
   // Deploy 237.089 — 9.16.26 sheet ("rate-sheet-2026-09-16.xlsx"): base rates
   //   +0.100 across the board (30Y/10-6 6.875 -> 6.975; 7/6 & 5/6 6.775 -> 6.875).
@@ -112,7 +116,7 @@ const DIYA = {
   //
   // Deploy 236.842 — 9.2.26 sheet: base rates +0.050 across all four products;
   // everything else unchanged.
-  baseRate: { "30Y Fixed": 6.925, "10/6 ARM": 6.925, "7/6 ARM": 6.825, "5/6 ARM": 6.825 }, // 237.145: -0.050 (9.18.26 sheet)
+  baseRate: { "30Y Fixed": 7.075, "10/6 ARM": 7.075, "7/6 ARM": 6.975, "5/6 ARM": 6.975 }, // 237.261: +0.150 (9.24.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.075,-0.050,-0.025, 0.100],
@@ -643,7 +647,10 @@ function priceDSCR(raw) {
 // of PRICING_HISTORY whose overrides hold the PREVIOUS sheet's values for
 // every key the new sheet changed.
 var PRICING_HISTORY = [
-  { effective: '2026-09-18', label: 'September 18, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-24', label: 'September 24, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-18', label: 'September 18, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.925, "10/6 ARM": 6.925, "7/6 ARM": 6.825, "5/6 ARM": 6.825 },
+  } },
   { effective: '2026-09-16', label: 'September 16, 2026', overrides: {
     baseRate: { "30Y Fixed": 6.975, "10/6 ARM": 6.975, "7/6 ARM": 6.875, "5/6 ARM": 6.875 },
   } },

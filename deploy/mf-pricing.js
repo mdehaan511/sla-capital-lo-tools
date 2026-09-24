@@ -101,9 +101,15 @@ const DIYA = {
   //   rates -0.050 across the board (6.975 -> 6.925 / 6.875 -> 6.825); min rate 6.25,
   //   PPP (3-Year still +0.300, 5-Year -0.100, 5Yr/6Mo -0.150), FICO/LTV, IO, 5+ Multi,
   //   DSCR, UPB all unchanged (6 differing cells = the two dates + the four base rates).
-  effectiveDate: "September 18, 2026",
+  // Deploy 237.261 — 9.24.26 sheet ("rate-sheet-2026-09-24 (1).xlsx"): base rates
+  //   30Y Fixed & 10/6 ARM 6.925 -> 7.075 (+0.150), 7/6 ARM 6.825 -> 6.975 (+0.150),
+  //   5/6 ARM 6.825 -> 7.125 (+0.300 — the first sheet to price the 5/6 above the 7/6;
+  //   applied exactly as printed and flagged to Mike in case it is a typo); min rate
+  //   6.25, PPP, FICO/LTV, IO, 5+ Multi, DSCR, UPB all unchanged (6 differing cells =
+  //   the two dates + the four base rates).
+  effectiveDate: "September 24, 2026",
   minRate: 6.25,
-  baseRate: { "30Y Fixed": 6.925, "10/6 ARM": 6.925, "7/6 ARM": 6.825, "5/6 ARM": 6.825 }, // 237.145: -0.050 (9.18.26 sheet)
+  baseRate: { "30Y Fixed": 7.075, "10/6 ARM": 7.075, "7/6 ARM": 6.975, "5/6 ARM": 7.125 }, // 237.261: +0.150, 5/6 ARM +0.300 (9.24.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050],
@@ -691,7 +697,10 @@ function priceDSCR(raw) {
 // than base rates (PPP 321). The MF sizer launched on the 8-7-26 matrix, so
 // no MF lock can predate it.
 var PRICING_HISTORY = [
-  { effective: '2026-09-18', label: 'September 18, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-24', label: 'September 24, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-18', label: 'September 18, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.925, "10/6 ARM": 6.925, "7/6 ARM": 6.825, "5/6 ARM": 6.825 },
+  } },
   { effective: '2026-09-16', label: 'September 16, 2026', overrides: {
     baseRate: { "30Y Fixed": 6.975, "10/6 ARM": 6.975, "7/6 ARM": 6.875, "5/6 ARM": 6.875 },
   } },
