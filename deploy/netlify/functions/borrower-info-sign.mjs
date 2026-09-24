@@ -49,6 +49,9 @@ import { getOwnerReplyTo, resolveOwnerEmail, logBorrowerSendFromResponse } from 
 import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
 import { checkRateLimit } from './_shared/rate-limit.mjs';
+// Deploy 237.267 -- the skipped-housekeeping hand-off signs its call with the same internal HMAC
+// the review / packet background jobs use.
+import { internalBgSig } from './_shared/review-truth.mjs';
 
 // Which forms each signer signed in their single signing event.
 // Borrower 1\u2019s session covers all three forms (their own); borrower 2\u2019s
@@ -813,6 +816,9 @@ async function handle(req, context, opts) {
   if (_housekeepingSkipped.length) {
     console.warn('[sign-timing] housekeeping skipped to protect the signature: ' +
       _housekeepingSkipped.join(', ') + ' — ' + _marks.join(' | '));
+    // Deploy 237.267 (Sara: "I didnt get an email today on a completed app") -- nothing skipped
+    // here is lost any more: the background job finishes it with fifteen minutes to work.
+    await _fireHousekeeping(recordKey, _housekeepingSkipped, req);
   }
   return json(200, {
     housekeepingSkipped: _housekeepingSkipped.length ? _housekeepingSkipped : undefined,
@@ -851,7 +857,26 @@ function getSecondaryBlock(secondaryBlocks, pos) {
   return null;
 }
 
-async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, isInterim, coBorrowerName, ownerKey }) {
+// Deploy 237.267 -- fire-and-forget hand-off of the steps the deadline skipped (see
+// borrower-info-sign-housekeeping-background.mjs). Never throws; a failure to fire is logged and
+// the record still carries `_housekeepingSkipped`, so an admin can run the job by hand.
+async function _fireHousekeeping(recordKey, skipped, req) {
+  try {
+    let base = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
+    if (!base) { try { base = new URL(req.url).origin; } catch (_) { base = 'https://portal.slacapital.ai'; } }
+    const r = await fetch(base + '/.netlify/functions/borrower-info-sign-housekeeping-background', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(recordKey, 'sign-housekeeping') },
+      body: JSON.stringify({ recordKey, skipped: skipped.slice() }),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!(r.status === 202 || r.ok)) console.warn('borrower-info-sign: housekeeping hand-off got ' + r.status);
+  } catch (e) {
+    console.warn('borrower-info-sign: housekeeping hand-off failed (non-fatal):', e && e.message);
+  }
+}
+
+export async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, isInterim, coBorrowerName, ownerKey }) {
   if (!toEmail) return false;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -933,7 +958,7 @@ async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, is
 }
 
 // Email borrower 2 a link to sign their own prequal credit auth.
-async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress, token, req, ownerKey }) {
+export async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress, token, req, ownerKey }) {
   if (!toEmail) return false;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false;
@@ -1015,7 +1040,7 @@ async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress
   return true;
 }
 
-async function notifyLOOfSignedApp(record, audit, opts) {
+export async function notifyLOOfSignedApp(record, audit, opts) {
   opts = opts || {};
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
