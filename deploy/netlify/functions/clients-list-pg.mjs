@@ -109,6 +109,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.925 — Processing Pipeline substatus pill (see clients-list.mjs);
   // both ride in extra JSONB (processing_substatus is not a promoted column).
   'processingSubstatus', 'baselineSubstatus',
+  // Deploy 237.265 -- the On Hold column (Dee): when, who, why, what for, and until when.
+  '_heldAt', '_heldBy', '_holdFromStatus', '_holdReason', '_holdReasonLabel', '_holdNote', '_holdResumeBy',
   // Deploy 236.941 — LO-comp margin inputs (see clients-list.mjs); ride extra.
   '_pricingOverrideAt', '_pricingOverrideOriginal', 'compBaseRate',
   'buydown', // Deploy 237.214 — excluded from LO comp; rides extra (see clients-list.mjs)

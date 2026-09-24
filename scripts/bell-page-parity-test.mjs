@@ -220,7 +220,9 @@ assert('an empty account gets a sentence, not three zeroes',
 console.log('\nThe live alert list');
 const ALERTS = readFileSync(new URL('../deploy/netlify/functions/processing-alerts.mjs', import.meta.url), 'utf8');
 const alertKinds = [...new Set((ALERTS.match(/kind: '([a-z_]+)'/g) || []).map((m) => m.slice(7, -1)))].sort();
-check('exactly two, and they are the two Mike named', alertKinds, ['stale', 'unassigned']);
+// Deploy 237.265 -- a third kind: on_hold (Dee's On Hold column; Mike: "ensure it doesn't
+// become a graveyard again"). Still a LIVE condition someone ends by doing something.
+check('exactly three: the two Mike named plus on_hold', alertKinds, ['on_hold', 'stale', 'unassigned']);
 assert('no close-date alert survives anywhere in the file',
   !/closing_soon|CLOSING_WINDOW|_daysUntil|_closesPhrase/.test(ALERTS.replace(/^ \*.*$/gm, '')),
   'Mike: "Remove Closing Soon, people know that."');

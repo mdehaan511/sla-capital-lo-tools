@@ -26,7 +26,7 @@
       --col-processing: #4a7a8a;  --col-processing-bg: rgba(74,122,138,0.08);
       --col-uw:         #6a4a8a;  --col-uw-bg:         rgba(106,74,138,0.08);
       --col-approved:   #256940;  --col-approved-bg:   rgba(37,105,64,0.08);
-      --col-closed:     #4a4a4a;  --col-closed-bg:     rgba(74,74,74,0.08);
+      --col-closed:     #4a4a4a;  --col-closed-bg:     rgba(74,74,74,0.08); --col-hold: #b5712d; --col-hold-bg: rgba(181,113,45,0.08);
       --closing-soon:   #c98e1a;  --closing-soon-bg:   rgba(201,142,26,0.10);
       --r: 12px; --r-xs: 8px;
     }
@@ -150,6 +150,7 @@
     .col[data-col="underwriting"].col-head { background: var(--col-uw-bg); }         .col[data-col="underwriting"].col-head h3 { color: var(--col-uw); }
     .col[data-col="pp_approved"] .col-head { background: var(--col-approved-bg); }   .col[data-col="pp_approved"] .col-head h3 { color: var(--col-approved); }
     .col[data-col="pp_closed"]   .col-head { background: var(--col-closed-bg); }     .col[data-col="pp_closed"]   .col-head h3 { color: var(--col-closed); }
+    .col[data-col="on_hold"]     .col-head { background: var(--col-hold-bg); }      .col[data-col="on_hold"]     .col-head h3 { color: var(--col-hold); } /* Deploy 237.265 */
 
     .cards { display: flex; flex-direction: column; gap: 10px; min-height: 40px; }
     /* Deploy 236.100 — card is now a div (not <a>) so HTML5 drag/drop
@@ -188,6 +189,15 @@
        styled to look like a small pill; click opens the dropdown. */
     .card-substatus { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--muted); display: inline-block; margin-bottom: 8px; }
     .card-substatus.empty { color: rgba(122,116,136,0.5); font-style: italic; }
+    /* Deploy 237.265 (Dee) — the On Hold tile: reason pill (amber at 14 days, red at 30 or past its resume date), the note, Resume. */
+    .card-hold { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 10px; background: rgba(181,113,45,0.12); color: #8a5a1a; margin-top: 2px; }
+    .card-hold.warn { background: rgba(181,113,45,0.24); }
+    .card-hold.late { background: rgba(124,31,31,0.12); color: #7c1f1f; }
+    .card-hold-note { font-size: 11px; color: var(--muted, #7a7488); margin-top: 3px; line-height: 1.35; }
+    .card-resume-btn { margin-top: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .card-resume-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .ss-lbl { display: block; font-size: 12px; font-weight: 700; margin: 12px 0 4px; }
+    .hold-input { width: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: #fff; }
     .card-substatus-sel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 22px 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--muted); border: 1px solid transparent; margin-bottom: 8px; font-family: 'DM Sans', sans-serif; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path fill='%23766f80' d='M0 0l4 5 4-5z'/></svg>"); background-repeat: no-repeat; background-position: right 6px center; max-width: 100%; }
     .card-substatus-sel:hover { border-color: var(--gold); color: var(--gold); }
     .card-substatus-sel:focus { outline: none; border-color: var(--gold); }
@@ -351,6 +361,31 @@
     </div>
   </div>
 
+  <!-- Deploy 237.265 (Dee: a dedicated On Hold column) — why, and when it should come back. -->
+  <div class="ss-bg" id="holdBg">
+    <div class="ss-modal" style="max-width:520px">
+      <h3>Put this loan On Hold</h3>
+      <p class="ss-sub">The file stays on the board in the On Hold column with the reason on its tile. Drag it back onto a stage, or click Resume, when it can move again.</p>
+      <label class="ss-lbl" for="holdReason">Why is it on hold?</label>
+      <select id="holdReason" class="hold-input">
+        <option value="">Choose a reason…</option>
+        <option value="borrower_doc">Waiting on a borrower document</option>
+        <option value="third_party">Third-party delay (title, appraisal, insurance)</option>
+        <option value="restructure">Restructure requested</option>
+        <option value="other">Other</option>
+      </select>
+      <label class="ss-lbl" for="holdNote">What exactly are we waiting on?</label>
+      <input type="text" id="holdNote" class="hold-input" maxlength="300" placeholder="e.g. 2024 K-1 from the borrower's CPA" />
+      <label class="ss-lbl" for="holdResumeBy">Expected to resume by (optional)</label>
+      <input type="date" id="holdResumeBy" class="hold-input" />
+      <div class="ss-actions">
+        <div class="ss-status" id="holdStatus"></div>
+        <button type="button" class="ss-btn" onclick="closeHoldModal()">Cancel</button>
+        <button type="button" class="ss-btn primary" id="holdSaveBtn" onclick="submitHoldModal()">Put On Hold</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Deploy 236.116 (Phase C — auto-task templates) — admin editor.
        Reuses the .ss-bg / .ss-modal styling pattern. -->
   <div class="ss-bg" id="ttBg">
@@ -457,7 +492,7 @@ var _los = [];            // Deploy 236.638 — [{email,name}] all staff, for th
 // Shape: { new_loan: ['Awaiting docs', ...], processing: [...], ... }
 // Loaded from /api/settings on page init. Empty arrays / missing keys
 // = column has no substatuses (no picker rendered).
-var _substatuses = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
+var _substatuses = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [], on_hold: [] }; // on_hold: Deploy 237.265 (the reason pill stands in for a substatus)
 
 // Deploy 236.549 — Closed is its OWN board (Mike). Its 4 columns are the
 // post-close SUBSTATUSES, so a card's column = its substatus and dragging
@@ -644,7 +679,14 @@ function columnFor(loan) {
   // entirely (On Hold via the drag drop-bar; denied / cancelled). They stay on
   // the Loans page + Loan Details and reappear here if reactivated.
   var st0 = String(loan.status || '').toLowerCase().trim();
-  if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
+  if (st0 === 'denied' || st0 === 'cancelled') return null;
+  // Deploy 237.265 (Dee: "add a dedicated ON-HOLD column") -- a held file that was IN processing
+  // stays on the board, in its own column, so Keith and Dee can see it without it sitting in an
+  // active column. A held LEAD (no processing stage yet) is the Leads board's business, as before.
+  if (st0 === 'on_hold') {
+    var _hs = String(loan.processingStage || '').toLowerCase().trim();
+    return (_hs === 'new_loan' || _hs === 'processing' || _hs === 'underwriting' || _hs === 'pp_approved') ? 'on_hold' : null;
+  }
 
   // A terminal CLOSED status WINS over processingStage (Deploy 236.583). A loan
   // that's fully offloaded — Sold / In Servicing / Paid Off / Liquidated — lives
@@ -719,7 +761,7 @@ function loadAll() {
 // Deploy 236.207 — factored out so the cached paint and the fresh
 // re-paint share the exact same slotting/sort/filter logic.
 function _processPipelineClients(clientsResp) {
-  _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
+  _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [], on_hold: [] }; // on_hold: Deploy 237.265
   if (clientsResp.byOwner) {
     Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
       (clientsResp.byOwner[ownerKey] || []).forEach(function(client) {
@@ -901,6 +943,7 @@ function render() {
     { key: 'processing',   label: 'Processing' },
     { key: 'underwriting', label: 'Underwriting' },
     { key: 'pp_approved',  label: 'Cleared to Close' },
+    { key: 'on_hold',      label: 'On Hold' }, // Deploy 237.265 (Dee)
   ];
   var source = _items;
 
@@ -910,9 +953,11 @@ function render() {
   // .cards inner div, so the entire column area accepts the drop.
   // Deploy 236.573 — both boards are now 4 columns (active dropped its Closed
   // column in 236.572), so always use the 4-col grid to fill the full width.
-  var html = '<div class="board cols-4">';
+  var html = '<div class="board cols-5">'; // Deploy 237.265 -- five columns again: On Hold is the fifth
   cols.forEach(function(col) {
     var items = (source[col.key] || []).filter(visible);
+    // Deploy 237.265 -- the On Hold head counts what has sat 14+ days (Mike's graveyard check)
+    var staleHolds = col.key === 'on_hold' ? items.filter(function(it) { return _holdDays(it.loan) >= 14; }).length : 0;
     // Deploy 236.781 (pp sums) — dollar total of the loans in the column
     // (respects the same search/LO/My-Loans filters as the cards shown).
     var colSum = 0;
@@ -923,6 +968,7 @@ function render() {
       ' ondragleave="onColDragLeave(event)"' +
       ' ondrop="onColDrop(event)">' +
       '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span>' +
+      (staleHolds ? '<span class="cnt" style="background:rgba(124,31,31,0.12);color:#7c1f1f" title="On hold 14 days or more">' + staleHolds + ' over 14d</span>' : '') + // Deploy 237.265
       '<span class="col-sum" title="Total loan amount in this column">' + fmtSum(colSum) + '</span></div>' +
       '<div class="cards">';
     if (items.length === 0) {
@@ -1376,7 +1422,9 @@ function renderCard(it) {
   var substatus = loan.processingSubstatus || loan.baselineSubstatus || '';
   var subs = (_substatuses[col] || []);
   var substatusHtml;
-  if (_canEdit && subs.length > 0) {
+  if (col === 'on_hold') {
+    substatusHtml = _holdPillHtml(loan, it); // Deploy 237.265 -- the reason stands in for a substatus
+  } else if (_canEdit && subs.length > 0) {
     // Deploy 236.204 — if the loan's substatus isn't already in the
     // configured picker list, prepend it so the <select> shows the
     // actual value instead of falling back to the placeholder.
@@ -1573,6 +1621,7 @@ var STAGE_LABEL = {
   'underwriting': 'Underwriting',
   'pp_approved':  'Cleared to Close',
   'pp_closed':    'Closed',
+  'on_hold':      'On Hold', // Deploy 237.265 -- a column, not a stage: not in STAGE_ORDER
 };
 
 var _draggingLoanKey = null;
@@ -1734,9 +1783,44 @@ function _doCloseLoan(loanKey) {
 }
 
 // On Hold — status → on_hold via loan-set-hold; drops off the active board.
-function dropBarHold(loanKey) {
+// Deploy 237.265 (Dee: "a dedicated ON-HOLD column ... strictly for active files temporarily
+// paused due to specific, actionable roadblocks"; Mike: "ensure it doesn't become a graveyard
+// again") -- a hold asks WHY (and what exactly, and until when) before it happens; the drop-bar
+// zone and the On Hold column both open the same dialog. The tile then shows the reason and a
+// day count that turns amber at 14 days and red at 30 or past the resume date, the column head
+// counts the 14+ day holds, and processing-alerts nags the assignee and the admins.
+var _holdCtx = null;
+function openHoldModal(loanKey) {
   var p = _dropBarKeyParts(loanKey); if (!p) return;
-  var body = { clientId: p.clientId, loanId: p.loanId, hold: true };
+  if (_draggingFromStage === 'on_hold') return; // already there
+  _holdCtx = { loanKey: loanKey };
+  var sel = document.getElementById('holdReason'), note = document.getElementById('holdNote'), by = document.getElementById('holdResumeBy');
+  if (sel) sel.value = ''; if (note) note.value = ''; if (by) by.value = '';
+  var st = document.getElementById('holdStatus'); if (st) st.textContent = '';
+  var btn = document.getElementById('holdSaveBtn'); if (btn) { btn.disabled = false; btn.textContent = 'Put On Hold'; }
+  document.getElementById('holdBg').classList.add('show');
+  if (sel) sel.focus();
+}
+function closeHoldModal() {
+  document.getElementById('holdBg').classList.remove('show');
+  _holdCtx = null;
+}
+function submitHoldModal() {
+  if (!_holdCtx) return;
+  var reason = (document.getElementById('holdReason') || {}).value || '';
+  var note = ((document.getElementById('holdNote') || {}).value || '').trim();
+  var resumeBy = (document.getElementById('holdResumeBy') || {}).value || '';
+  var st = document.getElementById('holdStatus');
+  if (!reason) { if (st) st.textContent = 'Pick a reason first.'; return; }
+  var btn = document.getElementById('holdSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  var key = _holdCtx.loanKey;
+  closeHoldModal();
+  dropBarHold(key, { reason: reason, note: note, resumeBy: resumeBy });
+}
+function dropBarHold(loanKey, opts) {
+  var p = _dropBarKeyParts(loanKey); if (!p) return;
+  if (!opts || !opts.reason) { openHoldModal(loanKey); return; } // the drop-bar zone: ask first
+  var body = { clientId: p.clientId, loanId: p.loanId, hold: true, reason: opts.reason, note: opts.note || '', resumeBy: opts.resumeBy || '' };
   if (p.owner) body.owner = p.owner;
   _removeCardOptimistic(loanKey);
   SLA.api('POST', '/api/loan-set-hold', body).then(function() {
@@ -1747,6 +1831,50 @@ function dropBarHold(loanKey) {
     showToast('Failed to hold: ' + (err && err.message ? err.message : 'unknown'));
     loadAll();
   });
+}
+// Out of On Hold: onto a stage column (the stage moves in the same write) or the tile's Resume
+// button (back to the stage it was in).
+function resumeLoanByDrop(loanKey, newStage) {
+  var p = _dropBarKeyParts(loanKey); if (!p) return;
+  var body = { clientId: p.clientId, loanId: p.loanId, hold: false };
+  if (newStage && STAGE_ORDER.indexOf(newStage) >= 0 && newStage !== 'pp_closed') body.newStage = newStage;
+  if (p.owner) body.owner = p.owner;
+  _removeCardOptimistic(loanKey);
+  SLA.api('POST', '/api/loan-set-hold', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    showToast(newStage ? ('Resumed into ' + (STAGE_LABEL[newStage] || newStage)) : 'Resumed');
+    loadAll();
+  }).catch(function(err) {
+    showToast('Failed to resume: ' + (err && err.message ? err.message : 'unknown'));
+    loadAll();
+  });
+}
+function resumeLoan(btn) {
+  var key = btn && btn.getAttribute('data-loan-key');
+  if (!key) return;
+  btn.disabled = true; btn.textContent = 'Resuming…';
+  resumeLoanByDrop(key, '');
+}
+function _holdDays(loan) {
+  var t = Date.parse((loan && (loan._heldAt || loan.updatedAt)) || '');
+  if (!isFinite(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+}
+function _holdPillHtml(loan, it) {
+  var days = _holdDays(loan);
+  var by = String(loan._holdResumeBy || '');
+  var overdue = by && (Date.now() > Date.parse(by + 'T23:59:59'));
+  var cls = (days >= 30 || overdue) ? ' late' : (days >= 14 ? ' warn' : '');
+  var why = loan._holdReasonLabel || (loan._holdReason ? String(loan._holdReason) : 'No reason recorded');
+  var title = 'On hold ' + days + ' day' + (days === 1 ? '' : 's') + (loan._heldBy ? ' · by ' + loan._heldBy : '') + (by ? (overdue ? ' · past its ' + by + ' resume date' : ' · expected to resume by ' + by) : '');
+  var html = '<div class="card-hold' + cls + '" title="' + escAttr(title) + '">\u23F8 ' + days + 'd \u00b7 ' + escH(why) + '</div>';
+  if (loan._holdNote) html += '<div class="card-hold-note">' + escH(loan._holdNote) + '</div>';
+  if (by) html += '<div class="card-hold-note">' + (overdue ? '\u26A0 past its ' : 'Resume by ') + escH(by) + '</div>';
+  if (_canEdit && it) {
+    var key = (it.client && it.client.id) + '|' + loan.id + '|' + it.ownerKey;
+    html += '<button type="button" class="card-resume-btn" data-loan-key="' + escAttr(key) + '" onclick="event.stopPropagation(); resumeLoan(this)" onmousedown="event.stopPropagation()">\u25B6 Resume</button>';
+  }
+  return html;
 }
 
 // Declined — status → denied via loan-decline (terminal, so confirm first).
@@ -1797,6 +1925,9 @@ function onColDrop(e) {
   // Deploy 236.549 — in the Closed board, a drop sets the post-close substatus
   // (stage stays pp_closed) instead of a stage move.
   if (_view === 'closed') { moveClosedByDrop(loanKey, newStage, _draggingFromStage); return; }
+  // Deploy 237.265 (Dee) -- into the On Hold column = the hold dialog; out of it onto a stage = resume there.
+  if (newStage === 'on_hold') { if (_draggingFromStage !== 'on_hold') openHoldModal(loanKey); return; }
+  if (_draggingFromStage === 'on_hold') { resumeLoanByDrop(loanKey, newStage); return; }
   moveLoanByDrop(loanKey, newStage, _draggingFromStage);
 }
 

@@ -17,6 +17,11 @@
  *           falling back to processingStageAt, and only for loans IN the processing
  *           pipeline -- a lead nobody has touched is not stalled, it is a lead.
  *
+ *   on_hold — Deploy 237.265 (Dee's On Hold column; Mike: "ensure it doesn't become a
+ *           graveyard again"). A held file in the pipeline is NOT stale, it is on hold — but
+ *           once it has sat HOLD_DAYS, or is past the resume date it was given, its assignee
+ *           (and every admin) hears about it. High at HOLD_HIGH_DAYS or past the date.
+ *
  * Manager add-on (admins only):
  *   unassigned — a loan has been in the pipeline UNASSIGNED_HOURS with no processor on
  *                it. Mike: "For Admins when a loan goes 24 hours without someone
@@ -46,6 +51,8 @@ import { db } from './_shared/supabase-db.mjs';
 const STALE_DAYS       = 7;   // no update in N days = "stale"  (Mike, 237.206)
 const STALE_HIGH_DAYS  = 14;  // ≥ N days = high severity
 const UNASSIGNED_HOURS = 24;  // in the pipeline this long with nobody on it
+const HOLD_DAYS        = 14;  // Deploy 237.265 -- on hold this long = worth a nudge
+const HOLD_HIGH_DAYS   = 30;  // ... this long = high (or past its own resume date)
 const MAX_ALERTS       = 60;  // hard cap on the returned list
 
 // Stages/statuses that are done or dead — never ping about these.
@@ -172,7 +179,27 @@ async function handle(req, context) {
     // Mike: "Again if its gone 7+ days without an update." Measured from the last write,
     // not from the stage change: a loan can sit in Underwriting for a month and be worked
     // on every day, and that is not what anyone means by stalled.
-    if (mine && inPipeline) {
+    // Deploy 237.265 -- a held file: the hold's own clock, never the stale clock.
+    const onHold = status === 'on_hold' && inPipeline;
+    if (onHold && (mine || manager)) {
+      const heldSince = ex._heldAt || l.updated_at;
+      const dh = _daysSince(heldSince, now);
+      const resumeByMs = ex._holdResumeBy ? new Date(String(ex._holdResumeBy) + 'T23:59:59Z').getTime() : NaN;
+      const overdue = isFinite(resumeByMs) && now > resumeByMs;
+      if (dh != null && (dh >= HOLD_DAYS || overdue)) {
+        const why = ex._holdReasonLabel || ex._holdReason || 'no reason recorded';
+        alerts.push(Object.assign({}, base, {
+          kind: 'on_hold',
+          id: 'pa_hold_' + l.id,
+          subtitle: 'On hold ' + _fmtDays(dh) + ' · ' + why +
+            (ex._holdResumeBy ? (overdue ? ' · past its ' + ex._holdResumeBy + ' resume date' : ' · resume by ' + ex._holdResumeBy) : ''),
+          dateIso: heldSince || '',
+          severity: (dh >= HOLD_HIGH_DAYS || overdue) ? 'high' : 'normal',
+        }));
+      }
+    }
+
+    if (mine && inPipeline && !onHold) {
       const lastTouch = l.updated_at || ex.processingStageAt;
       const dis = _daysSince(lastTouch, now);
       if (dis != null && dis >= STALE_DAYS) {

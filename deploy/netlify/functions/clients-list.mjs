@@ -204,6 +204,8 @@ const LOAN_SUMMARY_FIELDS = [
   // looked like it reverted. baselineSubstatus is the legacy-import fallback
   // the pill renders when the SLA field is empty.
   'processingSubstatus', 'baselineSubstatus',
+  // Deploy 237.265 -- the On Hold column (Dee): when, who, why, what for, and until when.
+  '_heldAt', '_heldBy', '_holdFromStatus', '_holdReason', '_holdReasonLabel', '_holdNote', '_holdResumeBy',
   // Deploy 236.941 — LO-comp margin inputs: the sizer's pre-override pricing
   // snapshot + the hand-entered fallback for legacy overridden RTLs.
   '_pricingOverrideAt', '_pricingOverrideOriginal', 'compBaseRate',

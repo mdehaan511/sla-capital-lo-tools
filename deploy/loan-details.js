@@ -1171,6 +1171,13 @@ function render() {
     '<div class="page-subtitle">' +
       '<span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span>' +
       '<span class="status-badge '+status+'">'+escH(STATUS_LABELS[status]||status)+'</span>' +
+      // Deploy 237.265 (Dee's On Hold column) -- why it is on hold, since when, and until when
+      ((status === 'on_hold' && (l._holdReasonLabel || l._heldAt))
+        ? '<span class="ld-hold-note" style="font-size:12px;color:#8a5a1a;font-family:DM Sans,sans-serif;font-weight:600">\u23F8 ' +
+            escH(l._holdReasonLabel || 'On hold') + (l._holdNote ? ': ' + escH(l._holdNote) : '') +
+            (l._heldAt ? ' \u00b7 since ' + escH(fmtDate(l._heldAt)) : '') +
+            (l._holdResumeBy ? ' \u00b7 resume by ' + escH(l._holdResumeBy) : '') + '</span>'
+        : '') +
       // Deploy 236.103 — Processing Pipeline stage + substatus
       // replaces the static "In Pipeline" label. Pulls from
       // l.processingStage (set by the Kanban drag/drop in 236.95

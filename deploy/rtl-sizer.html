@@ -994,6 +994,29 @@ function fmt(n){ return '$'+Math.round(n).toLocaleString(); }
 // rehab budget). Hidden for Transactional (a 1-day product; its separate
 // PDF omits this block). Reads the DOM directly — gv() is NOT global here
 // (it's defined inside the PDF/other functions), so don't call it.
+// Deploy 237.265 (Carl: "small cash reserves discrepancy between sizer and terms sheet") --
+// the monthly interest figures at the EFFECTIVE rate and amount. The calc's monthlyMax /
+// monthlyStart are at the rate-sheet rate and the algorithmic amount; a pencil override of
+// the rate (or the amount / down payment) has to flow into every holding-cost figure and into
+// the saved pricing snapshot, or the sizer's Cash Reserve card and the loan's snapshot keep
+// the sheet rate while the term sheet (which rescales to the displayed rate) does not -- on
+// Carl's 151 Foothill, 11.00% vs the overridden 10.85% = $184 on six months of holding.
+// Returns null when nothing is overridden, so callers keep the calc's own numbers.
+function _rtlEffectiveMonthly(p) {
+  var ovRate = (p.ovRate !== null && p.ovRate !== undefined && isFinite(p.ovRate) && p.ovRate > 0) ? p.ovRate : null;
+  var ovAmt  = (p.ovAmt  !== null && p.ovAmt  !== undefined && isFinite(p.ovAmt)  && p.ovAmt  > 0) ? p.ovAmt  : null;
+  if (ovRate === null && ovAmt === null) return null;
+  var rate = ovRate !== null ? ovRate : ((typeof p.calcRate === 'number' && isFinite(p.calcRate) && p.calcRate > 0) ? p.calcRate : null);
+  var amt  = ovAmt  !== null ? ovAmt  : ((typeof p.baseAmt  === 'number' && isFinite(p.baseAmt)  && p.baseAmt  > 0) ? p.baseAmt  : null);
+  if (!rate || !amt) return null;
+  var rawMax = (typeof p.rawMax === 'number' && p.rawMax > 0) ? p.rawMax : null;
+  var rawAdv = (typeof p.rawAdv === 'number' && p.rawAdv >= 0) ? p.rawAdv : null;
+  var holdback = (rawMax !== null && rawAdv !== null) ? Math.max(0, rawMax - rawAdv) : 0; // the rehab escrow is a FIXED dollar amount
+  var adv = Math.max(0, amt - holdback);
+  var max = amt * rate / 12;
+  return { rate: rate, amount: amt, initialAdvance: adv, monthlyMax: max, monthlyStart: (p.dutch || holdback <= 0) ? max : adv * rate / 12 };
+}
+
 function renderReserveCard() {
   var card = document.getElementById('reserveCard');
   if (!card) return;
@@ -1072,8 +1095,17 @@ function renderReserveCard() {
   // Monthly interest for the 6-month holding: the LIVE calc's Max Payment — the
   // exact figure the PDF uses (pdfMoMax = _rtlLastCalc.monthlyMax). Dutch loans
   // have start == max; fall back to monthlyStart when a max isn't present.
-  var moInt = (typeof calc.monthlyMax === 'number' && calc.monthlyMax > 0) ? calc.monthlyMax
-            : (typeof calc.monthlyStart === 'number' ? calc.monthlyStart : 0);
+  // Deploy 237.265 (Carl) -- the holding cost was calc.monthlyMax, computed at the rate-sheet
+  // rate before any override, while the fees beside it already used the overridden points and
+  // amount. Now: full amount x effective rate / 12, the same figure the term sheet prints.
+  var _effM = _rtlEffectiveMonthly({
+    ovRate: o.rate,
+    ovAmt: (typeof calc.bMax === 'number' && calc.bMax > 0 && Math.abs(loanAmt - calc.bMax) > 0.5) ? loanAmt : null,
+    calcRate: calc.rate, baseAmt: calc.bMax, rawMax: calc.bMax, rawAdv: calc.initAdv, dutch: !!calc.isDutch,
+  });
+  var moInt = _effM ? _effM.monthlyMax
+            : ((typeof calc.monthlyMax === 'number' && calc.monthlyMax > 0) ? calc.monthlyMax
+            : (typeof calc.monthlyStart === 'number' ? calc.monthlyStart : 0));
   var holding = moInt * 6;
   var rehab = rb * 0.20;
   var total = cashToClose + holding + rehab;
@@ -3478,6 +3510,27 @@ function saveCurrentQuote() {
       }
     }
   }
+  // Deploy 237.265 (Carl) -- the snapshot's monthlyStart / monthlyMax followed the calc at the
+  // rate-sheet rate (2,246.98 = 11.00% on 151 Foothill while finalRate was the overridden
+  // 10.85%), so everything that reads the snapshot inherited the sheet rate. Recompute at the
+  // effective rate and amount whenever either is overridden; the PDF's loan-record path then
+  // must NOT rescale the rate a second time (monthlyAtEffective).
+  if (formData.loanType !== 'transactional') {
+    var _ovM = window._rtlOverrides || {};
+    var _effMS = _rtlEffectiveMonthly({
+      ovRate: _ovM.rate,
+      ovAmt: (_ovM.loanAmt !== null && _ovM.loanAmt !== undefined && isFinite(_ovM.loanAmt) && _ovM.loanAmt > 0) ? _ovM.loanAmt
+           : ((typeof snapshot.maxLoan === 'number' && typeof calcSrc.bMax === 'number' && calcSrc.bMax > 0 && Math.abs(snapshot.maxLoan - calcSrc.bMax) > 0.5) ? snapshot.maxLoan : null),
+      calcRate: calcSrc.rate, baseAmt: snapshot.maxLoan, rawMax: calcSrc.bMax, rawAdv: calcSrc.initAdv,
+      dutch: formData.dutchInterest === 'dutch',
+    });
+    if (_effMS) {
+      snapshot.monthlyMax = _effMS.monthlyMax;
+      snapshot.monthlyStart = _effMS.monthlyStart;
+      snapshot.initialAdvance = _effMS.initialAdvance;
+      snapshot.monthlyAtEffective = true;
+    }
+  }
 
   // Transactional Funding override: snapshot reflects the hardcoded 12% rate,
   // 1pt origination, and the directly-entered loan amount. Most other fields
@@ -5437,7 +5490,11 @@ function _generateRTLRateSheetPDF(opts) {
       var _rawRate = (typeof _calcSnap.rate === 'number' && _calcSnap.rate > 0) ? _calcSnap.rate : null;
       var _corrRate = (typeof _snap.finalRate === 'number' && _snap.finalRate > 0) ? _snap.finalRate : _rawRate;
       if (_rawLoan && _rawRate && _corrRate && bMaxNum > 0) {
-        var _moScale = (bMaxNum / _rawLoan) * (_corrRate / _rawRate);
+        // Deploy 237.265 -- a snapshot saved at the effective rate + amount (monthlyAtEffective)
+        // only needs the amount ratio against ITS OWN amount; the rate ratio would double-correct.
+        var _moScale = _snap.monthlyAtEffective
+          ? (bMaxNum / ((typeof _snap.maxLoan === 'number' && _snap.maxLoan > 0) ? _snap.maxLoan : bMaxNum))
+          : (bMaxNum / _rawLoan) * (_corrRate / _rawRate);
         if (isFinite(_moScale) && _moScale > 0) {
           // Maximum payment = interest on the FULL loan, so it scales linearly
           // with the loan amount (and rate). This one is correct on the ratio.
