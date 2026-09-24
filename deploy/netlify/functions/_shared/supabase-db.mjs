@@ -99,13 +99,15 @@ function _qs(opts) {
   return parts.length ? '?' + parts.join('&') : '';
 }
 
-async function _request(method, table, { qs = '', body, headers } = {}) {
+async function _request(method, table, { qs = '', body, headers, timeoutMs } = {}) {
   const { url, key } = _env();
   const endpoint = url + '/rest/v1/' + table + qs;
   const resp = await fetch(endpoint, {
     // Deploy 237.003: a hung PostgREST socket used to hold the function until
     // Netlify's hard kill. Abort first so the caller's catch / read-retry runs.
-    signal: AbortSignal.timeout(22000),
+    // Deploy 237.264: reads pass a shorter, budget-derived timeout (see _selectWithRetry);
+    // writes keep the full 22 s -- a write is never replayed, so it gets every chance.
+    signal: AbortSignal.timeout(Math.max(1000, Math.min(22000, Number(timeoutMs) || 22000))),
     method,
     headers: { ..._baseHeaders(key), ...(headers || {}) },
     body: body ? JSON.stringify(body) : undefined,
@@ -146,6 +148,16 @@ async function _request(method, table, { qs = '', body, headers } = {}) {
 // function timeout.
 const _READ_RETRY_BACKOFF_MS = [250, 600, 1400]; // 3 retries → 4 attempts, ~2.25s worst case
 
+// Deploy 237.264 (the 2026-09-24 Supabase outage: every Postgres read hung until Netlify's
+// 30 s gateway kill, so Loan Details / the Leads page / the client list all died at 30 s
+// with "Inactivity Timeout" -- while their BLOB fallbacks, which only run once the read
+// throws, never got the chance). A READ now has a total budget: attempts stop once it is
+// spent and the caller gets a fast, recognisable failure (`pgDegraded`), so the fallback
+// runs at ~12 s instead of never. Reads that legitimately take longer than the budget are
+// the exception (big admin exports); PG_READ_BUDGET_MS raises it fleet-wide.
+const _READ_BUDGET_MS = Math.max(3000, Number(process.env.PG_READ_BUDGET_MS) || 12000);
+const _READ_MIN_ATTEMPT_MS = 1500; // not worth starting an attempt with less than this left
+
 function _isTransient(e) {
   const st = e && e.status;
   if (!st || st >= 500) return true; // no status = fetch/network failure; 5xx = server-side transient
@@ -161,16 +173,25 @@ function _isTransient(e) {
 
 async function _selectWithRetry(table, opts) {
   const req = { qs: _qs(opts || { select: '*' }) };
+  const t0 = Date.now();
   let lastErr;
   for (let attempt = 0; attempt <= _READ_RETRY_BACKOFF_MS.length; attempt++) {
-    try { return await _request('GET', table, req); }
+    const left = _READ_BUDGET_MS - (Date.now() - t0);
+    if (attempt > 0 && left < _READ_MIN_ATTEMPT_MS) break; // Deploy 237.264 -- budget spent
+    try { return await _request('GET', table, Object.assign({}, req, { timeoutMs: Math.max(_READ_MIN_ATTEMPT_MS, left) })); }
     catch (e) {
       lastErr = e;
       if (!_isTransient(e) || attempt === _READ_RETRY_BACKOFF_MS.length) throw e;
       await new Promise((r) => setTimeout(r, _READ_RETRY_BACKOFF_MS[attempt]));
     }
   }
-  throw lastErr; // unreachable — loop either returns or throws
+  // Deploy 237.264 -- out of budget: say so in a way json() and the pages can recognise.
+  const spent = Date.now() - t0;
+  const err = new Error('PG read budget exhausted after ' + spent + 'ms (database slow or down): ' + String((lastErr && lastErr.message) || 'no response'));
+  err.pgDegraded = true;
+  err.status = lastErr && lastErr.status;
+  err.cause = lastErr;
+  throw err;
 }
 
 export const db = {

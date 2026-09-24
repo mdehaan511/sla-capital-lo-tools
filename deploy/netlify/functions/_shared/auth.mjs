@@ -42,9 +42,20 @@ export function json(statusCode, body) {
     // alert showed only the generic `error` ("Failed to load quotes"), so a
     // recurrence had to be diagnosed by inference. Now the real cause rides along.
     const _diag = body && (body.reason || body.detail);
+    // Deploy 237.264 -- a Postgres read that ran out of budget (supabase-db.mjs) is a
+    // platform condition, not an endpoint bug: every endpoint reports it under ONE source and
+    // ONE message, so the alerter's dedupe folds a database outage into a line a minute per
+    // warm instance instead of a flood (yesterday's Blobs outage posted ~45 lines).
+    const _degraded = /PG read budget exhausted/.test(String(_diag || (body && (body.error || body.message)) || ''));
     import('./error-alert.mjs').then((m) => {
-      m.alertServerError({
-        source: m.inferSourceFromStack(_stack) || 'unknown-endpoint',
+      const endpoint = m.inferSourceFromStack(_stack) || 'unknown-endpoint';
+      m.alertServerError(_degraded ? {
+        source: 'postgres-degraded',
+        status: statusCode,
+        message: 'Postgres reads are timing out; pages are falling back to blobs or failing fast',
+        extra: 'first seen from ' + endpoint + ' -- ' + String(_diag || '').slice(0, 200),
+      } : {
+        source: endpoint,
         status: statusCode,
         message: (body && (body.error || body.message)) || 'unknown 5xx',
         extra: _diag ? ('reason: ' + String(_diag).slice(0, 240)) : undefined,
