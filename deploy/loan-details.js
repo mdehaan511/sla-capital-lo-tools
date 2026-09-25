@@ -1444,7 +1444,10 @@ function render() {
     // (_rtlInitAdv, line ~1048), not the sizer's stale pricingSnapshot which was
     // sized off the quote-time max and drifts when the LO overrides loanAmt.
     var _initAdvVal = _rtlInitAdv;
-    var _aivBpoNum   = parseFloat(l.aivBpo) || 0;
+    // Deploy 237.275 -- the DOCUMENT's AIV / ARV only (see _ldDocVal): a sizer estimate in the
+    // same field no longer shows as the BPO's value or drives LTAIV / BPO LTARV.
+    var _aivBpoNum   = _ldDocVal(l, 'aivBpo');
+    var _valKind     = _ldValKind(l);
     // Deploy 236.767 (Mike) — LTAIV is the AS-IS ratio, so it must run off the
     // INITIAL loan (the advance at close, rehab holdback excluded) ÷ BPO AIV.
     // Using the full loan (which bundles the rehab escrow) overstated it on
@@ -1453,7 +1456,7 @@ function render() {
     // Deploy 236.767 — BPO LTARV: the full loan (rehab included, since ARV is
     // the after-repair value) ÷ the BPO's OWN repaired value. Sits beside the
     // borrower-ARV LTARV so an LO can see the two diverge.
-    var _arvBpoNum    = parseFloat(l.arvBpo) || 0;
+    var _arvBpoNum    = _ldDocVal(l, 'arvBpo');
     var _bpoLtarvPct  = (!_rtlIsRefi && _arvBpoNum > 0 && _rtlLoanAmtNum > 0)
                           ? (_rtlLoanAmtNum / _arvBpoNum * 100) : null;
     // Program max LTARV for THIS loan, straight from the live rate tables in
@@ -1492,14 +1495,18 @@ function render() {
       // Row 8 — LTARV | LTAIV (LTAIV from the BPO AIV; "—" until aivBpo is set)
       '<div class="fin-cell"><div class="fin-label">LTARV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtarvPct)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">LTAIV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtaivPct)+'</div></div>' +
-      // Row 9 — BPO LTARV (Deploy 236.767, Mike): the loan ÷ the BPO's repaired
+      // Row 9 — AIV | ARV off the valuation document (Deploy 237.275, Mike: "add BPO AIV or
+      // Appraisal AIV to RTLs on the financials page"), labeled by the document they came from;
+      // "—" until a BPO / appraisal has been read.
+      '<div class="fin-cell"><div class="fin-label">AIV (' + _valKind + ')</div><div class="fin-val"' + (_aivBpoNum > 0 ? '' : ' title="No BPO or appraisal as-is value has been read for this loan yet"') + '>' + (_aivBpoNum > 0 ? fmtM(_aivBpoNum) : '<span class="empty">—</span>') + '</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">ARV (' + _valKind + ')</div><div class="fin-val"' + (_arvBpoNum > 0 ? '' : ' title="No BPO or appraisal after-repair value has been read for this loan yet"') + '>' + (_arvBpoNum > 0 ? fmtM(_arvBpoNum) : '<span class="empty">—</span>') + '</div></div>' +
+      // Row 10 — BPO LTARV (Deploy 236.767, Mike): the loan ÷ the BPO's repaired
       // value, flagged red when it breaks this loan's program max.
-      '<div class="fin-cell"><div class="fin-label">BPO LTARV' +
+      '<div class="fin-cell"><div class="fin-label">' + _valKind + ' LTARV' +
         (_maxLtarvPct > 0 ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(max '+_maxLtarvPct.toFixed(0)+'%)</span>' : '') +
       '</div><div class="fin-val"' + (_bpoLtarvOver ? ' style="color:var(--danger,#b4432f)" title="Over the program max LTARV — the loan needs to be repriced."' : '') + '>' +
         _rtlFmtPct(_bpoLtarvPct) + (_bpoLtarvOver ? ' &#9888;' : '') +
       '</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">ARV (BPO)</div><div class="fin-val">'+(_arvBpoNum > 0 ? fmtM(_arvBpoNum) : '<span class="empty">—</span>')+'</div></div>' +
       // Property Type (Deploy 236.691 — priced in the sizer; read-only here + on the Property tab)
       '<div class="fin-cell"><div class="fin-label">Property Type</div><div class="fin-val">'+escH(_propTypeLabel(l))+'</div></div>' +
       // Deploy 236.701 — GUC land-ownership rows (from the sizer).
@@ -9121,6 +9128,30 @@ function _ldUsdInput(v) {
 // and transactional have no ARV path, so they return 0 (= no cap, no flag).
 // If the FICO/experience tier can't be resolved we fall back to 75%, matching
 // the ceiling the Loan Financials editor has always warned on.
+// Deploy 237.275 (Mike: "add BPO AIV or Appraisal AIV to RTLs on the financials page") -- the
+// valuation DOCUMENT's figure for aivBpo / arvBpo: read off the BPO / appraisal (FromBpo), set on
+// purpose by underwriting (the UwOverride marker still matching), or a Baseline import's
+// valuation of record. The RTL sizer's AIV box and the Property tab write the same fields, and a
+// typed estimate is not a valuation -- 0 then, so the grid shows "—" instead of passing a guess
+// off as the BPO's (11415 Prairie showed the borrower's $360,000 ARV as its AIV). Mirrors
+// docValue in netlify/functions/_shared/trade-tapes.mjs, which the Colchis / Stride tapes use.
+function _ldDocVal(l, key) {
+  if (!l) return 0;
+  var num = function (v) { return parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0; };
+  var v = num(l[key]);
+  if (!(v > 0)) return 0;
+  if (l[key + 'FromBpo'] === true) return v;
+  var ov = l[key + 'UwOverride'];
+  if (ov && typeof ov === 'object' && num(ov.value) === v) return v;
+  if (/^l_baseline_/.test(String(l.id || ''))) return v; // a Baseline IMPORT only (not a native loan synced to it)
+  return 0;
+}
+// Which document the figures came from, for the labels: the valuation read's own answer.
+function _ldValKind(l) {
+  var e = l && l.uwData && l.uwData.valuationType;
+  return String((e && e.value) || '').toLowerCase() === 'appraisal' ? 'Appraisal' : 'BPO';
+}
+
 function _ldMaxLtarvPct(l, fico, experience) {
   try {
     var R = (typeof window !== 'undefined') ? window.SLA_RTL : null;

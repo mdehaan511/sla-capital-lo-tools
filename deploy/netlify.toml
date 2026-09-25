@@ -707,6 +707,13 @@
   status = 200
   force = true
 
+# Deploy 237.275 -- put the AIV / ARV a BPO / appraisal already READ onto loans that never got it (no AI)
+[[redirects]]
+  from = "/api/admin-valuation-backfill"
+  to = "/.netlify/functions/admin-valuation-backfill"
+  status = 200
+  force = true
+
 # Deploy 237.103 -- one-off: mirror doc-review counts onto every loan (Processing tiles)
 [[redirects]]
   from = "/api/admin-review-counts-backfill"

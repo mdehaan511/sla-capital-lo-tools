@@ -372,6 +372,23 @@ async function handle(req, context) {
     for (const k of PRESERVE_ON_EMPTY) {
       if ((merged[k] === '' || merged[k] == null) && existingLoan[k]) merged[k] = existingLoan[k];
     }
+    // Deploy 237.275 (Mike: "several loans on the recent trade tape had the wrong AIV") -- an AIV
+    // that a BPO / appraisal put on the loan (aivBpoFromBpo), or that underwriting set on purpose
+    // (the aivBpoUwOverride marker still matching), belongs to that document: the sizer's AIV box
+    // never overwrites it. A sizer save used to replace the number and leave the "from BPO" flag
+    // standing on the typed figure, which Loan Financials and the tapes then took as the BPO's.
+    // Correct it by uploading the right BPO / appraisal (or from underwriting), as the locked
+    // Property tab input already says.
+    const _aivNum = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+    const _aivOv = existingLoan.aivBpoUwOverride;
+    const _aivFromDoc = _aivNum(existingLoan.aivBpo) > 0 && (existingLoan.aivBpoFromBpo === true
+      || (_aivOv && typeof _aivOv === 'object' && _aivNum(_aivOv.value) === _aivNum(existingLoan.aivBpo)));
+    if (_aivFromDoc) {
+      merged.aivBpo = existingLoan.aivBpo;
+      for (const k of ['aivBpoFromBpo', 'aivBpoBpoAt', 'aivBpoUwOverride']) {
+        if (existingLoan[k] !== undefined) merged[k] = existingLoan[k];
+      }
+    }
     // MF program marker + NCF operating-statement fields: a save from a
     // sizer that doesn't collect them must not strip them.
     // Deploy 237.154 (Mike) -- the 1-4 sizer posts clearMfProgram when the LO

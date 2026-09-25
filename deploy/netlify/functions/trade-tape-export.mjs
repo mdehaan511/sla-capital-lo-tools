@@ -20,7 +20,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { TRADE_TAPES, entityNameOf } from './_shared/trade-tapes.mjs'; // Deploy 237.232 -- entityNameOf
+import { TRADE_TAPES, entityNameOf, docValue } from './_shared/trade-tapes.mjs'; // Deploy 237.232 -- entityNameOf; 237.275 -- docValue
 import { buildXlsx } from './_shared/xlsx-write.mjs';
 import { deriveBaselineLoanId } from './_shared/baseline-sync.mjs';
 import { saveTape } from './_shared/trade-tape-store.mjs';
@@ -161,11 +161,14 @@ export async function attachLongAppAndValuation(ctxs) { // exported for scripts/
     // review time too; a loan missing any of them is worth the walk, not just one missing AIV.
     const uwv = (c, k) => { const e = c.loan.uwData && c.loan.uwData[k]; return e && e.value != null && e.value !== '' ? e.value : ''; };
     for (const c of ctxs) {
-      const onLoan = n(c.loan.aivBpo) || n(uwv(c, 'asIsPrice'));
+      // Deploy 237.275 -- only a DOCUMENT's figure counts as already on the loan (see docValue in
+      // trade-tapes.mjs), and a missing BPO / appraisal ARV is worth the walk too.
+      const onLoan = docValue(c.loan, 'aivBpo') || n(uwv(c, 'asIsPrice'));
+      const arvOnLoan = docValue(c.loan, 'arvBpo');
       const metaMissing = !uwv(c, 'valuationDate') || !uwv(c, 'valuationProvider') || !uwv(c, 'valuationType');
       // Deploy 237.232 -- and a loan with no borrowing entity anywhere on its records: the
       // recorded Articles, read by the document review, name it.
-      if (!onLoan || metaMissing || !entityNameOf(c)) need[c.loan.id] = c;
+      if (!onLoan || !arvOnLoan || metaMissing || !entityNameOf(c)) need[c.loan.id] = c;
     }
     if (!Object.keys(need).length) return;
     const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
@@ -188,22 +191,30 @@ export async function attachLongAppAndValuation(ctxs) { // exported for scripts/
         if (c.reviewValuation) continue;
         // The appraisal outranks the BPO when both were read; portfolio trays
         // (__p<i>) are skipped -- a per-property value is not the loan's AIV.
+        // Deploy 237.275 -- the tray's AIV is its aivBpo answer (else its As-Is answer, else the
+        // entity reading), and its ARV -- the BPO / appraisal's REPAIRED value -- is read too, so the
+        // tape never falls back to the borrower's ARV. Each figure comes from the first tray that
+        // read one (an appraisal with no repaired value lets the BPO's through); the date /
+        // provider / type stay with the first tray that read anything, as before.
+        let rv = null;
         for (const slug of ['appraisal', 'bpo_valuation']) {
           const d = docs[slug];
           if (!d || d.hidden || d.verdict === 'na') continue;
-          const aiv = n(d.aiExtractedEntities && d.aiExtractedEntities.asIsValue);
           // Deploy 237.229 -- the per-field reading the tray kept (aiExtractedFields:
           // {found, value}); the loan may never have received it.
           const ef = d.aiExtractedFields || {};
           const fld = (k) => (ef[k] && ef[k].found === true && ef[k].value != null && ef[k].value !== '') ? String(ef[k].value).trim() : '';
+          const aiv = n(fld('aivBpo')) || n(fld('asIsPrice')) || n(d.aiExtractedEntities && d.aiExtractedEntities.asIsValue);
+          const arv = n(fld('arvBpo'));
           const meta = { date: fld('valuationDate'), provider: fld('valuationProvider'), type: fld('valuationType'), sqft: fld('valuationSqft') };
-          const any = aiv > 0 || meta.date || meta.provider || meta.type || meta.sqft;
-          if (any) {
-            c.reviewValuation = { aiv: aiv > 0 ? aiv : 0, kind: slug === 'appraisal' ? 'appraisal' : 'bpo',
-              valuationDate: meta.date, valuationProvider: meta.provider, valuationType: meta.type, valuationSqft: meta.sqft };
-            break;
-          }
+          const any = aiv > 0 || arv > 0 || meta.date || meta.provider || meta.type || meta.sqft;
+          if (!any) continue;
+          if (!rv) rv = { aiv: 0, arv: 0, kind: slug === 'appraisal' ? 'appraisal' : 'bpo',
+            valuationDate: meta.date, valuationProvider: meta.provider, valuationType: meta.type, valuationSqft: meta.sqft };
+          if (!rv.aiv && aiv > 0) rv.aiv = aiv;
+          if (!rv.arv && arv > 0) rv.arv = arv;
         }
+        if (rv) c.reviewValuation = rv;
       }
     }
   } catch (e) { console.warn('[trade-tape-export] review valuation attach failed:', e && e.message); }

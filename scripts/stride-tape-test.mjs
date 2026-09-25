@@ -31,7 +31,7 @@ const label = (cell) => (cell && typeof cell === 'object') ? cell.t : cell;
 const client = { id: 'c1', firstName: 'Joseph', lastName: 'Benasutti', email: 'j@x.com', fico: 793, usCitizen: 'yes', loans: [] };
 const rtlLoan = (id, addr, total, rehab) => ({
   id, toolType: 'rtl', loanType: 'fix_flip', address: addr, loanAmt: total, rehabBudget: rehab, rate: 10.5, buyRate: 9.75,
-  loanPurpose: 'purchase', purchasePrice: 350000, aivBpo: 490000, arvBpo: 525000, fundingDate: '2026-03-13', loanTerm: 12,
+  loanPurpose: 'purchase', purchasePrice: 350000, aivBpo: 490000, arvBpo: 525000, aivBpoFromBpo: true, arvBpoFromBpo: true, fundingDate: '2026-03-13', loanTerm: 12,
   dutchInterest: 'dutch', propType: 'sfr', numUnits: 1, bedrooms: 3, bathrooms: 2, sqft: 2174, entityName: 'Imagine Investors LLC', experience: 3,
 });
 const dscrLoan = (id, addr, total, value, io) => ({

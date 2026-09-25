@@ -185,7 +185,7 @@ console.log('\nLTAIV means the initial advance over as-is, in every place that c
   check('the underwriting engine: (206,000 − 89,000) ÷ 130,000', [v.ltaiv.toFixed(4), v.initialAdvance], ['0.9000', 117000]);
   check('...LTC and LTARV still use the full loan', [v.ltc.toFixed(4), v.ltarv.toFixed(4)], [(206000 / 229000).toFixed(4), (206000 / 325000).toFixed(4)]);
   check('...no rehab: the advance IS the loan', c.window.SLA_UW_CALC.computeUwCalcs({ loanAmt: 100000, renovation: 0, asIsValue: 125000 }).values.ltaiv, 0.8);
-  const tape = TRADE_TAPES.colchis_trade.build([{ sla: 'SLA-1', loan: { loanAmt: '206000', rehabBudget: '89000', aivBpo: '130000', purchasePrice: '140000', arvBpo: '325000' }, client: {} }]);
+  const tape = TRADE_TAPES.colchis_trade.build([{ sla: 'SLA-1', loan: { loanAmt: '206000', rehabBudget: '89000', aivBpo: '130000', aivBpoFromBpo: true, purchasePrice: '140000', arvBpo: '325000', arvBpoFromBpo: true }, client: {} }]);
   const hdr = tape.sheets[0].rows[0], row = tape.sheets[0].rows[1];
   const cell = (name) => { const i = hdr.indexOf(name); return i < 0 ? undefined : row[i]; };
   check('the Colchis tape: the same 90.00%', cell('LTAIV') && cell('LTAIV').v, 0.9);

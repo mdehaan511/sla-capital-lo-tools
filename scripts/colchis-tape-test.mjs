@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { TRADE_TAPES, entityNameOf } from '../deploy/netlify/functions/_shared/trade-tapes.mjs';
+import { TRADE_TAPES, entityNameOf, docValue } from '../deploy/netlify/functions/_shared/trade-tapes.mjs';
 import { fieldsForSlug } from '../deploy/netlify/functions/_shared/uw-field-map.mjs';
 
 if (typeof vm.SourceTextModule !== 'function') {
@@ -58,7 +58,7 @@ const luna = () => ({
   sla: 'SLA-20260826-2601', ownerKey: 'chance', params: {},
   loan: { id: 'l_1', address: '634 Luna Court, Jacksonville, FL, 32205', propType: 'sfr', numUnits: 1, loanPurpose: 'purchase', loanType: 'Light Rehab',
     fundingDate: '2026-09-18', purchasePrice: '140000', rehabBudget: '89000', loanAmt: '206000', rate: '11', points: '2', dutchInterest: 'dutch',
-    aivBpo: '130000', arvBpo: '325000', arv: '325000', experience: '8', entityName: 'Revive Jax LLC', creditMidScore: 723,
+    aivBpo: '130000', arvBpo: '325000', aivBpoFromBpo: true, arvBpoFromBpo: true, arv: '325000', experience: '8', entityName: 'Revive Jax LLC', creditMidScore: 723,
     uwData: { entityTin: { value: '42-3514732' }, floodZone: { value: 'X' }, emd: { value: '1000' }, account1: { value: { type: 'Business Checking Acct.', balance: 18394.23, weight: 1 } } } },
   client: { firstName: 'Kandiah', lastName: 'Lingan', dob: '1964-11-19', usCitizen: 'yes', homeAddress: { street: '5024 Southwest 91st Terrace', city: 'Cooper City', state: 'FL', zip: '33328' } },
   guarantors: [],
@@ -164,7 +164,7 @@ console.log('\nValuation Date and Provider reach the tape');
   const stubs = {
     '@netlify/blobs': { getStore: ({ name }) => name === 'loan_reviews' ? { list: async () => ({ blobs: [{ key: 'r_1' }] }), get: async () => reviews[0] } : { get: async () => null } },
     './_shared/borrower-info-keys.mjs': { loadRecord: async () => null },
-    './_shared/trade-tapes.mjs': { TRADE_TAPES, entityNameOf }, // the real ones: the export's need-check calls entityNameOf
+    './_shared/trade-tapes.mjs': { TRADE_TAPES, entityNameOf, docValue }, // the real ones: the export's need-check calls entityNameOf + docValue
   };
   const mod = new vm.SourceTextModule(src, { context: ctx, identifier: 'trade-tape-export.mjs' });
   await mod.link(async (spec) => {

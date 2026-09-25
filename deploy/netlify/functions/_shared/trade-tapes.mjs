@@ -228,7 +228,30 @@ const reservesOf = (c) => {
 // Deploy 237.132 (Mike) -- AIV comes from the BPO or the appraisal: the loan's AIV
 // BPO, else the UW tab's As-Is value, else the as-is value the document review
 // read off the valuation tray (c.reviewValuation, attached by trade-tape-export).
-const thirdPartyAiv = (c) => num(c.loan.aivBpo) || num(uw(c, 'asIsPrice')) || num(c.reviewValuation && c.reviewValuation.aiv) || null;
+// Deploy 237.275 (Mike: "several loans on the recent trade tape had the wrong AIV" / "Make it
+// always grab the BPO ARV and if that isnt available leave it blank") -- the loan's aivBpo /
+// arvBpo fields are SHARED: the BPO / appraisal read writes them (stamping <key>FromBpo), but the
+// RTL sizer's AIV box and the Property tab write the same fields, so a typed estimate went out as
+// the "Third Party AIV" (11415 Prairie: the borrower's $360,000 ARV), and a missing BPO ARV fell
+// back to the borrower's ARV (4113 Rambling Road). A figure counts only when a valuation document
+// put it there (FromBpo), an underwriter set it on purpose (the UwOverride marker still
+// matching), or it is a Baseline import's valuation of record. Otherwise the tray's own reading
+// (c.reviewValuation, attached by trade-tape-export), else BLANK -- never the borrower's figures.
+// loan-details.js _ldDocVal mirrors this for Loan Financials.
+export const docValue = (loan, key) => {
+  const v = num(loan && loan[key]);
+  if (!(v > 0)) return null;
+  if (loan[key + 'FromBpo'] === true) return v;
+  const ov = loan[key + 'UwOverride'];
+  if (ov && typeof ov === 'object' && num(ov.value) === v) return v;
+  // A loan IMPORTED from Baseline (l_baseline_ id) carries the old LOS's valuation of record. Not
+  // _baselineRaw: native loans that were synced TO Baseline hold that mirrored payload too, with
+  // the same typed AIVs this rule exists to keep off the tape.
+  if (/^l_baseline_/.test(String(loan.id || ''))) return v;
+  return null;
+};
+const thirdPartyAiv = (c) => docValue(c.loan, 'aivBpo') || num(uw(c, 'asIsPrice')) || num(c.reviewValuation && c.reviewValuation.aiv) || null;
+const thirdPartyArv = (c) => docValue(c.loan, 'arvBpo') || num(c.reviewValuation && c.reviewValuation.arv) || null;
 // Exit strategy is a long-app answer (sell / refi / cash); saved onto the loan
 // from 237.132, read straight off the long app (c.longApp) for older loans.
 // Labels match Mike's own Stride submissions ("Sell", "Refinance").
@@ -308,13 +331,13 @@ const COLCHIS_TRADE_COLS = [
   ['Rehab Spent to Date', () => cur(0)],
   ['Total Cost Basis', (c, r) => { const b = basisOf(c); const v = (b || 0) + rehabAmt(c.loan); return fx(COLCHIS_FORMULAS['Total Cost Basis'](r), v || null, 'cur'); }],
   ['Third Party AIV', (c) => cur(thirdPartyAiv(c))],
-  ['Third Party ARV', (c) => cur(num(c.loan.arvBpo) || num(c.loan.arv))],
+  ['Third Party ARV', (c) => cur(thirdPartyArv(c))], // Deploy 237.275 -- the BPO / appraisal ARV or blank, never the borrower's
   // Deploy 237.229 (Mike: "Valuation Date and Third Party Valuation Provider should be
   // able to be pulled off the valuation docs") -- they are read at review time (uw-field-map
   // bpo_valuation / appraisal); this reaches for the tray's own reading when the loan
   // never received it. A date that will not parse is passed through as text.
   ['Valuation Date', (c) => { const v = valMeta(c, 'valuationDate'); const s = dstr(v); return s ? dateCell(s) : String(v || ''); }],
-  ['Third Party Valuation Type', (c) => valMeta(c, 'valuationType') || (c.reviewValuation && c.reviewValuation.kind === 'appraisal' ? 'Appraisal' : '') || (num(c.loan.aivBpo) || (c.reviewValuation && c.reviewValuation.aiv) ? 'BPO' : '')],
+  ['Third Party Valuation Type', (c) => valMeta(c, 'valuationType') || (c.reviewValuation && c.reviewValuation.kind === 'appraisal' ? 'Appraisal' : '') || (thirdPartyAiv(c) ? 'BPO' : '')],
   ['Third Party Valuation Provider', (c) => valMeta(c, 'valuationProvider')],
   ['Loan Purpose', (c) => {
     const p = String(c.loan.loanPurpose || '').toLowerCase();
@@ -366,7 +389,7 @@ const COLCHIS_TRADE_COLS = [
     return fx(COLCHIS_FORMULAS['Total LTC'](r), (t && basis) ? round4(t / basis) : null, 'pct');
   }],
   ['LTARV', (c, r) => {
-    const t = totalAmt(c.loan), arv = num(c.loan.arvBpo) || num(c.loan.arv);
+    const t = totalAmt(c.loan), arv = thirdPartyArv(c); // Deploy 237.275 -- same ARV as the Third Party ARV cell
     return fx(COLCHIS_FORMULAS['LTARV'](r), (t && arv) ? round4(t / arv) : null, 'pct');
   }],
   ['Borrower Name', (c) => borrowerName(c)],
@@ -728,11 +751,11 @@ const STRIDE_RTL_COLS = [
   ['FICO', (c) => { const g = g1Of(c); return g ? ficoOf(g, c.loan) : ''; }],
   ['Purchase Price', (c) => (String(c.loan.loanPurpose || '').toLowerCase() === 'purchase' ? sty(num(c.loan.purchasePrice) || null, 'cur') : 'N/A')],
   ['AIV', (c) => sty(thirdPartyAiv(c), 'cur')],
-  ['ARV', (c) => sty(num(c.loan.arvBpo) || num(c.loan.arv), 'cur')],
+  ['ARV', (c) => sty(thirdPartyArv(c), 'cur')], // Deploy 237.275 -- the BPO / appraisal ARV or blank
   ['Appraisal Type', (c) => {
     const t = String(uw(c, 'valuationType') || '').toLowerCase();
     if (t === 'appraisal') return '1004';
-    if (t === 'bpo' || (!t && num(c.loan.aivBpo))) return 'BPO';
+    if (t === 'bpo' || (!t && docValue(c.loan, 'aivBpo'))) return 'BPO';
     if (t === 'avm') return 'AVM';
     if (!t && c.reviewValuation && c.reviewValuation.kind) return c.reviewValuation.kind === 'appraisal' ? '1004' : 'BPO'; // 237.132
     return '';
