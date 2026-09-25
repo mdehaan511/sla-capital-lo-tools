@@ -12,6 +12,7 @@
 <script src="/sla-search.js"></script>
   <script src="sla-chat.js" defer></script>
   <script src="sla-notifications.js?v=237251"></script>
+  <script src="/sla-calendar.js?v=237271"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=Lora:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -153,8 +154,6 @@
     .home-tab-panel.hidden { display: none; }
 
     /* Dashboards row (Performance / Upcoming / State) + full-width Loans table. */
-    .home-dash-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-    @media (max-width: 1100px) { .home-dash-row { grid-template-columns: 1fr; } }
     .dash-card {
       background: var(--surface); border: 1px solid var(--gold-border);
       border-radius: 12px; padding: 14px 16px;
@@ -167,6 +166,36 @@
       height: 300px;
     }
     .dash-card-wide { height: auto; min-height: 320px; }
+    /* Deploy 237.272 (Mike): "more of a dashboard that shows the Processing Pipeline and upcoming
+       things" — a skinny left column (Performance, Upcoming Closings) and the calendar to its right. */
+    .home-dash2 { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 12px; margin-bottom: 14px; align-items: start; }
+    @media (max-width: 1100px) { .home-dash2 { grid-template-columns: 1fr; } }
+    .home-dash2-left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .dash-card.dash-auto { height: auto; }
+    .dash-card.dash-auto .dash-card-body { overflow: visible; }
+    .perf2-sec { margin-bottom: 10px; }
+    .perf2-sec:last-child { margin-bottom: 0; }
+    .perf2-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
+    .perf2-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .up2-list { max-height: 460px; overflow: auto; }
+    .up2-wk { cursor: pointer; padding: 8px 4px; border-bottom: 1px solid rgba(0,0,0,0.05); }
+    .up2-wk:hover { background: rgba(200,129,58,0.06); }
+    .up2-top { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; }
+    .up2-caret { color: var(--muted); font-size: 10px; width: 10px; }
+    .up2-range { font-weight: 600; color: var(--dark); flex: 1; }
+    .up2-tot { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--dark); white-space: nowrap; }
+    .up2-types { display: flex; gap: 5px; flex-wrap: wrap; margin: 4px 0 0 16px; }
+    .up2-pill { font-size: 10.5px; font-weight: 600; border-radius: 12px; padding: 1px 8px; white-space: nowrap; }
+    .up2-pill.dscr { background: rgba(38,26,54,0.08); color: #261a36; }
+    .up2-pill.rtl { background: rgba(200,129,58,0.14); color: #9a5f20; }
+    .up2-loans { background: #faf7f1; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 2px 4px 6px 20px; }
+    .up2-loan { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 6px; padding: 5px 0; font-size: 11.5px; border-top: 1px solid #ece7dc; align-items: baseline; }
+    .up2-loan:first-child { border-top: none; }
+    .up2-loan .d { color: var(--muted); }
+    .up2-loan a { color: var(--dark); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+    .up2-loan a:hover { color: var(--gold); text-decoration: underline; }
+    .up2-loan .t { color: var(--muted); font-size: 10.5px; }
+    .up2-loan .a { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
     .dash-card-head {
       display: flex; align-items: center; justify-content: space-between;
       gap: 8px; margin-bottom: 10px; flex-shrink: 0;
@@ -484,19 +513,21 @@
 
           <!-- Dashboards panel (default) -->
           <div class="home-tab-panel" id="dashboardsPanel">
-            <div class="home-dash-row">
-              <div class="dash-card" id="dashPerfCard">
-                <div class="dash-card-head"><h3>Performance</h3><span class="dash-card-meta" id="perfMeta">loading…</span></div>
-                <div class="dash-card-body" id="dashPerfBody"><div class="lb-loading">Loading…</div></div>
+            <!-- Deploy 237.272 (Mike): a skinny Performance box (Active Pipeline Volume, Closed YTD),
+                 Upcoming Closings by week that drops down to the loans, and the key-dates calendar
+                 to the right. Loans by State is gone ("the wider company stuff"). -->
+            <div class="home-dash2">
+              <div class="home-dash2-left">
+                <div class="dash-card dash-auto" id="dashPerfCard">
+                  <div class="dash-card-head"><h3>Performance</h3><span class="dash-card-meta" id="perfMeta">loading…</span></div>
+                  <div class="dash-card-body" id="dashPerfBody"><div class="lb-loading">Loading…</div></div>
+                </div>
+                <div class="dash-card dash-auto" id="dashUpcomingCard">
+                  <div class="dash-card-head"><h3>Upcoming Closings</h3><span class="dash-card-meta">by week · click to open</span></div>
+                  <div class="dash-card-body" id="dashUpcomingBody"><div class="lb-loading">Loading…</div></div>
+                </div>
               </div>
-              <div class="dash-card" id="dashUpcomingCard">
-                <div class="dash-card-head"><h3>Upcoming Closings</h3><span class="dash-card-meta">by week</span></div>
-                <div class="dash-card-body" id="dashUpcomingBody"><div class="lb-loading">Loading…</div></div>
-              </div>
-              <div class="dash-card" id="dashStateCard">
-                <div class="dash-card-head"><h3>Loans by State</h3><span class="dash-card-meta" id="stateMeta"></span></div>
-                <div class="dash-card-body" id="dashStateBody"><div class="lb-loading">Loading…</div></div>
-              </div>
+              <div class="home-dash2-right"><div id="homeCal"></div></div>
             </div>
             <div class="dash-card dash-card-wide">
               <div class="dash-card-head">
@@ -601,6 +632,7 @@
       // Deploy 236.334 — home right column defaults to Dashboards.
       // Leaderboard loads only on tab click (lazy).
       loadDashboard();
+      mountHomeCalendar(user); // Deploy 237.272
     }
     function showLogin() {
       loginScreen.style.display = 'flex';
@@ -755,7 +787,7 @@
       }).catch(function(err) {
         _dashLoansLoading = false;
         var msg = '<div class="lb-loading" style="color:var(--danger)">Failed to load: ' + (err && err.message || 'unknown') + '</div>';
-        ['dashPerfBody','dashUpcomingBody','dashStateBody','dashLoansBody'].forEach(function(id) {
+        ['dashPerfBody','dashUpcomingBody','dashLoansBody'].forEach(function(id) {
           document.getElementById(id).innerHTML = msg;
         });
       });
@@ -769,7 +801,6 @@
     function renderDashboard() {
       renderDashPerf();
       renderDashUpcoming();
-      renderDashState();
       renderDashLoans();
     }
 
@@ -900,121 +931,113 @@
       return pointsRevenue + flatFees - costOfCapital;
     }
 
-    // ── Widget 1: Performance stats — 4 tiles matching dashboard.html
-    // exactly. Active Pipeline $, Won $, Est. Revenue, Total Mirrored
-    // (count, excludes archived).
+    // ── Deploy 237.272 (Mike) — the home dashboard ─────────────────
+    // "For Performance make a skinny box that shows Active Pipeline Volume both dollar amount and
+    // loans, Closed YTD both dollar and number of loans ... Below that have the upcoming closings
+    // tab that shows volume and type but make it clickable so that it can drop down and show all
+    // of the loans scheduled each week just like in the main dashboard page."
+    //
+    // "Active pipeline" = on the active Processing Pipeline board (Intake → Cleared to Close),
+    // the same rule the main dashboard's Upcoming Closings uses (237.109): not a lead, not on
+    // hold, not closed. homePpCol is sla-dashboard's ppColumnFor over this feed's raw fields.
+    var HOME_PP_ACTIVE = { new_loan: 1, processing: 1, underwriting: 1, pp_approved: 1 };
+    function homePpCol(l) {
+      var st0 = String((l && l._slaStatusRaw) || '').toLowerCase().trim();
+      if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
+      if (st0 === 'closed') {
+        var disp = String((l && l._dispositionRaw) || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+        return (disp === 'sold' || disp === 'servicing' || disp === 'paid off' || disp === 'liquidated') ? null : 'pp_closed';
+      }
+      if (st0 === 'sold' || st0 === 'liquidated') return null;
+      var stage = String((l && l._stageRaw) || '').toLowerCase().trim();
+      if (stage === 'processing' || stage === 'underwriting' || stage === 'pp_approved' || stage === 'pp_closed' || stage === 'new_loan') return stage;
+      if (st0 === 'approved') return 'new_loan';
+      return null;
+    }
+    function homeType(l) {
+      var sub = String((l && l.Substatus) || '').toUpperCase();
+      if (sub === 'DSCR' || sub === 'RTL') return sub;
+      return dashInferLoanType(l) === 'DSCR' ? 'DSCR' : 'RTL';
+    }
+
     function renderDashPerf() {
-      var loans = dashFinLoans();
-      var openLoans   = loans.filter(dashIsOpen);
-      var wonLoans    = loans.filter(dashIsWon);
-      var openAmount  = openLoans.reduce(function(s, l) { return s + dashAmount(l); }, 0);
-      var wonSum      = wonLoans.reduce(function(s, l) { return s + dashAmount(l); }, 0);
-      var revSum      = wonLoans.reduce(function(s, l) { return s + dashEstRevenue(l); }, 0);
-      var nonArchived = loans.filter(function(l) { return !dashIsArchived(l); }).length;
-      document.getElementById('perfMeta').textContent = loans.length.toLocaleString() + ' SLA loans';
-      document.getElementById('dashPerfBody').innerHTML =
-        '<div class="perf-tiles">' +
-          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(openAmount) + '</div><div class="l">Active Pipeline</div></div>' +
-          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(wonSum) + '</div><div class="l">Won</div></div>' +
-          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(revSum) + '</div><div class="l">Est. Revenue</div></div>' +
-          '<div class="perf-tile"><div class="n">' + nonArchived.toLocaleString() + '</div><div class="l">Total Loans</div></div>' +
-        '</div>';
-    }
-
-    // ── Widget 2: Upcoming closings by week ──────────────────────
-    // Ported from dashboard.html:850+ — gate is isOpen || isOnHold
-    // (archived skipped), close date = l.Origination, parsed via
-    // dashParseDate. Weeks bucketed by Monday.
-    function renderDashUpcoming() {
-      var loans = dashFinLoans();
-      var today = new Date(); today.setHours(0,0,0,0);
-      var todayMs = today.getTime();
-      var buckets = {}; // mondayMs → { start, count, volume, dscrCount, dscrTotal, rtlCount, rtlTotal }
-      function mondayOf(ms) {
-        var d = new Date(ms);
-        var dow = d.getDay();
-        var diff = (dow === 0 ? -6 : 1 - dow);
-        d.setDate(d.getDate() + diff); d.setHours(0,0,0,0);
-        return d;
-      }
-      loans.forEach(function(l) {
-        if (dashIsArchived(l)) return;
-        if (!dashIsOpen(l) && !dashIsOnHold(l)) return;
+      var loans = _dashLoans || [];
+      var year = new Date().getFullYear();
+      var active = loans.filter(function(l) { return HOME_PP_ACTIVE[homePpCol(l)]; });
+      var ytd = loans.filter(function(l) {
+        if (!dashIsClosed(l)) return false;
         var d = dashCloseDate(l);
-        if (!d) return;
-        if (d.getTime() < todayMs) return;
-        var wk = mondayOf(d.getTime());
-        var k = wk.getTime();
-        if (!buckets[k]) buckets[k] = { start: wk, count: 0, volume: 0, dscr: 0, rtl: 0 };
-        var amt = dashAmount(l);
-        buckets[k].count += 1;
-        buckets[k].volume += amt;
-        var type = dashInferLoanType(l);
-        if (type === 'DSCR') buckets[k].dscr += 1;
-        else if (type === 'RTL') buckets[k].rtl += 1;
+        return !!d && d.getFullYear() === year;
       });
-      var rows = Object.keys(buckets).map(function(k) { return buckets[k]; })
-        .sort(function(a, b) { return a.start - b.start; })
-        .slice(0, 8);
-      if (!rows.length) {
-        document.getElementById('dashUpcomingBody').innerHTML =
-          '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No upcoming closings in the pipeline.</div>';
-        return;
-      }
-      document.getElementById('dashUpcomingBody').innerHTML =
-        '<div class="dash-row-list">' + rows.map(function(r) {
-          var end = new Date(r.start); end.setDate(end.getDate() + 4);
-          var label = fmtDateShort(r.start) + '–' + fmtDateShort(end);
-          var typeBits = [];
-          if (r.dscr) typeBits.push(r.dscr + ' DSCR');
-          if (r.rtl)  typeBits.push(r.rtl + ' RTL');
-          var typeStr = typeBits.join(' · ') || (r.count + ' loan' + (r.count === 1 ? '' : 's'));
-          return '<div class="r"><span class="k">' + label + '<div style="font-size:10.5px;color:var(--muted);font-weight:400;margin-top:1px">' + typeStr + '</div></span>' +
-            '<span class="v">' + r.count + '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
-        }).join('') + '</div>';
+      var sum = function(list) { return list.reduce(function(s, l) { return s + dashAmount(l); }, 0); };
+      var tile = function(n, label) { return '<div class="perf-tile"><div class="n">' + n + '</div><div class="l">' + label + '</div></div>'; };
+      document.getElementById('perfMeta').textContent = 'as of today';
+      document.getElementById('dashPerfBody').innerHTML =
+        '<div class="perf2-sec"><div class="perf2-h">Active Pipeline Volume</div><div class="perf2-row">' +
+          tile(fmtMoneyShort(sum(active)), 'Volume') + tile(active.length.toLocaleString(), active.length === 1 ? 'Loan' : 'Loans') +
+        '</div></div>' +
+        '<div class="perf2-sec"><div class="perf2-h">Closed YTD</div><div class="perf2-row">' +
+          tile(fmtMoneyShort(sum(ytd)), 'Volume') + tile(ytd.length.toLocaleString(), ytd.length === 1 ? 'Loan' : 'Loans') +
+        '</div></div>';
     }
 
-    // ── Widget 3: Loans by state ─────────────────────────────────
-    // Ported from dashboard.html:3002+ — all-time mode (default),
-    // archived excluded, active+closed both counted. State falls
-    // back to the address regex when Address_State is empty.
-    function renderDashState() {
-      var loans = dashFinLoans();
-      var byState = {};
-      loans.forEach(function(l) {
-        if (dashIsArchived(l)) return;
-        var st = (l.Address_State || dashExtractState(l.Name) || '').toString().trim().toUpperCase();
-        if (!st) st = '(unknown)';
-        if (!byState[st]) byState[st] = { count: 0, volume: 0, dscr: 0, rtl: 0 };
-        byState[st].count += 1;
-        byState[st].volume += dashAmount(l);
-        var t = dashInferLoanType(l);
-        if (t === 'DSCR') byState[st].dscr += 1;
-        else if (t === 'RTL') byState[st].rtl += 1;
+    // Upcoming closings by week, each week a drop-down of its loans (the main dashboard's
+    // Upcoming Closings, sized for a skinny column). Weeks start Monday; only loans on the
+    // active board with a Closing Date from today on.
+    var _upOpen = {};
+    function toggleUpWeek(ms) { _upOpen[ms] = !_upOpen[ms]; renderDashUpcoming(); }
+    function homeWeeks(loans, todayMs) {
+      var by = {};
+      function mondayOf(ms) { var d = new Date(ms); var dow = d.getDay(); d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow)); d.setHours(0, 0, 0, 0); return d.getTime(); }
+      (loans || []).forEach(function(l) {
+        if (!HOME_PP_ACTIVE[homePpCol(l)]) return;
+        var d = dashCloseDate(l);
+        if (!d || d.getTime() < todayMs) return;
+        var mon = mondayOf(d.getTime());
+        var w = by[mon] = by[mon] || { mondayMs: mon, dscr: 0, dscrTotal: 0, rtl: 0, rtlTotal: 0, loans: [] };
+        var amt = dashAmount(l), type = homeType(l);
+        if (type === 'DSCR') { w.dscr += 1; w.dscrTotal += amt; } else { w.rtl += 1; w.rtlTotal += amt; }
+        w.loans.push({ name: l.Name, date: d, amt: amt, type: type, id: l._slaLoanId, owner: l._ownerKey, borrower: l._borrower || '' });
       });
-      var rows = Object.keys(byState).map(function(s) {
-        return { state: s, count: byState[s].count, volume: byState[s].volume, dscr: byState[s].dscr, rtl: byState[s].rtl };
-      }).sort(function(a, b) {
-        if (b.count !== a.count) return b.count - a.count;
-        return a.state.localeCompare(b.state);
-      });
-      document.getElementById('stateMeta').textContent = rows.length + ' states';
-      if (!rows.length) {
-        document.getElementById('dashStateBody').innerHTML =
-          '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No state data.</div>';
-        return;
-      }
-      document.getElementById('dashStateBody').innerHTML =
-        '<div class="dash-row-list">' + rows.slice(0, 15).map(function(r) {
-          var typeBits = [];
-          if (r.dscr) typeBits.push(r.dscr + ' DSCR');
-          if (r.rtl)  typeBits.push(r.rtl + ' RTL');
-          var typeStr = typeBits.join(' · ');
-          return '<div class="r"><span class="k">' + r.state +
-            (typeStr ? '<div style="font-size:10.5px;color:var(--muted);font-weight:400;margin-top:1px">' + typeStr + '</div>' : '') +
-            '</span>' +
-            '<span class="v">' + r.count + '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
+      return Object.keys(by).map(function(k) { return by[k]; }).sort(function(a, b) { return a.mondayMs - b.mondayMs; });
+    }
+    function renderDashUpcoming() {
+      var body = document.getElementById('dashUpcomingBody');
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var weeks = homeWeeks(_dashLoans || [], today.getTime());
+      if (!weeks.length) { body.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No upcoming closings in the pipeline.</div>'; return; }
+      body.innerHTML = '<div class="up2-list">' + weeks.map(function(w) {
+        var fri = new Date(w.mondayMs); fri.setDate(fri.getDate() + 4);
+        var open = !!_upOpen[w.mondayMs];
+        var n = w.dscr + w.rtl, tot = w.dscrTotal + w.rtlTotal;
+        var h = '<div class="up2-wk" onclick="toggleUpWeek(' + w.mondayMs + ')">' +
+            '<div class="up2-top"><span class="up2-caret">' + (open ? '▾' : '▸') + '</span>' +
+              '<span class="up2-range">' + escH(fmtDateShort(new Date(w.mondayMs)) + ' – ' + fmtDateShort(fri)) + '</span>' +
+              '<span class="up2-tot">' + n + ' · ' + fmtMoneyShort(tot) + '</span></div>' +
+            '<div class="up2-types">' +
+              (w.dscr ? '<span class="up2-pill dscr">DSCR ' + w.dscr + ' · ' + fmtMoneyShort(w.dscrTotal) + '</span>' : '') +
+              (w.rtl ? '<span class="up2-pill rtl">RTL ' + w.rtl + ' · ' + fmtMoneyShort(w.rtlTotal) + '</span>' : '') +
+            '</div></div>';
+        if (!open) return h;
+        return h + '<div class="up2-loans">' + w.loans.sort(function(a, b) { return a.date - b.date; }).map(function(x) {
+          var href = '/loan-details/' + encodeURIComponent(x.id) + '?owner=' + encodeURIComponent(x.owner);
+          return '<div class="up2-loan"><span class="d">' + escH(fmtDateShort(x.date)) + '</span>' +
+            '<span><a href="' + escH(href) + '" title="' + escH(x.name) + '">' + escH(x.name || '(no address)') + '</a>' +
+              '<span class="t">' + escH(x.type + (x.borrower ? ' · ' + x.borrower : '')) + '</span></span>' +
+            '<span class="a">' + fmtMoneyShort(x.amt) + '</span></div>';
         }).join('') + '</div>';
+      }).join('') + '</div>';
+    }
+
+    // The key-dates calendar (sla-calendar.js, Deploy 237.271): closings, BPO / Appraisal
+    // inspections, DSCR rate-lock expirations. An admin starts on Everyone; everyone else on
+    // their own loans; each person's toggles are saved.
+    function mountHomeCalendar(user) {
+      var el = document.getElementById('homeCal');
+      if (!el || !window.SLA_CAL || !user) return;
+      var isAdm = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+      var isStaff = isAdm || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
+      SLA_CAL.mount(el, { surface: 'home', me: user.email || '', canSeeAll: isStaff, defaultAll: isAdm });
     }
 
     // ── Widget 4: Loans table (active/processing only) ──────────
