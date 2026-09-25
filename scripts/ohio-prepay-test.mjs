@@ -43,7 +43,8 @@ E.setPricingAsOf('');
 check('the address helper the sizer uses', [E.extractStateFromAddress('12 Elm St, Columbus, OH 43215, USA'), E.extractStateFromAddress('9 Oak Rd, Spokane, WA 99208')], ['OH', 'WA']);
 
 // ── 2. the sizer ────────────────────────────────────────────────────────────
-console.log('\nThe DSCR sizer switches the choices for an Ohio address');
+console.log('\nThe DSCR sizer switches the choices for an Ohio address -- in Admin Mode only (237.282)');
+
 const H = read('dscr-sizer.html');
 const selHtml = H.match(/<select id="prepay">([\s\S]*?)<\/select>/)[1];
 const lift = (name) => {
@@ -52,7 +53,7 @@ const lift = (name) => {
   for (; i < H.length; i++) { if (H[i] === '{') depth++; else if (H[i] === '}' && --depth === 0) { i++; break; } }
   return H.slice(start, i);
 };
-function page(addr, value) {
+function page(addr, value, admin) {
   const options = [...selHtml.matchAll(/<option ([^>]*)>([^<]*)<\/option>/g)].map((m) => {
     const attrs = m[1];
     return { value: /value="([^"]*)"/.exec(attrs)[1], text: m[2], hidden: /\bhidden\b/.test(attrs), disabled: /\bdisabled\b/.test(attrs),
@@ -62,7 +63,7 @@ function page(addr, value) {
   const note = { style: { display: 'none' } };
   const els = { prepay: sel, propAddress: { value: addr }, ohioPrepayNote: note };
   // eslint-disable-next-line no-new-func
-  const run = new Function('$', 'window', 'SLA_DSCR', H.match(/var OHIO_PREPAY_FROM = \{[^}]*\};/)[0] + '\n' + H.match(/var OHIO_PREPAY_BACK = \{[^}]*\};/)[0] + '\n' + lift('_syncOhioPrepay') + '\nreturn _syncOhioPrepay;')((id) => els[id], { SLA_DSCR: E }, E);
+  const run = new Function('$', 'window', 'SLA_DSCR', H.match(/var OHIO_PREPAY_FROM = \{[^}]*\};/)[0] + '\n' + H.match(/var OHIO_PREPAY_BACK = \{[^}]*\};/)[0] + '\n' + lift('_syncOhioPrepay') + '\nreturn _syncOhioPrepay;')((id) => els[id], { SLA_DSCR: E, _dscrAdminMode: admin === undefined ? true : !!admin }, E);
   return { sel, note, sync: run, shown: () => options.filter((o) => !o.hidden).map((o) => o.value) };
 }
 let P = page('12 Elm St, Columbus, OH 43215, USA', '54321');
@@ -81,6 +82,20 @@ check('no address yet: the standard choices, untouched', [P.sel.value, P.shown()
 assert('it runs at the top of every calculate()', /function calculate\(\) \{\s*\n\s*_syncOhioPrepay\(\);/.test(H));
 assert('the sizer loads the pricing module that exports the helper (pin moved)', /<script src="\/?dscr-pricing\.js\?v=[0-9A-Za-z]+"><\/script>/.test(H) && !/dscr-pricing\.js\?v=237261/.test(H));
 assert('no arrow functions added to the sizer', !/=>/.test(lift('_syncOhioPrepay')));
+
+// Deploy 237.282 -- Admin Mode only
+{
+  // Mike: "make it so that Ohio PPP change only happens in Admin mode since if its a DIYA loan its still the same PPP"
+  const d = page('12 Elm St, Columbus, OH 43215, USA', '54321', false); d.sync();
+  check('Admin Mode OFF (a DIYA loan): an Ohio address keeps the standard structures', [d.shown(), d.sel.value, d.note.style.display], [['5y6m', '54321', '321', '320', '300', 'none'], '54321', 'none']);
+  const back = page('12 Elm St, Columbus, OH 43215, USA', '111', false); back.sync();
+  check('...and an Ohio code left over maps back to the standard one', back.sel.value, '321');
+  const on = page('12 Elm St, Columbus, OH 43215, USA', '54321', true); on.sync();
+  check('Admin Mode ON: the 1% structures', [on.shown(), on.sel.value], [['11111', '1111', '111', '11', '1', 'none'], '11111']);
+  const H2 = read('dscr-sizer.html');
+  assert('turning Admin Mode on or off reprices, and the reprice runs the sync', /function onAdminModeToggle\(\)[\s\S]*?try \{ run\(\); \} catch/.test(H2) && /function calculate\(\) \{\s*\n\s*_syncOhioPrepay\(\);/.test(H2));
+  assert('the note says Admin Mode and that DIYA keeps the standard ones', /Ohio property, Admin Mode: prepayment penalties are capped at 1% by state law \(DIYA loans keep the standard structures\)/.test(H2));
+}
 
 // ── 3. everywhere the code is read back ─────────────────────────────────────
 console.log('\nEverywhere a prepay code is printed or mapped');

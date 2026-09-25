@@ -761,7 +761,8 @@ var getFICOMin = SLA_DSCR.getFICOMin;
             <option value="320" data-std="1">2-Year (320)</option>
             <option value="300" data-std="1">1-Year (300)</option>
             <!-- Deploy 237.277 (Mike): Ohio law caps a prepayment penalty at 1%. These replace
-                 the ones above when the property is in Ohio (_syncOhioPrepay). -->
+                 the ones above when the property is in Ohio AND Admin Mode is on (237.282: a
+                 DIYA loan keeps the standard structures) -- _syncOhioPrepay. -->
             <option value="11111" data-ohio="1" hidden disabled>5-Year (1-1-1-1-1)</option>
             <option value="1111" data-ohio="1" hidden disabled>4-Year (1-1-1-1)</option>
             <option value="111" data-ohio="1" hidden disabled>3-Year (1-1-1)</option>
@@ -769,7 +770,7 @@ var getFICOMin = SLA_DSCR.getFICOMin;
             <option value="1" data-ohio="1" hidden disabled>1-Year (1)</option>
             <option value="none">No Prepayment Penalty</option>
           </select>
-          <div id="ohioPrepayNote" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);margin-top:4px">Ohio property: prepayment penalties are capped at 1% by state law.</div>
+          <div id="ohioPrepayNote" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);margin-top:4px">Ohio property, Admin Mode: prepayment penalties are capped at 1% by state law (DIYA loans keep the standard structures).</div>
         </div>
       </div>
       <div class="field">
@@ -1052,7 +1053,10 @@ function _syncOhioPrepay() {
   var sel = $('prepay'), addr = $('propAddress');
   if (!sel || !addr) return false;
   var st = (window.SLA_DSCR && SLA_DSCR.extractStateFromAddress) ? SLA_DSCR.extractStateFromAddress(addr.value || '') : '';
-  var ohio = st === 'OH';
+  // Deploy 237.282 (Mike: "make it so that Ohio PPP change only happens in Admin mode since if
+  // its a DIYA loan its still the same PPP") -- a DIYA-priced Ohio loan keeps the standard
+  // structures; the 1% set is for a loan priced off another investor (Admin Mode).
+  var ohio = st === 'OH' && !!window._dscrAdminMode;
   var opts = sel.options || [];
   for (var i = 0; i < opts.length; i++) {
     var o = opts[i];
