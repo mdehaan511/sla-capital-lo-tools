@@ -295,6 +295,12 @@ function friendlyPrepay(p) {
        : p === '321'   ? '3-2-1'
        : p === '320'   ? '3-2-0'
        : p === '300'   ? '3-0-0'
+       // Deploy 237.277 -- Ohio's 1% structures
+       : p === '11111' ? '1-1-1-1-1'
+       : p === '1111'  ? '1-1-1-1'
+       : p === '111'   ? '1-1-1'
+       : p === '11'    ? '1-1'
+       : p === '1'     ? '1'
        : String(p);
 }
 function friendlyUseOfFunds(fd) {

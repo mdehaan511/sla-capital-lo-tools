@@ -578,6 +578,8 @@ async function handle(req, context) {
   const PREPAY_LABEL = {
     '5y6m':  '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
     '320':   '2-Year',  '300':   '1-Year', 'none': 'None',
+    // Deploy 237.277 -- Ohio's 1% structures
+    '11111': '5-Year 1%', '1111': '4-Year 1%', '111': '3-Year 1%', '11': '2-Year 1%', '1': '1-Year 1%',
   };
   const priorHistory = Array.isArray(loanRecord.sizerHistory) ? loanRecord.sizerHistory : [];
   const rawFormData = (loanRecord._sizerFormData && typeof loanRecord._sizerFormData === 'object')

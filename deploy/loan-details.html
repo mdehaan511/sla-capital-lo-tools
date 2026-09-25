@@ -18,7 +18,7 @@
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
-  <script src="/loan-doc-review.js?v=237275"></script>
+  <script src="/loan-doc-review.js?v=237277"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
   <script src="/sla-nav.js" defer></script>
 <script src="/sla-search.js" defer></script>
@@ -1361,10 +1361,10 @@
 <script src="/dscr-pricing.js?v=237261"></script>
 <script src="/loan-uw-fields.js?v=237229"></script>
 <script src="/loan-uw-calc.js?v=237223"></script>
-<script src="/loan-uw-tab.js?v=237275"></script>
+<script src="/loan-uw-tab.js?v=237277"></script>
 <!-- Deploy 237.222 (Mike) - key-metrics panel on Documents > Underwriting. Needs the
      SLA_UW_TAB exports added in the same deploy, hence the matching pins. -->
-<script src="/loan-uw-metrics.js?v=237275"></script>
+<script src="/loan-uw-metrics.js?v=237277"></script>
 <!-- Deploy 236.539 — version-pin loan-details.js to this deploy. loan-details.js
      is cached `max-age=300, stale-while-revalidate` while the inline CSS above
      ships with the (60s) HTML, so a deploy that changes BOTH (like 236.538's
@@ -1382,6 +1382,6 @@
      rather than carrying a second copy of that arithmetic. Must load BEFORE
      loan-details.js uses it. -->
 <script src="/lo-comp.js?v=237250"></script>
-<script src="/loan-details.js?v=237275"></script>
+<script src="/loan-details.js?v=237277"></script>
 </body>
 </html>

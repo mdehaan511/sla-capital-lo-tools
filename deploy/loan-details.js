@@ -1306,7 +1306,8 @@ function render() {
     var _dscrLtvCell  = (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' : (_liveLtvStr || '<span class="empty">—</span>'));
     var _dscrRatioCell = (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>'));
     var _dscrPrepay   = prepay
-      ? (prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay==='5y6m'?'5Yr/6Mo':prepay==='none'?'None':prepay)
+      ? (prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay==='5y6m'?'5Yr/6Mo':prepay==='none'?'None':
+         prepay==='11111'?'5yr (1-1-1-1-1)':prepay==='1111'?'4yr (1-1-1-1)':prepay==='111'?'3yr (1-1-1)':prepay==='11'?'2yr (1-1)':prepay==='1'?'1yr (1)':prepay) // Deploy 237.277
       : '<span class="empty">—</span>';
     // Deploy 236.759 — MF (5+) grid variant: show the /apply financials
     // (units, occupancy, other income, annual opex total) and drop the

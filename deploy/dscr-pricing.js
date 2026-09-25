@@ -257,6 +257,10 @@ const GUIDELINES = {
   }
 };
 
+// Deploy 237.277 -- Ohio caps a prepayment penalty at 1% (Mike), so an Ohio loan offers the
+// 1% structures instead of the stepdowns. Code -> the sheet structure it prices as.
+var OHIO_PREPAY_PRICE_AS = { '11111': '54321', '1111': '321', '111': '321', '11': '320', '1': '300' };
+
 // Extract 2-letter state abbreviation from a US address string
 function extractStateFromAddress(address) {
   if (!address) return null;
@@ -556,8 +560,16 @@ function priceDSCR(raw) {
   if (uRow) adjs.push({label:'Loan amount (UPB)', value:uRow.adj[ci]});
 
   // PPP
-  var pppA = DIYA.ppp[prepay]!==undefined?DIYA.ppp[prepay]:0;
-  adjs.push({label:'Prepay penalty ('+prepay+')', value:pppA});
+  // Deploy 237.277 (Mike: "if a loan is in Ohio make it so the prepayment penalties are all
+  // 1 point as that is Ohio state law. So its 1-1-1-1-1, 1-1-1-1, 1-1-1, 1-1, 1"). The DIYA
+  // sheet prices only its own structures, so an Ohio 1% structure prices as the sheet's
+  // structure of the same length (5-yr -> 54321, 3-yr -> 321, 2-yr -> 320, 1-yr -> 300). The
+  // sheet has no 4-year structure; 1-1-1-1 prices as the 3-year, the conservative choice, until
+  // DIYA says otherwise. Looked up through the map rather than added to DIYA.ppp so a
+  // historical sheet (setPricingAsOf replaces the whole table) prices Ohio loans too.
+  var pppKey = OHIO_PREPAY_PRICE_AS[prepay] || prepay;
+  var pppA = DIYA.ppp[pppKey]!==undefined?DIYA.ppp[pppKey]:0;
+  adjs.push({label:'Prepay penalty ('+prepay+(pppKey!==prepay?', priced as '+pppKey:'')+')', value:pppA});
 
   // Deploy 236.39 — new pricing model. TPO is locked at 1.00% so
   // the hidden TPO adjustment is always DIYA.HIDDEN_TPO_ADJ (0.280),
@@ -732,6 +744,8 @@ var _SLA_DSCR_API = {
   // Deploy 236.878 — historical pricing (rate-lock repricing).
   setPricingAsOf: setPricingAsOf, activePricing: activePricing,
   PRICING_HISTORY: PRICING_HISTORY,
+  // Deploy 237.277 -- the sizer switches the prepay choices for an Ohio address.
+  extractStateFromAddress: extractStateFromAddress, OHIO_PREPAY_PRICE_AS: OHIO_PREPAY_PRICE_AS,
 };
 if (typeof window !== 'undefined') window.SLA_DSCR = _SLA_DSCR_API;
 if (typeof module !== 'undefined' && module.exports) module.exports = _SLA_DSCR_API;

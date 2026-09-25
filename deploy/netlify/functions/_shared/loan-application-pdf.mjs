@@ -555,6 +555,10 @@ export function renderSignedApplicationWithPages({ record, client, signers, stat
       const prepayDisplay = () => {
         const raw = (loanRec && loanRec.prepay) || data.prepay || '';
         if (!raw) return '';
+        // Deploy 237.277 -- Ohio's 1% structures, matched on the exact code (a bare "1"
+        // compacted from free text must not become one).
+        const OHIO = { '11111': '5 Year 1% (1-1-1-1-1)', '1111': '4 Year 1% (1-1-1-1)', '111': '3 Year 1% (1-1-1)', '11': '2 Year 1% (1-1)', '1': '1 Year 1% (1)' };
+        if (OHIO[String(raw).trim()]) return OHIO[String(raw).trim()];
         const compact = String(raw).replace(/[^0-9]/g, '');
         if (compact === '54321')  return '5 Year Stepdown (54321)';
         if (compact === '5555')   return '5 Year Flat (5555)';

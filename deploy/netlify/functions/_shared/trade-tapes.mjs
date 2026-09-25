@@ -554,6 +554,12 @@ const PREPAY_MAP = {
   '321':   { term: 36, type: '3-2-1' },
   '320':   { term: 24, type: '3-2-0' },
   '300':   { term: 12, type: '3-0-0' },
+  // Deploy 237.277 -- Ohio's 1% structures
+  '11111': { term: 60, type: '1-1-1-1-1' },
+  '1111':  { term: 48, type: '1-1-1-1' },
+  '111':   { term: 36, type: '1-1-1' },
+  '11':    { term: 24, type: '1-1' },
+  '1':     { term: 12, type: '1' },
 };
 const prepayInfo = (l) => PREPAY_MAP[String(l.prepay || '').toLowerCase()] || null;
 const dscrPurpose = (l) => {

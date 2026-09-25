@@ -473,7 +473,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="dscr-pricing.js?v=237261"></script>
+<script src="dscr-pricing.js?v=237277"></script>
 <!-- Deploy 236.960 -- "Your expected commission" box under the results (shared comp model + sizer adapter). -->
 <script src="lo-comp.js?v=237216"></script>
 <script src="lo-comp-sizer.js?v=237216"></script>
@@ -755,13 +755,21 @@ var getFICOMin = SLA_DSCR.getFICOMin;
         <div class="wrap">
           <label>Prepayment Penalty <span class="req">*</span></label>
           <select id="prepay">
-            <option value="5y6m">5-Year / 6-Month (5Yr/6Mo)</option>
-            <option value="54321" selected>5-Year (54321)</option>
-            <option value="321">3-Year (321)</option>
-            <option value="320">2-Year (320)</option>
-            <option value="300">1-Year (300)</option>
+            <option value="5y6m" data-std="1">5-Year / 6-Month (5Yr/6Mo)</option>
+            <option value="54321" data-std="1" selected>5-Year (54321)</option>
+            <option value="321" data-std="1">3-Year (321)</option>
+            <option value="320" data-std="1">2-Year (320)</option>
+            <option value="300" data-std="1">1-Year (300)</option>
+            <!-- Deploy 237.277 (Mike): Ohio law caps a prepayment penalty at 1%. These replace
+                 the ones above when the property is in Ohio (_syncOhioPrepay). -->
+            <option value="11111" data-ohio="1" hidden disabled>5-Year (1-1-1-1-1)</option>
+            <option value="1111" data-ohio="1" hidden disabled>4-Year (1-1-1-1)</option>
+            <option value="111" data-ohio="1" hidden disabled>3-Year (1-1-1)</option>
+            <option value="11" data-ohio="1" hidden disabled>2-Year (1-1)</option>
+            <option value="1" data-ohio="1" hidden disabled>1-Year (1)</option>
             <option value="none">No Prepayment Penalty</option>
           </select>
+          <div id="ohioPrepayNote" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);margin-top:4px">Ohio property: prepayment penalties are capped at 1% by state law.</div>
         </div>
       </div>
       <div class="field">
@@ -1032,7 +1040,36 @@ function renderLockPricingBanner() {
 // Deploy 236.406 (G1) — calculate() is now a thin DOM gatherer; all
 // pricing math is SLA_DSCR.priceDSCR (golden-locked, byte-identical
 // to the pre-extraction inline code per scripts/pricing-test.mjs).
+// Deploy 237.277 (Mike: "if a loan is in Ohio make it so the prepayment penalties are all 1
+// point as that is Ohio state law. So its 1-1-1-1-1, 1-1-1-1, 1-1-1, 1-1, 1"). Both sets of
+// choices live in the list, so whatever path fills the form -- a new quote, a saved quote, a
+// prospect, a restored draft -- the saved value always sticks; this shows the set that applies
+// to the address and moves the choice across (same length; there is no 4-year stepdown, so
+// 1-1-1-1 comes back as the 5-year). Runs at the top of every calculate().
+var OHIO_PREPAY_FROM = { '5y6m': '11111', '54321': '11111', '321': '111', '320': '11', '300': '1' };
+var OHIO_PREPAY_BACK = { '11111': '54321', '1111': '54321', '111': '321', '11': '320', '1': '300' };
+function _syncOhioPrepay() {
+  var sel = $('prepay'), addr = $('propAddress');
+  if (!sel || !addr) return false;
+  var st = (window.SLA_DSCR && SLA_DSCR.extractStateFromAddress) ? SLA_DSCR.extractStateFromAddress(addr.value || '') : '';
+  var ohio = st === 'OH';
+  var opts = sel.options || [];
+  for (var i = 0; i < opts.length; i++) {
+    var o = opts[i];
+    var off = ohio ? o.getAttribute('data-std') === '1' : o.getAttribute('data-ohio') === '1';
+    o.hidden = off;
+    o.disabled = off;
+  }
+  var v = sel.value;
+  if (ohio && OHIO_PREPAY_FROM[v]) sel.value = OHIO_PREPAY_FROM[v];
+  if (!ohio && OHIO_PREPAY_BACK[v]) sel.value = OHIO_PREPAY_BACK[v];
+  var note = $('ohioPrepayNote');
+  if (note) note.style.display = ohio ? '' : 'none';
+  return ohio;
+}
+
 function calculate() {
+  _syncOhioPrepay(); // Deploy 237.277
   return SLA_DSCR.priceDSCR({
     loanAmt:       $('loanAmt').value,
     propValue:     $('propValue').value,
@@ -2766,7 +2803,7 @@ function _generateRateSheetPDF(opts) {
   // ── LOAN DETAILS — two-column table ────────────────────────
   var ptLabel = {sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
   var purposeLabel = {purchase:'Purchase',refi_rt:'Rate/Term Refi',refi_co:'Cash-Out Refi'};
-  var ppLabel = {'5y6m':'5-Year / 6-Month (5Yr/6Mo)','54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)','none':'No Prepayment Penalty'};
+  var ppLabel = {'11111':'5-Year (1-1-1-1-1)','1111':'4-Year (1-1-1-1)','111':'3-Year (1-1-1)','11':'2-Year (1-1)','1':'1-Year (1)', /* Deploy 237.277 */ '5y6m':'5-Year / 6-Month (5Yr/6Mo)','54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)','none':'No Prepayment Penalty'};
 
   // Property Address now lives in the dark hero band above — no longer
   // included in the two-column details grid where it was getting truncated.
@@ -4519,6 +4556,8 @@ function _prepayCodeLabel(code) {
   var m = {
     '5y6m': '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
     '320': '2-Year',    '300':  '1-Year',  'none': 'None',
+    // Deploy 237.277 -- Ohio's 1% structures
+    '11111': '5-Year 1%', '1111': '4-Year 1%', '111': '3-Year 1%', '11': '2-Year 1%', '1': '1-Year 1%',
   };
   return m[c] || c;
 }
