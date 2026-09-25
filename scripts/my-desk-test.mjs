@@ -404,6 +404,7 @@ console.log('\nMY DESK (processing-pipeline.html)');
     ctx.document = { getElementById: (id) => (id === 'boardWrap' ? { set innerHTML(v) { html = v; } } : (id === 'dkCal' ? { id: 'dkCal' } : { value: '' })) };
     api(ctx).renderDesk();
     check('the desk mounts its calendar: surface desk, the desk\'s person in focus, coworkers offered', mounts.map((m) => [m.el, m.o.surface, m.o.focus, m.o.canSeeAll, m.o.defaultAll]), [['dkCal', 'desk', 'jessy@slacapital.com', true, false]]);
+    assert('the calendar is the wider column, the list the narrower (Mike, 237.274)', /\.dk-layout \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(460px, 1\.35fr\);/.test(H));
     assert('...beside the loan list', /<div class="dk-layout"><div class="pc-wrap">[\s\S]*<\/div><div id="dkCal"><\/div><\/div>$/.test(html));
   }
   assert('the order task never ticks on the desk: it opens the form', /if \(checked && !t\.completed && _deskIsOrderTask\(t\)\) \{\s*\n\s*if \(box\) box\.checked = false;\s*\n\s*deskOrderValuation\(t\.loanId, t\.id\);/.test(H));

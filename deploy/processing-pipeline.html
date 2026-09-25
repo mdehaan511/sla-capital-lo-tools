@@ -125,7 +125,8 @@
     /* Deploy 237.269 (Mike) — MY DESK: one person's loans, their tasks and the loans' open conditions. */
     .dk-head-r { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .dk-person { border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-family: inherit; font-size: 12.5px; background: #fff; }
-    .dk-row { grid-template-columns: 12px minmax(200px, 2.4fr) minmax(0, 1.6fr) auto minmax(92px, auto); }
+    /* Deploy 237.274 (Mike: "make the calendar a bit wider and the tasks piece a bit narrower") -- tighter columns for the narrower list. */
+    .dk-row { grid-template-columns: 12px minmax(140px, 1.6fr) minmax(0, 1fr) auto auto; }
     .dk-addr a { color: var(--dark); text-decoration: none; }
     .dk-addr a:hover { color: var(--gold); text-decoration: underline; }
     .dk-sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -149,7 +150,7 @@
     .dk-actions a:hover { text-decoration: underline; }
     @media (max-width: 760px) { .dk-row { grid-template-columns: 12px 1fr auto; } .dk-row .dk-sub, .dk-row .dk-close { display: none; } }
     /* Deploy 237.271 — the desk's calendar sits beside the loans on a wide screen, below them otherwise. */
-    .dk-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr); gap: 16px; align-items: start; }
+    .dk-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 1.35fr); gap: 16px; align-items: start; } /* Deploy 237.274: calendar ~57%, list ~43% (was 41 / 59) */
     @media (max-width: 1180px) { .dk-layout { grid-template-columns: 1fr; } }
     .pc-open { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--gold); text-decoration: none; font-weight: 600; }
     .pc-open:hover { text-decoration: underline; }
