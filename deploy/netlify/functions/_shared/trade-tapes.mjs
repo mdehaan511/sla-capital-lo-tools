@@ -942,12 +942,17 @@ export const TRADE_TAPES = {
       }
       // Blank spacer, then the totals row (L, M, Y) — matches the historical
       // sheets, and 236.973 makes them live SUM formulas over the data rows.
-      const lastData = rows.length; // sheet row of the last data row
+      // Deploy 237.276 (Mike: "They need to sum those columns for all of the rows not just
+      // the first 3 like they were doing"). The formulas were SUM(L2:L4) -- a range fixed at
+      // the last row we generated. Excel does not widen a range for rows added BELOW its end,
+      // so a 3-loan tape that had more loans added before it went out still summed three. Each
+      // total now sums from row 2 to the row just above ITSELF, whatever is inserted or pasted
+      // in between; the cached value is still the generated total.
       rows.push([]);
       const totals = new Array(COLCHIS_SETTLE_HEADERS.length).fill('');
-      totals[11] = { f: 'SUM(L2:L' + lastData + ')', v: round2(sumL), s: 'cur' };
-      totals[12] = { f: 'SUM(M2:M' + lastData + ')', v: round2(sumM), s: 'cur' };
-      totals[24] = { f: 'SUM(Y2:Y' + lastData + ')', v: round2(sumY), s: 'cur' };
+      totals[11] = { f: 'SUM(L2:INDEX(L:L,ROW()-1))', v: round2(sumL), s: 'cur' };
+      totals[12] = { f: 'SUM(M2:INDEX(M:M,ROW()-1))', v: round2(sumM), s: 'cur' };
+      totals[24] = { f: 'SUM(Y2:INDEX(Y:Y,ROW()-1))', v: round2(sumY), s: 'cur' };
       rows.push(totals);
       return { sheets: [{ name: 'SLA Trade', rows }], missing, filenameBase: 'SLA Colchis Settlement' };
     },
