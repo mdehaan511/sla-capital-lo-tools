@@ -3,8 +3,11 @@
  *
  * THE TOWN CRIER: the Monday-morning digest. One email to every team
  * member + one Slack post (channel key 'armory', default fallback):
+ *   • Deploy 237.279 (Mike) — LAST WEEK first (Monday–Sunday, Pacific):
+ *       closings from last week · the LO who pushed the most volume to Approved (into
+ *       the Processing Pipeline) and how much · the processor with the most closings and
+ *       how many · how many loans we traded / sold, with a shout-out to Keith
  *   • this month's quest + the Round Table top 3
- *   • the Closing Bell — loans closed in the last 7 days
  *   • birthdays + work anniversaries this week
  *   • live + upcoming events from the Herald's Board
  *   • Legends of the Realm
@@ -25,6 +28,7 @@ import { loadTeamProfiles, upcomingCelebrations, todayPacific, prettyYmd, ordina
 import { getAchievementsIndex, DEEDS, RANKS } from './achievements.mjs'; // Deploy 237.085
 import { boardSince } from './corkboard.mjs';                            // Deploy 237.192 — the cork board
 import { touchPulse } from './armory.mjs';
+import { db } from './supabase-db.mjs';                                // Deploy 237.279
 
 const PORTAL = 'https://portal.slacapital.ai';
 const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -36,16 +40,106 @@ function shortName(n) {
   return parts[0] + (parts.length > 1 ? ' ' + parts[parts.length - 1].charAt(0).toUpperCase() + '.' : '');
 }
 
+// ── Deploy 237.279 (Mike) — last week, by the numbers ─────────────────────────
+// "I want to modify the town Crier to show: Closings from Last Week / Which LO pushed the most
+// volume to Approved (to the processing Pipeline) and how much / Which Processor had the most
+// closings and how many / How many loans we traded/sold and shout out Keith for that."
+//
+// "Last week" = the Monday-to-Sunday before the Monday the Crier goes out, in Pacific days, the
+// same window for all four so the numbers line up:
+//   closings   the Closing Bell entries (closedAt)
+//   approved   loan._processingWelcomeAt — the one-time stamp when a loan is approved into
+//              the Processing Pipeline (processing-welcome) — grouped by the loan's LO
+//   processor  the Closing Bell's credited team, role 'processor' only (the closer is not in
+//              this race; Keith has his own line)
+//   traded     loan.soldDate (Mark Sold / the trade) inside the week
+/** The week before the Monday on or before `ymd`: { from, to (exclusive), label }. Pure. */
+export function lastWeekRange(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+  const dow = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay() : 1;
+  const thisMonday = addDays(ymd, -((dow + 6) % 7));
+  const from = addDays(thisMonday, -7);
+  const sun = addDays(thisMonday, -1);
+  return { from, to: thisMonday, label: prettyYmd(from).replace(/^\w+ /, '') + ' – ' + prettyYmd(sun).replace(/^\w+ /, '') };
+}
+const amtOf = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+const inWeek = (day, w) => !!day && day >= w.from && day < w.to;
+const pacificDay = (iso) => { const t = Date.parse(iso || ''); return isFinite(t) ? todayPacific(new Date(t)) : ''; };
+
+/**
+ * The four numbers. Pure: bells (Closing Bell entries), loans ({ owner, amount, welcomeAt,
+ * soldDate, address }), profiles ({ email, name }), the week. Ties are named together.
+ */
+export function weekStats({ bells, loans, profiles, week }) {
+  const nameOf = (email) => {
+    const e = String(email || '').toLowerCase();
+    const p = (profiles || []).find((x) => String(x.email || '').toLowerCase() === e);
+    return (p && p.name) || e.split('@')[0] || 'someone';
+  };
+  const closings = (bells || []).filter((b) => inWeek(pacificDay(b.closedAt), week))
+    .sort((a, b) => String(a.closedAt).localeCompare(String(b.closedAt)));
+  const closingsTotal = closings.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+
+  const byLo = {};
+  (loans || []).forEach((l) => {
+    if (!inWeek(pacificDay(l.welcomeAt), week)) return;
+    const k = String(l.owner || '').toLowerCase();
+    if (!k) return;
+    byLo[k] = byLo[k] || { email: k, name: nameOf(k), volume: 0, count: 0 };
+    byLo[k].volume += amtOf(l.amount); byLo[k].count += 1;
+  });
+  const los = Object.keys(byLo).map((k) => byLo[k]).sort((a, b) => b.volume - a.volume || b.count - a.count || a.name.localeCompare(b.name));
+  const approved = { top: los[0] || null, volume: los.reduce((s, x) => s + x.volume, 0), count: los.reduce((s, x) => s + x.count, 0) };
+
+  const byProc = {};
+  closings.forEach((b) => {
+    const seen = {};
+    (b.processors || []).forEach((p) => {
+      if (!p || (p.role || 'processor') !== 'processor') return;
+      const k = String(p.email || p.name || '').toLowerCase();
+      if (!k || seen[k]) return;
+      seen[k] = 1;
+      byProc[k] = byProc[k] || { name: p.name || nameOf(p.email), count: 0 };
+      byProc[k].count += 1;
+    });
+  });
+  const procs = Object.keys(byProc).map((k) => byProc[k]).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const best = procs.length ? procs[0].count : 0;
+  const processor = best ? { names: procs.filter((x) => x.count === best).map((x) => x.name), count: best } : null;
+
+  const soldLoans = (loans || []).filter((l) => inWeek(String(l.soldDate || '').slice(0, 10), week));
+  const keith = (profiles || []).find((x) => /^keith@/i.test(String(x.email || '')));
+  const sold = { count: soldLoans.length, volume: soldLoans.reduce((s, l) => s + amtOf(l.amount), 0), keith: (keith && keith.name) || 'Keith' };
+
+  return { closings, closingsTotal, approved, processor, sold };
+}
+
+/** The loans table, lean: who owns it, how much, when it went to Approved, when it sold. */
+async function _weekLoans() {
+  const out = [];
+  const select = 'id,owner_email,address,loan_amt,final_amt:extra->>finalLoanAmount,welcome_at:extra->>_processingWelcomeAt,sold_date:extra->>soldDate';
+  for (let offset = 0; offset < 100000; offset += 1000) {
+    const page = await db.select('loans', { select, limit: 1000, offset });
+    (page || []).forEach((r) => out.push({ owner: r.owner_email, address: r.address, amount: r.final_amt || r.loan_amt, welcomeAt: r.welcome_at, soldDate: r.sold_date }));
+    if (!page || page.length < 1000) break;
+  }
+  return out;
+}
+
 export async function buildTownCrier(now) {
   const ymd = todayPacific(now || new Date());
   const month = monthKey(now || new Date());
   const quest = questForMonth(month);
-  const [byMonth, events, bells, profiles] = await Promise.all([listAllMonths(quest.id), getEvents(), listBells(40), loadTeamProfiles()]);
+  const [byMonth, events, bells, profiles, weekLoans] = await Promise.all([listAllMonths(quest.id), getEvents(), listBells(80), loadTeamProfiles(),
+    _weekLoans().catch((e) => { console.warn('[town-crier] loans read failed:', e && e.message); return null; })]);   // Deploy 237.279
   const board = byMonth[month] || [];
   const legends = legendsFrom(byMonth, 3);
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  const closed = bells.filter((b) => String(b.closedAt) >= weekAgo);
-  const closedTotal = closed.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  // Deploy 237.279 -- last Monday to Sunday, for the four numbers at the top.
+  const week = lastWeekRange(ymd);
+  const W = weekStats({ bells, loans: weekLoans || [], profiles, week });
+  const closed = W.closings;
+  const closedTotal = W.closingsTotal;
   const cele = upcomingCelebrations(profiles, ymd, 7);
   const upcomingEvents = events.filter((e) => !(e.endsAt && e.endsAt < ymd) && !(e.startsAt && e.startsAt > addDays(ymd, 30)));
   const daysLeft = daysLeftInMonth(now || new Date());
@@ -55,6 +149,55 @@ export async function buildTownCrier(now) {
   const section = (title) => { H.push('<h2 style="font-family:Georgia,serif;font-size:16px;color:#3a2313;margin:22px 0 8px;border-bottom:2px solid #c9a14a;padding-bottom:4px">' + escH(title) + '</h2>'); T.push('', title.toUpperCase(), ''); S.push('*' + title + '*'); };
   // slack === false → email/text only (Deploy 237.085, Mike: no high scores in Slack).
   const line = (html, text, slack) => { H.push('<p style="margin:4px 0;font-size:14px;line-height:1.55">' + html + '</p>'); T.push(text); if (slack !== false) S.push(slack != null ? slack : text); };
+
+  // ── Deploy 237.279 (Mike) -- last week, first ──
+  // Closings stay on Slack (a closing is a people milestone); the three standings are email and
+  // Armory only, like every other leaderboard number (feedback: Slack = people milestones).
+  section('🔔 Closings from Last Week (' + week.label + ')');
+  if (closed.length) {
+    closed.forEach((b) => {
+      // Deploy 237.117 — processors credited alongside the LO.
+      const crew = (Array.isArray(b.processors) && b.processors.length) ? ' with ' + b.processors.map((p) => p.name + ' (' + p.role + ')').join(', ') : '';
+      const where = b.address ? ' at ' + b.address : (b.place ? ' in ' + b.place : '');   // Deploy 237.119 -- full address (Mike)
+      line('<b>' + escH(b.loName) + '</b>' + escH(crew) + ' closed ' + escH((fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program) + escH(where),
+        b.loName + crew + ' closed ' + (fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program + where);
+    });
+    line('<b>' + closed.length + ' loan' + (closed.length === 1 ? '' : 's') + (closedTotal ? ' · ' + fmtMoney(closedTotal) : '') + '</b> 🎉', closed.length + ' loan' + (closed.length === 1 ? '' : 's') + (closedTotal ? ' · ' + fmtMoney(closedTotal) : ''));
+  } else {
+    line('The bell was quiet last week. Let\'s change that.', 'The bell was quiet last week. Let\'s change that.');
+  }
+
+  section('📈 Most Volume to Approved');
+  if (weekLoans == null) {
+    line('The pipeline numbers could not be read this morning.', 'The pipeline numbers could not be read this morning.', false);
+  } else if (W.approved.top) {
+    const t = W.approved.top;
+    line('<b>' + escH(t.name) + '</b> pushed <b>' + escH(fmtMoney(t.volume) || '$0') + '</b> into the Processing Pipeline (' + t.count + ' loan' + (t.count === 1 ? '' : 's') + ').',
+      t.name + ' pushed ' + (fmtMoney(t.volume) || '$0') + ' into the Processing Pipeline (' + t.count + ' loan' + (t.count === 1 ? '' : 's') + ').', false);
+    line('<span style="color:#5a4a36">The team moved ' + escH(fmtMoney(W.approved.volume) || '$0') + ' across ' + W.approved.count + ' loan' + (W.approved.count === 1 ? '' : 's') + ' to Approved.</span>',
+      'The team moved ' + (fmtMoney(W.approved.volume) || '$0') + ' across ' + W.approved.count + ' loans to Approved.', false);
+  } else {
+    line('No loans moved to Approved last week.', 'No loans moved to Approved last week.', false);
+  }
+
+  section('⚙ Most Closings by a Processor');
+  if (W.processor) {
+    const who = W.processor.names.length > 1 ? W.processor.names.slice(0, -1).join(', ') + ' and ' + W.processor.names[W.processor.names.length - 1] : W.processor.names[0];
+    const n = W.processor.count + ' closing' + (W.processor.count === 1 ? '' : 's') + (W.processor.names.length > 1 ? ' each' : '');
+    line('<b>' + escH(who) + '</b> — ' + escH(n) + '. 🏆', who + ' — ' + n + '.', false);
+  } else {
+    line('No processor was credited on a closing last week.', 'No processor was credited on a closing last week.', false);
+  }
+
+  section('🤝 Traded & Sold');
+  if (weekLoans == null) {
+    line('The trade numbers could not be read this morning.', 'The trade numbers could not be read this morning.', false);
+  } else if (W.sold.count) {
+    line('We traded <b>' + W.sold.count + ' loan' + (W.sold.count === 1 ? '' : 's') + '</b>' + (W.sold.volume ? ' (' + escH(fmtMoney(W.sold.volume)) + ')' : '') + ' last week. Shout-out to <b>' + escH(W.sold.keith) + '</b> for getting ' + (W.sold.count === 1 ? 'it' : 'them') + ' across the line! 🙌',
+      'We traded ' + W.sold.count + ' loan' + (W.sold.count === 1 ? '' : 's') + (W.sold.volume ? ' (' + fmtMoney(W.sold.volume) + ')' : '') + ' last week. Shout-out to ' + W.sold.keith + '!', false);
+  } else {
+    line('No loans traded last week.', 'No loans traded last week.', false);
+  }
 
   section('⚔ This month\'s quest: ' + quest.name);
   if (board.length) {
@@ -66,20 +209,6 @@ export async function buildTownCrier(now) {
     line('Nobody has ridden yet this month. The whole Round Table is up for grabs.', 'Nobody has ridden yet this month. The whole Round Table is up for grabs.', false);
   }
   line('<a href="' + PORTAL + quest.href + '" style="color:#7c1f1f;font-weight:700">Ride now →</a>', 'Ride now: ' + PORTAL + quest.href, 'The Round Table stands on the Armory — <' + PORTAL + quest.href + '|ride now →>');
-
-  section('🔔 The Closing Bell — last 7 days');
-  if (closed.length) {
-    closed.forEach((b) => {
-      // Deploy 237.117 — processors credited alongside the LO.
-      const crew = (Array.isArray(b.processors) && b.processors.length) ? ' with ' + b.processors.map((p) => p.name + ' (' + p.role + ')').join(', ') : '';
-      const where = b.address ? ' at ' + b.address : (b.place ? ' in ' + b.place : '');   // Deploy 237.119 -- full address (Mike)
-      line('<b>' + escH(b.loName) + '</b>' + escH(crew) + ' closed ' + escH((fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program) + escH(where),
-        b.loName + crew + ' closed ' + (fmtMoney(b.amount) ? fmtMoney(b.amount) + ' ' : '') + b.program + where);
-    });
-    line('<b>' + closed.length + ' loan' + (closed.length === 1 ? '' : 's') + (closedTotal ? ' · ' + fmtMoney(closedTotal) : '') + '</b> 🎉', closed.length + ' loans' + (closedTotal ? ' · ' + fmtMoney(closedTotal) : ''));
-  } else {
-    line('The bell was quiet this week. Let\'s change that.', 'The bell was quiet this week. Let\'s change that.');
-  }
 
   section('🎂 Celebrations this week');
   if (cele.length) {
@@ -163,7 +292,9 @@ export async function buildTownCrier(now) {
     '</div></body></html>';
   const text = ['📯 THE TOWN CRIER — SLA Capital, week of ' + prettyYmd(ymd)].concat(T, ['', 'The Armory: ' + PORTAL + '/armory.html']).join('\n');
   const slack = ['📯 *THE TOWN CRIER* — week of ' + prettyYmd(ymd)].concat(S, ['<' + PORTAL + '/armory.html|🏰 Visit the Armory>']).join('\n');
-  return { subject, html, text, slack, ymd, month, stats: { closed: closed.length, celebrations: cele.length, knights: board.length } };
+  return { subject, html, text, slack, ymd, month, stats: { closed: closed.length, celebrations: cele.length, knights: board.length,
+    week: week.label, approvedTop: W.approved.top ? { name: W.approved.top.name, volume: W.approved.top.volume, count: W.approved.top.count } : null,
+    processorTop: W.processor, sold: W.sold.count } };   // Deploy 237.279
 }
 
 async function _sendEmail(to, subject, html, text) {
