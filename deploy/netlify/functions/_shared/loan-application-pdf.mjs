@@ -31,6 +31,8 @@ import { decryptField } from './crypto.mjs';
 // "Street, City, ST ZIP" on the Home/Previous/Mailing/Entity rows
 // even when the form only captured a combined string.
 import { parseAddress } from './address.mjs';
+// Deploy 237.268 -- portfolio applications: every property + the Portfolio Totals.
+import { isPortfolioApplication, applicationProperties, portfolioTotals, num as _pfNum } from './portfolio-properties.mjs';
 
 // SLA brand colors (RGB to match the rest of the app)
 const PLUM       = '#261A36';
@@ -467,6 +469,37 @@ export function renderSignedApplicationWithPages({ record, client, signers, stat
       row('Current Market Value (As Is)', fmtMoney(data.currentValue));
       row('Desired Closing Date', desiredCloseDate);
       doc.moveDown(0.5);
+
+      // ── SECTION A.1: PORTFOLIO PROPERTIES ───────────────────────
+      // Deploy 237.268 (Mike) -- a portfolio application lists every property the borrower
+      // entered (address, beds / baths / sq ft, estimated value, existing debt, monthly rent,
+      // annual taxes / insurance / HOA) and the Portfolio Totals. The single-property rows above
+      // and in the DSCR section print the totals for a portfolio (the form locks them to the sums).
+      const _pfRows = isPortfolioApplication(data) ? applicationProperties(data) : [];
+      if (_pfRows.length) {
+        const _bb = (p) => [p.bedrooms ? p.bedrooms + ' bd' : '', p.bathrooms ? p.bathrooms + ' ba' : '', _pfNum(p.sqft) > 0 ? _pfNum(p.sqft).toLocaleString('en-US') + ' sq ft' : ''].filter(Boolean).join(' / ');
+        section('Portfolio Properties (' + _pfRows.length + ')');
+        _pfRows.forEach((p, i) => {
+          if (doc.y > doc.page.height - 150) doc.addPage();
+          row('Property ' + (i + 1), p.address || '');
+          row('Bed / Bath / Sq Ft', _bb(p));
+          row('Estimated Value / Existing Debt', (fmtMoney(p.propValue) || '—') + ' / ' + (fmtMoney(p.existingDebt) || 'none'));
+          row('Monthly Rent', fmtMoney(p.monthlyRent));
+          row('Annual Taxes / Insurance / HOA', [fmtMoney(p.annualTaxes) || '—', fmtMoney(p.annualInsurance) || '—', fmtMoney(p.annualHoa) || '—'].join(' / '));
+          doc.moveDown(0.3);
+        });
+        const _t = portfolioTotals(_pfRows);
+        section('Portfolio Totals');
+        row('Properties', String(_t.count));
+        row('Bed / Bath / Sq Ft', _bb(_t));
+        row('Total Estimated Value', fmtMoney(_t.propValue));
+        row('Total Existing Debt', fmtMoney(_t.existingDebt));
+        row('Total Monthly Rent', fmtMoney(_t.monthlyRent));
+        row('Total Annual Taxes', fmtMoney(_t.annualTaxes));
+        row('Total Annual Insurance', fmtMoney(_t.annualInsurance));
+        row('Total Annual HOA', fmtMoney(_t.annualHoa));
+        doc.moveDown(0.5);
+      }
 
       // ── SECTION A.5: LOAN DETAILS ──────────────────────────────
       // Deploy 230 — mirrors the "Preliminary Transaction Details"

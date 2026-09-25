@@ -11,6 +11,9 @@
  *
  * Mutates pf in place; pf.property / pf.loan are created if absent.
  */
+// Deploy 237.268 -- a portfolio loan's Property / Collateral rows, in the application's shape.
+import { loanPortfolioPrefill } from './portfolio-properties.mjs';
+
 export function applyLoanPrefill(pf, loan) {
   if (!pf || !loan) return pf;
   // Mirrors borrower-info-request's original annualize: number out, '' when
@@ -61,6 +64,12 @@ export function applyLoanPrefill(pf, loan) {
   pf.loan.annualTaxes     = annualize(loan.taxes);
   pf.loan.annualInsurance = annualize(loan.insurance);
   pf.loan.annualHOA       = annualize(loan.hoa);
+  // Deploy 237.268 (Mike) -- a portfolio loan hands the application its Property / Collateral
+  // rows (Loan Details' numbered tabs) so the per-property cards prefill; the answers come back
+  // through borrower-info-sync onto the same rows.
+  const _pf = loanPortfolioPrefill(loan);
+  pf.loan.isPortfolio = !!_pf;
+  if (_pf) { pf.loan.propertyCount = _pf.propertyCount; pf.loan.properties = _pf.properties; }
   return pf;
 }
 

@@ -87,6 +87,13 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 @media (max-width: 600px) { .field-row, .field-row-3 { grid-template-columns: 1fr; } }
+/* Deploy 237.268 -- portfolio: one card per property + the live Portfolio total */
+.pf-prop { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px 4px; margin: 0 0 14px; background: #fff; }
+.pf-prop-title { font-size: 12px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 10px; }
+.pf-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; border: 1px solid var(--gold-border, #D4A572); background: var(--gold-light, #F5E9D8); border-radius: 8px; padding: 12px 14px; margin: 4px 0 14px; }
+.pf-totals div { font-size: 12px; color: var(--muted); }
+.pf-totals strong { display: block; font-size: 14px; color: var(--text); font-weight: 600; }
+@media (max-width: 600px) { .pf-totals { grid-template-columns: 1fr 1fr; } }
 
 .radio-group, .checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
 .radio-group label, .checkbox-group label {
@@ -283,6 +290,7 @@ function loadFromServerAuthed() {
       // Hydrate g0_/g1_ fields from the guarantors array so the form's
       // STATE.data has the per-prefix fields the renderers expect.
       hydrateGuarantorFields(STATE.data);
+      hydratePropertyFields(STATE.data); // Deploy 237.268 -- portfolio rows → p<i>_ keys
       // Deploy 236.54 — backfill structured city/state/zip from any
       // legacy single-line addresses so the new explicit fields render
       // with the right values for older saves.
@@ -322,6 +330,132 @@ function loadFromServerAuthed() {
 
 // Convert guarantors[0..1] back into g0_/g1_ flat fields so the form
 // renderer can pre-populate inputs with prefix-based ids.
+// ── Deploy 237.268 (Mike) -- Portfolio properties on the application ──────────
+// "in portfolio loans on the loan app it asks for the information on all properties ...
+// put into the property/collateral section for that property and then summed up in the
+// Portfolio total." The rows travel as data.properties[] (like guarantors[]); the form edits
+// them as p0_ / p1_ ... flat keys (like g0_ / g1_). Server side, _shared/portfolio-properties.mjs
+// lands them on loan.properties[i] (Loan Details' Property / Collateral tabs) and the same sums
+// print on the signed application. pfComputeTotals mirrors that module's arithmetic.
+var PF_FIELDS = ['address', 'bedrooms', 'bathrooms', 'sqft', 'propValue', 'existingDebt', 'monthlyRent', 'annualTaxes', 'annualInsurance', 'annualHoa'];
+var PF_LOCK_TITLE = 'Total of the properties above';
+function pfNum(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+function pfCount(d) { var n = parseInt(d.propertyCount, 10); if (!isFinite(n) || n < 1) return 0; return Math.min(n, 10); }
+function hydratePropertyFields(data) {
+  if (!data || !Array.isArray(data.properties)) return;
+  data.properties.forEach(function (p, i) {
+    if (!p) return;
+    Object.keys(p).forEach(function (k) {
+      var key = 'p' + i + '_' + k;
+      if (data[key] === undefined || data[key] === '') data[key] = p[k];
+    });
+  });
+}
+// The rows within the chosen count, every field a string ('' when unanswered).
+function pfCollectRows(d) {
+  var rows = [];
+  var n = pfCount(d);
+  for (var i = 0; i < n; i++) {
+    var row = {};
+    for (var j = 0; j < PF_FIELDS.length; j++) {
+      var v = d['p' + i + '_' + PF_FIELDS[j]];
+      row[PF_FIELDS[j]] = (v === undefined || v === null) ? '' : String(v);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+function pfComputeTotals(d) {
+  var t = { count: 0, bedrooms: 0, bathrooms: 0, sqft: 0, propValue: 0, existingDebt: 0, monthlyRent: 0, annualTaxes: 0, annualInsurance: 0, annualHoa: 0 };
+  var rows = pfCollectRows(d);
+  for (var i = 0; i < rows.length; i++) {
+    t.count++;
+    for (var k in t) { if (k !== 'count') t[k] += pfNum(rows[i][k]); }
+  }
+  for (var k2 in t) t[k2] = Math.round(t[k2] * 100) / 100;
+  return t;
+}
+function pfTotalsInner(t) {
+  var m = function (n) { return n > 0 ? formatMoneyDisplay(String(n)) : '—'; };
+  var c = function (n) { return n > 0 ? String(n) : '—'; };
+  return '<div>Properties<strong>' + t.count + '</strong></div>' +
+    '<div>Bedrooms / Bathrooms<strong>' + c(t.bedrooms) + ' / ' + c(t.bathrooms) + '</strong></div>' +
+    '<div>Square Footage<strong>' + (t.sqft > 0 ? t.sqft.toLocaleString('en-US') : '—') + '</strong></div>' +
+    '<div>Estimated Value<strong>' + m(t.propValue) + '</strong></div>' +
+    '<div>Existing Debt<strong>' + m(t.existingDebt) + '</strong></div>' +
+    '<div>Monthly Rent<strong>' + m(t.monthlyRent) + '</strong></div>' +
+    '<div>Annual Taxes<strong>' + m(t.annualTaxes) + '</strong></div>' +
+    '<div>Annual Insurance<strong>' + m(t.annualInsurance) + '</strong></div>' +
+    '<div>Annual HOA<strong>' + m(t.annualHoa) + '</strong></div>';
+}
+// The totals ARE the loan-level answers for a portfolio: the rent / taxes / insurance / HOA /
+// value / debt fields on page 3 are locked to them, so the review page, the signed PDF and the
+// loan sync (currentLoanAmt) all read the portfolio sums. Returns the totals (null off-portfolio).
+function pfApplyTotals(updateDom) {
+  var d = STATE.data;
+  if (d.propertyType !== 'portfolio') return null;
+  var t = pfComputeTotals(d);
+  var orBlank = function (n) { return n > 0 ? String(n) : ''; };
+  d.currentRent = orBlank(t.monthlyRent);
+  d.annualTaxes = orBlank(t.annualTaxes);
+  d.annualInsurance = orBlank(t.annualInsurance);
+  d.annualHOA = orBlank(t.annualHoa);
+  d.currentValue = orBlank(t.propValue);
+  d.currentLoanAmount = orBlank(t.existingDebt);
+  if (updateDom !== false) {
+    ['currentRent', 'annualTaxes', 'annualInsurance', 'annualHOA', 'currentValue', 'currentLoanAmount'].forEach(function (k) {
+      var el = document.getElementById('f_' + k);
+      if (el && el.disabled) el.value = formatMoneyDisplay(d[k]);
+    });
+    var box = document.getElementById('pfTotals');
+    if (box) box.innerHTML = pfTotalsInner(t);
+  }
+  return t;
+}
+// A loan-level money question becomes a locked total in portfolio mode (not required: computed).
+function pfLockOpts(isPortfolio, opts) {
+  if (!isPortfolio) return opts;
+  opts.required = false; opts.locked = true; opts.lockedTitle = PF_LOCK_TITLE; opts.hint = PF_LOCK_TITLE + '.';
+  return opts;
+}
+// How many properties, then one card per property with the answers Loan Details keeps per
+// property, then the live Portfolio total. Property 1 starts as the address from page 2.
+function renderPortfolioBlock(d, lt) {
+  var isRental = (lt === 'dscr' || lt === 'dscr_2nd');
+  var opts = [{ v: '', l: '— Select —' }];
+  for (var c = 1; c <= 10; c++) opts.push({ v: String(c), l: String(c) });
+  var html = '<h4>Portfolio properties</h4>' +
+    field('propertyCount', 'How many properties are in this portfolio?', 'select', { required: true, onchange: 'render()', options: opts });
+  var n = pfCount(d);
+  if (!n) return html;
+  if (!d.p0_address && d.propertyAddress) d.p0_address = d.propertyAddress;
+  for (var i = 0; i < n; i++) {
+    var p = 'p' + i + '_';
+    html += '<div class="pf-prop"><div class="pf-prop-title">Property ' + (i + 1) + ' of ' + n + '</div>' +
+      field(p + 'address', 'Property address', 'text', { required: true, placeholder: '1234 Main St, Spokane, WA 99224', autocomplete: 'portfolio:' + i, hint: 'Start typing and pick a suggestion from the dropdown.' }) +
+      '<div class="field-row-3">' +
+        field(p + 'bedrooms', 'Bedrooms', 'number', { required: true }) +
+        field(p + 'bathrooms', 'Bathrooms', 'number', { required: true, step: '0.5' }) +
+        field(p + 'sqft', 'Square footage', 'number', { required: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field(p + 'propValue', 'Estimated property value', 'number', { required: true, money: true }) +
+        field(p + 'existingDebt', 'Existing debt (if any)', 'number', { money: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field(p + 'monthlyRent', 'Monthly rent (or market rent if not rented)', 'number', { required: isRental, money: true }) +
+        field(p + 'annualTaxes', 'Annual taxes', 'number', { required: isRental, money: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field(p + 'annualInsurance', 'Annual insurance', 'number', { required: isRental, money: true }) +
+        field(p + 'annualHoa', 'Annual HOA (if any)', 'number', { money: true }) +
+      '</div>' +
+    '</div>';
+  }
+  html += '<h4>Portfolio total</h4><div class="pf-totals" id="pfTotals">' + pfTotalsInner(pfComputeTotals(d)) + '</div>';
+  return html;
+}
+
 function hydrateGuarantorFields(data) {
   if (!data || !Array.isArray(data.guarantors)) return;
   data.guarantors.forEach(function(g, i) {
@@ -395,6 +529,7 @@ function loadFromServer() {
       STATE.prefill = resp.data.prefill || {};
       STATE.propAddress = resp.data.propertyAddress || '';
       STATE.loName = resp.data.loName || '';
+      hydratePropertyFields(STATE.data); // Deploy 237.268 -- portfolio rows → p<i>_ keys
       if (STATE.status === 'complete') {
         showComplete();
         return;
@@ -544,6 +679,19 @@ function applyPrefillToData() {
     if (!d.annualTaxes     && pf.loan.annualTaxes)     d.annualTaxes     = pf.loan.annualTaxes;
     if (!d.annualInsurance && pf.loan.annualInsurance) d.annualInsurance = pf.loan.annualInsurance;
     if (!d.annualHOA       && pf.loan.annualHOA)       d.annualHOA       = pf.loan.annualHOA;
+    // Deploy 237.268 -- a portfolio loan: the Property / Collateral rows from Loan Details
+    // prefill the per-property cards (blanks only; a borrower's own answer always wins).
+    if (pf.loan.isPortfolio) {
+      if (!d.propertyType) d.propertyType = 'portfolio';
+      if (!d.propertyCount && pf.loan.propertyCount) d.propertyCount = String(pf.loan.propertyCount);
+      (pf.loan.properties || []).forEach(function (row, i) {
+        if (!row) return;
+        PF_FIELDS.forEach(function (k) {
+          var key = 'p' + i + '_' + k;
+          if ((d[key] === undefined || d[key] === '') && row[k]) d[key] = String(row[k]);
+        });
+      });
+    }
   }
 
   // ── Item #6: Guarantor 1 prefill ────────────────────────
@@ -913,6 +1061,11 @@ function renderPage3() {
   // locks Property Type when the borrower picked "DSCR 5+ Unit
   // Multifamily" on page 1 (onLoanTypeChoice auto-set it to 'mfr').
   var isMfr5 = pt === 'mfr';
+  // Deploy 237.268 (Mike) -- Portfolio: the physical questions move into one card per property
+  // (renderPortfolioBlock) and the loan-level rent / taxes / insurance / HOA / value / debt lock
+  // to the portfolio totals.
+  var isPortfolio = pt === 'portfolio';
+  if (isPortfolio) pfApplyTotals(false);
   var _ptLockedMf = (d.loanTypeChoice === 'dscr_mf');
   var html = '<h3>Property & loan details</h3>' +
 
@@ -938,19 +1091,20 @@ function renderPage3() {
 
   if (isMulti) html += field('numUnits', 'Number of Units', 'number', { required: true });
 
-  if (lt !== 'construction' && !isMfr5) {
+  if (lt !== 'construction' && !isMfr5 && !isPortfolio) {
     html += '<div class="field-row">' +
       field('bedrooms',  'Number of Bedrooms',  'number', { required: true }) +
       field('bathrooms', 'Number of Bathrooms', 'number', { required: true, step: '0.5' }) +
       '</div>';
   }
 
-  if (!isMfr5) {
+  if (!isMfr5 && !isPortfolio) {
     html += '<div class="field-row">' +
       field('sqft',    'Property Square Footage', 'number', { required: true }) +
       field('lotSize', 'Estimated Lot Size (if more than 1 acre)', 'number') +
       '</div>';
   }
+  if (isPortfolio) html += renderPortfolioBlock(d, lt);
 
   // ── Loan-type-specific blocks ────────────────────────
   if (lt === 'fix_flip') {
@@ -1000,8 +1154,8 @@ function renderPage3() {
     }
     if (isRefi) {
       html += '<div class="field-row">' +
-        field('currentValue',     'Current Value of the Property', 'number', { required: true, money: true }) +
-        field('currentLoanAmount','Current Loan Amount',           'number', { required: true, money: true }) +
+        field('currentValue',     isPortfolio ? 'Current Value (all properties)' : 'Current Value of the Property', 'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
+        field('currentLoanAmount', isPortfolio ? 'Current Loan Amount (all properties)' : 'Current Loan Amount', 'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
         '</div>' +
         '<div class="field-row">' +
           field('requestedLoanDSCR','Desired New Loan Amount', 'number', { required: true, money: true }) +
@@ -1024,7 +1178,7 @@ function renderPage3() {
       // questions at sign time.
       var isMfr = pt === 'mfr';
       html += '<h4>Rental income & expenses</h4>' +
-        field('currentRent', isMfr ? 'Total Monthly Rent (all units)' : 'Current Rent (or Market Rent if not rented)', 'number', { required: true, money: true }) +
+        field('currentRent', isMfr ? 'Total Monthly Rent (all units)' : (isPortfolio ? 'Monthly Rent (all properties)' : 'Current Rent (or Market Rent if not rented)'), 'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
         (isMfr ? field('otherIncomeMo', 'Other Monthly Income (laundry, parking, etc.)', 'number', { money: true }) : '');
       // Deploy 236.759 — MF (5+) asks about the unit MIX instead of the
       // single "what kind of rental" select (an apartment building can be
@@ -1082,9 +1236,9 @@ function renderPage3() {
           '</div>';
       } else {
         html += '<div class="field-row-3">' +
-          field('annualTaxes',     'Annual Taxes',       'number', { required: true, money: true }) +
-          field('annualInsurance', 'Annual Insurance',   'number', { required: true, money: true }) +
-          field('annualHOA',       'Annual HOA / other', 'number', { money: true }) +
+          field('annualTaxes',     'Annual Taxes',       'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
+          field('annualInsurance', 'Annual Insurance',   'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
+          field('annualHOA',       'Annual HOA / other', 'number', pfLockOpts(isPortfolio, { money: true })) +
           '</div>';
       }
       html += field('hasPropMgr', 'Do you use a property management company?', 'radio', {
@@ -1097,8 +1251,8 @@ function renderPage3() {
   if (lt === 'dscr_2nd') {
     html += '<h4>2nd position details</h4>' +
       '<div class="field-row">' +
-        field('currentValue',          'Current Value of the Property', 'number', { required: true, money: true }) +
-        field('currentLoanAmount',     'Current 1st Position Loan Amount', 'number', { required: true, money: true }) +
+        field('currentValue',          isPortfolio ? 'Current Value (all properties)' : 'Current Value of the Property', 'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
+        field('currentLoanAmount',     isPortfolio ? 'Current 1st Position Loan Amount (all properties)' : 'Current 1st Position Loan Amount', 'number', pfLockOpts(isPortfolio, { required: true, money: true })) +
       '</div>' +
       '<div class="field-row">' +
         field('current1stRate',        'Current 1st Position Interest Rate', 'text', { required: true, placeholder: 'e.g. 6.5%' }) +
@@ -1492,15 +1646,41 @@ function renderPage5() {
     g.mailingSameAsHome === 'no' ? row('Mailing Address', g.mailingAddress) : '',
   ]);
 
+  var _isPf = d.propertyType === 'portfolio';
   html += summarySection('Property', [
     row('Address',       d.propertyAddress),
     row('Property Type', d.propertyType),
     row('Units',         d.numUnits),
-    row('Bedrooms',      d.bedrooms),
-    row('Bathrooms',     d.bathrooms),
-    row('Square Footage', d.sqft),
+    _isPf ? '' : row('Bedrooms',      d.bedrooms),
+    _isPf ? '' : row('Bathrooms',     d.bathrooms),
+    _isPf ? '' : row('Square Footage', d.sqft),
     row('Flood Zone',    d.floodZone),
   ]);
+  // Deploy 237.268 -- portfolio: every property, then the totals the loan answers sum to.
+  if (_isPf) {
+    var _pfRows = pfCollectRows(d), _pfT = pfComputeTotals(d);
+    var _m = function (v) { return pfNum(v) > 0 ? formatMoneyDisplay(String(pfNum(v))) : ''; };
+    var _pfLines = [];
+    for (var _pi = 0; _pi < _pfRows.length; _pi++) {
+      var _r = _pfRows[_pi];
+      _pfLines.push(row('Property ' + (_pi + 1), _r.address));
+      _pfLines.push(row('Bed / Bath / Sq Ft', [_r.bedrooms || '—', _r.bathrooms || '—', _r.sqft || '—'].join(' / ')));
+      _pfLines.push(row('Value / Existing Debt', (_m(_r.propValue) || '—') + ' / ' + (_m(_r.existingDebt) || 'none')));
+      _pfLines.push(row('Monthly Rent', _m(_r.monthlyRent)));
+      _pfLines.push(row('Annual Taxes / Insurance / HOA', [_m(_r.annualTaxes) || '—', _m(_r.annualInsurance) || '—', _m(_r.annualHoa) || '—'].join(' / ')));
+    }
+    html += summarySection('Portfolio Properties (' + _pfRows.length + ')', _pfLines);
+    html += summarySection('Portfolio Total', [
+      row('Properties', String(_pfT.count)),
+      row('Bedrooms / Bathrooms / Sq Ft', [_pfT.bedrooms, _pfT.bathrooms, _pfT.sqft].join(' / ')),
+      row('Total Estimated Value', _m(_pfT.propValue)),
+      row('Total Existing Debt', _m(_pfT.existingDebt)),
+      row('Total Monthly Rent', _m(_pfT.monthlyRent)),
+      row('Total Annual Taxes', _m(_pfT.annualTaxes)),
+      row('Total Annual Insurance', _m(_pfT.annualInsurance)),
+      row('Total Annual HOA', _m(_pfT.annualHoa)),
+    ]);
+  }
 
   html += summarySection('Loan', [
     row('Loan Type',              d.loanType),
@@ -1992,7 +2172,7 @@ function field(name, label, type, opts) {
   var step = opts.step ? ' step="' + opts.step + '"' : '';
   // Locked = read-only display, value still posted on save (uses hidden input)
   var locked = opts.locked === true;
-  var lockedAttr = locked ? ' disabled aria-disabled="true" title="Set by your loan officer"' : '';
+  var lockedAttr = locked ? ' disabled aria-disabled="true" title="' + escAttr(opts.lockedTitle || 'Set by your loan officer') + '"' : '';
   var html = '<div class="field' + (locked ? ' locked-field' : '') + '" data-name="' + escAttr(name) + '">' +
     '<label for="f_' + escAttr(name) + '">' + escH(label) + req + '</label>';
 
@@ -2132,6 +2312,7 @@ function onFieldChange(el) {
     }
   }
   STATE.data[name] = val;
+  if (/^p\d+_/.test(name)) pfApplyTotals(); // Deploy 237.268 -- a property answer re-sums the Portfolio total
   scheduleAutoSave();
 }
 
@@ -2374,7 +2555,7 @@ function packDataForSave() {
   var out = {};
   // Copy all top-level fields
   Object.keys(d).forEach(function(k) {
-    if (!k.startsWith('g0_') && !k.startsWith('g1_')) out[k] = d[k];
+    if (!k.startsWith('g0_') && !k.startsWith('g1_') && !/^p\d+_/.test(k)) out[k] = d[k];
   });
   // Build guarantors array from g0_/g1_ prefixed fields
   var gs = [];
@@ -2392,6 +2573,10 @@ function packDataForSave() {
     if (hasAny) gs.push(g);
   });
   if (gs.length) out.guarantors = gs;
+  // Deploy 237.268 -- portfolio rows: p<i>_ keys → properties[] (the rows within the chosen
+  // count, portfolio mode only; leaving portfolio mode clears them).
+  if (d.propertyType === 'portfolio') { out.properties = pfCollectRows(d); }
+  else { out.properties = []; out.propertyCount = ''; }
 
   // Item #8: Build the companies array. If borrower has filled in LLC fields,
   // emit one company entry. Merge with the prior companies list so we don't

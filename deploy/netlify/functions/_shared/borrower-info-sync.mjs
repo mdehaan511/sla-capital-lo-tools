@@ -50,6 +50,9 @@ import { mirror as pgMirror } from './pg-mirror.mjs';
 // city/state/zip even when the borrower used single-line autocomplete
 // in the long app.
 import { parseAddress } from './address.mjs';
+// Deploy 237.268 -- a portfolio application's per-property answers → the loan's Property /
+// Collateral rows (merged onto the LO's rows, never clearing what the LO typed).
+import { mergePortfolioIntoLoan, isPortfolioApplication } from './portfolio-properties.mjs';
 
 // Translate the long-form property-type slug to the loan-record slug.
 // Long form may emit: sfh, sfr, 2-4, 5+, condo_w, condo_nw, townhome,
@@ -138,6 +141,16 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.bedrooms)        loanUpdates.bedrooms       = String(data.bedrooms);
   if (data.bathrooms)       loanUpdates.bathrooms      = String(data.bathrooms);
   if (data.sqft)            loanUpdates.sqft           = String(data.sqft);
+  // Deploy 237.268 (Mike) -- a portfolio application: the per-property answers go to the loan's
+  // Property / Collateral rows (merged below, where the loan is in hand), and the loan-level
+  // beds / baths / sq ft are NOT written -- a portfolio keeps those per property (Loan Details
+  // hides the loan-level cells), and data.bedrooms here could only be a stale single-property
+  // prefill.
+  const _isPortfolioApp = isPortfolioApplication(data);
+  if (_isPortfolioApp) {
+    delete loanUpdates.bedrooms; delete loanUpdates.bathrooms; delete loanUpdates.sqft;
+    if (Array.isArray(data.properties) && data.properties.length) loanUpdates._portfolio = true;
+  }
   if (data.propertyType)    loanUpdates.propType       = normalizePropType(data.propertyType);
   if (data.currentLoanAmt)  loanUpdates.currentLoanAmt = String(data.currentLoanAmt);
   if (data.currentLoanAmount) loanUpdates.currentLoanAmt = String(data.currentLoanAmount);
@@ -403,6 +416,17 @@ export async function syncPropertyFieldsToLoan(record) {
             Object.keys(incoming).forEach((f) => {
               if (g[f] !== incoming[f]) { g[f] = incoming[f]; changed = true; }
             });
+          });
+          return;
+        }
+        // Deploy 237.268 -- portfolio rows: each answer onto the row in the same position, the
+        // LO's other fields (propType, appraised value) and extra rows kept, isPortfolio /
+        // propertyCount / propType set so Loan Details shows the tabs.
+        if (k === '_portfolio') {
+          const pfNext = mergePortfolioIntoLoan(targetLoan, data);
+          if (!pfNext) return;
+          Object.keys(pfNext).forEach((f) => {
+            if (JSON.stringify(targetLoan[f] === undefined ? null : targetLoan[f]) !== JSON.stringify(pfNext[f])) { targetLoan[f] = pfNext[f]; changed = true; }
           });
           return;
         }
