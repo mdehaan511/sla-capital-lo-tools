@@ -1,0 +1,55 @@
+name: Claude Code
+
+# Runs Claude Code when someone tags @claude on an issue, an issue comment, a PR review or a
+# PR review comment. The Slack watcher on #camelot-issue-reporting / #platform-errors files
+# each bug as an issue tagged @claude, so a filed bug becomes a fix PR for Mike to review.
+#
+# Needs, once, on the repo (Settings → Secrets and variables → Actions):
+#   ANTHROPIC_API_KEY  — an Anthropic API key; or, on a Claude Max subscription, run
+#                        `claude setup-token` locally and store the result as
+#                        CLAUDE_CODE_OAUTH_TOKEN, then swap the `with:` line below.
+# And the Claude GitHub App installed on this repo: https://github.com/apps/claude
+#
+# Only accounts with write access to the repo can trigger it (the action refuses others), so
+# the account the Slack watcher files issues from needs write access here.
+on:
+  issues:
+    types: [opened, assigned]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Claude Max instead of an API key:
+          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          #
+          # The repo's gates are plain node scripts (scripts/*-test.mjs, node --check); let a fix
+          # run them before it opens the PR. Everything else stays at the action's defaults.
+          claude_args: '--allowedTools "Bash(node scripts/*),Bash(node --check *),Bash(git diff *),Bash(git log *)"'
