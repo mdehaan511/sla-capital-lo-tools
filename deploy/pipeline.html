@@ -1628,6 +1628,19 @@ function processResults(results) {
       _items[k].sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
     });
 
+    // Deploy 237.278 — who actually owns a lead, for the LO filter's second rule
+    // (a non-LO is listed only while they have one). Built HERE because the board
+    // is what knows; populateLoFilter ran earlier in this pass, before _items
+    // existed, so it is re-run now that the answer is real.
+    _ownersWithLeads = {};
+    Object.keys(_items).forEach(function(k) {
+      (_items[k] || []).forEach(function(it) {
+        var o = String((it && it.ownerKey) || '').toLowerCase();
+        if (o) _ownersWithLeads[o] = true;
+      });
+    });
+    populateLoFilter();
+
     render();
 
     // Item #11: handle deep-link params from notification clicks. We do this
@@ -3770,12 +3783,32 @@ function loDisplay(ownerKey) {
 // loan officers (plain 'user' and senior_lo) and admins. Processors, the office assistant
 // and brokers never own a lead; they only made the list longer. A profile with no role at
 // all is a plain LO (users-stats defaults an empty roles array to ['user'] the same way).
-var LO_FILTER_ROLES = { user: true, senior_lo: true, admin: true, super_admin: true };
-function _ownsLeads(p) {
+// Deploy 237.278 (Mike: "any idea why the All LOs drop down isn't showing all the
+// LOs? … it is showing Diana for some reason and she's an underwriter") — two
+// halves of one list that was wrong in both directions.
+//
+// MISSING LOs: the allowlist had the LEGACY role name 'user' but not
+// 'loan_officer', which is what a loan officer's role has actually said since
+// the role table became authoritative. Everyone migrated to the current name was
+// filtered out — jeff, kayla, miguel, nabil, sierra, milk.delcorio and
+// eric.clunn — while the ones still labelled 'user' (Marianne, Jojo) survived.
+// That is why it looked arbitrary.
+//
+// DIANA: she is an underwriter, but her LOGIN role is admin, because underwriter
+// is a TEAM role on a loan and not a login role (237.216). No role list can tell
+// those two admins apart, so the page stops trying: an LO is always listed, empty
+// pipeline or not, and anyone ELSE is listed only while they actually own a lead.
+// Diana owns none and drops off; Mike, Chance and Jeremy own leads and stay. If
+// Dan takes one he reappears on the next load.
+var LO_FILTER_ROLES = { loan_officer: true, senior_lo: true, user: true };
+var _ownersWithLeads = {};   // ownerKey -> true, rebuilt with the board
+function _ownsLeads(p, ownerKey) {
   var roles = (p && Array.isArray(p.roles)) ? p.roles : [];
+  // No role at all is a plain LO (users-stats defaults an empty roles array the
+  // same way), so an unmigrated profile is never hidden.
   if (!roles.length) return true;
   for (var i = 0; i < roles.length; i++) { if (LO_FILTER_ROLES[roles[i]]) return true; }
-  return false;
+  return !!_ownersWithLeads[String(ownerKey || (p && p.email) || '').toLowerCase()];
 }
 
 function populateLoFilter() {
@@ -3794,7 +3827,7 @@ function populateLoFilter() {
   // Deploy 236.23 — hide deleted LOs (no longer in Netlify Identity).
   // Deploy 237.260 — and anyone who is not a loan officer or an admin (see _ownsLeads).
   var owners = Object.keys(_profileMap).filter(function(o) {
-    return !_profileMap[o].deleted && _ownsLeads(_profileMap[o]);
+    return !_profileMap[o].deleted && _ownsLeads(_profileMap[o], o);
   }).sort(function(a, b) {
     return loDisplay(a).localeCompare(loDisplay(b));
   });
