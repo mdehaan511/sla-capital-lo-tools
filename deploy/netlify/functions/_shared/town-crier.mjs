@@ -53,6 +53,45 @@ function shortName(n) {
 //   processor  the Closing Bell's credited team, role 'processor' only (the closer is not in
 //              this race; Keith has his own line)
 //   traded     loan.soldDate (Mark Sold / the trade) inside the week
+// Deploy 237.280 -- the cork board on Slack.
+export const BOARD_POST_KINDS = ['note', 'photo', 'video', 'shoutout'];
+const SLACK_BOARD_MAX = 20;
+const slackEsc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** One cork board post as a Slack line. Pure. */
+export function slackBoardLine(p) {
+  const who = slackEsc(shortName((p.author && p.author.name) || ''));
+  const txt = (x, n) => slackEsc(String(x || '').replace(/\s+/g, ' ').trim().slice(0, n));
+  if (p.kind === 'photo') return '📷 *' + who + '* — ' + (p.caption ? txt(p.caption, 300) : 'a photo');
+  if (p.kind === 'video') return '🎬 *' + who + '* — ' + (p.caption ? txt(p.caption, 300) : 'a clip') + (p.videoUrl ? ' <' + PORTAL + p.videoUrl + '|▶ watch>' : '');
+  if (p.kind === 'shoutout') return '🙌 *' + who + '* → *' + slackEsc((p.to && p.to.name) || 'the team') + '*: ' + txt(p.text, 500);
+  return '📌 *' + who + '*: ' + txt(p.text, 500);
+}
+/**
+ * The Slack message as Block Kit: text sections (each under Slack's 3,000-character limit, split
+ * on line breaks) with the photos as image blocks where they fall. Parts are strings or
+ * { image, alt }. Pure. The plain `text` is the notification / fallback.
+ */
+export function slackBlocksFrom(parts) {
+  const blocks = [];
+  let buf = [];
+  const flush = () => {
+    let t = buf.join('\n');
+    buf = [];
+    while (t.trim()) {
+      let cut = t.length > 2900 ? t.lastIndexOf('\n', 2900) : t.length;
+      if (cut <= 0) cut = 2900;
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: t.slice(0, cut) } });
+      t = t.slice(cut).replace(/^\n/, '');
+    }
+  };
+  (parts || []).forEach((p) => {
+    if (p && typeof p === 'object' && p.image) { flush(); blocks.push({ type: 'image', image_url: p.image, alt_text: String(p.alt || 'photo').slice(0, 200) }); }
+    else buf.push(String(p == null ? '' : p));
+  });
+  flush();
+  return blocks.slice(0, 50);
+}
+
 /** The week before the Monday on or before `ymd`: { from, to (exclusive), label }. Pure. */
 export function lastWeekRange(ymd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
@@ -151,8 +190,8 @@ export async function buildTownCrier(now) {
   const line = (html, text, slack) => { H.push('<p style="margin:4px 0;font-size:14px;line-height:1.55">' + html + '</p>'); T.push(text); if (slack !== false) S.push(slack != null ? slack : text); };
 
   // ── Deploy 237.279 (Mike) -- last week, first ──
-  // Closings stay on Slack (a closing is a people milestone); the three standings are email and
-  // Armory only, like every other leaderboard number (feedback: Slack = people milestones).
+  // Deploy 237.280 (Mike: "The closings, Volume Leader, Processor Count, and Trade Tally can all
+  // post in slack as well") -- all four sections post to Slack, not just the closings.
   section('🔔 Closings from Last Week (' + week.label + ')');
   if (closed.length) {
     closed.forEach((b) => {
@@ -169,34 +208,34 @@ export async function buildTownCrier(now) {
 
   section('📈 Most Volume to Approved');
   if (weekLoans == null) {
-    line('The pipeline numbers could not be read this morning.', 'The pipeline numbers could not be read this morning.', false);
+    line('The pipeline numbers could not be read this morning.', 'The pipeline numbers could not be read this morning.');
   } else if (W.approved.top) {
     const t = W.approved.top;
     line('<b>' + escH(t.name) + '</b> pushed <b>' + escH(fmtMoney(t.volume) || '$0') + '</b> into the Processing Pipeline (' + t.count + ' loan' + (t.count === 1 ? '' : 's') + ').',
-      t.name + ' pushed ' + (fmtMoney(t.volume) || '$0') + ' into the Processing Pipeline (' + t.count + ' loan' + (t.count === 1 ? '' : 's') + ').', false);
+      t.name + ' pushed ' + (fmtMoney(t.volume) || '$0') + ' into the Processing Pipeline (' + t.count + ' loan' + (t.count === 1 ? '' : 's') + ').');
     line('<span style="color:#5a4a36">The team moved ' + escH(fmtMoney(W.approved.volume) || '$0') + ' across ' + W.approved.count + ' loan' + (W.approved.count === 1 ? '' : 's') + ' to Approved.</span>',
-      'The team moved ' + (fmtMoney(W.approved.volume) || '$0') + ' across ' + W.approved.count + ' loans to Approved.', false);
+      'The team moved ' + (fmtMoney(W.approved.volume) || '$0') + ' across ' + W.approved.count + ' loans to Approved.');
   } else {
-    line('No loans moved to Approved last week.', 'No loans moved to Approved last week.', false);
+    line('No loans moved to Approved last week.', 'No loans moved to Approved last week.');
   }
 
   section('⚙ Most Closings by a Processor');
   if (W.processor) {
     const who = W.processor.names.length > 1 ? W.processor.names.slice(0, -1).join(', ') + ' and ' + W.processor.names[W.processor.names.length - 1] : W.processor.names[0];
     const n = W.processor.count + ' closing' + (W.processor.count === 1 ? '' : 's') + (W.processor.names.length > 1 ? ' each' : '');
-    line('<b>' + escH(who) + '</b> — ' + escH(n) + '. 🏆', who + ' — ' + n + '.', false);
+    line('<b>' + escH(who) + '</b> — ' + escH(n) + '. 🏆', who + ' — ' + n + '.');
   } else {
-    line('No processor was credited on a closing last week.', 'No processor was credited on a closing last week.', false);
+    line('No processor was credited on a closing last week.', 'No processor was credited on a closing last week.');
   }
 
   section('🤝 Traded & Sold');
   if (weekLoans == null) {
-    line('The trade numbers could not be read this morning.', 'The trade numbers could not be read this morning.', false);
+    line('The trade numbers could not be read this morning.', 'The trade numbers could not be read this morning.');
   } else if (W.sold.count) {
     line('We traded <b>' + W.sold.count + ' loan' + (W.sold.count === 1 ? '' : 's') + '</b>' + (W.sold.volume ? ' (' + escH(fmtMoney(W.sold.volume)) + ')' : '') + ' last week. Shout-out to <b>' + escH(W.sold.keith) + '</b> for getting ' + (W.sold.count === 1 ? 'it' : 'them') + ' across the line! 🙌',
-      'We traded ' + W.sold.count + ' loan' + (W.sold.count === 1 ? '' : 's') + (W.sold.volume ? ' (' + fmtMoney(W.sold.volume) + ')' : '') + ' last week. Shout-out to ' + W.sold.keith + '!', false);
+      'We traded ' + W.sold.count + ' loan' + (W.sold.count === 1 ? '' : 's') + (W.sold.volume ? ' (' + fmtMoney(W.sold.volume) + ')' : '') + ' last week. Shout-out to ' + W.sold.keith + '!');
   } else {
-    line('No loans traded last week.', 'No loans traded last week.', false);
+    line('No loans traded last week.', 'No loans traded last week.');
   }
 
   section('⚔ This month\'s quest: ' + quest.name);
@@ -236,13 +275,23 @@ export async function buildTownCrier(now) {
   // client because they carry their own credential (see corkboard.mjs);
   // they outlive the issue by a week, which is long enough for a Monday
   // digest and short enough to matter if one ever leaked.
-  const boardNew = await boardSince(weekAgo).catch(() => []);
+  // Deploy 237.280 (Mike: "... as well as any updates notes or photos from the CorkBoard") --
+  // Slack gets EVERY post from the week (the email keeps its four + a link): notes, shout-outs,
+  // photos shown as images (the same signed links the email uses), clips as a link. The tape and
+  // arrow decorations are not posts.
+  const boardNew = (await boardSince(weekAgo).catch(() => [])).filter((p) => BOARD_POST_KINDS.indexOf(p.kind || 'note') >= 0);
   if (boardNew.length) {
     section('📌 The Cork Board — last 7 days');
     line(escH(boardNew.length + (boardNew.length === 1 ? ' new thing went' : ' new things went') + ' up on the board.') +
       ' <a href="' + PORTAL + '/armory.html#news" style="color:#7c1f1f;font-weight:700">Take a look →</a>',
-      boardNew.length + ' new thing' + (boardNew.length === 1 ? '' : 's') + ' went up on the cork board: ' + PORTAL + '/armory.html#news');
-    boardNew.slice(0, 4).forEach((p) => {
+      boardNew.length + ' new thing' + (boardNew.length === 1 ? '' : 's') + ' went up on the cork board: ' + PORTAL + '/armory.html#news',
+      boardNew.length + ' new thing' + (boardNew.length === 1 ? '' : 's') + ' went up on the cork board — <' + PORTAL + '/armory.html#news|take a look →>');
+    boardNew.slice(0, SLACK_BOARD_MAX).forEach((p) => {
+      S.push(slackBoardLine(p));
+      if (p.kind === 'photo' && p.photoUrl) S.push({ image: PORTAL + p.photoUrl, alt: String(p.caption || 'Cork board photo') });
+    });
+    if (boardNew.length > SLACK_BOARD_MAX) S.push('…and ' + (boardNew.length - SLACK_BOARD_MAX) + ' more on the board.');
+    boardNew.slice(0, 4).forEach((p) => {   // the email's four
       const who = shortName((p.author && p.author.name) || '');
       const what = (p.kind === 'photo')
         ? (p.caption ? escH(p.caption) : 'a photo')
@@ -251,7 +300,7 @@ export async function buildTownCrier(now) {
         ? '<div style="margin:4px 0"><img src="' + PORTAL + p.photoUrl + '" alt="" style="max-width:180px;border:4px solid #fffdf7;border-radius:3px" /></div>'
         : '';
       line('📌 <b>' + escH(who) + '</b> — ' + what + thumb,
-        '📌 ' + who + ' — ' + (p.kind === 'photo' ? (p.caption || 'a photo') : String(p.text || '').slice(0, 120).replace(/\n/g, ' ')));
+        '📌 ' + who + ' — ' + (p.kind === 'photo' ? (p.caption || 'a photo') : String(p.text || '').slice(0, 120).replace(/\n/g, ' ')), false); // Slack: every post, above
     });
   }
 
@@ -291,8 +340,12 @@ export async function buildTownCrier(now) {
       '</div>' +
     '</div></body></html>';
   const text = ['📯 THE TOWN CRIER — SLA Capital, week of ' + prettyYmd(ymd)].concat(T, ['', 'The Armory: ' + PORTAL + '/armory.html']).join('\n');
-  const slack = ['📯 *THE TOWN CRIER* — week of ' + prettyYmd(ymd)].concat(S, ['<' + PORTAL + '/armory.html|🏰 Visit the Armory>']).join('\n');
-  return { subject, html, text, slack, ymd, month, stats: { closed: closed.length, celebrations: cele.length, knights: board.length,
+  // Deploy 237.280 -- S may carry { image } parts (cork board photos): the text fallback links
+  // them, the blocks show them.
+  const slackParts = ['📯 *THE TOWN CRIER* — week of ' + prettyYmd(ymd)].concat(S, ['<' + PORTAL + '/armory.html|🏰 Visit the Armory>']);
+  const slack = slackParts.map((x) => (x && typeof x === 'object' && x.image) ? '<' + x.image + '|📷 photo>' : x).join('\n');
+  const slackBlocks = slackBlocksFrom(slackParts);
+  return { subject, html, text, slack, slackBlocks, ymd, month, stats: { closed: closed.length, celebrations: cele.length, knights: board.length,
     week: week.label, approvedTop: W.approved.top ? { name: W.approved.top.name, volume: W.approved.top.volume, count: W.approved.top.count } : null,
     processorTop: W.processor, sold: W.sold.count } };   // Deploy 237.279
 }
@@ -331,7 +384,10 @@ export async function sendTownCrier(opts) {
   const profiles = await loadTeamProfiles();
   const results = await Promise.all(profiles.map((p) => _sendEmail(p.email, issue.subject, issue.html, issue.text).then((ok) => (ok ? p.email : null))));
   const sentTo = results.filter(Boolean);
-  await postSlack({ text: issue.slack }, { channel: 'armory' });
+  // Deploy 237.280 -- with the photos as image blocks; if Slack refuses the blocks (an image it
+  // cannot fetch fails the whole message), the same issue goes again as plain text.
+  let slackRes = await postSlack({ text: issue.slack, blocks: issue.slackBlocks }, { channel: 'armory' });
+  if (slackRes && !slackRes.ok && !slackRes.skipped) slackRes = await postSlack({ text: issue.slack }, { channel: 'armory' });
   await store.setJSON(key, { ymd: issue.ymd, subject: issue.subject, html: issue.html, sentTo, at: new Date().toISOString(), stats: issue.stats });
   await touchPulse('crier', 'A new Town Crier is out'); // Deploy 237.085
   console.log('[town-crier] sent', { ymd: issue.ymd, sentTo: sentTo.length, of: profiles.length });

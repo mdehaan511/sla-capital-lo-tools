@@ -111,10 +111,68 @@ console.log('\nThe issue: last week first, standings off Slack');
   check('the first four sections are Mike\'s four, in his order, then the rest', heads.slice(0, 5).map((h) => h.replace(/ \(.*\)$/, '')), ['🔔 Closings from Last Week', '📈 Most Volume to Approved', '⚙ Most Closings by a Processor', '🤝 Traded &amp; Sold', '⚔ This month&#39;s quest: Coin Catch'.replace('&#39;', '\'')]);
   assert('the email says each number', /<b>Sara Smith<\/b> pushed <b>\$528,750<\/b> into the Processing Pipeline \(2 loans\)/.test(issue.html) && /<b>Beth<\/b> — 4 closings\./.test(issue.html) && /We traded <b>3 loans<\/b> \(\$383,000\) last week\. Shout-out to <b>Keith Lawson<\/b>/.test(issue.html) && /<b>5 loans · \$1,150,000<\/b>/.test(issue.html), issue.html.slice(issue.html.indexOf('Most Volume'), issue.html.indexOf('Most Volume') + 400));
   assert('Slack gets the closings (a people milestone)', /\*🔔 Closings from Last Week/.test(issue.slack) && /closed \$400,000 RTL at 400000 Oak St/.test(issue.slack));
-  assert('...but not the standings: no volume leader, processor count or trade tally', !/pushed \$528,750|Beth — 4|We traded|Shout-out/.test(issue.slack), issue.slack);
+  // Deploy 237.280 (Mike: "The closings, Volume Leader, Processor Count, and Trade Tally can all post in slack as well")
+  assert('...and the three standings too: volume leader, processor count, trade tally with Keith', /Sara Smith pushed \$528,750 into the Processing Pipeline/.test(issue.slack) && /Beth — 4 closings/.test(issue.slack) && /We traded 3 loans \(\$383,000\) last week\. Shout-out to Keith Lawson!/.test(issue.slack), issue.slack);
   assert('the plain-text email has them too', /Sara Smith pushed \$528,750/.test(issue.text) && /Shout-out to Keith Lawson/.test(issue.text));
   check('the archive keeps the numbers', [issue.stats.approvedTop.name, issue.stats.processorTop.count, issue.stats.sold, issue.stats.closed], ['Sara Smith', 4, 3, 5]);
   assert('the old 7-day Closing Bell section is gone (it IS the first section now)', !/last 7 days/.test(issue.html.split('Cork Board')[0]));
+}
+
+// ── Deploy 237.280 -- the cork board on Slack: every post, photos shown ────
+console.log('\nThe cork board on Slack');
+{
+  const at = (d) => d + 'T18:00:00Z';
+  const board = [
+    { id: 'b1', kind: 'note', text: 'Welcome aboard,\nNabil! <3 & more', author: { name: 'Beth Ortiz' }, createdAt: at('2026-09-27') },
+    { id: 'b2', kind: 'photo', caption: 'Closing day at 5909 Cates', photoUrl: '/api/armory-photo?id=b2&e=1&s=x', author: { name: 'Jessy Rimando' }, createdAt: at('2026-09-26') },
+    { id: 'b3', kind: 'shoutout', text: 'Saved the Luna Court close', to: { name: 'Keith Lawson' }, author: { name: 'Mike DeHaan' }, createdAt: at('2026-09-25') },
+    { id: 'b4', kind: 'video', caption: 'Team lunch', videoUrl: '/api/armory-photo?id=b4&k=v&e=1&s=y', photoUrl: '/api/armory-photo?id=b4&e=1&s=z', author: { name: 'Sara Smith' }, createdAt: at('2026-09-24') },
+    { id: 'b5', kind: 'photo', caption: '', photoUrl: '/api/armory-photo?id=b5&e=1&s=w', author: { name: 'Raissa' }, createdAt: at('2026-09-23') },
+    { id: 'b6', kind: 'tape', author: { name: 'Beth Ortiz' }, createdAt: at('2026-09-23') },
+    { id: 'b7', kind: 'note', text: 'Fifth post', author: { name: 'Carl Davis' }, createdAt: at('2026-09-22') },
+  ];
+  const posts = [];
+  const rows = loans.map((l) => ({ owner_email: l.owner, address: l.address, loan_amt: l.amount, welcome_at: l.welcomeAt, sold_date: l.soldDate }));
+  const mk = (postSlack) => loadModule('_shared/town-crier.mjs', {
+    '@netlify/blobs': { getStore: () => ({ get: async () => null, list: async () => ({ blobs: [] }), setJSON: async () => {} }) },
+    './slack.mjs': { postSlack },
+    './armory.mjs': { listAllMonths: async () => ({}), legendsFrom: () => [], getEvents: async () => [], monthKey: () => '2026-09', monthLabel: () => 'September 2026', daysLeftInMonth: () => 2, questForMonth: () => ({ id: 'q', name: 'Coin Catch', href: '/coin-catch.html' }), touchPulse: async () => {} },
+    './closing-bell.mjs': { listBells: async () => bells, fmtMoney: CB.fmtMoney },
+    './team-events.mjs': Object.assign({}, TE, { loadTeamProfiles: async () => profiles, upcomingCelebrations: () => [] }),
+    './achievements.mjs': { getAchievementsIndex: async () => null, DEEDS: [], RANKS: [] },
+    './corkboard.mjs': { boardSince: async () => board },
+    './supabase-db.mjs': { db: { select: async (t, o) => (o.offset ? [] : rows) } },
+  });
+  const M = await mk(async (msg) => { posts.push(msg); return { ok: true }; });
+  const issue = await M.buildTownCrier(new Date('2026-09-28T15:00:00Z'));
+  const sl = issue.slack;
+  assert('every post from the week is on Slack (not just four), each by kind', /📌 \*Beth O\.\*: Welcome aboard, Nabil! &lt;3 &amp; more/.test(sl) && /📷 \*Jessy R\.\* — Closing day at 5909 Cates/.test(sl) &&
+    /🙌 \*Mike D\.\* → \*Keith Lawson\*: Saved the Luna Court close/.test(sl) && /🎬 \*Sara S\.\* — Team lunch <https:\/\/portal\.slacapital\.ai\/api\/armory-photo\?id=b4&k=v&e=1&s=y\|▶ watch>/.test(sl) &&
+    /📷 \*Raissa\* — a photo/.test(sl) && /📌 \*Carl D\.\*: Fifth post/.test(sl), sl.slice(sl.indexOf('Cork Board') - 5));
+  assert('...the tape decoration is not a post', !/b6|tape/i.test(sl.slice(sl.indexOf('Cork Board'))) && /6 new things went up on the cork board/.test(sl));
+  const idx = (t) => issue.slackBlocks.findIndex((b) => b.type === 'image' && b.image_url.indexOf(t) >= 0);
+  check('the photos are image blocks, the public signed link on the portal', issue.slackBlocks.filter((b) => b.type === 'image').map((b) => [b.image_url, b.alt_text]),
+    [['https://portal.slacapital.ai/api/armory-photo?id=b2&e=1&s=x', 'Closing day at 5909 Cates'], ['https://portal.slacapital.ai/api/armory-photo?id=b5&e=1&s=w', 'Cork board photo']]);
+  const before = issue.slackBlocks[idx('id=b2') - 1];
+  assert('...each right under its own line', before && before.type === 'section' && /Jessy R\.\* — Closing day at 5909 Cates$/.test(before.text.text), before && before.text.text.slice(-120));
+  assert('every text block is under Slack\'s 3,000-character limit, and nothing is empty', issue.slackBlocks.every((b) => b.type !== 'section' || (b.text.text.length <= 3000 && b.text.text.trim().length > 0)) && issue.slackBlocks.length <= 50);
+  check('the plain text links the photos instead', (sl.match(/\|📷 photo>/g) || []).length, 2);
+  const long = M.slackBlocksFrom([Array.from({ length: 200 }, (_, i) => 'line ' + i + ' ' + 'x'.repeat(40)).join('\n')]);
+  assert('a long issue splits on line breaks into several sections', long.length > 2 && long.every((b) => b.text.text.length <= 2900) && long.map((b) => b.text.text).join('\n').split('\n').length === 200);
+  assert('the email keeps its four and a link', (issue.html.match(/📌 <b>/g) || []).length === 4 && /Take a look →/.test(issue.html));
+
+  // sending: blocks first; if Slack refuses them, the same issue again as plain text
+  posts.length = 0;
+  await M.sendTownCrier({ force: true });
+  check('sent once, with the blocks and the text fallback', [posts.length, Array.isArray(posts[0].blocks) && posts[0].blocks.length > 0, /^📯 \*THE TOWN CRIER\*/.test(posts[0].text)], [1, true, true]);
+  const tries = [];
+  const M2 = await mk(async (msg) => { tries.push(msg); return tries.length === 1 ? { ok: false, status: 400, error: 'invalid_blocks' } : { ok: true }; });
+  await M2.sendTownCrier({ force: true });
+  check('Slack refuses the blocks: sent again as text only', [tries.length, !!tries[0].blocks, !!tries[1].blocks, !!tries[1].text], [2, true, false, true]);
+  const skipped = [];
+  const M3 = await mk(async (msg) => { skipped.push(msg); return { ok: false, skipped: true }; });
+  await M3.sendTownCrier({ force: true });
+  check('no Slack configured: no retry', skipped.length, 1);
 }
 
 console.log('\n' + (fail ? fail + ' CHECK(S) FAILED' : 'all checks pass'));
