@@ -760,17 +760,19 @@ var getFICOMin = SLA_DSCR.getFICOMin;
             <option value="321" data-std="1">3-Year (321)</option>
             <option value="320" data-std="1">2-Year (320)</option>
             <option value="300" data-std="1">1-Year (300)</option>
-            <!-- Deploy 237.277 (Mike): Ohio law caps a prepayment penalty at 1%. These replace
-                 the ones above when the property is in Ohio AND Admin Mode is on (237.282: a
-                 DIYA loan keeps the standard structures) -- _syncOhioPrepay. -->
+            <!-- Deploy 237.277 (Mike): Ohio law caps a prepayment penalty at 1%. Shown ALONGSIDE the
+                 ones above for an Ohio address in Admin Mode (237.283: an admin may be pricing a
+                 DIYA loan, which keeps the standard structures) -- _syncOhioPrepay. -->
+            <optgroup id="ohioPrepayGroup" label="Ohio 1% (investors other than DIYA)" hidden disabled>
             <option value="11111" data-ohio="1" hidden disabled>5-Year (1-1-1-1-1)</option>
             <option value="1111" data-ohio="1" hidden disabled>4-Year (1-1-1-1)</option>
             <option value="111" data-ohio="1" hidden disabled>3-Year (1-1-1)</option>
             <option value="11" data-ohio="1" hidden disabled>2-Year (1-1)</option>
             <option value="1" data-ohio="1" hidden disabled>1-Year (1)</option>
+            </optgroup>
             <option value="none">No Prepayment Penalty</option>
           </select>
-          <div id="ohioPrepayNote" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);margin-top:4px">Ohio property, Admin Mode: prepayment penalties are capped at 1% by state law (DIYA loans keep the standard structures).</div>
+          <div id="ohioPrepayNote" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);margin-top:4px">Ohio property: state law caps a prepayment penalty at 1% — pick a 1% structure for a loan priced off another investor; a DIYA loan keeps the standard ones.</div>
         </div>
       </div>
       <div class="field">
@@ -1042,34 +1044,35 @@ function renderLockPricingBanner() {
 // pricing math is SLA_DSCR.priceDSCR (golden-locked, byte-identical
 // to the pre-extraction inline code per scripts/pricing-test.mjs).
 // Deploy 237.277 (Mike: "if a loan is in Ohio make it so the prepayment penalties are all 1
-// point as that is Ohio state law. So its 1-1-1-1-1, 1-1-1-1, 1-1-1, 1-1, 1"). Both sets of
-// choices live in the list, so whatever path fills the form -- a new quote, a saved quote, a
-// prospect, a restored draft -- the saved value always sticks; this shows the set that applies
-// to the address and moves the choice across (same length; there is no 4-year stepdown, so
-// 1-1-1-1 comes back as the 5-year). Runs at the top of every calculate().
-var OHIO_PREPAY_FROM = { '5y6m': '11111', '54321': '11111', '321': '111', '320': '11', '300': '1' };
+// point as that is Ohio state law. So its 1-1-1-1-1, 1-1-1-1, 1-1-1, 1-1, 1").
+// Deploy 237.282: only in Admin Mode ("if its a DIYA loan its still the same PPP").
+// Deploy 237.283 (Mike: "Admin mode needs to be able to do both of those for Ohio since
+// sometimes they do Admin mode and its a DIYA loan"): an Ohio address in Admin Mode offers BOTH
+// sets and switches nothing -- the admin picks the 1% structure for another investor or keeps
+// the standard one for DIYA. Everywhere else (Admin Mode off, or not Ohio) only the standard set
+// shows, and a leftover Ohio code maps back to the same length (1-1-1-1 → the 5-year). Both sets
+// always live in the list, so a saved Ohio code loads on every path. Runs at the top of every
+// calculate(); toggling Admin Mode reprices, so the list follows the toggle.
 var OHIO_PREPAY_BACK = { '11111': '54321', '1111': '54321', '111': '321', '11': '320', '1': '300' };
 function _syncOhioPrepay() {
   var sel = $('prepay'), addr = $('propAddress');
   if (!sel || !addr) return false;
   var st = (window.SLA_DSCR && SLA_DSCR.extractStateFromAddress) ? SLA_DSCR.extractStateFromAddress(addr.value || '') : '';
-  // Deploy 237.282 (Mike: "make it so that Ohio PPP change only happens in Admin mode since if
-  // its a DIYA loan its still the same PPP") -- a DIYA-priced Ohio loan keeps the standard
-  // structures; the 1% set is for a loan priced off another investor (Admin Mode).
-  var ohio = st === 'OH' && !!window._dscrAdminMode;
+  var both = st === 'OH' && !!window._dscrAdminMode;
   var opts = sel.options || [];
   for (var i = 0; i < opts.length; i++) {
     var o = opts[i];
-    var off = ohio ? o.getAttribute('data-std') === '1' : o.getAttribute('data-ohio') === '1';
+    var off = !both && o.getAttribute('data-ohio') === '1';
     o.hidden = off;
     o.disabled = off;
   }
+  var grp = $('ohioPrepayGroup');
+  if (grp) { grp.hidden = !both; grp.disabled = !both; }
   var v = sel.value;
-  if (ohio && OHIO_PREPAY_FROM[v]) sel.value = OHIO_PREPAY_FROM[v];
-  if (!ohio && OHIO_PREPAY_BACK[v]) sel.value = OHIO_PREPAY_BACK[v];
+  if (!both && OHIO_PREPAY_BACK[v]) sel.value = OHIO_PREPAY_BACK[v];
   var note = $('ohioPrepayNote');
-  if (note) note.style.display = ohio ? '' : 'none';
-  return ohio;
+  if (note) note.style.display = both ? '' : 'none';
+  return both;
 }
 
 function calculate() {

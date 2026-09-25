@@ -43,7 +43,7 @@ E.setPricingAsOf('');
 check('the address helper the sizer uses', [E.extractStateFromAddress('12 Elm St, Columbus, OH 43215, USA'), E.extractStateFromAddress('9 Oak Rd, Spokane, WA 99208')], ['OH', 'WA']);
 
 // ── 2. the sizer ────────────────────────────────────────────────────────────
-console.log('\nThe DSCR sizer switches the choices for an Ohio address -- in Admin Mode only (237.282)');
+console.log('\nThe DSCR sizer: Ohio + Admin Mode offers both sets; otherwise the standard set (237.283)');
 
 const H = read('dscr-sizer.html');
 const selHtml = H.match(/<select id="prepay">([\s\S]*?)<\/select>/)[1];
@@ -63,39 +63,37 @@ function page(addr, value, admin) {
   const note = { style: { display: 'none' } };
   const els = { prepay: sel, propAddress: { value: addr }, ohioPrepayNote: note };
   // eslint-disable-next-line no-new-func
-  const run = new Function('$', 'window', 'SLA_DSCR', H.match(/var OHIO_PREPAY_FROM = \{[^}]*\};/)[0] + '\n' + H.match(/var OHIO_PREPAY_BACK = \{[^}]*\};/)[0] + '\n' + lift('_syncOhioPrepay') + '\nreturn _syncOhioPrepay;')((id) => els[id], { SLA_DSCR: E, _dscrAdminMode: admin === undefined ? true : !!admin }, E);
+  const run = new Function('$', 'window', 'SLA_DSCR', H.match(/var OHIO_PREPAY_BACK = \{[^}]*\};/)[0] + '\n' + lift('_syncOhioPrepay') + '\nreturn _syncOhioPrepay;')((id) => els[id], { SLA_DSCR: E, _dscrAdminMode: admin === undefined ? true : !!admin }, E);
   return { sel, note, sync: run, shown: () => options.filter((o) => !o.hidden).map((o) => o.value) };
 }
-let P = page('12 Elm St, Columbus, OH 43215, USA', '54321');
-check('before an Ohio address: the standard choices', P.shown(), ['5y6m', '54321', '321', '320', '300', 'none']);
+// Deploy 237.283 (Mike): "Admin mode needs to be able to do both of those for Ohio since sometimes
+// they do Admin mode and its a DIYA loan"
+const STD = ['5y6m', '54321', '321', '320', '300', 'none'];
+const BOTH = ['5y6m', '54321', '321', '320', '300', '11111', '1111', '111', '11', '1', 'none'];
+let P = page('12 Elm St, Columbus, OH 43215, USA', '54321', true);
+check('before the sync runs: the standard choices', P.shown(), STD);
 P.sync();
-check('an Ohio address: only the 1% structures (and none) are offered', P.shown(), ['11111', '1111', '111', '11', '1', 'none']);
-check('...the default 5-year stepdown becomes 1-1-1-1-1, and the Ohio note shows', [P.sel.value, P.note.style.display], ['11111', '']);
-assert('...the stepdowns are hidden AND disabled (cannot be picked)', P.sel.options.filter((o) => o.getAttribute('data-std')).every((o) => o.hidden && o.disabled));
-check('each stepdown maps to the 1% structure of the same length', ['5y6m', '54321', '321', '320', '300', 'none'].map((v) => { const x = page('1 A St, Dayton, OH 45402', v); x.sync(); return x.sel.value; }), ['11111', '11111', '111', '11', '1', 'none']);
-P = page('9 Oak Rd, Spokane, WA 99208', '111');
-check('a saved Ohio code loads even before the address is checked (both sets are in the list)', P.sel.value, '111');
+check('Ohio + Admin Mode: BOTH sets are offered, and the Ohio note shows', [P.shown(), P.note.style.display], [BOTH, '']);
+check('...nothing is switched for the admin (a DIYA loan keeps 54321)', P.sel.value, '54321');
+P = page('1 A St, Dayton, OH 45402', '111', true); P.sync();
+check('...and a 1% choice stays a 1% choice', P.sel.value, '111');
+assert('...every option is pickable (none disabled)', P.sel.options.every((o) => !o.disabled && !o.hidden));
+P = page('12 Elm St, Columbus, OH 43215, USA', '54321', false); P.sync();
+check('Ohio, Admin Mode OFF (a DIYA loan): the standard set only', [P.shown(), P.sel.value, P.note.style.display], [STD, '54321', 'none']);
+assert('...the 1% set hidden AND disabled', P.sel.options.filter((o) => o.getAttribute('data-ohio')).every((o) => o.hidden && o.disabled));
+check('...a leftover 1% code maps back to the same length (1-1-1-1 → the 5-year)', ['11111', '1111', '111', '11', '1', 'none'].map((v) => { const x = page('1 A St, Dayton, OH 45402', v, false); x.sync(); return x.sel.value; }), ['54321', '54321', '321', '320', '300', 'none']);
+P = page('9 Oak Rd, Spokane, WA 99208', '111', true);
+check('a saved 1% code loads before the sync (both sets are always in the list)', P.sel.value, '111');
 P.sync();
-check('moved out of Ohio: back to the stepdowns, same length; 1-1-1-1 comes back as the 5-year', [P.sel.value, P.shown(), (() => { const x = page('9 Oak Rd, Spokane, WA', '1111'); x.sync(); return x.sel.value; })(), P.note.style.display], ['321', ['5y6m', '54321', '321', '320', '300', 'none'], '54321', 'none']);
-P = page('', '54321'); P.sync();
-check('no address yet: the standard choices, untouched', [P.sel.value, P.shown().length], ['54321', 6]);
-assert('it runs at the top of every calculate()', /function calculate\(\) \{\s*\n\s*_syncOhioPrepay\(\);/.test(H));
+check('not Ohio, even in Admin Mode: the standard set; the 1% code maps back', [P.shown(), P.sel.value, P.note.style.display], [STD, '321', 'none']);
+P = page('', '54321', true); P.sync();
+check('no address yet: the standard choices, untouched', [P.sel.value, P.shown()], ['54321', STD]);
+assert('the 1% set sits under its own label in the list', /<optgroup id="ohioPrepayGroup" label="Ohio 1% \(investors other than DIYA\)" hidden disabled>[\s\S]*value="11111"[\s\S]*value="1"[\s\S]*<\/optgroup>/.test(selHtml));
+assert('the note says when to use which', /state law caps a prepayment penalty at 1% — pick a 1% structure for a loan priced off another investor; a DIYA loan keeps the standard ones/.test(H));
+assert('toggling Admin Mode reprices, and every reprice runs the sync first', /function onAdminModeToggle\(\)[\s\S]*?try \{ run\(\); \} catch/.test(H) && /function calculate\(\) \{\s*\n\s*_syncOhioPrepay\(\);/.test(H));
+assert('nothing switches TO a 1% structure on its own any more', !/OHIO_PREPAY_FROM/.test(H));
 assert('the sizer loads the pricing module that exports the helper (pin moved)', /<script src="\/?dscr-pricing\.js\?v=[0-9A-Za-z]+"><\/script>/.test(H) && !/dscr-pricing\.js\?v=237261/.test(H));
 assert('no arrow functions added to the sizer', !/=>/.test(lift('_syncOhioPrepay')));
-
-// Deploy 237.282 -- Admin Mode only
-{
-  // Mike: "make it so that Ohio PPP change only happens in Admin mode since if its a DIYA loan its still the same PPP"
-  const d = page('12 Elm St, Columbus, OH 43215, USA', '54321', false); d.sync();
-  check('Admin Mode OFF (a DIYA loan): an Ohio address keeps the standard structures', [d.shown(), d.sel.value, d.note.style.display], [['5y6m', '54321', '321', '320', '300', 'none'], '54321', 'none']);
-  const back = page('12 Elm St, Columbus, OH 43215, USA', '111', false); back.sync();
-  check('...and an Ohio code left over maps back to the standard one', back.sel.value, '321');
-  const on = page('12 Elm St, Columbus, OH 43215, USA', '54321', true); on.sync();
-  check('Admin Mode ON: the 1% structures', [on.shown(), on.sel.value], [['11111', '1111', '111', '11', '1', 'none'], '11111']);
-  const H2 = read('dscr-sizer.html');
-  assert('turning Admin Mode on or off reprices, and the reprice runs the sync', /function onAdminModeToggle\(\)[\s\S]*?try \{ run\(\); \} catch/.test(H2) && /function calculate\(\) \{\s*\n\s*_syncOhioPrepay\(\);/.test(H2));
-  assert('the note says Admin Mode and that DIYA keeps the standard ones', /Ohio property, Admin Mode: prepayment penalties are capped at 1% by state law \(DIYA loans keep the standard structures\)/.test(H2));
-}
 
 // ── 3. everywhere the code is read back ─────────────────────────────────────
 console.log('\nEverywhere a prepay code is printed or mapped');
