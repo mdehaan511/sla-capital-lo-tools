@@ -343,7 +343,8 @@ console.log('\nMY DESK (processing-pipeline.html)');
     function _condTraysFromFlat(L) { return L.trays || []; }
     function _condTrayHtml(L, t) { return '<tray ' + t.slug + '>'; }
     ${pre}
-    ${['_deskMe', '_deskTeam', '_deskIsOrderTask', 'deskModel', '_deskPeople', '_deskClosingHtml', '_deskTaskHtml', 'renderDesk'].map(lift).join('\n')}
+    var SLA_CAL = ctx.SLA_CAL;
+    ${['_deskMe', '_deskTeam', '_deskIsOrderTask', 'deskModel', '_deskPeople', '_deskClosingHtml', '_deskTaskHtml', 'renderDesk', '_deskMountCal'].map(lift).join('\n')}
     return { deskModel: deskModel, renderDesk: renderDesk };
   `);
   const item = (id, stage, team, extra) => ({ ownerKey: 'lo@slacapital.com', client: { id: 'c_' + id, firstName: 'Ann', lastName: 'Lee' }, loan: Object.assign({ id, address: id + ' Main St', processingStage: stage, status: 'active', assignedProcessors: team }, extra || {}) });
@@ -394,6 +395,17 @@ console.log('\nMY DESK (processing-pipeline.html)');
   api(ctx).renderDesk();
   assert('a hostile address is escaped', !/<img src=x/.test(html));
   assert('the tab exists, staff only, and ?view=desk opens it', /data-view="desk" id="ppDeskTab" style="display:none"/.test(H) && /_dkt\.style\.display = ''/.test(H) && /get\('view'\) === 'desk'\) setPipelineView\('desk'\)/.test(H) && /view === 'desk' && _canEdit/.test(H));
+  // Deploy 237.271 -- the desk's calendar: mounted beside the list, for the desk's person
+  {
+    const mounts = [];
+    ctx.items = items; ctx.tasks = tasks; ctx.open = {};
+    ctx.window.SLA_CAL = { mount: (el, o) => mounts.push({ el: el && el.id, o }) };
+    ctx.SLA_CAL = ctx.window.SLA_CAL;
+    ctx.document = { getElementById: (id) => (id === 'boardWrap' ? { set innerHTML(v) { html = v; } } : (id === 'dkCal' ? { id: 'dkCal' } : { value: '' })) };
+    api(ctx).renderDesk();
+    check('the desk mounts its calendar: surface desk, the desk\'s person in focus, coworkers offered', mounts.map((m) => [m.el, m.o.surface, m.o.focus, m.o.canSeeAll, m.o.defaultAll]), [['dkCal', 'desk', 'jessy@slacapital.com', true, false]]);
+    assert('...beside the loan list', /<div class="dk-layout"><div class="pc-wrap">[\s\S]*<\/div><div id="dkCal"><\/div><\/div>$/.test(html));
+  }
   assert('the order task never ticks on the desk: it opens the form', /if \(checked && !t\.completed && _deskIsOrderTask\(t\)\) \{\s*\n\s*if \(box\) box\.checked = false;\s*\n\s*deskOrderValuation\(t\.loanId, t\.id\);/.test(H));
   assert('the page has no arrow functions (older browsers)', !/=>/.test(H.replace(/<!--[\s\S]*?-->/g, '')));
 }

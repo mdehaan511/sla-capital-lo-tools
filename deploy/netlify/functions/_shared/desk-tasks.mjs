@@ -138,9 +138,12 @@ export function missingDeskTasks({ ownerKey, clientId, loanId, assignee, existin
  */
 export function planDeskBackfill({ loans, reviewsByLoan, existing, now }) {
   const at = now || new Date().toISOString();
-  const tasks = [], rows = [];
+  const tasks = [], rows = [], planned = {};
   (loans || []).forEach((l) => {
     if (!l || !l.id || !l.ownerKey || !l.clientId) return;
+    // Deploy 237.271 -- one loan id can sit on two client records (a broker copy and the
+    // borrower's, 1518 E 28th St): it still gets ONE set of tasks.
+    if (planned[l.id]) return;
     const stage = String(l.processingStage || '');
     if (BACKFILL_STAGES.indexOf(stage) < 0) return;
     if (DEAD_STATUSES.indexOf(String(l.status || '').toLowerCase()) >= 0) return;
@@ -151,6 +154,7 @@ export function planDeskBackfill({ loans, reviewsByLoan, existing, now }) {
     else if (vo && vo.scheduledDate) doneKinds.order_valuation = 'Backfill: already ordered';
     const assignee = deskAssignee(l);
     const made = missingDeskTasks({ ownerKey: l.ownerKey, clientId: l.clientId, loanId: l.id, assignee, existingKinds: (existing && existing[l.id]) || {}, doneKinds, now: at });
+    planned[l.id] = true;
     if (!made.length) return;
     tasks.push(...made);
     rows.push({ loanId: l.id, stage, created: made.length, completed: made.filter((t) => t.completed).length, assignee: assignee ? assignee.email : '' });

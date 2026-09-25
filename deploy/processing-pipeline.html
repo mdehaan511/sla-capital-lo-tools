@@ -148,6 +148,9 @@
     .dk-actions a { color: var(--gold-mid, #b5712d); font-weight: 600; text-decoration: none; cursor: pointer; }
     .dk-actions a:hover { text-decoration: underline; }
     @media (max-width: 760px) { .dk-row { grid-template-columns: 12px 1fr auto; } .dk-row .dk-sub, .dk-row .dk-close { display: none; } }
+    /* Deploy 237.271 — the desk's calendar sits beside the loans on a wide screen, below them otherwise. */
+    .dk-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr); gap: 16px; align-items: start; }
+    @media (max-width: 1180px) { .dk-layout { grid-template-columns: 1fr; } }
     .pc-open { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--gold); text-decoration: none; font-weight: 600; }
     .pc-open:hover { text-decoration: underline; }
     @media (max-width: 760px) {
@@ -310,6 +313,7 @@
   </style>
   <script src="/sla-money.js?v=237252"></script>
   <script src="/sla-valuation.js?v=237269"></script>
+  <script src="/sla-calendar.js?v=237271"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
@@ -1433,9 +1437,10 @@ function renderDesk() {
       '<button type="button" class="pc-refresh" onclick="loadDeskTasks(true);loadConditions(true)" title="Re-read tasks and conditions">↻ Refresh</button></div>' +
     '</div>';
   if (!rows.length) {
-    wrap.innerHTML = '<div class="pc-wrap">' + head + '<div class="pc-empty">' +
+    wrap.innerHTML = '<div class="dk-layout"><div class="pc-wrap">' + head + '<div class="pc-empty">' +
       (search || _programFilter !== 'all' ? 'Nothing on this desk matches the current filters.' : 'No loans on this desk. Loans show here once you are on their team.') +
-      '</div></div>';
+      '</div></div><div id="dkCal"></div></div>';
+    _deskMountCal(person);
     return;
   }
   var body = rows.map(function(r) {
@@ -1480,7 +1485,17 @@ function renderDesk() {
       '</div>';
     return row + '<div class="pc-panel">' + panel + '</div>';
   }).join('');
-  wrap.innerHTML = '<div class="pc-wrap">' + head + '<div class="pc-list">' + body + '</div></div>';
+  wrap.innerHTML = '<div class="dk-layout"><div class="pc-wrap">' + head + '<div class="pc-list">' + body + '</div></div><div id="dkCal"></div></div>';
+  _deskMountCal(person);
+}
+
+// Deploy 237.271 (Mike): "In this individual dashboard, also add a calendar just for that
+// processors loans. Make it so that they can toggle on or off other processors loans too."
+// The desk's person is always on it; the viewer's toggles are saved (sla-calendar.js).
+function _deskMountCal(person) {
+  var el = document.getElementById('dkCal');
+  if (!el || !window.SLA_CAL) return;
+  SLA_CAL.mount(el, { surface: 'desk', me: _deskMe(), focus: person, canSeeAll: true, defaultAll: false });
 }
 
 function _deskItemFor(loanId) {

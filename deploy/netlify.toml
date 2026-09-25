@@ -1655,6 +1655,17 @@
   to = "/.netlify/functions/desk-backfill"
   status = 200
   force = true
+# Deploy 237.271 -- the key-dates calendars and each person's saved toggles.
+[[redirects]]
+  from = "/api/calendar-events"
+  to = "/.netlify/functions/calendar-events"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/user-prefs"
+  to = "/.netlify/functions/user-prefs"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/loan-reviews"
   to = "/.netlify/functions/loan-reviews-list"
