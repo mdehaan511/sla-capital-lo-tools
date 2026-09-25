@@ -8,8 +8,11 @@
  * The one place that turns a loan into calendar events, so the home calendar and the MY
  * DESK calendar can never disagree:
  *
- *   closing     loan.fundingDate (the Closing Date on Loan Details). Past closings stay on
- *               the calendar marked closed; a cancelled / denied loan has none.
+ *   closing     loan.fundingDate (the Closing Date on Loan Details), for a loan ON THE
+ *               PROCESSING PIPELINE BOARD (Intake → Cleared to Close; an approved loan with no
+ *               stage yet counts as Intake) or one that has CLOSED (kept, marked closed).
+ *               Deploy 237.273: leads, quotes and loans on hold carry planned close dates too
+ *               -- 73 of September's 121 "closings" were those -- and are left off.
  *   inspection  loan.valuationOrder.scheduledDate (the BPO / Appraisal order, 237.269).
  *   rate_lock   DSCR only: 45 days from loan.rateLockStart (legacy: borrowerInfoCompletedAt)
  *               — the SAME rule as the Loan Details lock counter (_rateLockInfo) and the
@@ -23,6 +26,16 @@ export const CAL_TYPES = ['closing', 'inspection', 'rate_lock'];
 export const LOCK_DAYS = 45;
 const NO_EVENTS = ['cancelled', 'denied'];
 const LOCK_DEAD = ['closed', 'cancelled', 'denied', 'sold', 'liquidated', 'paid_off'];
+
+// Deploy 237.273 -- the active Processing Pipeline board (sla-dashboard's ppColumnFor, and the
+// home page's Active Pipeline): a stage from Intake to Cleared to Close, not on hold; an
+// approved loan with no stage yet is Intake.
+const BOARD_STAGES = ['new_loan', 'processing', 'underwriting', 'pp_approved'];
+export function onBoard(status, stage) {
+  if (status === 'on_hold') return false;
+  if (BOARD_STAGES.indexOf(String(stage || '')) >= 0) return true;
+  return status === 'approved' && !stage;
+}
 
 const ymdRe = /^\d{4}-\d{2}-\d{2}$/;
 export function isYmd(s) { return ymdRe.test(String(s || '')); }
@@ -77,7 +90,7 @@ export function eventsForLoan(row, from, to) {
   const closeDate = String(row.fundingDate || '').slice(0, 10);
   if (inRange(closeDate)) {
     const closed = status === 'closed' || base.stage === 'pp_closed' || status === 'sold' || status === 'liquidated';
-    out.push(Object.assign({ id: 'closing_' + row.id, type: 'closing', date: closeDate, closed }, base));
+    if (closed || onBoard(status, base.stage)) out.push(Object.assign({ id: 'closing_' + row.id, type: 'closing', date: closeDate, closed }, base));
   }
   const vo = row.valuationOrder && typeof row.valuationOrder === 'object' ? row.valuationOrder : null;
   if (vo && inRange(String(vo.scheduledDate || ''))) {

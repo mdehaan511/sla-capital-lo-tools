@@ -47,6 +47,10 @@ const row = (id, x) => Object.assign({ id, clientId: 'c_' + id, owner: 'Carl.Dav
   check('...belonging to the LO and the team, lower-cased, once each', e[0].people, ['carl.davis@slacapital.com', 'jessy@slacapital.com']);
   check('outside the window: nothing', C.eventsForLoan(row('a', { fundingDate: '2026-10-11' }), F, T).length, 0);
   check('a closed loan keeps its closing, marked closed', C.eventsForLoan(row('a', { fundingDate: '2026-09-02', processingStage: 'pp_closed', status: 'closed' }), F, T).map((x) => x.closed), [true]);
+  // Deploy 237.273 -- only loans on the pipeline board (or closed) have a closing on the calendar
+  check('a lead or a quote with a planned close date is NOT a closing (73 of September\'s 121 were)', [C.eventsForLoan(row('a', { fundingDate: '2026-09-30', processingStage: '' }), F, T).length, C.eventsForLoan(row('a', { fundingDate: '2026-09-30', processingStage: '', status: 'awaiting_app' }), F, T).length], [0, 0]);
+  check('...nor is a loan on hold', C.eventsForLoan(row('a', { fundingDate: '2026-09-30', status: 'on_hold' }), F, T).length, 0);
+  check('...but every board stage is, and an approved loan with no stage yet (Intake)', ['new_loan', 'processing', 'underwriting', 'pp_approved'].map((s) => C.eventsForLoan(row('a', { fundingDate: '2026-09-30', processingStage: s, status: 'approved' }), F, T).length).concat(C.eventsForLoan(row('a', { fundingDate: '2026-09-30', processingStage: '', status: 'approved' }), F, T).length), [1, 1, 1, 1, 1]);
   check('cancelled / denied loans have no events at all', [C.eventsForLoan(row('a', { fundingDate: '2026-09-30', status: 'cancelled' }), F, T).length, C.eventsForLoan(row('a', { fundingDate: '2026-09-30', status: 'denied' }), F, T).length], [0, 0]);
   e = C.eventsForLoan(row('b', { valuationOrder: { kind: 'appraisal', vendor: 'Class Valuation', scheduledDate: '2026-09-28' } }), F, T);
   check('a scheduled BPO / Appraisal is an inspection, with what and who', e.map((x) => [x.type, x.date, x.kind, x.vendor]), [['inspection', '2026-09-28', 'Appraisal', 'Class Valuation']]);
