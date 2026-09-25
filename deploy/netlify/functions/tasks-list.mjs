@@ -79,7 +79,13 @@ async function handle(req, context) {
   }
 
   try {
-    const { blobs } = await tasksStore.list({ prefix: ownerKey + '/' });
+    // Deploy 237.269 (MY DESK) -- tasks are stored under the LOAN OWNER's key, so a
+    // processor's tasks (the desk's four standard tasks on every LO's loans) never sat
+    // under their own prefix and "my tasks" came back empty for them. With no loan
+    // named, "assigned to me" reads the whole store (small: hundreds of records), the
+    // assignee filter below keeps it to the caller's own.
+    const _wholeStore = !loanId && assignedTo === 'me';
+    const { blobs } = await tasksStore.list(_wholeStore ? {} : { prefix: ownerKey + '/' });
     const tasks = [];
     await Promise.all(blobs.map(async ({ key }) => {
       const t = await tasksStore.get(key, { type: 'json' });

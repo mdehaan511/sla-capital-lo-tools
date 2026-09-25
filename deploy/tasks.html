@@ -11,6 +11,7 @@
 <script src="/sla-search.js"></script>
   <script src="sla-notifications.js?v=237251"></script>
   <script src="sla-chat.js"></script>
+  <script src="/sla-valuation.js?v=237269"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -293,6 +294,19 @@ function renderRow(t) {
 function toggleComplete(taskId, checked) {
   var t = _tasks.find(function(x) { return x.id === taskId; });
   if (!t) return;
+  // Deploy 237.269 (Mike, MY DESK) -- "Order BPO or Appraisal" is completed by recording
+  // the order, the same form MY DESK and the loan open.
+  if (checked && !t.completed && window.SLA_VALUATION && SLA_VALUATION.isOrderTask(t)) {
+    render();
+    SLA_VALUATION.open({
+      clientId: t.clientId, loanId: t.loanId, owner: t.ownerKey || '', address: t.address || '', taskId: t.id,
+      onSaved: function(resp) {
+        if (resp && resp.task) { var i = _tasks.findIndex(function(x) { return x.id === resp.task.id; }); if (i >= 0) _tasks[i] = Object.assign({}, _tasks[i], resp.task); }
+        render();
+      },
+    });
+    return;
+  }
   var prev = t.completed;
   t.completed = !!checked;
   render();

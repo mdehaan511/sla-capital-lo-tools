@@ -44,6 +44,7 @@ import { findCategory } from './loan-review-checklists.mjs';
  *  categories; a kind missing from that map still renders, but in "Other". */
 export const LOAN_EVENT_KINDS = [
   'condition_added', 'clear_to_close', 'loan_assigned', 'doc_signed', 'task_assigned',
+  'valuation_scheduled', // Deploy 237.269 (Mike): "when a BPO or Appraisal date is set on your loan"
 ];
 
 /** Owner-scoped loan link, the same shape every other notification uses. */
@@ -151,6 +152,24 @@ export function taskAssignedNotice({ title, dueDate, by, address }) {
     title: 'Task assigned to you: ' + t,
     text: [streetOf(address), due ? 'due ' + due : '', who ? 'from ' + who : '']
       .filter(Boolean).join(' · ') || 'Open your tasks',
+  };
+}
+
+// Deploy 237.269 -- "BPO scheduled: 123 Main St · Oct 2 · ServiceLink" (or "moved from").
+export function valuationScheduledNotice({ kind, vendor, date, movedFrom, address, by }) {
+  const what = String(kind || 'BPO / Appraisal');
+  return {
+    title: what + (movedFrom ? ' rescheduled' : ' scheduled') + (address ? ': ' + streetOf(address) : ''),
+    text: [date ? (movedFrom ? movedFrom + ' → ' + date : date) : '', vendor, by ? 'set by ' + by : '']
+      .filter(Boolean).join(' · '),
+  };
+}
+// Deploy 237.269 -- the desk's four tasks arrive together; one line per loan, not four.
+export function deskTasksNotice({ count, address, by }) {
+  const n = Number(count) || 0;
+  return {
+    title: n + ' processing task' + (n === 1 ? '' : 's') + ' assigned to you',
+    text: [streetOf(address), by ? 'from ' + by : ''].filter(Boolean).join(' · ') || 'Open MY DESK',
   };
 }
 
@@ -263,6 +282,35 @@ export async function notifyLoanAssigned({ toEmail, byEmail, by, role, loanId, c
 }
 
 /** Mike: "If a Task is assigned to you." One person, and never yourself. */
+/** Deploy 237.269 (Mike): "when a BPO or Appraisal date is set on your loan" -- the team. */
+export async function notifyValuationScheduled({ loan, ownerEmail, loanId, clientId, address, by, byEmail, kind, vendor, date, movedFrom }) {
+  const notice = valuationScheduledNotice({ kind, vendor, date, movedFrom, address, by });
+  return _toTeam({ loan, ownerEmail, by: byEmail }, {
+    kind: 'valuation_scheduled',
+    title: notice.title, text: notice.text,
+    href: loanHref(loanId, ownerEmail),
+    loanId: loanId || '', clientId: clientId || '', owner: normalizeEmail(ownerEmail || ''),
+    address: address || '', date: String(date || ''),
+  }, 'valuation_scheduled');
+}
+
+/** Deploy 237.269 -- the desk tasks on a loan were given to someone (entry or handover). */
+export async function notifyDeskTasksAssigned({ toEmail, byEmail, by, count, loanId, clientId, ownerEmail, address }) {
+  const to = normalizeEmail(toEmail || '');
+  if (!to || !count || to === normalizeEmail(byEmail || '')) return 0;
+  const notice = deskTasksNotice({ count, address, by });
+  try {
+    return await _push([to], {
+      kind: 'task_assigned', title: notice.title, text: notice.text,
+      href: '/processing-pipeline.html?view=desk',
+      loanId: loanId || '', clientId: clientId || '', owner: normalizeEmail(ownerEmail || ''), address: address || '',
+    }, 'desk_tasks');
+  } catch (e) {
+    console.warn('[loan-event-notify] desk_tasks failed (non-fatal):', e && e.message);
+    return 0;
+  }
+}
+
 export async function notifyTaskAssigned({ toEmail, byEmail, by, task, ownerEmail, address }) {
   const to = normalizeEmail(toEmail || '');
   if (!to || to === normalizeEmail(byEmail || '')) return 0;

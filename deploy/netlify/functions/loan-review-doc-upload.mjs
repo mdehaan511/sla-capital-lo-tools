@@ -35,6 +35,7 @@ import { checkFullFile } from './_shared/review-full-file.mjs'; // Deploy 237.07
 import { guidelinesTextFor } from './_shared/guidelines-text.mjs'; // Deploy 237.096
 import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.104
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
+import { completeDeskTasks } from './_shared/desk-tasks.mjs'; // Deploy 237.269
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 // Deploy 236.500 (Phase 3) — AI auto-grab of Underwriting / Lightning Docs
@@ -633,6 +634,12 @@ async function handle(req, context) {
   // run: close the LO's auto-created "Run credit + submit loan" task. Best-effort.
   if (/^credit_report(__[pg]\d+)?$/.test(String(body.slug || '')) && review.source && review.source.kind === 'existing' && review.source.ownerKey && review.source.loanId) {
     await completeAutoTasks({ ownerKey: keySafe(review.source.ownerKey), loanId: review.source.loanId, reason: 'Credit report uploaded to the Doc Review' });
+  }
+
+  // Deploy 237.269 (Mike, MY DESK) -- a BPO / Appraisal on the review means it was
+  // ordered: close the loan's open "Order BPO or Appraisal" desk task. Best-effort.
+  if (/^(bpo_valuation|appraisal)(__p\d+)?$/.test(String(body.slug || '')) && review.source && review.source.kind === 'existing' && review.source.ownerKey && review.source.loanId) {
+    await completeDeskTasks({ ownerKey: keySafe(review.source.ownerKey), loanId: review.source.loanId, kinds: ['order_valuation'], reason: 'BPO / Appraisal uploaded to the Doc Review' });
   }
 
   // Deploy 237.049 -- the Articles were reviewed inline: re-grade the trays whose

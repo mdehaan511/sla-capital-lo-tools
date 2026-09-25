@@ -23,6 +23,9 @@
 # Deploy 236.930 -- all-tasks + all-reviews walk, a loan locate per task.
 [functions."tasks-auto-sweep"]
   timeout = 26
+# Deploy 237.269 -- all-loans + all-reviews + all-tasks read, then ~200 task writes.
+[functions."desk-backfill"]
+  timeout = 26
 # Deploy 236.945 -- PDF render + review write + email on submit; locate + email on send.
 [functions."borrower-form-submit"]
   timeout = 26
@@ -1639,6 +1642,17 @@
 [[redirects]]
   from = "/api/conditions-open"
   to = "/.netlify/functions/conditions-open"
+  status = 200
+  force = true
+# Deploy 237.269 (Mike, MY DESK) -- record a BPO / Appraisal order; backfill the desk tasks.
+[[redirects]]
+  from = "/api/loan-valuation-order"
+  to = "/.netlify/functions/loan-valuation-order"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/desk-backfill"
+  to = "/.netlify/functions/desk-backfill"
   status = 200
   force = true
 [[redirects]]

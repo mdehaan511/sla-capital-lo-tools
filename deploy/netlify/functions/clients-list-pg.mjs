@@ -133,6 +133,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'closedAt', 'postCloseReviewedAt', 'postCloseReviewedBy',
   // Deploy 236.999 — Team Overview 'days in stage' (processing-pipeline.html).
   'processingStageAt',
+  // Deploy 237.269 (MY DESK) — the BPO / Appraisal order: the desk row and the calendars.
+  'valuationOrder',
   // Deploy 236.798 — LO commission inputs (lo-commissions.html). Keep in
   // sync with clients-list.mjs's LOAN_SUMMARY_FIELDS.
   'commissionSource', 'commissionReferral',

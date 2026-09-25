@@ -90,6 +90,13 @@ async function handle(req, context) {
     if (body.assignedTo !== undefined)     task.assignedTo     = String(body.assignedTo || '').trim().toLowerCase();
     if (body.assignedToName !== undefined) task.assignedToName = String(body.assignedToName || '').trim();
     if (body.description !== undefined)    task.description    = String(body.description || '').trim();
+    // Deploy 237.269 (Mike, MY DESK) -- "Order BPO or Appraisal" is completed by recording
+    // the order (BPO or Appraisal, vendor, date) through /api/loan-valuation-order, which
+    // is what puts it on the calendars. Every page opens that form instead of ticking the
+    // box; this refuses an older cached page that still would.
+    if (body.completed === true && !task.completed && task.autoFromStage === 'desk' && task.deskKind === 'order_valuation') {
+      return json(409, { error: 'Record the BPO or Appraisal order (vendor and date) to complete this task.', needsValuationOrder: true });
+    }
     if (body.completed !== undefined) {
       const wasCompleted = !!task.completed;
       task.completed = !!body.completed;

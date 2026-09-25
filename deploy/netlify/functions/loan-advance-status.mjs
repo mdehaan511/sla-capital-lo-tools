@@ -32,6 +32,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
+import { completeDeskTasks } from './_shared/desk-tasks.mjs'; // Deploy 237.269
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 import { ringClosingBell } from './_shared/closing-bell.mjs'; // Deploy 237.082
@@ -201,6 +202,7 @@ async function handle(req, context) {
   // Deploy 236.930 — an ended loan has no "run credit + submit" left to do.
   if (['denied', 'cancelled', 'closed'].includes(String(targetLoan.status || ''))) {
     await completeAutoTasks({ ownerKey, loanId: targetLoan.id, reason: 'Loan ' + targetLoan.status });
+    await completeDeskTasks({ ownerKey, loanId: targetLoan.id, reason: 'Loan ' + targetLoan.status }); // Deploy 237.269
   }
 
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from

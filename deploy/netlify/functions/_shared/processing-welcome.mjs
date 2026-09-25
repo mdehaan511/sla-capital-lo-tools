@@ -30,6 +30,8 @@ import {
   writeLoanInvite, readLoanInvites, escHtml,
 } from './borrower-invite-core.mjs';
 import { getStore } from '@netlify/blobs';
+import { ensureDeskTasks } from './desk-tasks.mjs';                    // Deploy 237.269
+import { notifyDeskTasksAssigned } from './loan-event-notify.mjs';     // Deploy 237.269
 
 const PORTAL_ORIGIN = 'https://portal.slacapital.ai';
 
@@ -121,6 +123,23 @@ export async function runProcessingWelcome({ ownerKey, ownerEmail, client, loan,
       notesBits.push('LO task created: ' + task.title);
     } catch (e) {
       console.warn('processing-welcome: task creation failed (non-fatal):', e && e.message);
+    }
+
+    // ── 3. Deploy 237.269 (Mike, MY DESK) — the four standard processing tasks, for
+    // the processor of record (unassigned until someone is; loan-assign-processor hands
+    // them over then). Mike: "only create when the loan is approved and moved to the
+    // Processing pipeline" -- which is exactly when this runs.
+    try {
+      const desk = await ensureDeskTasks({ ownerKey, clientId: client.id, loan, actor: actorEmail });
+      out.deskTasks = desk.created.length;
+      if (desk.created.length) {
+        notesBits.push(desk.created.length + ' processing tasks created' + (desk.assignee ? ' for ' + (desk.assignee.name || desk.assignee.email) : ' (unassigned until a processor is assigned)'));
+        if (desk.assignee) {
+          await notifyDeskTasksAssigned({ toEmail: desk.assignee.email, byEmail: actorEmail, by: '', count: desk.created.length, loanId: loan.id, clientId: client.id, ownerEmail: ownerKey, address: loan.address || '' });
+        }
+      }
+    } catch (e) {
+      console.warn('processing-welcome: desk tasks failed (non-fatal):', e && e.message);
     }
 
     loan._processingWelcomeAt = new Date().toISOString();

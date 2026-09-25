@@ -30,6 +30,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.880
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
+import { completeDeskTasks } from './_shared/desk-tasks.mjs'; // Deploy 237.269
 
 // Deploy 196: widened from {awaiting_app, approved} to all non-terminal
 // statuses. LOs reported needing to drop dead Quoted leads without
@@ -160,6 +161,7 @@ async function handle(req, context) {
   // loans (D2), so store copies no longer need freshening.
   // Deploy 236.930 — a cancelled loan has no "run credit + submit" left to do.
   if (!isRestore) await completeAutoTasks({ ownerKey, loanId: targetLoan.id, reason: 'Loan cancelled' });
+  if (!isRestore) await completeDeskTasks({ ownerKey, loanId: targetLoan.id, reason: 'Loan cancelled' }); // Deploy 237.269
 
   const newStatus = targetLoan.status;
 

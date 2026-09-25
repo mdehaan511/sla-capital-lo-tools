@@ -33,6 +33,7 @@ import { writeClient } from './_shared/client-write.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 import { ringClosingBell } from './_shared/closing-bell.mjs'; // Deploy 237.082
 import { completeAutoTasks } from './_shared/auto-task-complete.mjs'; // Deploy 236.930
+import { completeDeskTasks } from './_shared/desk-tasks.mjs'; // Deploy 237.269
 import { notifyClearToClose } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
@@ -248,6 +249,8 @@ async function handle(req, context) {
   if (['underwriting', 'pp_approved', 'pp_closed'].includes(newStage)) {
     await completeAutoTasks({ ownerKey, loanId: loan.id, reason: 'Loan moved to ' + (STAGE_LABELS[newStage] || newStage) });
   }
+  // Deploy 237.269 -- a CLOSED loan has nothing left on anyone's desk.
+  if (newStage === 'pp_closed') await completeDeskTasks({ ownerKey, loanId: loan.id, reason: 'Loan closed' });
 
   // Deploy 236.694 — congratulate the LO when their loan just closed. Best-effort
   // (after the durable write, never blocks the response).

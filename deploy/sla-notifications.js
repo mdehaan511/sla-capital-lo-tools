@@ -517,6 +517,7 @@
     clear_to_close: 'Loan Updates',
     loan_assigned: 'Loan Updates',
     task_assigned: 'Loan Updates',
+    valuation_scheduled: 'Loan Updates', // Deploy 237.269 -- a BPO / Appraisal date was set
     doc_signed: 'Documents Uploaded',
     // money in and out -- servicing covers NSF and late payments
     servicing: 'Payments',
@@ -695,6 +696,7 @@
     clear_to_close:  '\uD83C\uDFC1',   // chequered flag
     loan_assigned:   '\uD83D\uDCCB',   // clipboard
     task_assigned:   '\uD83D\uDCCC',   // pushpin
+    valuation_scheduled: '\uD83D\uDCC5', // calendar -- Deploy 237.269
     doc_signed:      '\u270D\uFE0F'    // writing hand
   };
 

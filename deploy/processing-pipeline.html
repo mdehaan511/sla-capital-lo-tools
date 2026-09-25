@@ -122,6 +122,32 @@
     .pc-cond-title { font-size: 13px; color: var(--dark); line-height: 1.4; }
     .pc-cond-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
     .pc-recv { color: #b5712d; font-weight: 600; }
+    /* Deploy 237.269 (Mike) — MY DESK: one person's loans, their tasks and the loans' open conditions. */
+    .dk-head-r { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .dk-person { border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-family: inherit; font-size: 12.5px; background: #fff; }
+    .dk-row { grid-template-columns: 12px minmax(200px, 2.4fr) minmax(0, 1.6fr) auto minmax(92px, auto); }
+    .dk-addr a { color: var(--dark); text-decoration: none; }
+    .dk-addr a:hover { color: var(--gold); text-decoration: underline; }
+    .dk-sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dk-chip { font-size: 11px; font-weight: 600; border-radius: 10px; padding: 2px 9px; white-space: nowrap; background: rgba(0,0,0,0.05); color: var(--dark); }
+    .dk-chip.val { background: rgba(38,26,54,0.07); }
+    .dk-chip.tbd { background: rgba(200,129,58,0.14); color: #8a5520; }
+    .dk-count { font-size: 11px; font-weight: 700; border-radius: 10px; padding: 2px 9px; white-space: nowrap; color: #7c1f1f; background: rgba(124,31,31,0.10); }
+    .dk-count.clear { color: #0f766e; background: rgba(15,118,110,0.10); }
+    .dk-close { font-size: 11.5px; color: var(--muted); white-space: nowrap; text-align: right; }
+    .dk-close.soon { color: #7c1f1f; font-weight: 600; }
+    .dk-sec { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 8px 0 4px; }
+    .dk-task { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 5px; }
+    .dk-task input { width: 16px; height: 16px; flex: none; cursor: pointer; }
+    .dk-task .dk-t { flex: 1; font-size: 13px; color: var(--dark); }
+    .dk-task .dk-m { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+    .dk-task.done .dk-t { color: var(--muted); text-decoration: line-through; }
+    .dk-task.awaiting { border-color: var(--gold); }
+    .dk-muted { font-size: 12px; color: var(--muted); margin: 4px 0; }
+    .dk-actions { display: flex; gap: 14px; margin-top: 8px; font-size: 12.5px; }
+    .dk-actions a { color: var(--gold-mid, #b5712d); font-weight: 600; text-decoration: none; cursor: pointer; }
+    .dk-actions a:hover { text-decoration: underline; }
+    @media (max-width: 760px) { .dk-row { grid-template-columns: 12px 1fr auto; } .dk-row .dk-sub, .dk-row .dk-close { display: none; } }
     .pc-open { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--gold); text-decoration: none; font-weight: 600; }
     .pc-open:hover { text-decoration: underline; }
     @media (max-width: 760px) {
@@ -283,6 +309,7 @@
     }
   </style>
   <script src="/sla-money.js?v=237252"></script>
+  <script src="/sla-valuation.js?v=237269"></script>
 </head>
 <body>
   <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
@@ -323,6 +350,8 @@
          with post-close sections; the active board is unchanged. -->
     <div class="pp-views" id="ppViews">
       <button type="button" class="pp-view-tab active" data-view="active" onclick="setPipelineView('active')">Active Pipeline</button>
+      <!-- Deploy 237.269 (Mike): "Make this new tab called MY DESK" — one person's loans, tasks and conditions. -->
+      <button type="button" class="pp-view-tab" data-view="desk" id="ppDeskTab" style="display:none" onclick="setPipelineView('desk')">My Desk<span class="pp-cond-count" id="ppDeskCount"></span></button>
       <!-- Deploy 237.266 (Mike) — the Closed Loans button is gone from here; the Loans menu has the page. -->
       <!-- Deploy 236.562 — manager dashboard (workload / aging / at-risk). -->
       <button type="button" class="pp-view-tab" data-view="overview" onclick="setPipelineView('overview')">Team Overview</button>
@@ -570,6 +599,9 @@ window.netlifyIdentity.on('init', function(user) {
   // Deploy 236.695 — processor filter is useful for both admins and processors —
   // both work across every LO's pipeline. Settings gears remain admin-only.
   if (_isStaff) {
+    // Deploy 237.269 -- MY DESK is for the people who work loans (processing + underwriting).
+    var _dkt = document.getElementById('ppDeskTab'); if (_dkt) _dkt.style.display = '';
+    try { if (new URLSearchParams(window.location.search).get('view') === 'desk') setPipelineView('desk'); } catch (_) {}
     document.getElementById('loFilter').style.display = '';
     var _mlt = document.getElementById('myLoansToggle'); if (_mlt) _mlt.style.display = '';
     // Deploy 236.638 — staff (processors + admins) can manually add a loan.
@@ -885,6 +917,7 @@ function _processPipelineClients(clientsResp) {
   // carry its count without being opened. Never blocks the board; a failure here
   // just leaves the badge empty until someone opens the tab.
   try { loadConditions(false); } catch (e) { /* the board is already up */ }
+  if (_canEdit) { try { loadDeskTasks(false); } catch (e) { /* the badge waits */ } } // Deploy 237.269
 }
 
 // ── Render ─────────────────────────────────────────────────────────
@@ -947,6 +980,7 @@ function render() {
   // the first time the tab is opened and re-used after that.
   if (_view === 'conditions') { renderConditions(); return; }
   if (_view === 'hold') { renderHoldList(visible); return; } // Deploy 237.266
+  if (_view === 'desk') { renderDesk(); return; }           // Deploy 237.269 (MY DESK)
 
   // Deploy 236.609 — the Closed Pipeline is now a LIST view (sortable table), not
   // a kanban. renderClosedList reuses the same visible() filter (search + LO +
@@ -1110,6 +1144,8 @@ function loadConditions(force) {
     _condError = '';
     updateCondBadge();
     if (_view === 'conditions') renderConditions();
+    if (_view === 'desk') renderDesk(); // Deploy 237.269
+    updateDeskBadge();                  // Deploy 237.269
   }).catch(function(e) {
     _condState = 'error';
     _condError = (e && e.message) || 'Could not load conditions';
@@ -1135,7 +1171,7 @@ var _condOpenTrays = {};
 function toggleCondTray(reviewId, slug) {
   var k = reviewId + '|' + slug;
   _condOpenTrays[k] = !_condOpenTrays[k];
-  renderConditions();
+  if (_view === 'desk') renderDesk(); else renderConditions(); // Deploy 237.269 -- the desk shows the same trays
 }
 
 // A response from before 237.248 has conditions but no trays. Group the flat list
@@ -1209,6 +1245,296 @@ function _condAge(d) {
   if (d == null) return '';
   if (d === 0) return 'today';
   return d + ' day' + (d === 1 ? '' : 's') + ' open';
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// Deploy 237.269 (Mike) — MY DESK
+// "the whole concept is to make it so there is a single place for a processor to see
+// their tasks and work load." One person's loans (any role on the loan's team), grouped
+// by loan: the address, how many tasks and conditions are open, click to drop down.
+//   Tasks       — the tasks store, the SAME records the loan's Tasks section and the Tasks
+//                 page show, so a check-off here is a check-off there. The desk's four
+//                 standard tasks come from _shared/desk-tasks.mjs.
+//   Conditions  — live from /api/conditions-open (already loaded for the Open Conditions
+//                 tab); they clear themselves when they clear on the loan.
+//   "Order BPO or Appraisal" opens the order form (sla-valuation.js), never a bare tick.
+// The desk opens on the signed-in person; the picker shows anyone else's.
+// ══════════════════════════════════════════════════════════════════════════
+var _deskTasks = null;       // every task (tasks-list?all=1), or null before the first load
+var _deskState = '';         // '' | 'loading' | 'error'
+var _deskError = '';
+var _deskPerson = '';        // whose desk ('' = me)
+var _deskOpen = {};          // loanId -> expanded
+var DESK_ORDER = { welcome: 1, credit: 2, order_valuation: 3, submit_valuation: 4 };
+var DESK_STAGES = { new_loan: 1, processing: 1, underwriting: 1, pp_approved: 1 };
+
+function loadDeskTasks(force) {
+  if (_deskState === 'loading') return;
+  if (_deskTasks && !force) return;
+  _deskState = 'loading';
+  if (_view === 'desk') renderDesk();
+  SLA.api('GET', '/api/tasks-list?all=1').then(function(r) {
+    _deskTasks = (r && r.tasks) || [];
+    _deskState = ''; _deskError = '';
+    updateDeskBadge();
+    if (_view === 'desk') renderDesk();
+  }).catch(function(e) {
+    _deskState = 'error';
+    _deskError = (e && e.message) || 'Could not load tasks';
+    if (_view === 'desk') renderDesk();
+  });
+}
+
+function _deskMe() { return String((_user && _user.email) || '').toLowerCase(); }
+function _deskTeam(loan) {
+  if (loan && Array.isArray(loan.assignedProcessors) && loan.assignedProcessors.length) return loan.assignedProcessors;
+  return (loan && loan.assignedProcessor && loan.assignedProcessor.email) ? [loan.assignedProcessor] : [];
+}
+function _deskIsOrderTask(t) { return !!(t && t.autoFromStage === 'desk' && t.deskKind === 'order_valuation'); }
+
+// Pure: the desk for one person. items = the board's buckets, tasks = every task,
+// conds = the conditions response. Kept apart from the drawing so the gate can run it.
+function deskModel(person, items, tasks, conds) {
+  person = String(person || '').toLowerCase();
+  var byLoan = {};
+  (tasks || []).forEach(function(t) { if (t && t.loanId) (byLoan[t.loanId] = byLoan[t.loanId] || []).push(t); });
+  var condBy = {};
+  ((conds && conds.loans) || []).forEach(function(L) { var id = L && L.source && L.source.loanId; if (id) condBy[id] = L; });
+  var rows = [], seen = {};
+  Object.keys(items || {}).forEach(function(bucket) {
+    (items[bucket] || []).forEach(function(it) {
+      var loan = it && it.loan;
+      if (!loan || !loan.id || seen[loan.id]) return;
+      var stage = String(loan.processingStage || '');
+      if (!DESK_STAGES[stage]) return;                      // Intake → Cleared to Close (incl. on hold); never closed
+      var team = _deskTeam(loan);
+      var mine = team.filter(function(m) { return String((m && m.email) || '').toLowerCase() === person; });
+      var onTeam = mine.length > 0;
+      var all = (byLoan[loan.id] || []).slice();
+      var open = [], done = [], others = {};
+      all.forEach(function(t) {
+        var who = String(t.assignedTo || '').toLowerCase();
+        var ours = who === person || (!who && onTeam);
+        if (!ours) { if (!t.completed) { var nm = t.assignedToName || who; others[nm] = (others[nm] || 0) + 1; } return; }
+        (t.completed ? done : open).push(t);
+      });
+      if (!onTeam && !open.length) return;
+      seen[loan.id] = 1;
+      var sortT = function(a, b) {
+        var ka = DESK_ORDER[a.deskKind] || 9, kb = DESK_ORDER[b.deskKind] || 9;
+        return ka !== kb ? ka - kb : String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      };
+      open.sort(sortT); done.sort(sortT);
+      var L = condBy[loan.id] || null;
+      var condOpen = L ? (L.open || 0) : 0;
+      rows.push({
+        it: it, loan: loan, roles: mine.map(function(m) { return m.role || 'processor'; }),
+        onHold: String(loan.status || '') === 'on_hold',
+        open: open, done: done, others: others, cond: L, condOpen: condOpen,
+        openCount: open.length + condOpen, closing: String(loan.fundingDate || '').slice(0, 10),
+      });
+    });
+  });
+  rows.sort(function(a, b) {
+    if (!!a.openCount !== !!b.openCount) return a.openCount ? -1 : 1;
+    var ca = a.closing || '9999', cb = b.closing || '9999';
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    return String(a.loan.address || '').localeCompare(String(b.loan.address || ''));
+  });
+  return {
+    rows: rows,
+    openTasks: rows.reduce(function(n, r) { return n + r.open.length; }, 0),
+    openConds: rows.reduce(function(n, r) { return n + r.condOpen; }, 0),
+  };
+}
+
+function updateDeskBadge() {
+  var el = document.getElementById('ppDeskCount');
+  if (!el || !_deskTasks) return;
+  var m = deskModel(_deskMe(), _items, _deskTasks, _condData);
+  var n = m.openTasks + m.openConds;
+  el.textContent = n ? String(n) : '';
+  el.style.display = n ? '' : 'none';
+}
+
+function _deskPeople() {
+  var seen = {}, out = [];
+  function add(email, name) {
+    email = String(email || '').toLowerCase();
+    if (!email || seen[email]) return;
+    seen[email] = 1; out.push({ email: email, name: name || email });
+  }
+  add(_deskMe(), 'Me');
+  (_processors || []).forEach(function(p) { add(p.email, p.name); });
+  // Underwriters and anyone else on a team (the directory only lists some roles).
+  Object.keys(_items || {}).forEach(function(k) {
+    (_items[k] || []).forEach(function(it) { _deskTeam(it.loan).forEach(function(m) { add(m.email, m.name); }); });
+  });
+  return out;
+}
+function setDeskPerson(email) { _deskPerson = String(email || '').toLowerCase(); renderDesk(); }
+function toggleDeskRow(loanId) { _deskOpen[loanId] = !_deskOpen[loanId]; renderDesk(); }
+
+function _deskClosingHtml(ymd) {
+  if (!ymd) return '<span class="dk-close">No close date</span>';
+  var d = new Date(ymd + 'T12:00:00');
+  var days = Math.round((d.getTime() - Date.now()) / 86400000);
+  var txt = 'Closes ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return '<span class="dk-close' + (days <= 5 ? ' soon' : '') + '">' + escH(txt) + '</span>';
+}
+
+function _deskTaskHtml(r, t) {
+  var awaiting = !t.completed && _deskIsOrderTask(t) && t.awaitingDate;
+  var meta = t.completed
+    ? ('done' + (t.completedByName ? ' by ' + t.completedByName : '') + (t.autoCompletedReason ? ' — ' + t.autoCompletedReason : ''))
+    : (!t.assignedTo ? 'unassigned' : (t.dueDate ? 'due ' + t.dueDate : ''));
+  return '<div class="dk-task' + (t.completed ? ' done' : '') + (awaiting ? ' awaiting' : '') + '">' +
+      '<input type="checkbox"' + (t.completed ? ' checked' : '') + ' onclick="event.stopPropagation()" onchange="deskToggleTask(\'' + escAttr(t.id) + '\', this.checked, this)" title="' + (t.completed ? 'Reopen' : 'Mark done') + '">' +
+      '<span class="dk-t">' + escH(t.title || '') + '</span>' +
+      (meta ? '<span class="dk-m">' + escH(meta) + '</span>' : '') +
+    '</div>';
+}
+
+function renderDesk() {
+  var wrap = document.getElementById('boardWrap');
+  if (!wrap) return;
+  if (!_deskTasks) {
+    if (_deskState === 'error') {
+      wrap.innerHTML = '<div class="pc-wrap"><div class="pc-empty">' + escH(_deskError) +
+        '<div style="margin-top:10px"><button type="button" class="pc-refresh" onclick="loadDeskTasks(true)">Try again</button></div></div></div>';
+      return;
+    }
+    loadDeskTasks(false);
+    wrap.innerHTML = '<div class="loading">Loading your desk…</div>';
+    return;
+  }
+  if (!_condData) loadConditions(false);
+  var person = _deskPerson || _deskMe();
+  var m = deskModel(person, _items, _deskTasks, _condData);
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var rows = m.rows.filter(function(r) {
+    if (_programFilter !== 'all' && programBucket(r.loan) !== _programFilter) return false;
+    if (!search) return true;
+    var c = r.it.client || {};
+    var hay = ((r.loan.address || '') + ' ' + (c.firstName || '') + ' ' + (c.lastName || '') + ' ' +
+      r.open.map(function(t) { return t.title; }).join(' ')).toLowerCase();
+    return hay.indexOf(search) >= 0;
+  });
+  var opts = _deskPeople().map(function(p) {
+    return '<option value="' + escAttr(p.email) + '"' + (p.email === person ? ' selected' : '') + '>' + escH(p.email === _deskMe() ? 'My desk' : p.name) + '</option>';
+  }).join('');
+  var head = '<div class="pc-head">' +
+      '<div class="pc-sum"><b>' + rows.length + '</b> loan' + (rows.length === 1 ? '' : 's') +
+        ' · <b>' + m.openTasks + '</b> open task' + (m.openTasks === 1 ? '' : 's') +
+        ' · <b>' + m.openConds + '</b> open condition' + (m.openConds === 1 ? '' : 's') +
+        (_condData ? '' : ' (conditions loading…)') + '</div>' +
+      '<div class="dk-head-r"><select class="dk-person" onchange="setDeskPerson(this.value)" title="Whose desk">' + opts + '</select>' +
+      '<button type="button" class="pc-refresh" onclick="loadDeskTasks(true);loadConditions(true)" title="Re-read tasks and conditions">↻ Refresh</button></div>' +
+    '</div>';
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="pc-wrap">' + head + '<div class="pc-empty">' +
+      (search || _programFilter !== 'all' ? 'Nothing on this desk matches the current filters.' : 'No loans on this desk. Loans show here once you are on their team.') +
+      '</div></div>';
+    return;
+  }
+  var body = rows.map(function(r) {
+    var loan = r.loan, c = r.it.client || {};
+    var isOpen = !!_deskOpen[loan.id];
+    var href = SLA.urls.loanDetails(loan.id, { owner: r.it.ownerKey });
+    var who = ((c.firstName || '') + ' ' + (c.lastName || '')).trim();
+    var stage = r.onHold ? '⏸ On hold' : (STAGE_LABEL[loan.processingStage] || loan.processingStage || '');
+    var vo = loan.valuationOrder;
+    var chips = '';
+    if (r.openCount) {
+      chips += '<span class="dk-count">' + (r.open.length ? r.open.length + ' task' + (r.open.length === 1 ? '' : 's') : '') +
+        (r.open.length && r.condOpen ? ' · ' : '') + (r.condOpen ? r.condOpen + ' condition' + (r.condOpen === 1 ? '' : 's') : '') + '</span>';
+    } else {
+      chips += '<span class="dk-count clear">✓ all clear</span>';
+    }
+    if (vo && window.SLA_VALUATION) chips += '<span class="dk-chip val' + (vo.scheduledDate ? '' : ' tbd') + '">' + escH(SLA_VALUATION.label(vo)) + '</span>';
+    var row = '<div class="pc-row dk-row' + (isOpen ? ' open' : '') + '" onclick="toggleDeskRow(\'' + escAttr(loan.id) + '\')">' +
+        '<span class="pc-caret">' + (isOpen ? '▾' : '▸') + '</span>' +
+        '<span class="pc-addr dk-addr"><a href="' + escAttr(href) + '" onclick="event.stopPropagation()">' + escH(loan.address || '(no address)') + '</a></span>' +
+        '<span class="dk-sub">' + escH([who, stage, r.roles.length && r.roles[0] !== 'processor' ? r.roles.join(', ') : ''].filter(Boolean).join(' · ')) + '</span>' +
+        '<span class="pc-tags">' + chips + '</span>' +
+        _deskClosingHtml(r.closing) +
+      '</div>';
+    if (!isOpen) return row;
+    var panel = '';
+    panel += '<div class="dk-sec">Tasks</div>';
+    panel += r.open.length ? r.open.map(function(t) { return _deskTaskHtml(r, t); }).join('') : '<div class="dk-muted">No open tasks.</div>';
+    var otherNames = Object.keys(r.others);
+    if (otherNames.length) panel += '<div class="dk-muted">Also on this loan: ' + escH(otherNames.map(function(n) { return r.others[n] + ' with ' + n; }).join(', ')) + '</div>';
+    if (r.done.length) panel += r.done.map(function(t) { return _deskTaskHtml(r, t); }).join('');
+    panel += '<div class="dk-sec">Conditions</div>';
+    if (r.cond) {
+      var trays = (r.cond.trays && r.cond.trays.length) ? r.cond.trays : _condTraysFromFlat(r.cond);
+      panel += trays.map(function(t) { return _condTrayHtml(r.cond, t); }).join('');
+    } else {
+      panel += '<div class="dk-muted">' + (_condData ? 'No open conditions.' : 'Loading conditions…') + '</div>';
+    }
+    panel += '<div class="dk-actions">' +
+        '<a href="' + escAttr(href) + '">Open the loan →</a>' +
+        '<a onclick="event.stopPropagation();deskOrderValuation(\'' + escAttr(loan.id) + '\', \'\')">' + (vo ? '✎ BPO / Appraisal date' : '+ Order BPO or Appraisal') + '</a>' +
+      '</div>';
+    return row + '<div class="pc-panel">' + panel + '</div>';
+  }).join('');
+  wrap.innerHTML = '<div class="pc-wrap">' + head + '<div class="pc-list">' + body + '</div></div>';
+}
+
+function _deskItemFor(loanId) {
+  var hit = null;
+  Object.keys(_items || {}).forEach(function(k) {
+    (_items[k] || []).forEach(function(it) { if (!hit && it && it.loan && it.loan.id === loanId) hit = it; });
+  });
+  return hit;
+}
+
+// The order form for a loan (from the task's checkbox or the row's link).
+function deskOrderValuation(loanId, taskId) {
+  var it = _deskItemFor(loanId);
+  if (!it || !window.SLA_VALUATION) return;
+  SLA_VALUATION.open({
+    clientId: it.client.id, loanId: loanId, owner: it.ownerKey, address: it.loan.address || '',
+    current: it.loan.valuationOrder || null, taskId: taskId || '',
+    onSaved: function(resp) {
+      if (resp && resp.valuationOrder) it.loan.valuationOrder = resp.valuationOrder;
+      if (resp && resp.task && _deskTasks) {
+        var i = _deskTasks.findIndex(function(x) { return x.id === resp.task.id; });
+        if (i >= 0) _deskTasks[i] = resp.task; else _deskTasks.push(resp.task);
+      }
+      updateDeskBadge();
+      renderDesk();
+    },
+  });
+}
+
+function deskToggleTask(taskId, checked, box) {
+  var t = (_deskTasks || []).find(function(x) { return x.id === taskId; });
+  if (!t) return;
+  // "Order BPO or Appraisal" is completed by recording the order, not by a tick.
+  if (checked && !t.completed && _deskIsOrderTask(t)) {
+    if (box) box.checked = false;
+    deskOrderValuation(t.loanId, t.id);
+    return;
+  }
+  var prev = !!t.completed;
+  t.completed = !!checked;
+  renderDesk();
+  SLA.api('POST', '/api/tasks-save', { clientId: t.clientId, loanId: t.loanId, taskId: t.id, completed: !!checked, owner: t.ownerKey })
+    .then(function(resp) {
+      if (resp && resp.task) {
+        var i = _deskTasks.findIndex(function(x) { return x.id === taskId; });
+        if (i >= 0) _deskTasks[i] = resp.task;
+      }
+      updateDeskBadge();
+      renderDesk();
+    }).catch(function(e) {
+      t.completed = prev;
+      renderDesk();
+      if (typeof showToast === 'function') showToast('Not saved: ' + ((e && e.message) || 'unknown'));
+    });
 }
 
 function renderConditions() {
@@ -1994,7 +2320,7 @@ function onColDrop(e) {
 // data is already loaded, so just re-render).
 function setPipelineView(view) {
   // Deploy 237.244 — 'conditions' joins 'overview' as a view of the same page.
-  _view = (view === 'closed' || view === 'overview' || view === 'conditions' || view === 'hold') ? view : 'active'; // hold: Deploy 237.266
+  _view = (view === 'closed' || view === 'overview' || view === 'conditions' || view === 'hold' || (view === 'desk' && _canEdit)) ? view : 'active'; // hold: Deploy 237.266; desk: Deploy 237.269
   var tabs = document.querySelectorAll('.pp-view-tab');
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === _view);

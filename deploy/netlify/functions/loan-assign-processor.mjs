@@ -24,6 +24,8 @@ import { canOverrideOwner } from './_shared/access.mjs';
 import { notifyLoanAssigned } from './_shared/loan-event-notify.mjs'; // Deploy 237.207
 import { writeClient } from './_shared/client-write.mjs';
 import { TEAM_ROLES, primaryProcessor, roleWorkPhrase } from './_shared/team-roles.mjs'; // Deploy 237.216
+import { reassignDeskTasks, deskAssignee } from './_shared/desk-tasks.mjs';              // Deploy 237.269
+import { notifyDeskTasksAssigned } from './_shared/loan-event-notify.mjs';              // Deploy 237.269
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -104,6 +106,8 @@ async function handle(req, context) {
     else delete loan.assignedProcessor;
   }
 
+  // Deploy 237.269 -- who holds the desk tasks BEFORE this change (compared after it).
+  const _deskBefore = deskAssignee(loan);
   let notifyPerson = null;
   const removeEmail = body.removeProcessor ? normalizeEmail(body.removeProcessor) : '';
   if (removeEmail) {
@@ -146,6 +150,24 @@ async function handle(req, context) {
 
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
+
+  // Deploy 237.269 (MY DESK) -- the processor of record changed: the open desk tasks
+  // that were unassigned or with the previous processor move to the new one (or back to
+  // unassigned when nobody is left). One bell line for the handover, not one per task.
+  try {
+    const _deskAfter = deskAssignee(loan);
+    const _b = _deskBefore ? _deskBefore.email : '', _a = _deskAfter ? _deskAfter.email : '';
+    if (_b !== _a) {
+      const moved = await reassignDeskTasks({ ownerKey, loanId: loan.id, fromEmail: _b, to: _deskAfter, actor: selfEmail });
+      if (moved.length && _deskAfter) {
+        await notifyDeskTasksAssigned({
+          toEmail: _a, byEmail: selfEmail,
+          by: (user && user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || '',
+          count: moved.length, loanId: loan.id, clientId: client.id, ownerEmail: ownerKey, address: loan.address || '',
+        });
+      }
+    }
+  } catch (e) { console.warn('loan-assign-processor: desk handover failed (non-fatal):', e && e.message); }
 
   // Deploy 236.575/236.662 — email a NEWLY-added team member (not a role update,
   // not self). Best-effort: a failure never poisons the assign already committed.

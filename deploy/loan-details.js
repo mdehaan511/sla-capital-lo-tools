@@ -7898,6 +7898,20 @@ function toggleTaskComplete(taskId, completed) {
   var idx = _tasks.findIndex(function(t) { return t.id === taskId; });
   if (idx < 0) return;
   var task = _tasks[idx];
+  // Deploy 237.269 (Mike, MY DESK) -- "Order BPO or Appraisal" is completed by recording
+  // the order (which one, the vendor, the scheduled date), the same form MY DESK opens.
+  if (completed && !task.completed && window.SLA_VALUATION && SLA_VALUATION.isOrderTask(task)) {
+    renderTasksList(); // puts the box back until the order is saved
+    SLA_VALUATION.open({
+      clientId: _client.id, loanId: _loanId, owner: _taskOwnerParam() || '',
+      address: (_loan && _loan.address) || '', current: (_loan && _loan.valuationOrder) || null, taskId: taskId,
+      onSaved: function(resp) {
+        if (resp && resp.valuationOrder && _loan) _loan.valuationOrder = resp.valuationOrder;
+        if (resp && resp.task) { _tasks[idx] = resp.task; renderTasksList(); }
+      },
+    });
+    return;
+  }
   // Optimistic flip in local state so the row updates immediately.
   var prevCompleted = task.completed;
   task.completed = !!completed;

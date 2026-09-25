@@ -28,6 +28,7 @@
 import { getStore } from '@netlify/blobs';
 import { syncReviewCountsToLoan } from './_shared/review-loan-counts.mjs'; // Deploy 237.102
 import { saveTrayFresh } from './_shared/review-tray-save.mjs'; // Deploy 237.162
+import { completeDeskTasks } from './_shared/desk-tasks.mjs'; // Deploy 237.269
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
@@ -202,6 +203,12 @@ async function handle(req, context) {
     else await reviewStore.setJSON(keySafe(body.reviewId), review); // review deleted meanwhile — old behaviour
   }
   await syncReviewCountsToLoan(review); // Deploy 237.102
+
+  // Deploy 237.269 (Mike, MY DESK) -- a BPO / Appraisal on the review means it was
+  // ordered: close the loan's open "Order BPO or Appraisal" desk task. Best-effort.
+  if (/^(bpo_valuation|appraisal)(__p\d+)?$/.test(String(body.slug || '')) && review.source && review.source.kind === 'existing' && review.source.ownerKey && review.source.loanId) {
+    await completeDeskTasks({ ownerKey: keySafe(review.source.ownerKey), loanId: review.source.loanId, kinds: ['order_valuation'], reason: 'BPO / Appraisal uploaded to the Doc Review' });
+  }
 
   // Best-effort chunk cleanup (the doc is already safely stored).
   for (let i = 0; i < total; i++) {
