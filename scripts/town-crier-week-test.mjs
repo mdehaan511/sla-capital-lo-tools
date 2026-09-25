@@ -168,7 +168,7 @@ console.log('\nThe cork board on Slack');
   const tries = [];
   const M2 = await mk(async (msg) => { tries.push(msg); return tries.length === 1 ? { ok: false, status: 400, error: 'invalid_blocks' } : { ok: true }; });
   await M2.sendTownCrier({ force: true });
-  check('Slack refuses the blocks: sent again as text only', [tries.length, !!tries[0].blocks, !!tries[1].blocks, !!tries[1].text], [2, true, false, true]);
+  check('Slack refuses the blocks: sent again as text only', [tries.length, !!(tries[0] && tries[0].blocks), !!(tries[1] && tries[1].blocks), !!(tries[1] && tries[1].text)], [2, true, false, true]); // fails cleanly (not a crash) when there is no retry
   const skipped = [];
   const M3 = await mk(async (msg) => { skipped.push(msg); return { ok: false, skipped: true }; });
   await M3.sendTownCrier({ force: true });
