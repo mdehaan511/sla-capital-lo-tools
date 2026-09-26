@@ -18,6 +18,17 @@ import { buildBrokerOnePager } from './_shared/broker-one-pager.mjs';
 
 const SITE = 'https://slacapital.ai';
 
+/**
+ * Deploy 237.284 — the downloading rep's phone, wherever the Profile page left it:
+ * the profile's top-level phone, its user_metadata copy (as users-directory reads it),
+ * then the sign-in token's own metadata. Blank -> the builder prints the company line.
+ */
+function repPhone(profile, user) {
+  const um = (profile && profile.user_metadata) || {};
+  const tok = (user && user.user_metadata) || {};
+  return String((profile && profile.phone) || um.phone || tok.phone || '').trim();
+}
+
 /** Borrowers never get the staff handout; everyone else does. */
 function canDownload(user) {
   const roles = getRoles(user);
@@ -49,7 +60,11 @@ export default async (req, context) => {
       rep = {
         name,
         email,
-        phone: String((profile && profile.phone) || '').trim(),
+        // Deploy 237.284 (Sara: "the broker pdf is not personalizing the phone number"):
+        // the Profile page saves the phone into user_metadata.phone, and only some saves
+        // also promote it to a top-level profile.phone. Sara's record has only the
+        // user_metadata copy, so the sheet fell back to the company line.
+        phone: repPhone(profile, user),
         // The rep short link (slacapital.ai/a/jeremy), which redirects to
         // /apply/?lo=<email>. Short enough to text, and low-density as a QR --
         // the full query-string form pushed the code to a version that phone
