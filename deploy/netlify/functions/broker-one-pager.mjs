@@ -18,6 +18,26 @@ import { buildBrokerOnePager } from './_shared/broker-one-pager.mjs';
 
 const SITE = 'https://slacapital.ai';
 
+/**
+ * Deploy 237.284 (Sara: "the broker pdf is not personalizing the phone number")
+ * -- the rep's phone, from wherever this user's record actually carries it.
+ *
+ * 237.181 read only the top-level `profile.phone`, but that field is only
+ * written by profile-update / the admin editor (promoted in 236.578). The
+ * identity mirror (profile-record.mjs, every login) copies the phone into
+ * `profile.user_metadata.phone` and never top-level, and records saved before
+ * the promotion only ever had it there -- so for those reps the sheet fell back
+ * to the company line. termsheet, rate-sheet, users-directory and sla-rep all
+ * already read user_metadata.phone; this matches them, then falls back to the
+ * phone on the signed-in token itself.
+ */
+function repPhone(profile, user) {
+  const p = profile || {};
+  const pm = p.user_metadata || {};
+  const um = (user && user.user_metadata) || {};
+  return String(p.phone || pm.phone || p.phoneNumber || um.phone || '').trim();
+}
+
 /** Borrowers never get the staff handout; everyone else does. */
 function canDownload(user) {
   const roles = getRoles(user);
@@ -40,7 +60,9 @@ export default async (req, context) => {
       const email = normalizeEmail(user.email || '');
       let profile = null;
       try {
-        const store = getStore({ name: 'profiles', consistency: 'eventual' });
+        // Deploy 237.284 -- strong: one keyed read, and the usual sequence is
+        // "add my phone on Profile, then download", which eventual can miss.
+        const store = getStore({ name: 'profiles', consistency: 'strong' });
         profile = await store.get(keySafe(email), { type: 'json' });
       } catch (e) {
         console.warn('[broker-one-pager] profile read failed (non-fatal):', e && e.message);
@@ -49,7 +71,7 @@ export default async (req, context) => {
       rep = {
         name,
         email,
-        phone: String((profile && profile.phone) || '').trim(),
+        phone: repPhone(profile, user),
         // The rep short link (slacapital.ai/a/jeremy), which redirects to
         // /apply/?lo=<email>. Short enough to text, and low-density as a QR --
         // the full query-string form pushed the code to a version that phone
